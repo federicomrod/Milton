@@ -187,7 +187,7 @@ function MissingBadge({ children }: { children: React.ReactNode }) {
   return (
     <span
       data-testid="missing-badge"
-      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#4b5466]"
     >
       {children}
     </span>
@@ -236,7 +236,7 @@ function totalText(
 ): string {
   const missing = lines?.some((l) => lineTotalOrNull(l) === null) ?? false;
   if (typeof total === "number" && Number.isFinite(total)) {
-    if (missing && total === 0) return "Incompleto";
+    if (total <= 0) return missing ? "Incompleto" : "Sin precio";
     return fmtMoney(total, currency);
   }
   if (lines && lines.length > 0 && !missing) {
@@ -300,6 +300,37 @@ const SOURCE_LABEL: Record<string, string> = {
   image: "Foto",
   pdf: "PDF",
 };
+/** One mapping of where an invoice came from: «Origen» (panel) and the list's
+ *  small source text both derive from it. */
+type SourceKind = "telegram" | "photo" | "csv" | "manual" | "other";
+function sourceKind(inv: InvoiceListItem): SourceKind {
+  if (isTelegramInvoice(inv)) return "telegram";
+  switch (inv.source_type) {
+    case "image":
+    case "pdf":
+      return "photo";
+    case "csv":
+    case "xlsx":
+      return "csv";
+    case "manual":
+      return "manual";
+    default:
+      return "other";
+  }
+}
+const ORIGIN_LABEL: Record<SourceKind, string> = {
+  telegram: "Telegram",
+  photo: "Foto",
+  csv: "CSV / Excel",
+  manual: "Manual",
+  other: "",
+};
+function originLabel(inv: InvoiceListItem): string {
+  const k = sourceKind(inv);
+  return k === "other"
+    ? (SOURCE_LABEL[inv.source_type] ?? inv.source_type)
+    : ORIGIN_LABEL[k];
+}
 const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
 
 const STATUS_TITLE: Record<string, string> = {
@@ -309,13 +340,12 @@ const STATUS_TITLE: Record<string, string> = {
 
 /** Small secondary text under the status chip: where the invoice came from. */
 function sourceText(inv: InvoiceListItem): string {
-  if (isTelegramInvoice(inv)) return "por Telegram";
-  switch (inv.source_type) {
-    case "image":
-    case "pdf":
+  switch (sourceKind(inv)) {
+    case "telegram":
+      return "por Telegram";
+    case "photo":
       return "por foto";
     case "csv":
-    case "xlsx":
       return "por CSV / Excel";
     case "manual":
       return "a mano";
@@ -335,7 +365,10 @@ const STATUS_STYLE: Record<string, string> = {
   posted: "bg-green-100 text-green-800",
 };
 
-function fmtMoney(n: number | null | undefined, currency: string): string {
+export function fmtMoney(
+  n: number | null | undefined,
+  currency: string
+): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
   const locale = "es-MX";
@@ -954,7 +987,9 @@ function ProductItem({
       )}
       {qty ? ` · ${qty}` : ""}
       {" · "}
-      {item.unit_cost === null ? (
+      {item.unit_cost === null ||
+      !Number.isFinite(item.unit_cost) ||
+      item.unit_cost <= 0 ? (
         <MissingBadge>Sin precio</MissingBadge>
       ) : (
         fmtMoney(item.unit_cost, currency)
@@ -1430,7 +1465,7 @@ function ReviewDetail({
           </div>
           <div>
             <div className="text-[#6b7385]">Origen</div>{" "}
-            <div>{SOURCE_LABEL[inv.source_type] ?? inv.source_type}</div>
+            <div data-testid="invoice-origin">{originLabel(inv)}</div>
           </div>
         </div>
         {inv.notes && inv.notes.trim() && (
@@ -1607,7 +1642,7 @@ function ReviewDetail({
 // ---------------------------------------------------------------------------
 
 const REVIEW_STYLE: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-600",
+  pending: "bg-[#E7EDFD] text-[#1B40C8]",
   approved: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-700",
 };
@@ -1931,6 +1966,7 @@ function AddLineForm({
   // UX
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const isCreatingNew = pick === INGREDIENT_PICK_NEW;
   const isExistingPick =
@@ -2040,6 +2076,21 @@ function AddLineForm({
   };
 
   if (disabled) return null;
+
+  if (!open) {
+    return (
+      <div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => setOpen(true)}
+        >
+          + Agregar línea
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <form

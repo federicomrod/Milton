@@ -305,6 +305,8 @@ describe("Compras: Productos column", () => {
     expect(screen.getByText("+1 más")).toBeTruthy();
     expect(screen.getAllByText("Sin productos")).toHaveLength(1);
     expect(document.body.textContent).not.toMatch(/\$0\.00/);
+    expect(document.body.textContent).not.toMatch(/USD\s?0\.00/);
+    expect(document.body.textContent).not.toMatch(/(?<!\d)0[.,]00/);
     const headers = [...document.querySelectorAll("thead th")].map((t) =>
       (t.textContent ?? "").trim()
     );
@@ -345,5 +347,101 @@ describe("Compras: Estado", () => {
   it("no explanation when every row is Publicada", () => {
     renderPage([item(1), item(2)]);
     expect(screen.queryByTestId("review-explanation")).toBeNull();
+  });
+});
+
+describe("Compras: never $0", () => {
+  it("a unit cost of 0 (or negative) reads «Sin precio» in Productos; a total of 0 in the list too", () => {
+    renderPage([
+      item(1, {
+        total_amount: 0,
+        line_preview: [
+          { name: "Sal", quantity: 1, unit: "kg", unit_cost: 0, matched: true },
+          {
+            name: "Aceite",
+            quantity: 1,
+            unit: "l",
+            unit_cost: -2,
+            matched: true,
+          },
+        ],
+      }),
+    ]);
+    const items = screen.getAllByTestId("invoice-product-item");
+    expect(items[0].textContent).toBe("Sal · 1 kg · Sin precio");
+    expect(items[1].textContent).toBe("Aceite · 1 l · Sin precio");
+    const row = items[0].closest("tr")!;
+    expect(row.textContent).toContain("Sin precio");
+    expect(row.textContent).not.toMatch(/\$\s?0/);
+    expect(row.textContent).not.toMatch(/USD\s?0\.00/);
+    expect(row.textContent).not.toMatch(/(?<!\d)0[.,]00/);
+  });
+});
+
+describe("Compras: Revisar panel Origen and Agregar línea", () => {
+  const openPanel = async (inv: InvoiceListItem) => {
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        invoice: inv,
+        lines: [detailLine("ln1")],
+        events: [],
+      }),
+    }));
+    renderPage([inv]);
+    fireEvent.click(revisarButtons()[0]);
+    return screen.findByTestId("invoice-review-row");
+  };
+
+  const cases: [string, Partial<InvoiceListItem>, string][] = [
+    [
+      "Telegram",
+      {
+        source_type: "image",
+        original_file_name: "telegram-9.jpg",
+        notes: INVOICE_TELEGRAM_NOTE,
+      },
+      "Telegram",
+    ],
+    ["Telegram (manual source)", { notes: INVOICE_TELEGRAM_NOTE }, "Telegram"],
+    ["Foto", { source_type: "image" }, "Foto"],
+    ["Foto (pdf)", { source_type: "pdf" }, "Foto"],
+    ["CSV", { source_type: "csv" }, "CSV / Excel"],
+    ["Excel", { source_type: "xlsx" }, "CSV / Excel"],
+    ["Manual", { source_type: "manual" }, "Manual"],
+  ];
+  for (const [name, over, expected] of cases) {
+    it(`Origen reads «${expected}» (${name})`, async () => {
+      const panel = await openPanel(
+        item(1, { status: "needs_review", ...over })
+      );
+      await within(panel).findByText("Publicar factura");
+      expect(within(panel).getByTestId("invoice-origin").textContent).toBe(
+        expected
+      );
+    });
+  }
+
+  it("the Agregar línea form stays collapsed until «+ Agregar línea» is clicked", async () => {
+    const panel = await openPanel(item(1, { status: "needs_review" }));
+    await within(panel).findByText("Publicar factura");
+    const FORM_FIELD = /Descripción \(texto de la línea/;
+    expect(within(panel).queryByText(FORM_FIELD)).toBeNull();
+    const toggle = within(panel).getByRole("button", {
+      name: "+ Agregar línea",
+    });
+    fireEvent.click(toggle);
+    expect(await within(panel).findByText(FORM_FIELD)).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: /^Agregar línea$/ })
+    ).toBeTruthy();
+  });
+
+  it("the line-level Pendiente chip is brand blue", async () => {
+    const panel = await openPanel(item(1, { status: "needs_review" }));
+    const chip = await within(panel).findByText("Pendiente");
+    expect(chip.className).toContain("bg-[#E7EDFD]");
+    expect(chip.className).toContain("text-[#1B40C8]");
   });
 });

@@ -98,6 +98,8 @@ describe("«Últimas facturas» (compact card)", () => {
     const text = screen.getByTestId("latest").textContent ?? "";
     expect(text).toContain("Sin precio");
     expect(text).not.toMatch(/\$\s?0/);
+    expect(text).not.toMatch(/USD\s?0\.00/);
+    expect(text).not.toMatch(/(?<!\d)0[.,]00/);
   });
 
   it("invoiceTotalText: missing, 0 and negative are «Sin precio»; a real total is money", () => {

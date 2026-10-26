@@ -258,41 +258,50 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
 
   // Invoice list + line counts (for "matched/total" pills without another
   // round-trip). Suppliers feed the manual create form's select.
-  const [invRes, lineRes, supplierRes, ingRes, companyCurrency] =
-    await Promise.all([
+  const [invRes, supplierRes, ingRes, companyCurrency] = await Promise.all([
+    supabase
+      .from("supplier_invoices")
+      .select(
+        "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
+      )
+      .eq("company_id", companyId)
+      .order("invoice_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(200),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      default_unit: string | null;
+    }>(() =>
       supabase
-        .from("supplier_invoices")
-        .select(
-          "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
-        )
+        .from("ingredients")
+        .select("id, name, default_unit")
         .eq("company_id", companyId)
-        .order("invoice_date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(200),
-      fetchAllRows<InvoiceLinePreviewRow>(() =>
-        supabase
-          .from("supplier_invoice_lines")
-          .select(INVOICE_LINE_PREVIEW_SELECT)
-          .eq("company_id", companyId)
-      ),
-      fetchAllRows<{ id: string; name: string }>(() =>
-        supabase
-          .from("suppliers")
-          .select("id, name")
-          .eq("company_id", companyId)
-      ),
-      fetchAllRows<{
-        id: string;
-        name: string;
-        default_unit: string | null;
-      }>(() =>
-        supabase
-          .from("ingredients")
-          .select("id, name, default_unit")
-          .eq("company_id", companyId)
-      ),
-      resolveCompanyCurrency(supabase, companyId),
-    ]);
+    ),
+    resolveCompanyCurrency(supabase, companyId),
+  ]);
+
+  // Lines only for the (<= 200) loaded invoices, like GET /api/restaurant/invoices.
+  const invoiceIds = ((invRes.data ?? []) as { id: string }[]).map((r) => r.id);
+  const lineRes =
+    invoiceIds.length === 0
+      ? {
+          rows: [] as InvoiceLinePreviewRow[],
+          truncated: false,
+          error: null,
+          pages: 0,
+          elapsedMs: 0,
+        }
+      : await fetchAllRows<InvoiceLinePreviewRow>(() =>
+          supabase
+            .from("supplier_invoice_lines")
+            .select(INVOICE_LINE_PREVIEW_SELECT)
+            .eq("company_id", companyId)
+            .in("invoice_id", invoiceIds)
+        );
 
   if (invRes.error)
     console.error("[costs/compras] supplier_invoices:", invRes.error.message);
@@ -379,6 +388,7 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
   const scope = await companyScope();
   if (!scope) return null;
   const { supabase, companyId } = scope;
+  const currency = await resolveCompanyCurrency(supabase, companyId);
 
   // Full column set first; if migration 007 is missing the extended
   // columns error the whole select, so fall back to the always-present
@@ -488,6 +498,7 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
       ingredient_count: ingredientCount.get(id) ?? 0,
       latest_cost_date: latestCostDate.get(id) ?? null,
       total_spend: totalSpend.get(id) ?? null,
+      currency,
     };
   });
 }

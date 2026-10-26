@@ -37,7 +37,7 @@ import {
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import { LatestInvoicesBox } from "@/components/restaurant/costs/LatestInvoicesBox";
 import { LatestInvoicesCompact } from "@/components/restaurant/costs/LatestInvoicesCompact";
-import { CostsSetupSection } from "@/components/restaurant/costs/CostsSetupSection";
+import { CostsFileWorkspace } from "@/components/restaurant/costs/CostsFileWorkspace";
 import {
   CostsPageLayout,
   CostsMainColumn,
@@ -278,6 +278,12 @@ export default async function CostsAreaPage({
 
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
+          {/* File workspace: hidden by default, visible when picker/workflow active */}
+          <CostsFileWorkspace
+            locationId={location ?? null}
+            companyId={companyId}
+          />
+
           {/* Tablet: 3 compact cards in a row below tabs */}
           <div className="hidden md:flex lg:hidden gap-3 mt-5 flex-wrap">
             <div className="flex-1 min-w-[200px]">
@@ -319,14 +325,6 @@ export default async function CostsAreaPage({
                 shellParams={shellParams}
               />
             ) : null}
-          </div>
-
-          {/* Always mount CostsSetupSection for the picker, but hide it */}
-          <div className="hidden">
-            <CostsSetupSection
-              locationId={location ?? null}
-              companyId={companyId}
-            />
           </div>
         </CostsMainColumn>
 

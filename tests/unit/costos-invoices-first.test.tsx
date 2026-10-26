@@ -379,8 +379,8 @@ describe("the page order", () => {
       getCachedAuthUser: async () => ({ id: "u1" }),
       getCachedCompanyId: async () => "co-1",
     }));
-    vi.doMock("@/components/restaurant/costs/CostsSetupSection", () => ({
-      CostsSetupSection: () => createElement("div", null, "SETUP-MARKER"),
+    vi.doMock("@/components/restaurant/costs/CostsFileWorkspace", () => ({
+      CostsFileWorkspace: () => createElement("div", null, "FILE-WORKSPACE"),
     }));
     vi.doMock("@/components/restaurant/shell/OperatingPageHeader", () => ({
       OperatingPageHeader: ({ title }: { title: string }) =>
@@ -396,13 +396,11 @@ describe("the page order", () => {
     // Two-column layout: tabs and invoices are both present
     expect(at("Últimas facturas")).toBeGreaterThan(-1);
     expect(at("Cambios de precio")).toBeGreaterThan(-1);
-    // Setup is hidden at end
-    expect(at("SETUP-MARKER")).toBeGreaterThan(at("Cambios de precio"));
-    expect(at("SETUP-MARKER")).toBeGreaterThan(at("Últimas facturas"));
+    // File workspace comes after tabs
+    expect(at("FILE-WORKSPACE")).toBeGreaterThan(at("Cambios de precio"));
     // «con facturas pendientes» links to Compras
     expect(html).toMatch(
       /href="[^"]*tab=compras[^"]*"[^>]*>[\s\S]*?con facturas pendientes/
     );
-    vi.doUnmock("@/components/restaurant/costs/CostsSetupSection");
   });
 });

@@ -125,11 +125,17 @@ export function CostsSetupSection({
   locationId,
   companyId = null,
   startOpen = false,
+  onWorkInProgress,
+  onBusyChange,
 }: {
   locationId: string | null;
   companyId?: string | null;
   /** An account with no data yet: the setup IS the next step, so it starts open (unless the person closed it). */
   startOpen?: boolean;
+  /** Callback when work is in progress (file uploaded, import pending, reset open). */
+  onWorkInProgress?: (inProgress: boolean) => void;
+  /** Callback when busy state changes. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const key = menuTabKey("resumen", { location: locationId });
@@ -230,6 +236,27 @@ export function CostsSetupSection({
     }, 50);
     return () => clearTimeout(id);
   }, [data !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Notify parent about work in progress
+  useEffect(() => {
+    const hasWork =
+      importPending !== null ||
+      busy ||
+      resetOpen ||
+      !!data?.upload_draft_pending;
+    onWorkInProgress?.(hasWork);
+  }, [
+    importPending,
+    busy,
+    resetOpen,
+    data?.upload_draft_pending,
+    onWorkInProgress,
+  ]);
+
+  // Notify parent about busy state
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   if (!data) {
     return failed ? (

@@ -227,8 +227,8 @@ describe("helpers", () => {
   });
 });
 
-describe("the page: header, 4 KPIs, tabs (setup hidden for picker)", () => {
-  it("renders KPI cards, then tabs; setup section is present but hidden", async () => {
+describe("the page: header, 4 KPIs, tabs (file workspace for picker)", () => {
+  it("renders KPI cards, then tabs; file workspace present after tabs", async () => {
     vi.resetModules();
     vi.doMock("@/lib/restaurant/cockpit-page-data", () => ({
       loadMenuAreaModel: async () => ({ profitability: null }),
@@ -249,9 +249,13 @@ describe("the page: header, 4 KPIs, tabs (setup hidden for picker)", () => {
       getCachedAuthUser: async () => ({ id: "u1" }),
       getCachedCompanyId: async () => "co-1",
     }));
-    vi.doMock("@/components/restaurant/costs/CostsSetupSection", () => ({
-      CostsSetupSection: () =>
-        createElement("div", { "data-testid": "setup-marker" }, "SETUP-MARKER"),
+    vi.doMock("@/components/restaurant/costs/CostsFileWorkspace", () => ({
+      CostsFileWorkspace: () =>
+        createElement(
+          "div",
+          { "data-testid": "file-workspace" },
+          "FILE-WORKSPACE"
+        ),
     }));
     vi.doMock("@/components/restaurant/shell/OperatingPageHeader", () => ({
       OperatingPageHeader: ({ title }: { title: string }) =>
@@ -265,14 +269,14 @@ describe("the page: header, 4 KPIs, tabs (setup hidden for picker)", () => {
     const at = (needle: string) => html.indexOf(needle);
     const header = at("HEADER-");
     const kpi = at("Compras");
-    const setup = at("SETUP-MARKER");
+    const workspace = at("FILE-WORKSPACE");
     const tabs = at("Cambios de precio");
     expect(header).toBeGreaterThan(-1);
     expect(kpi).toBeGreaterThan(header);
     // Two-column layout: tabs come right after KPIs
     expect(tabs).toBeGreaterThan(kpi);
-    // Setup section is present (for picker) but comes after tabs
-    expect(setup).toBeGreaterThan(tabs);
+    // File workspace comes after tabs
+    expect(workspace).toBeGreaterThan(tabs);
     // all four KPI cards precede the tabs
     for (const label of [
       "Compras",

@@ -25,14 +25,6 @@ export function CostsRightColumn({ children }: { children: ReactNode }) {
   );
 }
 
-export function CostsTabletCards({ children }: { children: ReactNode }) {
-  return <div className="hidden md:flex lg:hidden gap-3 mt-5">{children}</div>;
-}
-
-export function CostsMobileSetup({ children }: { children: ReactNode }) {
-  return <div className="md:hidden space-y-3">{children}</div>;
-}
-
 export function CostsContentWrapper({ children }: { children: ReactNode }) {
   return <div className="lg:flex lg:gap-6">{children}</div>;
 }

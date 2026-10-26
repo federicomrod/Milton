@@ -90,6 +90,13 @@ describe("invoice copy", () => {
     }
     expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED).not.toContain("{origen}");
   });
+
+  it("the price reply says where to see it: Costos › Compras", () => {
+    expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED).toContain("Costos › Compras");
+    expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED).toContain(
+      "antes de cambiar el precio"
+    );
+  });
 });
 
 describe("the invoice reply names the right reason for skipped lines", () => {

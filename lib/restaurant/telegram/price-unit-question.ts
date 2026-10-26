@@ -27,6 +27,18 @@ export type UnitQuestionItem = {
 
 export function itemsOfQuestion(item: PendingItem): UnitQuestionItem[] | null {
   const q = item.payload.price_unit_question as { items?: unknown } | undefined;
+  if (!q && item.payload.price_amount_question) {
+    // An amount question: readers that only need «what is it about» (the AI
+    // context) still see its product. The amount answer path reads
+    // amountItemsOfQuestion() first; `price` here is NOT an answer.
+    return (
+      amountItemsOfQuestion(item)?.map((i) => ({
+        product: i.product,
+        price: i.options[1],
+        currency: i.currency,
+      })) ?? null
+    );
+  }
   if (!q || !Array.isArray(q.items)) return null;
   const out: UnitQuestionItem[] = [];
   for (const raw of q.items) {
@@ -53,7 +65,74 @@ export function applyUnit(
   items: UnitQuestionItem[],
   unit: string
 ): PriceUpdateItem[] {
-  return items.map((i) => ({ name: i.product, price: i.price, unit }));
+  return items.map((i) => ({
+    name: i.product,
+    price: i.price,
+    unit,
+    currency: i.currency as PriceUpdateItem["currency"],
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Amount question: «aguacate a 150» may be $1.50 or $150. Same table, same
+// reserved NEGATIVE id (derived from the asking message), same TTL, no
+// migration. Payload `price_amount_question: { items: [{product, options,
+// unit, currency}] }`; at most ONE item (one question per message).
+// ---------------------------------------------------------------------------
+
+export type AmountQuestionItem = {
+  product: string;
+  options: [number, number];
+  unit: string | null;
+  currency: string | null;
+};
+
+export function amountItemsOfQuestion(
+  item: PendingItem
+): AmountQuestionItem[] | null {
+  const q = item.payload.price_amount_question as
+    | { items?: unknown }
+    | undefined;
+  if (!q || !Array.isArray(q.items)) return null;
+  const out: AmountQuestionItem[] = [];
+  for (const raw of q.items) {
+    const r = raw as Record<string, unknown>;
+    const o = r?.options;
+    if (
+      !r ||
+      typeof r.product !== "string" ||
+      !Array.isArray(o) ||
+      o.length !== 2 ||
+      !o.every((n) => typeof n === "number" && Number.isFinite(n) && n > 0)
+    ) {
+      return null;
+    }
+    out.push({
+      product: r.product,
+      options: [o[0] as number, o[1] as number],
+      unit: typeof r.unit === "string" ? r.unit : null,
+      currency: typeof r.currency === "string" ? r.currency : null,
+    });
+  }
+  return out.length > 0 ? out : null;
+}
+
+/** Product names of whatever the open question is about (either kind). */
+export function productsOfQuestion(item: PendingItem): string[] {
+  const amount = amountItemsOfQuestion(item);
+  if (amount) return amount.map((i) => i.product);
+  return (itemsOfQuestion(item) ?? []).map((i) => i.product);
+}
+
+export async function openAmountQuestion(input: {
+  chatId: number;
+  messageId: number;
+  link: KitchenLink;
+  items: AmountQuestionItem[];
+}): Promise<{ ok: true; created: boolean } | { ok: false }> {
+  return openQuestionRow(input.chatId, input.messageId, input.link, {
+    price_amount_question: { items: input.items },
+  });
 }
 
 /**
@@ -67,27 +146,36 @@ export async function openUnitQuestion(input: {
   link: KitchenLink;
   items: UnitlessPrice[];
 }): Promise<{ ok: true; created: boolean } | { ok: false }> {
+  return openQuestionRow(input.chatId, input.messageId, input.link, {
+    price_unit_question: {
+      items: input.items.map((i) => ({
+        product: i.name,
+        price: i.price,
+        currency: (i as { currency?: string | null }).currency ?? null,
+      })),
+    },
+  });
+}
+
+async function openQuestionRow(
+  chatId: number,
+  messageId: number,
+  link: KitchenLink,
+  payload: Record<string, unknown>
+): Promise<{ ok: true; created: boolean } | { ok: false }> {
   try {
-    const mine = unitQuestionMessageId(input.messageId);
-    const open = await listOpenUnitQuestions(input.chatId);
+    const mine = unitQuestionMessageId(messageId);
+    const open = await listOpenUnitQuestions(chatId);
     for (const q of open) {
       if (q.telegramMessageId !== mine) await expirePendingItem(q.id);
     }
     const res = await createPendingItem({
-      telegramUserId: input.link.telegramUserId,
-      chatId: input.chatId,
+      telegramUserId: link.telegramUserId,
+      chatId,
       telegramMessageId: mine,
       kind: "text",
-      payload: {
-        price_unit_question: {
-          items: input.items.map((i) => ({
-            product: i.name,
-            price: i.price,
-            currency: null,
-          })),
-        },
-      },
-      links: [input.link],
+      payload,
+      links: [link],
     });
     if (!res.ok) return { ok: false };
     return { ok: true, created: res.created };

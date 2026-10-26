@@ -72,6 +72,17 @@ vi.mock("@/lib/restaurant/telegram/kitchen-recipe-drafts", async (orig) => {
     extractAndCreateRecipeDraft: (...a: unknown[]) => extractRecipe(...a),
   };
 });
+// The AI interpreter is down in these tests (null): no network, deterministic answers.
+vi.mock(
+  "@/lib/restaurant/telegram/kitchen-intent-ai",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/lib/restaurant/telegram/kitchen-intent-ai")
+      >();
+    return { ...actual, interpretKitchenMessage: async () => null };
+  }
+);
 vi.mock("openai", () => {
   class FakeOpenAI {
     audio = { transcriptions: { create: async () => ({ text: transcript }) } };
@@ -291,9 +302,26 @@ describe("photo routing", () => {
     expect(invoices()).toHaveLength(0);
   });
 
+  it("classifier low confidence asks «¿factura o receta?»", async () => {
+    classify.mockResolvedValue({
+      ok: true,
+      kind: "invoice",
+      confidence: "low",
+    });
+    await send(photo());
+    expect(replies).toEqual([
+      "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
+    ]);
+    expect(invoices()).toHaveLength(0);
+    expect(extractRecipe).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ["other", { ok: true, kind: "other", confidence: "high" }],
     ["low confidence", { ok: true, kind: "invoice", confidence: "low" }],
+    [
+      "other with medium confidence",
+      { ok: true, kind: "other", confidence: "medium" },
+    ],
     ["error", { ok: false, reason: "timeout" }],
   ])("classifier %s asks «¿factura o receta?»", async (_n, verdict) => {
     classify.mockResolvedValue(verdict);
@@ -301,6 +329,18 @@ describe("photo routing", () => {
     expect(replies).toEqual([
       "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
     ]);
+    expect(invoices()).toHaveLength(0);
+    expect(extractRecipe).not.toHaveBeenCalled();
+  });
+
+  it("only «other» with HIGH confidence explains what photos work, and tells how to answer", async () => {
+    classify.mockResolvedValue({ ok: true, kind: "other", confidence: "high" });
+    await send(photo());
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toMatch(/puedo leer facturas/i);
+    expect(replies[0]).toMatch(
+      /Si es factura o receta, responde «factura» o «receta»\.$/
+    );
     expect(invoices()).toHaveLength(0);
     expect(extractRecipe).not.toHaveBeenCalled();
   });
@@ -370,8 +410,9 @@ describe("«factura» / «receta» follow-up", () => {
   it("does nothing special when no photo is pending", async () => {
     await send({ text: "factura" });
     expect(extractInvoice).not.toHaveBeenCalled();
+    // AI-first: it is read like any other text (AI down here), never a bare «Recibido».
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("Recibido, gracias");
+    expect(replies[0]).not.toContain("Recibido, gracias");
   });
 
   it("ignores a photo older than 30 minutes", async () => {
@@ -781,12 +822,13 @@ describe("price updates", () => {
     expect(invoices()[0].invoice_date).toBe("2026-03-04");
   });
 
-  it("voice: report words win, then price, then recipe, else ACK", async () => {
+  it("voice: stock report, then price, then recipe, else a greeting (AI first, never a bare «Recibido»)", async () => {
     const voice = { voice: { file_id: "v1", duration: 3 } };
 
     transcript = "se acabó el aguacate";
     await send(voice);
-    expect(replies.pop()).toContain("Recibido, gracias");
+    // AI down: the stock-report copy says what was saved and where.
+    expect(replies.pop()).toContain("Cocina › Se agota");
     expect(invoices()).toHaveLength(0);
 
     transcript = "el aguacate subió a 1.50 la libra";
@@ -804,7 +846,8 @@ describe("price updates", () => {
     transcript = "buenos días a todos";
     await send(voice);
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("Recibido, gracias");
+    expect(replies[0]).toContain("Estoy aquí para anotar");
+    expect(replies[0]).not.toContain("Recibido, gracias");
 
     transcript = "subió el aguacate";
     await send(voice);

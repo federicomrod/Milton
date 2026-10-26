@@ -233,19 +233,48 @@ describe("telegram webhook recipe drafts", () => {
     expect(replies).toHaveLength(1);
   });
 
-  it("a sticker gets no reply", async () => {
-    const res = await postUpdate({
-      message: {
-        message_id: 77,
-        from: { id: 99, first_name: "Ana" },
-        chat: { id: 1001, type: "private" },
-        sticker: { file_id: "sticker-1", emoji: "👍" },
-      },
-    });
+  const unsupported = (extra: Record<string, unknown>, id: number) => ({
+    message: {
+      message_id: id,
+      from: { id: 99, first_name: "Ana" },
+      chat: { id: 1001, type: "private" },
+      ...extra,
+    },
+  });
 
-    expect(res.status).toBe(200);
+  it.each([
+    ["sticker", { sticker: { file_id: "sticker-1", emoji: "👍" } }],
+    ["audio file", { audio: { file_id: "a-1", duration: 30 } }],
+    ["poll", { poll: { id: "p-1", question: "¿?", options: [] } }],
+    ["dice", { dice: { emoji: "🎲", value: 3 } }],
+  ])(
+    "a %s gets ONE short explanation of what is supported, and nothing is stored",
+    async (name, extra) => {
+      const res = await postUpdate(
+        unsupported(
+          extra,
+          700 + ([...name].reduce((n, c) => n * 31 + c.charCodeAt(0), 7) % 1000)
+        )
+      );
+
+      expect(res.status).toBe(200);
+      expect(replies).toHaveLength(1);
+      expect(replies[0]).toMatch(/no puedo procesar/i);
+      expect(recordKitchenReport).not.toHaveBeenCalled();
+      expect(extractAndCreateRecipeDraft).not.toHaveBeenCalled();
+    }
+  );
+
+  it("a Telegram retry of an unsupported message does not answer twice", async () => {
+    const update = unsupported({ sticker: { file_id: "s-2" } }, 78);
+    await postUpdate(update);
+    await postUpdate(update);
+    expect(replies).toHaveLength(1);
+  });
+
+  it("an unsupported message from someone who is not in a kitchen gets no reply", async () => {
+    listActiveLinks.mockResolvedValue([]);
+    await postUpdate(unsupported({ sticker: { file_id: "s-3" } }, 79));
     expect(replies).toHaveLength(0);
-    expect(recordKitchenReport).not.toHaveBeenCalled();
-    expect(extractAndCreateRecipeDraft).not.toHaveBeenCalled();
   });
 });

@@ -18,11 +18,14 @@ import {
   openAiModel,
 } from "@/lib/restaurant/openai-client";
 import {
+  currencyCodeFromText,
+  hasCurrencyMention,
   hasPriceShape,
   looksLikeCents,
   normalizeSpokenPrices,
   parseUnitAnswer,
   PRICE_UPDATE_MAX_ITEMS,
+  type Currency,
 } from "./price-update";
 
 export const PRICE_AI_TIMEOUT_MS = 15000;
@@ -48,7 +51,7 @@ Reglas estrictas:
 - "price" es el número tal como se dijo (1,50 -> 1.5; "un dólar cincuenta" -> 1.5; "uno cincuenta" -> 1.5; "75 centavos" -> 0.75).
 - Un número de 3 cifras sin punto ni moneda ("150") es ambiguo: no lo incluyas.
 - "unit" es la unidad en que se dijo el precio (libra, onza, kilo, unidad, caja...). Si no se dijo junto a ese precio, null.
-- "currency" solo si se dijo (USD, dólares, $); si no, null.
+- "currency" solo si se dijo (USD, dólares, pesos, colones, quetzales, lempiras, soles, euros, córdobas); si no, null.
 - Productos sin precio ("no tiene precio") no se incluyen.
 - Si el mensaje no trae un precio de un producto, devuelve {"items":[]}.
 - Cantidades, pedidos, recetas, fechas y teléfonos no son precios.`;
@@ -179,6 +182,8 @@ export type ValidatedAiItem = {
   name: string;
   price: number;
   unit: string | null;
+  /** ISO currency NAMED in `said` (dólares, pesos, Q150...), else null. */
+  currency: Currency | null;
   /** The piece of the (normalized) transcript the price came from, folded. */
   said: string;
 };
@@ -222,7 +227,9 @@ export function validateAiItems(raw: unknown, text: string): ValidatedAiItem[] {
 
     // 2. The price is the deterministic reading of `said`.
     const saidNorm = normalizeSpokenPrices("x a " + saidLower).slice(4);
-    const hasCurrency = /\$|dolar|usd|centavo/.test(fold(saidNorm));
+    const hasCurrency =
+      /\$|dolar|usd|centavo/.test(fold(saidNorm)) ||
+      hasCurrencyMention(saidNorm);
     const tokens = numberTokens(saidNorm).filter((t) => {
       const v = tokenValue(t);
       return v !== null && Math.abs(v - price) < 1e-9;
@@ -257,7 +264,13 @@ export function validateAiItems(raw: unknown, text: string): ValidatedAiItem[] {
       if (parsed === null) continue; // an unknown unit word: never trusted
       unit = unitSaid(fold(window), e.unit) ? parsed : null;
     }
-    out.push({ name, price, unit, said: fold(saidNorm).trim() });
+    out.push({
+      name,
+      price,
+      unit,
+      currency: currencyCodeFromText(saidNorm),
+      said: fold(saidNorm).trim(),
+    });
   }
   return out;
 }

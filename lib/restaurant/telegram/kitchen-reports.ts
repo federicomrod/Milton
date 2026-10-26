@@ -32,7 +32,9 @@ const WASTE_RE =
 const EIGHTY_SIX_RE =
   /\b86\b|se acab(?:o|aron)|(?<!casi )no (?:hay|queda)|agotad|nos quedamos sin|^\s*sin\s+\S+/;
 const RUNNING_OUT_RE =
-  /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
+  /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|\bultim[oa]s?\b(?!\s+(?:precios?|costos?|valor(?:es)?|pedidos?|facturas?|compras?|dias?|mes(?:es)?|semanas?|veces|vez|actualizacion(?:es)?|cambios?))/;
+// «último/a(s)» is running_out only as a whole word and not in «el último
+// precio / pedido / día…» (a price talk, not stock).
 
 function normalize(text: string): string {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();

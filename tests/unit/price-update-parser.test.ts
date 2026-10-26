@@ -8,9 +8,22 @@ import {
   normalizeSpokenPrices,
   parsePriceItems,
   PRICE_UPDATE_MAX_ITEMS,
+  parseAmountAnswer,
+  extractNumberTokens,
+  currencyCodeFromText,
+  currencySymbolFor,
 } from "@/lib/restaurant/telegram/price-update";
 
-type Item = { name: string; price: number; unit: string };
+type Item = {
+  name: string;
+  price: number;
+  unit: string;
+  currency?: string | null;
+};
+// A dollar word («dólares», «USD», «75 centavos») now travels as currency USD
+// on the item; a bare «$» says no ISO code.
+const saidUsd = (text: string) =>
+  /d[oó]lar|\busd\b|centavos/i.test(text) ? { currency: "USD" } : {};
 const upd = (items: Item[]) => ({ kind: "price_update", items });
 const UNCLEAR = { kind: "price_intent_unclear" };
 
@@ -132,7 +145,9 @@ const unclear = [
 
 describe("parsePriceUpdate", () => {
   it.each(positives)("positive: %s", (text, items) => {
-    expect(parsePriceUpdate(text)).toEqual(upd(items));
+    expect(parsePriceUpdate(text)).toEqual(
+      upd(items.map((i) => ({ ...i, ...saidUsd(text) })))
+    );
   });
 
   it.each(negatives)("negative (null): %j", (text) => {
@@ -223,7 +238,7 @@ describe("typos, abbreviations and spoken prices", () => {
     ],
     ["tomate 1,5 la libra", { name: "tomate", price: 1.5, unit: "lb" }],
   ])("%s", (text, item) => {
-    expect(one(text)).toEqual([item]);
+    expect(one(text)).toEqual([{ ...item, ...saidUsd(text) }]);
   });
 
   it.each([
@@ -234,7 +249,9 @@ describe("typos, abbreviations and spoken prices", () => {
     ["aguacate un dólar con treinta y cinco la libra", 1.35],
     ["aguacate tres dólares la libra", 3],
   ])("spoken: %s", (text, price) => {
-    expect(one(text)).toEqual([{ name: "aguacate", price, unit: "lb" }]);
+    expect(one(text)).toEqual([
+      { name: "aguacate", price, unit: "lb", ...saidUsd(text) },
+    ]);
   });
 
   it("«un dólar cinco» is not 1.05", () => {
@@ -339,7 +356,9 @@ describe("spoken numbers in price position (Whisper writes them every way)", () 
     ["queso a medio dólar la libra", 0.5, "lb"],
     ["queso a dos la libra", 2, "lb"],
   ])("%s", (text, price, unit) => {
-    expect(one(text)).toEqual([{ name: expect.any(String), price, unit }]);
+    expect(one(text)).toEqual([
+      { name: expect.any(String), price, unit, ...saidUsd(text) },
+    ]);
   });
 
   it("normalizeSpokenPrices turns only price-position numbers into digits", () => {
@@ -378,7 +397,7 @@ describe("spoken numbers in price position (Whisper writes them every way)", () 
     );
     // An explicit currency removes the doubt.
     expect(one("aguacate a 150 dólares el quintal")).toEqual([
-      { name: "aguacate", price: 150, unit: "quintal" },
+      { name: "aguacate", price: 150, unit: "quintal", currency: "USD" },
     ]);
   });
 });
@@ -390,7 +409,7 @@ describe("parsePriceItems: item by item", () => {
   it("reads every item, asks the unit of one, skips the one without price", () => {
     const r = parsePriceItems(text);
     expect(r?.items).toEqual([
-      { name: "masa de maíz", price: 0.75, unit: "lb" },
+      { name: "masa de maíz", price: 0.75, unit: "lb", currency: "USD" },
       { name: "chicharrón", price: 3.5, unit: "lb" },
       { name: "quesillo", price: 4.25, unit: "lb" },
       { name: "aceite", price: 2.5, unit: "litro" },
@@ -443,5 +462,234 @@ describe("parsePriceItems: item by item", () => {
       unclear: [],
       skippedNoPrice: ["agua tibia"],
     });
+  });
+});
+
+describe("currency per item (spec B)", () => {
+  const items = (t: string) => parsePriceItems(t)?.items ?? [];
+
+  it.each([
+    ["aguacate a 150 pesos", 150, "MXN"],
+    ["aguacate a 150 MXN", 150, "MXN"],
+    ["aguacate a 150 colones el kilo", 150, "CRC"],
+    ["aguacate a ₡150 el kilo", 150, "CRC"],
+    ["aguacate a 150 quetzales la libra", 150, "GTQ"],
+    ["aguacate a 150 lempiras la libra", 150, "HNL"],
+    ["aguacate a 150 soles el kilo", 150, "PEN"],
+    ["aguacate a 150 euros el kilo", 150, "EUR"],
+    ["aguacate a €150 el kilo", 150, "EUR"],
+    ["aguacate a 150 córdobas el kilo", 150, "NIO"],
+    ["aguacate a 150 Pesos El Kilo", 150, "MXN"],
+  ])("%s", (text, price, currency) => {
+    const r = parsePriceItems(text);
+    // without a unit the price is "unitless" (the bot asks the unit)
+    const got = [...(r?.items ?? []), ...(r?.unitless ?? [])];
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ name: "aguacate", price, currency });
+  });
+
+  it("«el aguacate ahora está a 150 pesos el kilo» -> 150/kg MXN", () => {
+    expect(items("el aguacate ahora está a 150 pesos el kilo")).toEqual([
+      { name: "aguacate", price: 150, unit: "kg", currency: "MXN" },
+    ]);
+  });
+
+  it("«Q150» (glued) is GTQ and the Q is not part of the name", () => {
+    expect(items("aguacate Q150 la libra")).toEqual([
+      { name: "aguacate", price: 150, unit: "lb", currency: "GTQ" },
+    ]);
+  });
+
+  it("«q» as a word is never a currency", () => {
+    expect(currencyCodeFromText("quiero 150 tomates, q pasa")).toBeNull();
+    expect(currencyCodeFromText("aguacate Q150")).toBe("GTQ");
+    expect(currencyCodeFromText("150 pesos")).toBe("MXN");
+    expect(currencyCodeFromText("aguacate $1.50")).toBeNull();
+    expect(currencyCodeFromText("3.50 dólares")).toBe("USD");
+  });
+
+  it("«el aguacate subió a 3.50 dólares la libra» -> 3.5/lb USD", () => {
+    expect(items("el aguacate subió a 3.50 dólares la libra")).toEqual([
+      { name: "aguacate", price: 3.5, unit: "lb", currency: "USD" },
+    ]);
+  });
+
+  it("a message with no currency carries none (company currency applies)", () => {
+    expect(items("aguacate 1.50 la libra")[0].currency).toBeUndefined();
+    expect(items("aguacate $1.50 la libra")[0].currency).toBeUndefined();
+  });
+
+  it("currencySymbolFor knows the new codes", () => {
+    expect(currencySymbolFor("USD")).toBe("$");
+    expect(currencySymbolFor("GTQ")).toBe("Q");
+    expect(currencySymbolFor("CRC")).toBe("₡");
+    expect(currencySymbolFor("EUR")).toBe("€");
+    expect(currencySymbolFor("HNL")).toBe("L");
+    expect(currencySymbolFor("PEN")).toBe("S/");
+    expect(currencySymbolFor("NIO")).toBe("C$");
+    expect(currencySymbolFor(null)).toBe("$");
+  });
+});
+
+describe("spoken hundreds (spec B)", () => {
+  it("«ciento cincuenta», «doscientos» in price position", () => {
+    expect(normalizeSpokenPrices("aguacate a ciento cincuenta dólares")).toBe(
+      "aguacate a 150 dólares"
+    );
+    expect(normalizeSpokenPrices("aguacate a ciento cincuenta")).toBe(
+      "aguacate a 150"
+    );
+    expect(normalizeSpokenPrices("aguacate doscientos pesos la libra")).toBe(
+      "aguacate 200 pesos la libra"
+    );
+    expect(
+      normalizeSpokenPrices("aguacate a doscientos treinta y cinco la libra")
+    ).toBe("aguacate a 235 la libra");
+  });
+
+  it("quantities of hundreds are not touched", () => {
+    const t = "quedan doscientos tomates";
+    expect(normalizeSpokenPrices(t)).toBe(t);
+  });
+
+  it("«uno cincuenta» stays 1.50", () => {
+    expect(normalizeSpokenPrices("aguacate a uno cincuenta la libra")).toBe(
+      "aguacate a 1.50 la libra"
+    );
+  });
+
+  it("«aguacate a ciento cincuenta dólares la libra» -> 150/lb", () => {
+    expect(
+      parsePriceItems("aguacate a ciento cincuenta dólares la libra")?.items
+    ).toEqual([{ name: "aguacate", price: 150, unit: "lb", currency: "USD" }]);
+  });
+});
+
+describe("copulas are not part of the name (spec G)", () => {
+  it("«El precio del aguacate es de 150 dólares.» -> aguacate, needs a unit", () => {
+    const r = parsePriceMessage("El precio del aguacate es de 150 dólares.");
+    expect(r).toEqual({
+      kind: "needs_unit",
+      items: [{ name: "aguacate", price: 150, currency: "USD" }],
+    });
+  });
+
+  it.each([
+    ["el aguacate está a 1.50 la libra", "aguacate"],
+    ["los tomates son 0.80 la libra", "tomates"],
+    ["el pollo anda a 2.50 el kilo", "pollo"],
+    ["la cebolla quedó en 0.45 la libra", "cebolla"],
+    ["el aguacate ya está a 1.50 la libra", "aguacate"],
+  ])("%s", (t, name) => {
+    expect(parsePriceItems(t)?.items[0]?.name).toBe(name);
+  });
+});
+
+describe("ambiguous 3-digit amounts (spec A)", () => {
+  it("«aguacate a 150» -> ambiguous [1.5, 150], not dropped", () => {
+    const r = parsePriceMessage("aguacate a 150");
+    expect(r).toEqual({
+      kind: "price_intent_unclear",
+      ambiguous: [
+        {
+          product: "aguacate",
+          options: [1.5, 150],
+          unit: null,
+          currency: null,
+          segment: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  it("keeps the unit when it was said", () => {
+    const r = parsePriceItems("Aguacate a 150 la libra.");
+    expect(r?.items).toEqual([]);
+    expect(r?.ambiguous).toEqual([
+      expect.objectContaining({
+        product: "aguacate",
+        options: [1.5, 150],
+        unit: "lb",
+        currency: null,
+      }),
+    ]);
+    // older callers still see it in `unclear` with the hint
+    expect(r?.unclear).toEqual([
+      expect.objectContaining({ label: "aguacate", hint: "150" }),
+    ]);
+  });
+
+  it("an explicit currency is not ambiguous", () => {
+    for (const t of [
+      "aguacate a 150 dólares la libra",
+      "aguacate a $150 la libra",
+      "aguacate a 150 pesos el kilo",
+    ]) {
+      const r = parsePriceItems(t);
+      expect(r?.ambiguous, t).toEqual([]);
+      expect(r?.items.length, t).toBe(1);
+    }
+  });
+
+  it("an ambiguous item does not hide the readable ones", () => {
+    const r = parsePriceMessage("tomate 0.80 la libra, aguacate a 150");
+    expect(r).toMatchObject({
+      kind: "price_update",
+      items: [{ name: "tomate", price: 0.8, unit: "lb" }],
+      ambiguous: [{ product: "aguacate", options: [1.5, 150] }],
+    });
+  });
+
+  it("«¿cuánto cuesta la pupusa?» is a question, not a malformed price", () => {
+    expect(parsePriceMessage("¿cuánto cuesta la pupusa?")).toBeNull();
+    expect(parsePriceUpdate("¿cuánto cuesta la pupusa?")).toBeNull();
+  });
+});
+
+describe("parseAmountAnswer / extractNumberTokens", () => {
+  it.each([
+    ["1.50", 1.5],
+    ["1,50", 1.5],
+    ["150", 150],
+    ["150.", 150],
+    ["$150", 150],
+    ["$150.", 150],
+    ["$1.50", 1.5],
+    ["uno cincuenta", 1.5],
+    ["Uno cincuenta.", 1.5],
+    ["uno con cincuenta", 1.5],
+    ["ciento cincuenta", 150],
+    ["Ciento cincuenta.", 150],
+    ["doscientos", 200],
+    ["150 dólares", 150],
+    ["un dólar cincuenta", 1.5],
+    ["es 1.50", 1.5],
+  ])("answer %j -> %s", (t, v) => {
+    expect(parseAmountAnswer(t)).toBe(v);
+  });
+
+  it.each([
+    "gracias",
+    "por libra",
+    "aguacate a 150",
+    "1.500",
+    "7150-2233",
+    "",
+    "hola 150",
+  ])("not an amount answer: %j", (t) => {
+    expect(parseAmountAnswer(t)).toBeNull();
+  });
+
+  it("extractNumberTokens is decimal-aware", () => {
+    expect(extractNumberTokens("aguacate a 1.50 la libra")).toEqual([1.5]);
+    expect(extractNumberTokens("aguacate 1,50")).toEqual([1.5]);
+    expect(extractNumberTokens("llámame al 7150-2233, aguacate 3.50")).toEqual([
+      3.5,
+    ]);
+    expect(extractNumberTokens("a uno cincuenta la libra")).toEqual([1.5]);
+    expect(extractNumberTokens("aguacate a 150, tomate 0.80")).toEqual([
+      150, 0.8,
+    ]);
+    expect(extractNumberTokens("")).toEqual([]);
   });
 });

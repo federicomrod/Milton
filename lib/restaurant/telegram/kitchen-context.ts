@@ -126,19 +126,51 @@ export async function fetchPendingQuestion(
 }
 
 /**
+ * Gets company currency. Defaults to USD (first client in El Salvador).
+ * TODO: Add company-level currency field when available.
+ */
+export async function getCompanyCurrency(
+  admin: SupabaseClient,
+  companyId: string
+): Promise<Currency> {
+  try {
+    // Check if company has any ingredients with currency
+    const { data, error } = await admin
+      .from("ingredients")
+      .select("currency")
+      .eq("company_id", companyId)
+      .not("currency", "is", null)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data?.currency) {
+      const cur = data.currency.toUpperCase();
+      if (["USD", "MXN", "CRC", "GTQ", "HNL", "PEN", "EUR", "NIO"].includes(cur)) {
+        return cur as Currency;
+      }
+    }
+  } catch {
+    // Fall through to default
+  }
+
+  // Default to USD (first client in El Salvador)
+  return "USD";
+}
+
+/**
  * Builds full context for AI interpretation.
  */
 export async function buildKitchenContext(
   admin: SupabaseClient,
   chatId: number,
   companyId: string,
-  companyCurrency: Currency,
   messageText: string
 ): Promise<KitchenIntentContext> {
-  const [conversation, ingredient_hints, pending_question] = await Promise.all([
+  const [conversation, ingredient_hints, pending_question, companyCurrency] = await Promise.all([
     fetchConversationHistory(admin, chatId),
     fetchIngredientHints(admin, companyId, messageText),
     fetchPendingQuestion(chatId),
+    getCompanyCurrency(admin, companyId),
   ]);
 
   return {

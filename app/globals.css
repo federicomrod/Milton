@@ -76,6 +76,14 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+
+  /* Sofia's brand colors for Milton estimate feature */
+  --brand-blue: #1b40c8;
+  --brand-blue-hover: #1533a3;
+  --brand-blue-light: #e7edfd;
+  --brand-ink: #0d1117;
+  --brand-muted: #5b6570;
+  --ai-lavender: #d8d0f8;
 }
 
 .dark {

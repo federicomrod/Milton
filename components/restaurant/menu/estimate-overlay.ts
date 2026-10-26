@@ -73,6 +73,8 @@ export interface EstimateText {
   margin: string | null;
   /** «≈ $4.20 costo estimado · ≈ 62% margen estimado» */
   text: string;
+  /** Parsed parts for styled rendering: numbers vs labels */
+  parts: Array<{ value: string; isNumber: boolean }>;
 }
 
 export function estimateText(
@@ -86,7 +88,25 @@ export function estimateText(
       : `≈ ${formatMoneyEs(estimate.est_cost, currency)} costo estimado`;
   const pct = estimatedMargin(estimate.est_cost, avgNetPrice);
   const margin = pct == null ? null : `≈ ${Math.round(pct)}% margen estimado`;
-  return { cost, margin, text: margin ? `${cost} · ${margin}` : cost };
+  const text = margin ? `${cost} · ${margin}` : cost;
+
+  // Parse for styled rendering: numbers in blue, labels in ink
+  const parts: Array<{ value: string; isNumber: boolean }> = [];
+  if (estimate.est_cost == null) {
+    parts.push({ value: "≈ Sin precio", isNumber: false });
+  } else {
+    const money = formatMoneyEs(estimate.est_cost, currency);
+    parts.push({ value: "≈ ", isNumber: false });
+    parts.push({ value: money, isNumber: true });
+    parts.push({ value: " costo estimado", isNumber: false });
+    if (margin) {
+      parts.push({ value: " · ≈ ", isNumber: false });
+      parts.push({ value: `${Math.round(pct!)}%`, isNumber: true });
+      parts.push({ value: " margen estimado", isNumber: false });
+    }
+  }
+
+  return { cost, margin, text, parts };
 }
 
 /** The estimate of a POS product (by product or by its recipe). */

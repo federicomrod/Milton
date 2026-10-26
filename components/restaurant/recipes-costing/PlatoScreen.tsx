@@ -6,7 +6,7 @@
 // (RecipeLinesEditor) and one primary button, "Aprobar".
 
 import { useCallback, useMemo, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -407,12 +407,28 @@ function Dish({
           {estimateLine ? (
             <div
               data-testid="header-estimate"
-              className="mt-1 inline-flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-[#c9cfdb] px-1.5 py-0.5 text-[12px] text-[#6b7280]"
+              className="mt-1 inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-[#D8D0F8]/40 px-2.5 py-1.5 text-[12px]"
             >
-              <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold text-[#5b6476]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
+                <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
                 {ESTIMATE_BADGE}
               </span>
-              <span>{estimateLine.text}</span>
+              <span>
+                {estimateLine.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
+                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                    <span
+                      key={i}
+                      className="font-semibold text-[var(--brand-blue)]"
+                    >
+                      {part}
+                    </span>
+                  ) : (
+                    <span key={i} className="text-[var(--brand-ink)]">
+                      {part}
+                    </span>
+                  )
+                )}
+              </span>
             </div>
           ) : null}
         </div>

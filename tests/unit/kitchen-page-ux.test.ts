@@ -14,6 +14,9 @@ const KITCHEN_REACT = [
   "components/restaurant/kitchen/KitchenExplore.tsx",
   "components/restaurant/kitchen/KitchenPageChrome.tsx",
   "components/restaurant/kitchen/KitchenPeriodAskButton.tsx",
+  "components/restaurant/kitchen/KitchenPageLayout.tsx",
+  "components/restaurant/kitchen/KitchenRecipesSection.tsx",
+  "components/restaurant/kitchen/KitchenConnectCard.tsx",
   "app/dashboard/restaurant/kitchen/page.tsx",
 ];
 
@@ -96,7 +99,8 @@ describe("Spanish completeness and copy guards for Kitchen (#148)", () => {
     expect(ask).toContain("Preguntar a Milton");
     expect(ask).not.toContain("Pregúntale a Milton");
     expect(feed).toContain("Necesita atención hoy");
-    expect(highlights).toContain("Lo que destaca");
+    expect(highlights).toContain("Para que sepas");
+    expect(highlights).not.toContain("Lo que destaca");
     expect(highlights).not.toContain("openAskMilton");
     expect(highlights).not.toContain("Preguntar a Milton");
     expect(ask).toContain("kitchen-ask-milton");
@@ -124,6 +128,8 @@ describe("Spanish completeness and copy guards for Kitchen (#148)", () => {
       "components/restaurant/kitchen/KitchenStaffCard.tsx",
       "components/restaurant/kitchen/KitchenReportsCard.tsx",
       "components/restaurant/kitchen/KitchenRecipeDraftsCard.tsx",
+      "components/restaurant/kitchen/KitchenConnectCard.tsx",
+      "components/restaurant/kitchen/KitchenRecipesSection.tsx",
     ]) {
       const src = read(file);
       const visible = src
@@ -135,7 +141,8 @@ describe("Spanish completeness and copy guards for Kitchen (#148)", () => {
         .join("\n")
         // The one place that says where cook recipes come from (the card's
         // description, agreed copy): «por Telegram o que subes desde un archivo».
-        .replace(/por Telegram o que subes/g, "");
+        .replace(/por Telegram o que subes/g, "")
+        .replace(/con Telegram y ya puede/g, "");
       expect(visible, file).not.toMatch(/Telegram/i);
     }
   });
@@ -145,6 +152,7 @@ describe("Spanish completeness and copy guards for Kitchen (#148)", () => {
       /\bOverview\b/,
       /Not available yet/,
       /What stands out/,
+      /So you know/,
       /Ask Milton about/,
       /Needs attention today/,
       /Pending recipes/,

@@ -247,9 +247,9 @@ describe("images are shrunk in the browser", () => {
 });
 
 describe("Menú shortcut", () => {
-  it("goes to Cocina › Recetas en borrador", () => {
+  it("goes to Cocina › Recetas", () => {
     expect(uploadRecipesHref("loc-1")).toBe(
-      "/dashboard/restaurant/kitchen?tab=drafts&location=loc-1#explorar"
+      "/dashboard/restaurant/kitchen?tab=drafts&location=loc-1#recetas"
     );
   });
   it("shows with the kitchen.drafts flag", () => {

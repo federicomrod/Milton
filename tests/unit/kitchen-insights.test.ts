@@ -154,6 +154,33 @@ describe("buildKitchenInsights contract", () => {
     expect(insights.headline).toContain("2 productos por agotarse");
     expect(insights.headline).toContain("1 reporte de merma");
     expect(insights.headline).toContain("1 borrador de receta por revisar");
+    const waste = insights.summaries.find((s) => s.id === "waste");
+    expect(waste?.segments).toEqual([25]);
+  });
+
+  it("counts 86 with running_out and leaves the merma bar empty when there is no waste", () => {
+    const insights = buildKitchenInsights(
+      bundle({
+        reports: [
+          report({
+            id: "e86",
+            report_type: "86",
+            text: "86 salmón",
+          }),
+        ],
+        drafts: [],
+      }),
+      "es",
+      { period: PERIOD, todayKey: TODAY }
+    );
+    expect(insights.today_running_out).toBe(1);
+    expect(insights.counts.running_out).toBe(1);
+    expect(
+      insights.explore.running_out.some((row) => /salmón/i.test(row.label))
+    ).toBe(true);
+    expect(insights.summaries.find((s) => s.id === "waste")?.segments).toEqual(
+      []
+    );
   });
 
   it("never invents a waste value — always Pendiente de recetas", () => {

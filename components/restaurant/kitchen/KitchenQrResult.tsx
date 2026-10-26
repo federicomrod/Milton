@@ -17,28 +17,68 @@ export interface KitchenQrPayload {
   qr_png_data_url: string;
 }
 
-function download(href: string, filename: string) {
+export function downloadQrFile(href: string, filename: string) {
   const a = document.createElement("a");
   a.href = href;
   a.download = filename;
   a.click();
 }
 
+export function kitchenQrFilename(locationName: string): string {
+  return `milton-kitchen-qr-${locationName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+}
+
+export async function shareOrDownloadQr(
+  qr: KitchenQrPayload,
+  locationName: string
+) {
+  const base = kitchenQrFilename(locationName);
+  const filename = `${base}.png`;
+  try {
+    const res = await fetch(qr.qr_png_data_url);
+    const blob = await res.blob();
+    const file = new File([blob], filename, { type: "image/png" });
+    const canFiles =
+      typeof navigator.canShare === "function" &&
+      navigator.canShare({ files: [file] });
+    if (typeof navigator.share === "function" && canFiles) {
+      await navigator.share({
+        files: [file],
+        title: "QR de cocina",
+      });
+      return;
+    }
+    if (typeof navigator.share === "function") {
+      await navigator.share({
+        title: "QR de cocina",
+        url: qr.deep_link,
+      });
+      return;
+    }
+  } catch {
+    // fall through to download
+  }
+  downloadQrFile(qr.qr_png_data_url, filename);
+}
+
 export function KitchenQrResult({
   qr,
   locationName,
+  variant = "full",
 }: {
   qr: KitchenQrPayload;
   locationName: string;
+  variant?: "full" | "print";
 }) {
   const [copied, setCopied] = useState(false);
-  const base = `milton-kitchen-qr-${locationName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  const base = kitchenQrFilename(locationName);
+  const sizeClass = variant === "print" ? "h-[180px] w-[180px]" : "h-48 w-48";
 
   const downloadSvg = () => {
     const url = URL.createObjectURL(
       new Blob([qr.qr_svg], { type: "image/svg+xml" })
     );
-    download(url, `${base}.svg`);
+    downloadQrFile(url, `${base}.svg`);
     URL.revokeObjectURL(url);
   };
 
@@ -51,6 +91,27 @@ export function KitchenQrResult({
     }
   };
 
+  if (variant === "print") {
+    return (
+      <div className="space-y-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={qr.qr_png_data_url}
+          alt={`QR de cocina para ${locationName}`}
+          data-testid="kitchen-qr"
+          className={`${sizeClass} mx-auto`}
+        />
+        <Button
+          type="button"
+          className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3]"
+          onClick={() => downloadQrFile(qr.qr_png_data_url, `${base}.png`)}
+        >
+          Descargar QR para imprimir
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="font-medium">QR for {locationName}</div>
@@ -58,13 +119,14 @@ export function KitchenQrResult({
       <img
         src={qr.qr_png_data_url}
         alt={`QR de cocina para ${locationName}`}
-        className="h-48 w-48"
+        data-testid="kitchen-qr"
+        className={sizeClass}
       />
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
           variant="outline"
-          onClick={() => download(qr.qr_png_data_url, `${base}.png`)}
+          onClick={() => downloadQrFile(qr.qr_png_data_url, `${base}.png`)}
         >
           Descargar PNG
         </Button>

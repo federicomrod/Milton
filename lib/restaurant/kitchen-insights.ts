@@ -732,7 +732,10 @@ export function buildKitchenInsights(
       extra: t(lang, "Waste value:", "Valor de la merma:"),
       pending_value: true,
       explore_tab: "waste",
-      segments: periodWaste.length > 0 ? [55, 45] : [],
+      segments:
+        periodWaste.length > 0
+          ? [Math.round((todayWaste.length / periodWaste.length) * 100)]
+          : [],
     },
     {
       id: "drafts",

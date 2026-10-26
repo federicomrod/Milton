@@ -1,10 +1,17 @@
 // components/restaurant/kitchen/KitchenPageLive.tsx
 //
-// Client shell so summaries can open Explore and feed actions can resolve.
+// Client shell: summaries open Historial y análisis or Recetas; feed
+// actions resolve or review.
 
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
@@ -13,15 +20,36 @@ import {
   type KitchenInsights,
 } from "@/lib/restaurant/kitchen-insights";
 import {
-  DEFAULT_KITCHEN_EXPLORE_TAB,
+  DEFAULT_KITCHEN_ANALYSIS_TAB,
   DEFAULT_KITCHEN_FEED_FILTER,
   KITCHEN_FEED_PREVIEW,
+  parseKitchenExploreTab,
   type KitchenExploreTab,
   type KitchenFeedFilter,
 } from "@/lib/restaurant/kitchen-explore";
 import { KitchenAttentionFeed } from "./KitchenAttentionFeed";
-import { KitchenSummaries } from "./KitchenSummaries";
+import { KitchenConnectCard } from "./KitchenConnectCard";
 import { KitchenExplore } from "./KitchenExplore";
+import {
+  KitchenMainColumn,
+  KitchenPageLayout,
+  KitchenRightColumn,
+} from "./KitchenPageLayout";
+import { KitchenRecipesSection } from "./KitchenRecipesSection";
+import { KitchenSummaries } from "./KitchenSummaries";
+
+function linkedCooksOf(insights: KitchenInsights) {
+  return insights.explore.staff
+    .filter((row) => row.is_active)
+    .map((row) => ({ id: row.id, name: row.name }));
+}
+
+function scrollToId(id: string) {
+  document.getElementById(id)?.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
 
 export function KitchenPageLive({
   insights,
@@ -37,7 +65,7 @@ export function KitchenPageLive({
   canManage: boolean;
   canManageDrafts?: boolean;
   locations: { id: string; name: string }[];
-  /** From ?tab=… (for example Menú › Subir recetas opens «Recetas en borrador»). */
+  /** From ?tab=… (Menú › Subir recetas still sends tab=drafts). */
   initialTab?: KitchenExploreTab;
   children?: ReactNode;
 }) {
@@ -45,14 +73,29 @@ export function KitchenPageLive({
   const [filter, setFilter] = useState<KitchenFeedFilter>(
     DEFAULT_KITCHEN_FEED_FILTER
   );
-  const [tab, setTab] = useState<KitchenExploreTab>(
-    initialTab ?? DEFAULT_KITCHEN_EXPLORE_TAB
-  );
+  const [tab, setTab] = useState<KitchenExploreTab>(() => {
+    if (
+      initialTab === "running_out" ||
+      initialTab === "waste" ||
+      initialTab === "history"
+    ) {
+      return initialTab;
+    }
+    return DEFAULT_KITCHEN_ANALYSIS_TAB;
+  });
   const [expanded, setExpanded] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [focusDraftId, setFocusDraftId] = useState<string | null>(null);
 
   const clearFocus = useCallback(() => setFocusDraftId(null), []);
+  const linkedCooks = linkedCooksOf(insights);
+  const linked = linkedCooks.length > 0;
+  const draftsAllowed = canManageDrafts ?? canManage;
+
+  useEffect(() => {
+    if (initialTab === "drafts") scrollToId("recetas");
+    if (initialTab === "staff") scrollToId("equipo");
+  }, [initialTab]);
 
   const filtered = useMemo(
     () => filterFeed(insights.feed, filter),
@@ -61,10 +104,17 @@ export function KitchenPageLive({
   const shown = expanded ? filtered : filtered.slice(0, KITCHEN_FEED_PREVIEW);
 
   const openExplore = (next: KitchenExploreTab) => {
-    setTab(next);
-    document
-      .getElementById("explorar")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const parsed = parseKitchenExploreTab(next);
+    if (parsed === "drafts") {
+      scrollToId("recetas");
+      return;
+    }
+    if (parsed === "staff") {
+      scrollToId("equipo");
+      return;
+    }
+    setTab(parsed);
+    scrollToId("historial");
   };
 
   const onAction = async (item: KitchenFeedItem) => {
@@ -73,10 +123,9 @@ export function KitchenPageLive({
       return;
     }
     if (item.action === "review") {
-      // Reset first so asking for the same draft again re-opens it.
       setFocusDraftId(null);
       setTimeout(() => setFocusDraftId(item.draft_id), 0);
-      openExplore("drafts");
+      scrollToId("recetas");
       return;
     }
     if (item.action === "resolve" && item.report_ids.length > 0) {
@@ -94,16 +143,45 @@ export function KitchenPageLive({
     }
   };
 
+  const connectProps = {
+    canManage,
+    locations,
+    linkedCooks,
+    variant: (linked ? "compact" : "full") as "compact" | "full",
+  };
+
+  const summaries = (pending: "row" | "scroll", testSuffix?: string) => (
+    <div
+      data-testid={
+        testSuffix ? `kitchen-summaries-slot-${testSuffix}` : undefined
+      }
+    >
+      <KitchenSummaries
+        summaries={insights.summaries}
+        pendingLabel={insights.pending_recipes_label}
+        lang={lang}
+        onOpenExplore={openExplore}
+        layout={pending}
+      />
+    </div>
+  );
+
   return (
     <>
-      <p
-        className="text-sm text-muted-foreground -mt-1"
-        data-testid="kitchen-headline"
-      >
-        {insights.headline}
-      </p>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
-        <div className="lg:col-span-7">
+      <KitchenPageLayout>
+        <KitchenMainColumn>
+          <p
+            className="text-sm text-muted-foreground -mt-1"
+            data-testid="kitchen-headline"
+          >
+            {insights.headline}
+          </p>
+          {!linked ? (
+            <div className="lg:hidden">
+              <KitchenConnectCard {...connectProps} />
+            </div>
+          ) : null}
+          <div className="hidden md:block">{summaries("row", "md")}</div>
           <KitchenAttentionFeed
             insights={insights}
             filter={filter}
@@ -117,27 +195,33 @@ export function KitchenPageLive({
             onAction={onAction}
             resolvingId={resolvingId}
             lang={lang}
+            afterList={children}
           />
-        </div>
-        <div className="lg:col-span-5">{children}</div>
-      </div>
-      <KitchenSummaries
-        summaries={insights.summaries}
-        pendingLabel={insights.pending_recipes_label}
-        lang={lang}
-        onOpenExplore={openExplore}
-      />
-      <KitchenExplore
-        insights={insights}
-        tab={tab}
-        onTabChange={setTab}
-        lang={lang}
-        canManage={canManage}
-        canManageDrafts={canManageDrafts}
-        locations={locations}
-        focusDraftId={focusDraftId}
-        onFocusConsumed={clearFocus}
-      />
+          <KitchenRecipesSection
+            canManage={draftsAllowed}
+            locations={locations}
+            focusDraftId={focusDraftId}
+            onFocusConsumed={clearFocus}
+          />
+          <div className="md:hidden">{summaries("scroll", "mobile")}</div>
+          <KitchenExplore
+            insights={insights}
+            tab={tab}
+            onTabChange={setTab}
+            lang={lang}
+            canManage={canManage}
+            locations={locations}
+          />
+          {linked ? (
+            <div className="lg:hidden">
+              <KitchenConnectCard {...connectProps} />
+            </div>
+          ) : null}
+        </KitchenMainColumn>
+        <KitchenRightColumn>
+          <KitchenConnectCard {...connectProps} />
+        </KitchenRightColumn>
+      </KitchenPageLayout>
       <div
         data-testid="kitchen-legend"
         className="flex flex-wrap items-center gap-4 text-[12px] text-muted-foreground rounded-md border border-border bg-background px-3 py-2"

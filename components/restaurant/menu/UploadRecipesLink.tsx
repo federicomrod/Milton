@@ -1,15 +1,15 @@
 "use client";
 
-// Menú › Platos / Preparaciones: a small secondary link to Cocina › Explorar ›
-// «Recetas en borrador», where files are uploaded. Shown only with the
-// manage-drafts flag the server already sent (no role rules here).
+// Menú › Platos / Preparaciones: a small secondary link to Cocina › Recetas,
+// where files are uploaded. Shown only with the manage-drafts flag the
+// server already sent (no role rules here).
 
 import Link from "next/link";
 
 export function uploadRecipesHref(locationId?: string | null): string {
   const params = new URLSearchParams({ tab: "drafts" });
   if (locationId) params.set("location", locationId);
-  return `/dashboard/restaurant/kitchen?${params.toString()}#explorar`;
+  return `/dashboard/restaurant/kitchen?${params.toString()}#recetas`;
 }
 
 export function UploadRecipesLink({

@@ -731,7 +731,7 @@ describe("the Cocina card computes the cost live (not the frozen snapshot)", () 
       />
     );
     const item = await screen.findByText("Devil Bacon Cheeseburger");
-    const card = item.closest("div.rounded-lg") as HTMLElement;
+    const card = item.closest("[data-testid=kitchen-draft-row]") as HTMLElement;
     await waitFor(() =>
       expect(card.textContent).toContain("Costo parcial · faltan precios de")
     );

@@ -5,7 +5,9 @@
 // button that saves them all (restaurant_shifts_save, migration 054). Every
 // press of «Guardar turnos» answers: saved, nothing to save, or why not.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
+import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { useRouter } from "next/navigation";
 import {
   ALL_WEEKDAYS,
@@ -397,7 +399,23 @@ export function TurnosForm(props: TurnosFormProps) {
 }
 
 /** The 24 h bar: each active shift as a block; a shift across midnight wraps. */
+// Each hour label sits at its real position (first left, last right, rest centred).
+const HOUR_MARKS = [0, 6, 12, 18, 24];
+
 function Timeline({ shifts }: { shifts: Shift[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const width = useElementWidth(wrapRef);
+  const ticks = useMemo(
+    () =>
+      selectTicks({
+        count: HOUR_MARKS.length,
+        positionOf: (i) => (HOUR_MARKS[i] / 24) * width,
+        labelOf: (i) => `${HOUR_MARKS[i]}:00`,
+        width,
+        fontSize: 11,
+      }),
+    [width]
+  );
   const palette = ["#1b40c8", "#151c2c", "#6b8bea", "#3a4256"];
   const blocks: Array<{
     left: number;
@@ -430,12 +448,13 @@ function Timeline({ shifts }: { shifts: Shift[] }) {
       });
   });
   return (
-    <div className="mt-3" aria-label="Vista de 24 horas">
+    <div className="mt-3" aria-label="Vista de 24 horas" ref={wrapRef}>
       <div className="relative h-[22px] rounded-md bg-[#f2f3f6]">
         {blocks.map((b) => (
           <div
             key={b.key}
-            className="absolute inset-y-0 overflow-hidden rounded-md px-2 py-[3px] text-[11px] font-semibold text-white"
+            title={b.name || undefined}
+            className="absolute inset-y-0 truncate rounded-md px-2 py-[3px] text-[11px] font-semibold text-white"
             style={{
               left: `${b.left}%`,
               width: `${b.width}%`,
@@ -446,12 +465,24 @@ function Timeline({ shifts }: { shifts: Shift[] }) {
           </div>
         ))}
       </div>
-      <div className="flex justify-between text-[11px] text-[#8a92a3]">
-        <span>0:00</span>
-        <span>6:00</span>
-        <span>12:00</span>
-        <span>18:00</span>
-        <span>24:00</span>
+      <div className="relative h-4 text-[11px] text-[#8a92a3]">
+        {ticks.map((t) => (
+          <span
+            key={t.index}
+            className="absolute top-0 whitespace-nowrap"
+            style={{
+              left: `${t.x}px`,
+              transform:
+                t.anchor === "start"
+                  ? "none"
+                  : t.anchor === "end"
+                    ? "translateX(-100%)"
+                    : "translateX(-50%)",
+            }}
+          >
+            {t.label}
+          </span>
+        ))}
       </div>
     </div>
   );

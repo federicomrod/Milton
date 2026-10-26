@@ -5,11 +5,12 @@
 // the daily goal as a dashed line when Objetivos has one, and a Ventas /
 // Tickets toggle. Click a day = that day, for the whole page.
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ChartMetric, DayBar } from "@/lib/restaurant/sales-detail";
+import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
+import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { BLUE, dayLabelEs } from "./format";
 
-const W = 640;
 const H = 190;
 const PAD = { l: 8, r: 8, t: 14, b: 24 };
 
@@ -29,6 +30,9 @@ export function DailyChart({
   onDay: (date: string) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+  // Drawn in real pixels: the text keeps its size and nothing is letterboxed.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const W = useElementWidth(wrapRef);
   const values = bars.map((b) => (metric === "ventas" ? b.net : b.tickets));
   const targets =
     metric === "ventas" ? bars.map((b) => b.target) : bars.map(() => null);
@@ -42,7 +46,17 @@ export function DailyChart({
   const bw = Math.min(46, slot * 0.6);
   const fmt = (v: number) =>
     metric === "ventas" ? money(v) : `${Math.round(v)} tickets`;
-  const labelEvery = Math.max(1, Math.ceil(n / 8));
+  const ticks = useMemo(
+    () =>
+      selectTicks({
+        count: n,
+        positionOf: (i) => PAD.l + slot * i + slot / 2,
+        labelOf: (i) => dayLabelEs(bars[i].date),
+        width: W,
+        fontSize: 10.5,
+      }),
+    [bars, n, slot, W]
+  );
   const tgtPath = targets.some((t) => t !== null)
     ? targets
         .map((t, i) =>
@@ -94,7 +108,7 @@ export function DailyChart({
           clic en un día = filtra toda la página
         </span>
       </div>
-      <div className="relative">
+      <div className="relative" ref={wrapRef}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="h-[190px] w-full"
@@ -175,20 +189,18 @@ export function DailyChart({
               strokeDasharray="5 4"
             />
           ) : null}
-          {bars.map((b, i) =>
-            i % labelEvery === 0 || i === n - 1 ? (
-              <text
-                key={b.date}
-                x={x(i)}
-                y={H - 6}
-                fontSize={10.5}
-                fill="#8a92a3"
-                textAnchor="middle"
-              >
-                {dayLabelEs(b.date)}
-              </text>
-            ) : null
-          )}
+          {ticks.map((t) => (
+            <text
+              key={bars[t.index].date}
+              x={t.x}
+              y={H - 6}
+              fontSize={10.5}
+              fill="#8a92a3"
+              textAnchor={t.anchor}
+            >
+              {t.label}
+            </text>
+          ))}
         </svg>
         {hover !== null ? (
           <div className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 rounded-md bg-[#151c2c] px-2 py-1 text-[11.5px] text-white">

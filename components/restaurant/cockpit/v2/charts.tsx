@@ -4,7 +4,9 @@
 // nothing to download). Each one is a pure picture of a CockpitView slice: the
 // numbers come from lib/restaurant/cockpit-v2.ts, never from here.
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { fitFontSize, selectTicks } from "@/lib/restaurant/ui/axis-ticks";
+import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import type {
   DayBar,
   MixSlice,
@@ -58,7 +60,8 @@ export function DailyBarsChart({
   onDay: (date: string) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 640;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const W = useElementWidth(wrapRef);
   const H = 190;
   const top = 12;
   const bottom = 22;
@@ -85,8 +88,19 @@ export function DailyBarsChart({
         .join(" ")
     : null;
   const h = hover === null ? null : bars[hover];
+  const ticks = useMemo(
+    () =>
+      selectTicks({
+        count: bars.length,
+        positionOf: (i) => i * slot + slot / 2,
+        labelOf: (i) => dayLabel(bars[i].date).slice(4),
+        width: W,
+        fontSize: 11,
+      }),
+    [bars, slot, W]
+  );
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapRef}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="h-[190px] w-full"
@@ -142,12 +156,18 @@ export function DailyBarsChart({
             strokeWidth={1.5}
           />
         ) : null}
-        <text x={0} y={H - 6} fontSize={11} fill="#8a92a3">
-          {bars.length ? dayLabel(bars[0].date).slice(4) : ""}
-        </text>
-        <text x={W} y={H - 6} fontSize={11} fill="#8a92a3" textAnchor="end">
-          {bars.length ? dayLabel(bars[bars.length - 1].date).slice(4) : ""}
-        </text>
+        {ticks.map((t) => (
+          <text
+            key={bars[t.index].date}
+            x={t.x}
+            y={H - 6}
+            fontSize={11}
+            fill="#8a92a3"
+            textAnchor={t.anchor}
+          >
+            {t.label}
+          </text>
+        ))}
       </svg>
       {h ? (
         <div
@@ -448,7 +468,7 @@ export function MixDonut({
           x="75"
           y="72"
           textAnchor="middle"
-          fontSize="17"
+          fontSize={fitFontSize(money(total), 80, 17, 12, 0.62)}
           fontWeight="800"
           fill="#151c2c"
         >

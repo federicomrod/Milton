@@ -55,13 +55,23 @@ export interface RollupTotals {
   cost_status: DishStatus;
   /** Rows without a price (their sales are in net_sales, their cost is unknown). */
   rows_without_cost: number;
-  /** Rows that are a problem: Falta precio or Sin receta. */
+  /** Rows that are a problem: Falta precio, Borrador or Sin receta. */
   problem_count: number;
   row_count: number;
   /** Variants (leaf rows) whose own status is «Aprobado». */
   approved_count: number;
   /** All the variants (leaf rows) of the node. */
   variant_count: number;
+  /** Sales of the leaves that are NOT covered (the part still without an approved cost). */
+  pending_sales: number;
+  /**
+   * The worst status among the leaves that are not «Aprobado»
+   * (falta_precio > estimado > borrador > sin_receta); null when every leaf
+   * is approved. This is the ONE bucket a dish is counted in by problemCounts.
+   */
+  pending_status: DishStatus | null;
+  /** Sales of the non-covered leaves, per each leaf's own status. */
+  pending_sales_by_status: Partial<Record<DishStatus, number>>;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -70,6 +80,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function worstStatus(statuses: readonly DishStatus[]): DishStatus {
   if (statuses.includes("falta_precio")) return "falta_precio";
   if (statuses.includes("estimado")) return "estimado";
+  if (statuses.includes("borrador")) return "borrador";
   if (statuses.includes("sin_receta")) return "sin_receta";
   return "aprobado";
 }
@@ -85,6 +96,18 @@ export function rollupLeaves(leaves: readonly RollupLeaf[]): RollupTotals {
   const coveredSales = leaves
     .filter((v) => v.covered)
     .reduce((s, v) => s + v.net_sales, 0);
+  const pendingByStatus: Partial<Record<DishStatus, number>> = {};
+  let pendingSales = 0;
+  for (const v of leaves) {
+    if (v.covered) continue;
+    pendingSales += v.net_sales;
+    pendingByStatus[v.status] = round2(
+      (pendingByStatus[v.status] ?? 0) + v.net_sales
+    );
+  }
+  const notApproved = leaves
+    .filter((v) => v.status !== "aprobado")
+    .map((v) => v.status);
   return {
     units: round2(units),
     net_sales: round2(net),
@@ -106,17 +129,23 @@ export function rollupLeaves(leaves: readonly RollupLeaf[]): RollupTotals {
         : worstStatus(leaves.map((v) => v.status)),
     rows_without_cost: leaves.length - known.length,
     problem_count: leaves.filter(
-      (v) => v.status === "falta_precio" || v.status === "sin_receta"
+      (v) =>
+        v.status === "falta_precio" ||
+        v.status === "sin_receta" ||
+        v.status === "borrador"
     ).length,
     row_count: leaves.length,
     approved_count: leaves.filter((v) => v.status === "aprobado").length,
     variant_count: leaves.length,
+    pending_sales: round2(pendingSales),
+    pending_status: notApproved.length > 0 ? worstStatus(notApproved) : null,
+    pending_sales_by_status: pendingByStatus,
   };
 }
 
 /** Said once, next to every coverage number of a group. */
 export const GROUP_COVERAGE_TIP =
-  "Cobertura = ventas de variantes aprobadas / ventas del grupo";
+  "Cobertura = ventas de productos con costo aprobado / ventas del plato";
 
 /**
  * The status chip of a GROUP of variants, honest about its members: when only

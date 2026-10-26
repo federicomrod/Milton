@@ -22,6 +22,7 @@ const LEGACY_STATUS: Record<DishStatus, CostStatus> = {
   // A recipe exists but nobody approved it: not counted in margins.
   estimado: "inactive_recipe",
   falta_precio: "no_cost_entries",
+  borrador: "missing_recipe",
   sin_receta: "missing_recipe",
 };
 

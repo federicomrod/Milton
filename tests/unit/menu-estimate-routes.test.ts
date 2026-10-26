@@ -722,7 +722,6 @@ describe("migration 062 not applied", () => {
     expect(await (await GET()).json()).toEqual({
       available: false,
       eligible: 1,
-      needs_link: 0,
     });
     const use = await USE(req("estimate/use", { menu_item_id: "m1" }));
     expect(use.status).toBe(503);
@@ -748,7 +747,6 @@ describe("GET", () => {
     expect(await (await GET()).json()).toEqual({
       available: true,
       eligible: 3,
-      needs_link: 0,
     });
   });
 
@@ -1073,3 +1071,101 @@ describe("«usar como borrador»", () => {
 function nameOf(line: Row): string {
   return String(line.raw_name ?? "").toLowerCase();
 }
+
+describe("a product with no linked recipe (Part C)", () => {
+  const PRODUCT = { odoo_product_id: 777, odoo_name: "Churrasco 6 oz Eventos" };
+  const WRITES = [
+    "menu_items",
+    "recipes",
+    "recipe_versions",
+    "pos_product_links",
+    "recipe_version_inputs",
+  ];
+
+  it("creates the empty recipe and the link once (source create_recipe), then estimates it", async () => {
+    world.sales.set(777, { net_sales: 500, units_sold: 50 });
+    const res = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.done).toBe(1);
+    expect(body.results[0].skipped_reason).toBeNull();
+
+    expect(store.menu_items).toHaveLength(1);
+    expect(store.recipes).toHaveLength(1);
+    expect(store.recipe_versions).toHaveLength(1);
+    expect(store.recipe_versions[0].status).toBe("in_review");
+    expect(store.recipe_version_inputs).toHaveLength(0);
+    const links = store.pos_product_links;
+    expect(links).toHaveLength(1);
+    expect(links[0].odoo_product_id).toBe(777);
+    expect(links[0].menu_item_id).toBe(store.menu_items[0].id);
+    expect((links[0].evidence as Row).source).toBe("create_recipe");
+    expect(store.restaurant_dish_estimates).toHaveLength(1);
+    expect(body.results[0].menu_item_id).toBe(store.menu_items[0].id);
+  });
+
+  it("calling twice creates no duplicates", async () => {
+    world.sales.set(777, { net_sales: 500, units_sold: 50 });
+    await POST(req("estimate", { products: [PRODUCT] }));
+    const once = snapshot(
+      store,
+      "menu_items",
+      "recipes",
+      "recipe_versions",
+      "pos_product_links"
+    );
+    const res = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(res.status).toBe(200);
+    expect(
+      snapshot(
+        store,
+        "menu_items",
+        "recipes",
+        "recipe_versions",
+        "pos_product_links"
+      )
+    ).toBe(once);
+    expect(store.restaurant_dish_estimates).toHaveLength(1);
+  });
+
+  it("a product that already has an approved recipe: nothing is created or changed", async () => {
+    addDish(store, 3, { versions: ["approved"], lines_on: [0] });
+    const before = snapshot(store, ...WRITES);
+    const res = await POST(
+      req("estimate", {
+        products: [{ odoo_product_id: 103, odoo_name: "Plato 3" }],
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.done).toBe(0);
+    expect(body.results[0].skipped_reason).toBeTruthy();
+    expect(snapshot(store, ...WRITES)).toBe(before);
+    expect(store.restaurant_dish_estimates).toHaveLength(0);
+    expect(world.calls).toHaveLength(0);
+  });
+
+  it("a product with a linked draft is reused, not linked again", async () => {
+    addDish(store, 4);
+    const res = await POST(
+      req("estimate", {
+        products: [{ odoo_product_id: 104, odoo_name: "Plato 4" }],
+      })
+    );
+    expect((await res.json()).done).toBe(1);
+    expect(store.menu_items).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    expect(store.pos_product_links).toHaveLength(1);
+  });
+
+  it("rejects a malformed products list and still needs recipes.edit", async () => {
+    expect(
+      (await POST(req("estimate", { products: [{ odoo_name: "x" }] }))).status
+    ).toBe(400);
+    world.role = "viewer";
+    expect((await POST(req("estimate", { products: [PRODUCT] }))).status).toBe(
+      403
+    );
+    expect(store.menu_items).toHaveLength(0);
+  });
+});

@@ -4,8 +4,9 @@
 // Menú › Platos (menuDishKpis), so the two can never disagree:
 //   - costeado  = the dish has AT LEAST ONE approved variant (tamaño);
 //   - completo  = every variant with sales is approved;
-//   - parcial   = costeado but not completo (some sizes still pending).
-// `covered` already includes the partial ones: «12 de 63 costeados · 5 parciales».
+//   - parcial   = costeado but not completo (some sizes still pending); only an
+//     internal class, never shown as a status or label.
+// `covered` already includes the partial ones: «12 de 63 platos costeados».
 // Pure.
 
 import type { DishStatus } from "./dish-status";
@@ -51,10 +52,11 @@ export function countDishCoverage(
   return { covered, partial, total: dishes.length };
 }
 
-/** «12 de 63 platos costeados · 5 parciales» (the parciales part only when there are some). */
+/**
+ * «12 de 63 platos costeados». No «parcial» suffix: a dish with some sizes
+ * still pending keeps its «Aprobado N de M» chip, and its pending sales are
+ * counted once in the problem counts (problem-counts.ts).
+ */
 export function dishCoverageLabel(c: DishCoverageCounts): string {
-  const base = `${c.covered} de ${c.total} platos costeados`;
-  return c.partial > 0
-    ? `${base} · ${c.partial} ${c.partial === 1 ? "parcial" : "parciales"}`
-    : base;
+  return `${c.covered} de ${c.total} platos costeados`;
 }

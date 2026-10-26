@@ -242,7 +242,7 @@ describe("a group of variants says what its members are", () => {
     expect(chip).toMatchObject({ label: "Aprobado 1 de 3", mixed: true });
     expect(dish.coverage).toBeCloseTo(50 / 1000, 10);
     expect(GROUP_COVERAGE_TIP).toBe(
-      "Cobertura = ventas de variantes aprobadas / ventas del grupo"
+      "Cobertura = ventas de productos con costo aprobado / ventas del plato"
     );
   });
   it("the ranking, the Platos list and the Cockpit read the same coverage", () => {

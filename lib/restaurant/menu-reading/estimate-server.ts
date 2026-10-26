@@ -52,7 +52,11 @@ import { loadVersionLineCounts } from "@/lib/restaurant/recipe-costing/has-recip
 import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import type { UnitConversion } from "@/lib/restaurant/units";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
-import { loadPosProductLink } from "@/lib/restaurant/recipe-costing/link-actions-server";
+import {
+  createRecipeAndLink,
+  loadPosProductLink,
+} from "@/lib/restaurant/recipe-costing/link-actions-server";
+import type { RecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 import { MENU_EVIDENCE_SOURCE, menuDraftEvidence } from "./drafts";
 import { withMenuDraftEvidence } from "@/lib/restaurant/pos-product-links";
@@ -515,22 +519,92 @@ export async function countEstimableDishes(
 }
 
 /**
- * POS food products that have no plato yet and so cannot be estimated until
- * somebody links them. Best effort: a failure reads as 0.
+ * POS food products that have no plato yet. Milton estimates them too: the run
+ * first gives each an empty recipe and link (the same path as «Crear receta»).
+ * Best effort: a failure reads as 0.
  */
 export async function countUnlinkedWithoutPlato(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<number> {
+  return (await listUnlinkedProducts(supabase, companyId, null)).length;
+}
+
+export interface UnlinkedProduct {
+  odoo_product_id: number;
+  odoo_name: string;
+}
+
+/** Unlinked POS food products, best sellers first. Failure = none. */
+async function listUnlinkedProducts(
+  supabase: SupabaseClient,
+  companyId: string,
+  locationId: string | null
+): Promise<UnlinkedProduct[]> {
   try {
-    const list = await loadPosProductList(supabase, { companyId });
-    if (!list.ok) return 0;
-    return list.list.products.filter(
-      (p) => wantsSuggestion(p) && !p.menu_item_id
-    ).length;
+    const list = await loadPosProductList(supabase, { companyId, locationId });
+    if (!list.ok) return [];
+    return list.list.products
+      .filter((p) => wantsSuggestion(p) && !p.menu_item_id)
+      .sort((a, b) => b.net_sales - a.net_sales)
+      .map((p) => ({
+        odoo_product_id: p.odoo_product_id,
+        odoo_name: p.odoo_name,
+      }));
   } catch {
-    return 0;
+    return [];
   }
+}
+
+/**
+ * The plato (menu item) of each POS product, creating the empty recipe + link
+ * only for a product that has none. Idempotent and never destructive: a
+ * product that already has a link to a recipe (approved, draft or empty) is
+ * reused as it is, so a second recipe is never created.
+ */
+export async function ensureProductPlatos(
+  supabase: SupabaseClient,
+  params: {
+    companyId: string;
+    actor: RecipeActor;
+    products: readonly UnlinkedProduct[];
+    locationId?: string | null;
+  }
+): Promise<{ menuItemIds: string[]; failed: number }> {
+  const menuItemIds: string[] = [];
+  let failed = 0;
+  for (const product of params.products) {
+    const name = product.odoo_name?.trim();
+    if (!Number.isInteger(product.odoo_product_id) || !name) {
+      failed += 1;
+      continue;
+    }
+    try {
+      const existing = await loadPosProductLink(
+        supabase,
+        params.companyId,
+        product.odoo_product_id,
+        params.locationId ?? null
+      );
+      if (existing?.menu_item_id) {
+        menuItemIds.push(existing.menu_item_id);
+        continue;
+      }
+      const created = await createRecipeAndLink({
+        supabase,
+        companyId: params.companyId,
+        actor: params.actor,
+        odooProductId: product.odoo_product_id,
+        odooName: name,
+        locationId: params.locationId ?? null,
+      });
+      if (created.ok) menuItemIds.push(created.menu_item_id);
+      else failed += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  return { menuItemIds, failed };
 }
 
 // ---------------------------------------------------------------------------
@@ -820,6 +894,12 @@ export interface EstimateRunParams {
   companyId: string;
   userId: string | null;
   menuItemIds?: string[];
+  /**
+   * POS products with no plato yet (or with one): each gets its empty recipe
+   * + link first when it has none, then is estimated. Needs `actor`.
+   */
+  products?: UnlinkedProduct[];
+  actor?: RecipeActor;
   locationId?: string | null;
   limit?: number;
   ai?: EstimateAi;
@@ -844,9 +924,24 @@ export async function estimateDishes(
     ESTIMATE_MAX_RUN
   );
   const locationId = params.locationId ?? null;
-  const ids = params.menuItemIds
+  let ids = params.menuItemIds
     ? [...new Set(params.menuItemIds.filter((id) => typeof id === "string"))]
     : null;
+  let failedLinks = 0;
+  if (params.products) {
+    // Asking for products is never a bulk run, even if none could be linked.
+    ids = ids ?? [];
+  }
+  if (params.products && params.products.length > 0 && params.actor) {
+    const ensured = await ensureProductPlatos(supabase, {
+      companyId: params.companyId,
+      actor: params.actor,
+      products: params.products.slice(0, limit),
+      locationId,
+    });
+    failedLinks = ensured.failed;
+    ids = [...new Set([...(ids ?? []), ...ensured.menuItemIds])];
+  }
 
   const facts = await withSales(
     supabase,
@@ -873,6 +968,38 @@ export async function estimateDishes(
           a.menu_item_id.localeCompare(b.menu_item_id)
       )
       .slice(0, limit);
+  }
+  // Bulk run: when the plato list runs out, give the best-selling products
+  // with no plato yet their empty recipe + link and estimate them too.
+  if (!ids && params.actor && pool.length < ESTIMATE_CHUNK) {
+    const unlinked = await listUnlinkedProducts(
+      supabase,
+      params.companyId,
+      locationId
+    );
+    if (unlinked.length > 0) {
+      const ensured = await ensureProductPlatos(supabase, {
+        companyId: params.companyId,
+        actor: params.actor,
+        products: unlinked.slice(
+          0,
+          Math.min(limit, ESTIMATE_CHUNK) - pool.length
+        ),
+        locationId,
+      });
+      if (ensured.menuItemIds.length > 0) {
+        const added = await withSales(
+          supabase,
+          params.companyId,
+          locationId,
+          await loadDishFacts(supabase, params.companyId, {
+            menuItemIds: ensured.menuItemIds,
+            locationId,
+          })
+        );
+        pool = [...pool, ...added.filter((f) => dishEligibility(f).ok)];
+      }
+    }
   }
   const batch = pool.slice(0, ESTIMATE_CHUNK);
   const remaining = pool.length - batch.length;
@@ -945,7 +1072,16 @@ export async function estimateDishes(
   return {
     done: results.filter((r) => !r.skipped_reason).length,
     remaining,
-    results,
+    results: [
+      ...results,
+      ...Array.from({ length: failedLinks }, () => ({
+        menu_item_id: "",
+        name: "",
+        est_cost: null,
+        est_margin_pct: null,
+        skipped_reason: "no_encontrado",
+      })),
+    ],
   };
 }
 

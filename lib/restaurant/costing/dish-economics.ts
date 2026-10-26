@@ -21,6 +21,7 @@
 import {
   UNCONFIRMED_LINK_LABEL,
   dishStateFrom,
+  draftFlags,
   pickDishVersions,
   type DishStateReason,
 } from "./dish-state";
@@ -190,6 +191,8 @@ export interface DishEconomicsTotals {
   estimated_count: number;
   missing_price_count: number;
   no_recipe_count: number;
+  /** Dishes whose recipe is an empty draft («Borrador»). */
+  draft_count: number;
   /** Falta precio + Sin receta. */
   problem_count: number;
   /** Food net sales of dishes that have any recipe (approved or draft). */
@@ -231,6 +234,7 @@ export interface DishVersion {
   effective_date: string | null;
   approved_at?: string | null;
   created_at?: string | null;
+  notes?: string | null;
 }
 
 export interface DishLinkInput {
@@ -422,6 +426,7 @@ function dishFromProduct(
     combo_covered: product.counts_toward_coverage,
     in_food_sales: product.in_food_sales,
     avg_net_price: avgNetPrice,
+    ...draftFlags(version),
   });
   const status = state.status;
   const unitCost = state.unit_cost;
@@ -490,6 +495,7 @@ function dishFromProduct(
 const STATUS_ORDER: DishStatus[] = [
   "falta_precio",
   "estimado",
+  "borrador",
   "sin_receta",
   "aprobado",
 ];
@@ -520,7 +526,12 @@ function mergeParts(parts: readonly DishEconomics[]): DishEconomics {
   const mergedReason: DishStateReason | null =
     status === "aprobado" && parts.some((p) => p.state_reason)
       ? "vinculo_sin_confirmar"
-      : null;
+      : status === "borrador" &&
+          parts.some(
+            (p) => p.status === "borrador" && p.state_reason === "desde_el_menu"
+          )
+        ? "desde_el_menu"
+        : null;
   const rest: DishEconomics = { ...base };
   delete rest.row_key;
   delete rest.sales_scope;
@@ -528,9 +539,10 @@ function mergeParts(parts: readonly DishEconomics[]): DishEconomics {
     ...rest,
     raw_names: [...new Set(parts.flatMap((p) => p.raw_names))].sort(),
     status,
-    status_label: mergedReason
-      ? UNCONFIRMED_LINK_LABEL
-      : DISH_STATUS_LABELS[status],
+    status_label:
+      mergedReason === "vinculo_sin_confirmar"
+        ? UNCONFIRMED_LINK_LABEL
+        : DISH_STATUS_LABELS[status],
     state_reason: mergedReason,
     unit_cost: unitCost,
     units_sold: units,
@@ -576,12 +588,14 @@ export function totalsOf(
     aprobado: 0,
     estimado: 0,
     falta_precio: 0,
+    borrador: 0,
     sin_receta: 0,
   };
   for (const dish of dishes) {
     count[dish.status] += 1;
     if (dish.covered) covered += dish.net_sales;
-    if (dish.status !== "sin_receta") withRecipe += dish.net_sales;
+    if (dish.status !== "sin_receta" && dish.status !== "borrador")
+      withRecipe += dish.net_sales;
     if (dish.in_cogs && dish.unit_cost !== null) {
       costKnown += dish.net_sales;
       cogs += dish.unit_cost * dish.units_sold;
@@ -609,8 +623,9 @@ export function totalsOf(
     approved_count: count.aprobado,
     estimated_count: count.estimado,
     missing_price_count: count.falta_precio,
-    no_recipe_count: count.sin_receta,
-    problem_count: count.falta_precio + count.sin_receta,
+    no_recipe_count: count.sin_receta + count.borrador,
+    draft_count: count.borrador,
+    problem_count: count.falta_precio + count.sin_receta + count.borrador,
     with_recipe_net_sales: round2(withRecipe),
   };
 }
@@ -731,9 +746,10 @@ export function buildDishEconomics(
     dish.status = v.status;
     // «Aprobado · vínculo sin confirmar» travels with the variant's own state.
     dish.state_reason = v.state_reason ?? null;
-    dish.status_label = dish.state_reason
-      ? UNCONFIRMED_LINK_LABEL
-      : DISH_STATUS_LABELS[v.status];
+    dish.status_label =
+      dish.state_reason === "vinculo_sin_confirmar"
+        ? UNCONFIRMED_LINK_LABEL
+        : DISH_STATUS_LABELS[v.status];
     dish.covered = v.covered;
     dish.in_cogs = v.covered && v.unit_cost !== null;
     dish.food_cost_pct =

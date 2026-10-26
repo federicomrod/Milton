@@ -59,19 +59,23 @@ export interface OdooSyncSummaryCopy {
 }
 
 const SKIP_REASON_LABELS: Array<{ match: RegExp; label: string }> = [
-  { match: /^Line has no order_id/i, label: "Line was missing an order" },
+  { match: /^Line has no order_id/i, label: "A la línea le faltaba el pedido" },
   {
     match: /^Order not in a completed state/i,
-    label: "Order was not completed",
+    label: "El pedido no estaba completado",
   },
   {
     match: /^Non-finite quantity or price field/i,
-    label: "Line had an invalid quantity or price",
+    label: "La línea tenía una cantidad o un precio inválido",
   },
-  { match: /^Invalid order date_order/i, label: "Order had an invalid date" },
+  {
+    match: /^Invalid order date_order/i,
+    label: "El pedido tenía una fecha inválida",
+  },
   {
     match: /^Till-name location/i,
-    label: "Till name pointed at a different location than the company mapping",
+    label:
+      "El nombre de la caja apuntaba a una ubicación distinta a la del mapeo de la empresa",
   },
 ];
 
@@ -79,11 +83,11 @@ export function friendlySkipReason(reason: string): string {
   for (const { match, label } of SKIP_REASON_LABELS) {
     if (match.test(reason)) return label;
   }
-  return "Row could not be saved";
+  return "No se pudo guardar la fila";
 }
 
 export function formatCount(n: number): string {
-  return n.toLocaleString("en-US");
+  return n.toLocaleString("es-MX");
 }
 
 export function formatSyncDateRange(
@@ -99,7 +103,7 @@ function formatHumanDate(isoDate: string): string {
   const [year, month, day] = isoDate.split("-").map(Number);
   if (!year || !month || !day) return isoDate;
   const date = new Date(Date.UTC(year, month - 1, day));
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat("es-MX", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -139,33 +143,37 @@ export function syncSummaryCopy(
   view: OdooSyncSummaryView
 ): OdooSyncSummaryCopy {
   const range = formatSyncDateRange(view.startDate, view.endDate);
-  const orderWord = view.ordersFetched === 1 ? "order" : "orders";
-  const rowWord = view.rowsSaved === 1 ? "row" : "rows";
-  const skipWord = view.skippedCount === 1 ? "row" : "rows";
-  const itemWord =
-    view.unmatchedMenuItemCount === 1 ? "menu item" : "menu items";
-  const tillWord =
-    view.unmatchedLocations.length === 1 ? "till name" : "till names";
+  const orderWord = view.ordersFetched === 1 ? "pedido" : "pedidos";
+  const rowWord = view.rowsSaved === 1 ? "fila" : "filas";
+  const skipWord = view.skippedCount === 1 ? "fila" : "filas";
+  const tillCount = view.unmatchedLocations.length;
+  const comboCount = view.unmatchedMenuItemCount;
 
   return {
-    headline: `Fetched ${formatCount(view.ordersFetched)} ${orderWord} and saved ${formatCount(view.rowsSaved)} sales ${rowWord} for ${range}.`,
+    headline: `Traje ${formatCount(view.ordersFetched)} ${orderWord} y guardé ${formatCount(view.rowsSaved)} ${rowWord} de ventas de ${range}.`,
     skipped:
       view.skippedCount === 0
-        ? "No rows were skipped."
-        : `${formatCount(view.skippedCount)} ${skipWord} were skipped.`,
+        ? "No se omitió ninguna fila."
+        : `${formatCount(view.skippedCount)} ${skipWord} ${view.skippedCount === 1 ? "se omitió" : "se omitieron"}.`,
+    // Info, not a warning: POS option combinations are saved as sales of the
+    // product and do not affect costs.
     unmatchedItems:
-      view.unmatchedMenuItemCount === 0
-        ? "Every synced item matched a Milton menu item."
-        : `${formatCount(view.unmatchedMenuItemCount)} ${itemWord} did not match Milton’s menu.`,
+      comboCount === 0
+        ? "Todo lo que se sincronizó coincide con tu menú."
+        : comboCount === 1
+          ? "1 combinación de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guarda como ventas del producto; no afecta tus costos."
+          : `${formatCount(comboCount)} combinaciones de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guardan como ventas del producto; no afectan tus costos.`,
     unmatchedTills:
-      view.unmatchedLocations.length === 0
-        ? "Every till name matched a Milton location."
-        : `${formatCount(view.unmatchedLocations.length)} ${tillWord} ${view.unmatchedLocations.length === 1 ? "is" : "are"} not a Milton location.`,
+      tillCount === 0
+        ? "Todos los nombres de caja coinciden con una ubicación de Milton."
+        : tillCount === 1
+          ? "1 nombre de caja no es una ubicación de Milton."
+          : `${formatCount(tillCount)} nombres de caja no son una ubicación de Milton.`,
     unmatchedTillsNote:
-      "That’s informational. Sales are assigned by the company-to-location mapping, not by till name.",
+      "Es solo informativo. Las ventas se asignan con el mapeo de empresa a ubicación, no con el nombre de la caja.",
     outsideRange:
       view.outsideRangeExcluded > 0
-        ? `${formatCount(view.outsideRangeExcluded)} extra rows from neighboring days were ignored because they sit outside the dates you picked.`
+        ? `${formatCount(view.outsideRangeExcluded)} filas extra de días vecinos se ignoraron porque quedan fuera de las fechas que elegiste.`
         : null,
   };
 }
@@ -191,6 +199,6 @@ export function formatLastSyncLine(last: OdooLastSync): string {
   const when = new Date(last.synced_at);
   const whenLabel = Number.isNaN(when.getTime())
     ? last.synced_at
-    : when.toLocaleString();
-  return `Last synced ${whenLabel} · ${formatSyncDateRange(last.start_date, last.end_date)} · ${formatCount(last.orders_fetched)} orders · ${formatCount(last.rows_upserted)} rows saved`;
+    : when.toLocaleString("es-MX");
+  return `Última sincronización ${whenLabel} · ${formatSyncDateRange(last.start_date, last.end_date)} · ${formatCount(last.orders_fetched)} pedidos · ${formatCount(last.rows_upserted)} filas guardadas`;
 }

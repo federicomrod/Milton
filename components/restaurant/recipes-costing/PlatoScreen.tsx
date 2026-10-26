@@ -45,6 +45,8 @@ import {
 } from "@/components/restaurant/menu/estimate-overlay";
 import { EstimatePanel } from "./EstimatePanel";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
+import { useRecipeSourceActions } from "./RecipeSourceActions";
+import { dropEditorsForProduct } from "@/lib/restaurant/recipe-costing/editor-cache";
 import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Chip, GhostBtn } from "./ui";
@@ -57,6 +59,7 @@ const FILTERS: Array<{ id: ListFilter | null; label: string }> = [
   { id: "aprobado", label: DISH_STATUS_LABELS.aprobado },
   { id: "estimado", label: DISH_STATUS_LABELS.estimado },
   { id: "falta_precio", label: DISH_STATUS_LABELS.falta_precio },
+  { id: "borrador", label: DISH_STATUS_LABELS.borrador },
   { id: "sin_receta", label: DISH_STATUS_LABELS.sin_receta },
   { id: "por_clasificar", label: "Por clasificar" },
 ];
@@ -65,7 +68,12 @@ interface ListRow {
   odoo_product_id: number;
   name: string;
   share_label: string;
-  chip: { label: string; tone: PlatoQueueRow["status_tone"] };
+  chip: {
+    label: string;
+    tone: PlatoQueueRow["status_tone"];
+    /** «desde el menú» on a Borrador the menu reader prepared. */
+    note?: string;
+  };
   status: DishStatus | null;
   unclassified: boolean;
 }
@@ -120,7 +128,11 @@ export function PlatoScreen({
         name: p.odoo_name,
         share_label: p.share_label,
         chip: q
-          ? { label: q.status_label, tone: q.status_tone }
+          ? {
+              label: q.status_label,
+              tone: q.status_tone,
+              note: q.status_note,
+            }
           : {
               label: p.is_combo ? "Combo" : p.treatment_label,
               tone: "grey" as const,
@@ -208,7 +220,15 @@ export function PlatoScreen({
                   {row.share_label} de ventas de comida
                 </span>
               </span>
-              <Chip tone={row.chip.tone}>{row.chip.label}</Chip>
+              <span
+                title={
+                  row.chip.note
+                    ? `${row.chip.label} · ${row.chip.note}`
+                    : undefined
+                }
+              >
+                <Chip tone={row.chip.tone}>{row.chip.label}</Chip>
+              </span>
             </button>
           ))}
           {visible.length === 0 ? (
@@ -272,7 +292,6 @@ function Dish({
   onConfirm: () => void;
   onOpenPreparation: (componentId: string) => void;
 }) {
-  const [picking, setPicking] = useState(false);
   // This dish in the last uploaded cost file (saved upload, nothing re-uploaded).
   const [bringOpen, setBringOpen] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
@@ -313,6 +332,25 @@ function Dish({
     product.menu_item_id,
     editor?.menu_item_id
   );
+  const sourceActions = useRecipeSourceActions({
+    odooProductId: product.odoo_product_id,
+    odooName: product.odoo_name,
+    locationId,
+    menuItems: data.menu_items,
+    currentMenuItemId: menuItemId,
+    disabled: busy,
+    onUse: (chosenId) =>
+      onPost("/api/restaurant/pos/links/change", {
+        odoo_product_id: product.odoo_product_id,
+        odoo_name: product.odoo_name,
+        menu_item_id: chosenId,
+      }),
+    onCopied: () => {
+      dropEditorsForProduct(product.odoo_product_id);
+      setEditorKey((n) => n + 1);
+      onEdited();
+    },
+  });
   const hasRecipe = editor
     ? dishHasRecipe({
         menuItemId,
@@ -443,7 +481,7 @@ function Dish({
           busy={busy}
           onPost={onPost}
         />
-        {data.actor.can_submit ? (
+        {data.actor.can_submit && (fileRecipe?.differs || product.can_undo) ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -455,9 +493,6 @@ function Dish({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuItem onClick={() => setPicking(true)}>
-                Usar la receta de otro plato
-              </DropdownMenuItem>
               {fileRecipe?.differs ? (
                 <DropdownMenuItem onClick={() => setBringOpen(true)}>
                   Traer receta del último archivo…
@@ -525,37 +560,7 @@ function Dish({
         </div>
       ) : null}
 
-      {picking ? (
-        <label className="block text-[13px] font-semibold text-[#6b7385]">
-          Usar la receta de
-          <select
-            className="ml-2 rounded-md border border-[#d5dae3] px-2 py-1 text-[13px]"
-            defaultValue=""
-            disabled={busy}
-            onChange={(event) => {
-              if (!event.target.value) return;
-              setPicking(false);
-              onPost("/api/restaurant/pos/links/change", {
-                odoo_product_id: product.odoo_product_id,
-                odoo_name: product.odoo_name,
-                menu_item_id: event.target.value,
-              });
-            }}
-          >
-            <option value="">Elige un plato…</option>
-            {data.menu_items
-              .filter((item) => item.id !== product.menu_item_id)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-          </select>
-          <GhostBtn className="ml-2" onClick={() => setPicking(false)}>
-            Cancelar
-          </GhostBtn>
-        </label>
-      ) : null}
+      {data.actor.can_submit ? sourceActions.panel : null}
 
       {takesRecipe ? (
         <>
@@ -648,25 +653,35 @@ function Dish({
               onState={handleEditorState}
               onOpenPreparation={onOpenPreparation}
               focusRequest={focusRequest}
+              sourceButtons={
+                data.actor.can_submit ? sourceActions.buttons : null
+              }
+              sourceHelper={data.actor.can_submit ? sourceActions.helper : null}
             />
           ) : (
-            <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
-              <span>Este plato todavía no tiene receta.</span>
-              {bringButton}
-              {data.actor.can_submit ? (
-                <GhostBtn
-                  disabled={busy}
-                  onClick={() =>
-                    onPost("/api/restaurant/pos/links/create", {
-                      odoo_product_id: product.odoo_product_id,
-                      odoo_name: product.odoo_name,
-                    })
-                  }
-                >
-                  Crear receta
-                </GhostBtn>
-              ) : null}
-            </div>
+            <>
+              <div className="flex flex-wrap items-center gap-3 text-[13px] text-[#5b6476]">
+                <span>Este plato todavía no tiene receta.</span>
+                {bringButton}
+                {data.actor.can_submit ? (
+                  <>
+                    <GhostBtn
+                      disabled={busy}
+                      onClick={() =>
+                        onPost("/api/restaurant/pos/links/create", {
+                          odoo_product_id: product.odoo_product_id,
+                          odoo_name: product.odoo_name,
+                        })
+                      }
+                    >
+                      Crear receta
+                    </GhostBtn>
+                    {sourceActions.buttons}
+                  </>
+                ) : null}
+              </div>
+              {data.actor.can_submit ? sourceActions.helper : null}
+            </>
           )}
         </>
       ) : (

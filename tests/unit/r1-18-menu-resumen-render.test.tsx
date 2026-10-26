@@ -169,7 +169,7 @@ describe("Resumen is the menu's cockpit", () => {
       'href="/dashboard/restaurant/menu/platos?estado=sin_receta"'
     );
     expect(partial).toContain('href="/dashboard/restaurant/costs"');
-    expect(t).toContain("42 Precios por completar");
+    expect(t).toContain("42 Ingredientes sin precio");
     expect(t).toContain("Platos sin receta");
     expect(t).toContain("Hace 34 días · costos.xlsx");
     expect((partial.match(/Ir a Costos →/g) ?? []).length).toBe(1);

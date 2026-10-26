@@ -62,7 +62,10 @@ import { can, capabilityFlags, type Capability } from "@/lib/auth/capabilities";
 import type { PreparationsOverview } from "./preparations-server";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { resolveDishMenuItemId } from "@/lib/restaurant/costing/dish-version";
-import { pickDishVersions } from "@/lib/restaurant/costing/dish-state";
+import {
+  FROM_MENU_LABEL,
+  pickDishVersions,
+} from "@/lib/restaurant/costing/dish-state";
 import {
   isUncertainEvidence,
   toReviewLine,
@@ -86,6 +89,8 @@ export interface PlatoQueueRow {
   status: PlatoStatus;
   status_label: string;
   status_tone: ChipTone;
+  /** «desde el menú» on a Borrador the menu reader prepared. */
+  status_note?: string;
   /** The shared loader's status (R1-09a); drives the chip and filters. */
   dish_status?: DishStatus | null;
 }
@@ -1316,6 +1321,7 @@ const DISH_TONE: Record<DishStatus, ChipTone> = {
   aprobado: "ok",
   estimado: "pur",
   falta_precio: "warn",
+  borrador: "grey",
   sin_receta: "grey",
 };
 
@@ -1341,6 +1347,10 @@ export function withDishStatus(
       ...row,
       dish_status: dish.status,
       status_label: pct ?? dish.status_label,
+      status_note:
+        dish.status === "borrador" && dish.state_reason === "desde_el_menu"
+          ? FROM_MENU_LABEL
+          : undefined,
       status_tone: DISH_TONE[dish.status],
     };
   });

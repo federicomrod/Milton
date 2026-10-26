@@ -1,6 +1,7 @@
 // «Leer menú» end to end with an in-memory repo: a Confirmado link with no
 // recipe gets a draft and keeps its meaning; "Deshacer lote" restores it
-// exactly; the counts are platos, not POS products. Synthetic names only.
+// exactly; the report is per MENU dish (Σ menu_outcomes = dishes_read), over
+// the current month's Platos groups. Synthetic names only.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -15,20 +16,23 @@ import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
 const world = vi.hoisted(() => ({
   repo: null as unknown,
   products: [] as Array<Record<string, unknown>>,
+  /** Platos groups; default = one group per product, sin receta. */
+  groups: null as null | Array<Record<string, unknown>>,
+  economics: vi.fn(),
 }));
 
 vi.mock("@/lib/restaurant/cost-workbook/repo", async (orig) => ({
   ...(await orig<typeof import("@/lib/restaurant/cost-workbook/repo")>()),
   createSupabaseCostWorkbookRepo: () => world.repo,
 }));
-vi.mock("@/lib/restaurant/pos-product-list-server", () => ({
-  loadPosProductList: async () => ({
-    ok: true,
-    list: { products: world.products },
-  }),
+vi.mock("@/lib/restaurant/costing/dish-economics-server", () => ({
+  loadDishEconomicsWith: world.economics,
 }));
 
-import { readMenuIntoDrafts } from "@/lib/restaurant/menu-reading/server";
+import {
+  loadPeriodPlatos,
+  readMenuIntoDrafts,
+} from "@/lib/restaurant/menu-reading/server";
 
 const CO = "co-1";
 const MENU_DISHES = [
@@ -128,11 +132,40 @@ function addVersion(
   }
 }
 
+/** A Platos group of the month: its variants are POS products by id. */
+function group(
+  id: string,
+  name: string,
+  productIds: number[],
+  status: "sin_receta" | "aprobado" = "sin_receta"
+) {
+  return {
+    id,
+    name,
+    variants: productIds.map((pid) => ({
+      odoo_product_id: pid,
+      name: `p${pid}`,
+      status,
+      covered: status === "aprobado",
+    })),
+  };
+}
+
 const read = () =>
   readMenuIntoDrafts(makeFakeDb(db) as never, {
     companyId: CO,
     currency: "USD",
     source: { kind: "text", text: "menu" },
+    loadPlatos: async () => ({
+      range: { from: "2026-10-01", to: "2026-10-20" },
+      products: world.products as never,
+      menu_dishes: (world.groups ??
+        world.products.map((p) =>
+          group(`g${p.odoo_product_id}`, String(p.odoo_name), [
+            p.odoo_product_id as number,
+          ])
+        )) as never,
+    }),
     readSource: async () => ({
       kind: "text",
       source_ref: null,
@@ -147,6 +180,8 @@ beforeEach(() => {
   db = { restaurant_menu_sources: [], recipe_version_inputs: [] };
   world.repo = createMemoryCostWorkbookRepo(mem);
   world.products = [];
+  world.groups = null;
+  world.economics.mockReset();
 });
 
 describe("«Leer menú» with a Confirmado link", () => {
@@ -217,8 +252,8 @@ describe("«Leer menú» with a Confirmado link", () => {
   });
 });
 
-describe("the counts are platos", () => {
-  it("three POS products of the same plato count once", async () => {
+describe("the report is per menu dish", () => {
+  it("three POS sizes of the same plato are one drafted menu dish, with the Odoo products named", async () => {
     addMenuItem("m1", "Plato Demo");
     for (const [id, name] of [
       [1, "Plato Demo 8 oz"],
@@ -232,10 +267,43 @@ describe("the counts are platos", () => {
       product(2, "Plato Demo 12 oz", { link_state: "confirmado" }),
       product(3, "Plato Demo 16 oz", { link_state: "confirmado" }),
     ];
+    world.groups = [group("gA", "Plato Demo", [1, 2, 3])];
     const result = await read();
     expect(result.drafted).toBe(1);
-    expect(result.skipped).toHaveLength(0);
     expect(mem.recipeVersions).toHaveLength(1);
+    const drafted = result.menu_outcomes.find((o) => o.outcome === "drafted")!;
+    expect(drafted.menu_dish).toBe("Plato Demo");
+    expect(drafted.products.map((p) => p.odoo_product_id).sort()).toEqual([
+      1, 2, 3,
+    ]);
+    expect(drafted.products.map((p) => p.odoo_name)).toContain(
+      "Plato Demo 8 oz"
+    );
+  });
+
+  it("Σ menu_outcomes = dishes_read; a menu dish without a POS product is named", async () => {
+    addMenuItem("m1", "Plato Demo");
+    mem.posProductLinks.push(confirmedLink(1, "Plato Demo", "m1"));
+    world.products = [product(1, "Plato Demo", { link_state: "confirmado" })];
+    const result = await read();
+    expect(result.menu_outcomes).toHaveLength(result.dishes_read);
+    expect(result.menu_outcomes).toEqual([
+      expect.objectContaining({ menu_dish: "Plato Demo", outcome: "drafted" }),
+      {
+        menu_dish: "Sopa Demo",
+        outcome: "no_pos_match",
+        products: [],
+      },
+    ]);
+    expect(
+      result.drafted +
+        result.skipped_has_recipe +
+        result.skipped_draft_exists +
+        result.skipped_no_ingredients +
+        result.no_pos_match +
+        result.failed
+    ).toBe(result.dishes_read);
+    expect(result.no_pos_match).toBe(1);
   });
 
   it("splits the rest: no ingredients, not on the menu", async () => {
@@ -249,14 +317,116 @@ describe("the counts are platos", () => {
     expect(result).toMatchObject({
       drafted: 0,
       skipped_no_ingredients: 1,
+      no_pos_match: 1,
       not_on_menu: 1,
       not_found: ["Plato Fuera Del Menu"],
     });
-    expect(result.skipped).toEqual([
-      expect.objectContaining({
-        odoo_name: "Sopa Demo",
-        code: "no_ingredients",
-      }),
+    expect(result.menu_outcomes).toEqual([
+      { menu_dish: "Plato Demo", outcome: "no_pos_match", products: [] },
+      {
+        menu_dish: "Sopa Demo",
+        outcome: "no_ingredients",
+        products: [{ odoo_product_id: 1, odoo_name: "Sopa Demo" }],
+      },
     ]);
+  });
+
+  it("a plato that already has a recipe is matched first and reported, never changed", async () => {
+    addMenuItem("m1", "Plato Demo");
+    mem.posProductLinks.push(confirmedLink(1, "Plato Demo", "m1"));
+    addVersion("m1", "approved", 2);
+    world.products = [product(1, "Plato Demo", { link_state: "confirmado" })];
+    const before = structuredClone(mem.recipeVersions);
+    const linkBefore = structuredClone(mem.posProductLinks);
+    const result = await read();
+    expect(result.menu_outcomes[0]).toMatchObject({
+      menu_dish: "Plato Demo",
+      outcome: "has_recipe",
+      products: [{ odoo_product_id: 1, odoo_name: "Plato Demo" }],
+    });
+    expect(result.batch_id).toBeNull();
+    expect(mem.recipeVersions).toEqual(before);
+    expect(mem.posProductLinks).toEqual(linkBefore);
+  });
+
+  it("an existing menu draft is reported as «ya tenía borrador» and not touched", async () => {
+    addMenuItem("m1", "Plato Demo");
+    const link = confirmedLink(1, "Plato Demo", "m1");
+    link.evidence = { source: "menu", pending: true };
+    mem.posProductLinks.push(link);
+    addVersion("m1", "in_review", 0);
+    world.products = [product(1, "Plato Demo", { link_state: "confirmado" })];
+    const before = structuredClone(mem.recipeVersions);
+    const result = await read();
+    expect(result.menu_outcomes[0]).toMatchObject({
+      outcome: "draft_exists",
+    });
+    expect(result.skipped_draft_exists).toBe(1);
+    expect(mem.recipeVersions).toEqual(before);
+  });
+});
+
+describe("«no aparecen en el menú»: Platos with sales this month", () => {
+  it("counts Platos groups, not the option combinations inside them", async () => {
+    world.products = [
+      product(10, "Desayuno Vicentino (Pan con Ajo)"),
+      product(11, "Desayuno Vicentino (Papas)"),
+      product(12, "Desayuno Vicentino (Arroz)"),
+      product(20, "Cena Especial"),
+      product(30, "Plato Con Receta"),
+    ];
+    world.groups = [
+      group("gD", "Desayuno Vicentino", [10, 11, 12]),
+      group("gC", "Cena Especial", [20]),
+      group("gR", "Plato Con Receta", [30], "aprobado"),
+    ];
+    const result = await read();
+    expect(result.not_on_menu).toBe(2);
+    expect(result.not_found).toEqual(["Desayuno Vicentino", "Cena Especial"]);
+  });
+
+  it("a Platos group the menu lists is not «fuera del menú»", async () => {
+    addMenuItem("m1", "Sopa Demo");
+    mem.posProductLinks.push(confirmedLink(1, "Sopa Demo", "m1"));
+    world.products = [product(1, "Sopa Demo", { link_state: "confirmado" })];
+    const result = await read();
+    expect(result.not_on_menu).toBe(0);
+    expect(result.not_found).toEqual([]);
+  });
+});
+
+describe("the month of the last sale", () => {
+  it("reads the same range Resumen opens on and hands the Platos groups on", async () => {
+    db.pos_sales_items = [
+      { company_id: CO, pos_source: "odoo", sale_date: "2026-09-30" },
+      { company_id: CO, pos_source: "odoo", sale_date: "2026-10-20" },
+    ];
+    world.economics.mockResolvedValue({
+      ok: true,
+      list: { products: [{ odoo_product_id: 1 }] },
+      result: { menu_dishes: [{ id: "d1" }] },
+    });
+    const got = await loadPeriodPlatos(makeFakeDb(db) as never, {
+      companyId: CO,
+      locationId: null,
+    });
+    expect(world.economics).toHaveBeenCalledWith(expect.anything(), {
+      companyId: CO,
+      from: "2026-10-01",
+      to: "2026-10-20",
+      locationId: null,
+    });
+    expect(got.range).toEqual({ from: "2026-10-01", to: "2026-10-20" });
+    expect(got.menu_dishes).toHaveLength(1);
+  });
+
+  it("with no sales there is nothing to read", async () => {
+    db.pos_sales_items = [];
+    const got = await loadPeriodPlatos(makeFakeDb(db) as never, {
+      companyId: CO,
+      locationId: null,
+    });
+    expect(got).toEqual({ range: null, products: [], menu_dishes: [] });
+    expect(world.economics).not.toHaveBeenCalled();
   });
 });

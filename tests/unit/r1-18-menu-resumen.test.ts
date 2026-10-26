@@ -252,7 +252,10 @@ describe("computeResumen", () => {
   it("Top platos by sales with shares that come from the range; counts and shares for Pendientes", () => {
     expect(month.top[0]).toMatchObject({ name: "Uno", product_id: 1 });
     expect(month.top[0].share).toBeCloseTo(200 / 400, 6);
-    expect(month.counts.falta_precio.share).toBeCloseTo(100 / 400, 6);
+    // «Dos» is mixed (Dos@a approved 50, Dos@b without price 50): it counts
+    // once and its share is only the non-approved half (50/400, not 100/400).
+    expect(month.counts.falta_precio.dishes).toBe(1);
+    expect(month.counts.falta_precio.share).toBeCloseTo(50 / 400, 6);
     expect(month.counts.estimado.dishes).toBe(1);
   });
   it("only two costed dishes: no ranking, coverage says 2 of N", () => {

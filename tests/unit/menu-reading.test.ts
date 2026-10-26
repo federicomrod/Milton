@@ -27,8 +27,11 @@ import {
   FLAG_NEW_SUGGESTED,
   HAS_RECIPE_REASON,
   NO_COMPONENTS_REASON,
+  buildMenuOutcomes,
   decisionsByPlato,
   planMenuDrafts,
+  platoGroupsFromMenuDishes,
+  platosNotOnMenu,
   type MenuDraftProduct,
 } from "@/lib/restaurant/menu-reading/drafts";
 import {
@@ -479,28 +482,59 @@ describe("menu drafts", () => {
     expect(needsTypedQuantity({ flags: [], qty: 0 })).toBe(false);
   });
 
-  it("summarises the run: one short line per non-zero count, numbers from the fields", () => {
+  it("matches to the menu FIRST: a plato with a recipe is still tied to its menu dish", () => {
+    const [withRecipe, unmatched] = plan([
+      product({ has_recipe: true }),
+      product({
+        odoo_product_id: 2,
+        odoo_name: "Lomo saltado",
+        pos_price: 12,
+        has_recipe: true,
+      }),
+    ]);
+    expect(withRecipe).toMatchObject({ kind: "omitido", code: "has_recipe" });
+    if (withRecipe.kind !== "omitido") return;
+    expect(withRecipe.match?.dish.name).toBe("Parrillada La Ceiba");
+    // Not on the menu stays «no encontrado», recipe or not.
+    expect(unmatched.kind).toBe("no_encontrado");
+  });
+
+  it("summarises the run: the first line splits the MENU's dishes and adds up", () => {
     const result = {
       dishes_read: 12,
       drafted: 3,
       skipped_has_recipe: 4,
       skipped_no_ingredients: 2,
       skipped_draft_exists: 1,
+      no_pos_match: 1,
       not_on_menu: 5,
       failed: 1,
       new_components: 0,
     };
     const lines = menuReadSummaryLines(result);
     expect(lines.map((l) => l.text)).toEqual([
-      "Leí 12 platos en tu menú.",
+      "Leí 12 platos en tu menú: 3 con borrador nuevo, 4 ya tenían receta, 1 ya tenía borrador, 2 no dicen qué llevan, 1 sin producto en tu POS, 1 con error.",
       "Preparé 3 borradores de receta. Las cantidades quedan pendientes: tú las escribes.",
-      "4 platos ya tienen receta: no los cambié.",
       "2 platos del menú no dicen qué llevan: no pude armar el borrador. Usa «Estimar con Milton».",
-      "1 plato ya tenía un borrador del menú.",
-      "5 platos sin receta no aparecen en el menú.",
+      "5 platos con ventas este mes no tienen receta y no aparecen en el menú.",
       "No pude preparar 1 plato. Intenta de nuevo.",
     ]);
+    const parts = lines[0].text.match(/(\d+) (?=con|ya|no|sin)/g) ?? [];
+    expect(parts.reduce((sum, n) => sum + Number(n), 0)).toBe(12);
     expect(menuReadSummary(result)).toBe(lines.map((l) => l.text).join(" "));
+  });
+
+  it("the example from the spec", () => {
+    expect(
+      menuReadSummaryLines({
+        dishes_read: 34,
+        drafted: 9,
+        skipped_has_recipe: 10,
+        no_pos_match: 15,
+      })[0].text
+    ).toBe(
+      "Leí 34 platos en tu menú: 9 con borrador nuevo, 10 ya tenían receta, 15 sin producto en tu POS."
+    );
   });
 
   it("hides zero lines, but always shows the first two, with singulars", () => {
@@ -509,33 +543,145 @@ describe("menu drafts", () => {
     ).toEqual(["Leí 1 plato en tu menú.", "Preparé 0 borradores de receta."]);
     expect(
       menuReadSummaryLines({
-        dishes_read: 1,
+        dishes_read: 3,
         drafted: 1,
         skipped_has_recipe: 1,
         skipped_no_ingredients: 1,
         not_on_menu: 1,
       }).map((l) => l.text)
     ).toEqual([
-      "Leí 1 plato en tu menú.",
+      "Leí 3 platos en tu menú: 1 con borrador nuevo, 1 ya tenía receta, 1 no dice qué lleva.",
       "Preparé 1 borrador de receta. Las cantidades quedan pendientes: tú las escribes.",
-      "1 plato ya tiene receta: no lo cambié.",
       "1 plato del menú no dice qué lleva: no pude armar el borrador. Usa «Estimar con Milton».",
-      "1 plato sin receta no aparece en el menú.",
+      "1 plato con ventas este mes no tiene receta y no aparece en el menú.",
     ]);
   });
 
   it("says «plato», never «platillo», and never counts POS products as platos", () => {
     const text = menuReadSummary({
-      dishes_read: 2,
+      dishes_read: 12,
       drafted: 1,
       skipped_has_recipe: 2,
       skipped_no_ingredients: 2,
       skipped_draft_exists: 2,
+      no_pos_match: 3,
       not_on_menu: 2,
       failed: 2,
     });
     expect(text).not.toMatch(/platillo|del POS|productos/i);
     expect(text).toContain("platos");
+  });
+});
+
+describe("the report per menu dish", () => {
+  const dishes: MenuDish[] = [
+    { ...DISHES[0] },
+    { ...DISHES[0], name: "Sopa Demo", components: [] },
+    { ...DISHES[0], name: "Otro Plato" },
+  ];
+  const prod = (id: number, name: string): MenuDraftProduct => ({
+    odoo_product_id: id,
+    odoo_name: name,
+    pos_price: null,
+    link_state: "sin_vincular",
+    has_recipe: false,
+  });
+  const decision = (
+    kind: "draft" | "has_recipe" | "no_encontrado",
+    dish: MenuDish | null,
+    p: MenuDraftProduct
+  ) =>
+    (kind === "no_encontrado"
+      ? { kind, product: p, siblings: [] }
+      : kind === "draft"
+        ? {
+            kind,
+            product: p,
+            match: { dish, variant: null, score: 1, basis: "nombre" },
+            evidence: {},
+            new_components: 0,
+            siblings: [],
+          }
+        : {
+            kind: "omitido",
+            code: "has_recipe",
+            reason: "",
+            product: p,
+            match: { dish, variant: null, score: 1, basis: "nombre" },
+            siblings: [],
+          }) as never;
+
+  it("has exactly one entry per menu dish, in menu order, and they sum to N", () => {
+    const out = buildMenuOutcomes(dishes, [
+      decision("draft", dishes[0], prod(1, "Plato Uno")),
+      decision("no_encontrado", null, prod(9, "Fuera")),
+    ]);
+    expect(out.map((o) => [o.menu_dish, o.outcome])).toEqual([
+      ["Parrillada La Ceiba", "drafted"],
+      ["Sopa Demo", "no_pos_match"],
+      ["Otro Plato", "no_pos_match"],
+    ]);
+    expect(out).toHaveLength(dishes.length);
+  });
+
+  it("the best outcome wins and lists its Odoo products; a failed draft says failed", () => {
+    const out = buildMenuOutcomes(
+      dishes,
+      [
+        decision("has_recipe", dishes[0], prod(1, "A")),
+        decision("draft", dishes[0], prod(2, "B")),
+        decision("draft", dishes[1], prod(3, "C")),
+      ],
+      new Set([3])
+    );
+    expect(out[0]).toEqual({
+      menu_dish: "Parrillada La Ceiba",
+      outcome: "drafted",
+      products: [{ odoo_product_id: 2, odoo_name: "B" }],
+    });
+    expect(out[1].outcome).toBe("failed");
+  });
+
+  it("Platos groups: only unmatched groups whose worst uncovered status is «sin receta» are listed", () => {
+    const variant = (id: number, status: string, covered = false) => ({
+      odoo_product_id: id,
+      name: `p${id}`,
+      status,
+      covered,
+    });
+    const plato = (id: string, name: string, variants: unknown[]) =>
+      ({ id, name, variants }) as never;
+    const groups = platoGroupsFromMenuDishes(
+      [
+        plato("g1", "Desayuno Vicentino", [
+          variant(1, "sin_receta"),
+          variant(2, "sin_receta"),
+        ]),
+        plato("g2", "Churrasco Mixto", [
+          variant(3, "aprobado", true),
+          variant(4, "sin_receta"),
+        ]),
+        plato("g3", "Plato Aprobado", [variant(5, "aprobado", true)]),
+        plato("g4", "Parrillada La Ceiba", [variant(6, "sin_receta")]),
+        plato("g5", "Con Borrador", [variant(7, "borrador")]),
+      ],
+      (id) => ({
+        odoo_name: id === 6 ? "Parrillada La Ceiba 2P" : `Producto ${id}`,
+        pos_price: null,
+      })
+    );
+    expect(groups.map((g) => g.sin_receta)).toEqual([
+      true,
+      true,
+      false,
+      true,
+      false,
+    ]);
+    // g1 and g2 match no menu dish; g4 matches the menu; g3/g5 are not sin receta.
+    expect(platosNotOnMenu(groups, DISHES)).toEqual([
+      "Desayuno Vicentino",
+      "Churrasco Mixto",
+    ]);
   });
 });
 

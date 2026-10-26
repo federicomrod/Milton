@@ -57,7 +57,7 @@ export type DishEconomicsLoad =
   | { ok: false; error: string };
 
 const VERSION_SELECT =
-  "id, menu_item_id, version_number, status, effective_date, approved_at, created_at";
+  "id, menu_item_id, version_number, status, effective_date, approved_at, created_at, notes";
 const INPUT_SELECT =
   "id, recipe_version_id, input_type, ingredient_id, component_id, quantity, unit, unit_cost, cost_source";
 

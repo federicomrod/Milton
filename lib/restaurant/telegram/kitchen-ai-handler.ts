@@ -3,7 +3,7 @@
  * - Keeps existing flows (invoice, recipe, stock reports, unit questions) working
  * - AI interprets ambiguous cases that would get generic "Recibido"
  * - Never crashes, never silent, always replies
- * 
+ *
  * TODAY'S PRODUCTION REQUIREMENTS:
  * - Whatever kitchen sends → captured as draft OR smart Spanish reply
  * - Never bare "Recibido", never silence, never crash
@@ -37,9 +37,7 @@ export type AiHandlerContext = {
  * Handles messages based on AI intent classification.
  * Returns true if handled, false if should fall through to existing logic.
  */
-export async function handleWithAi(
-  ctx: AiHandlerContext
-): Promise<boolean> {
+export async function handleWithAi(ctx: AiHandlerContext): Promise<boolean> {
   try {
     // Build context from existing data
     const context = await buildKitchenContext(
@@ -58,12 +56,18 @@ export async function handleWithAi(
     // Handle each intent
     return await handleIntent(result, ctx);
   } catch (err) {
-    console.error("[kitchen-ai-handler] failed:", err instanceof Error ? err.message : "unknown");
+    console.error(
+      "[kitchen-ai-handler] failed:",
+      err instanceof Error ? err.message : "unknown"
+    );
     // On hard failure, send fallback reply
     try {
       await sendTelegramMessage(
         ctx.chatId,
-        renderKitchenCopy(KITCHEN_COPY.PROCESSING_FAILED, destinationVars(ctx.staff)),
+        renderKitchenCopy(
+          KITCHEN_COPY.PROCESSING_FAILED,
+          destinationVars(ctx.staff)
+        ),
         ctx.markup ? { replyMarkup: ctx.markup } : undefined
       );
     } catch {
@@ -165,7 +169,6 @@ export async function storeAsReport(
   report: {
     telegram_message_id: number;
     text?: string | null;
-    transcript?: string | null;
     media_kind?: "photo" | "voice" | null;
     telegram_file_id?: string | null;
   }
@@ -180,7 +183,6 @@ export async function storeAsReport(
         telegram_message_id: report.telegram_message_id,
         report_type: "unclassified",
         text: report.text || null,
-        transcript: report.transcript || null,
         media_kind: report.media_kind || null,
         telegram_file_id: report.telegram_file_id || null,
         telegram_file_unique_id: null,
@@ -201,7 +203,10 @@ export async function storeAsReport(
       return data?.id || null;
     }
   } catch (err) {
-    console.error("[kitchen-ai-handler] store failed:", err instanceof Error ? err.message : "unknown");
+    console.error(
+      "[kitchen-ai-handler] store failed:",
+      err instanceof Error ? err.message : "unknown"
+    );
   }
   return null;
 }

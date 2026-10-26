@@ -362,23 +362,24 @@ async function handleKitchenReport(
   if (message.chat?.type !== "private" || !fromId) return;
 
   // Handle unsupported media types (sticker, video, non-PDF document, location, etc.)
-  if (
-    message.sticker ||
-    message.video ||
-    message.video_note ||
-    message.location ||
-    message.contact ||
-    message.animation ||
+  const msg = message as Record<string, unknown>;
+  const hasUnsupportedMedia =
+    msg.sticker ||
+    msg.video ||
+    msg.video_note ||
+    msg.location ||
+    msg.contact ||
+    msg.animation ||
     (message.document &&
       !message.document.mime_type?.startsWith("image/") &&
-      message.document.mime_type !== "application/pdf")
-  ) {
+      message.document.mime_type !== "application/pdf");
+
+  if (hasUnsupportedMedia) {
     try {
       const links = await listActiveLinks(fromId);
       if (links.length > 0) {
-        const { handleUnsupportedMedia } = await import(
-          "@/lib/restaurant/telegram/kitchen-ai-handler"
-        );
+        const { handleUnsupportedMedia } =
+          await import("@/lib/restaurant/telegram/kitchen-ai-handler");
         await handleUnsupportedMedia(chatId, linkToActor(links[0]));
       }
     } catch {
@@ -1253,9 +1254,8 @@ async function processRecipeDraftAsync(
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {
         // Try AI interpretation for greeting/question/unclear messages
-        const { handleWithAi } = await import(
-          "@/lib/restaurant/telegram/kitchen-ai-handler"
-        );
+        const { handleWithAi } =
+          await import("@/lib/restaurant/telegram/kitchen-ai-handler");
         const handled = await handleWithAi({
           admin,
           staff,
@@ -1372,9 +1372,8 @@ async function processPhotoAsync(
         return;
       } else {
         // Not recognized at all: explain what photos can be used for
-        const { handleUnrecognizedPhoto } = await import(
-          "@/lib/restaurant/telegram/kitchen-ai-handler"
-        );
+        const { handleUnrecognizedPhoto } =
+          await import("@/lib/restaurant/telegram/kitchen-ai-handler");
         await handleUnrecognizedPhoto(chatId, staff, markup);
         return;
       }

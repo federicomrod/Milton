@@ -1,7 +1,7 @@
 /**
  * AI-FIRST kitchen message interpreter with conversation context.
- * 
- * Takes: message text/transcript + last ~5 messages + company currency + 
+ *
+ * Takes: message text/transcript + last ~5 messages + company currency +
  * ingredient catalog (top N fuzzy matched) → strict JSON with intent,
  * items (product, matched_ingredient_id, amount, unit, currency), and
  * clarify_question if ambiguous.
@@ -16,7 +16,10 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
-import { parseUnitAnswer, type Currency } from "./price-update";
+import { parseUnitAnswer } from "./price-update";
+import type { Currency } from "./price-update";
+
+export type { Currency } from "./price-update";
 
 export const KITCHEN_INTENT_TIMEOUT_MS = 15000;
 export const KITCHEN_INTENT_TEXT_CHARS = 2000;
@@ -69,13 +72,44 @@ export type KitchenIntentContext = {
   pending_question: PendingQuestion | null;
 };
 
-const VALID_CURRENCIES: readonly Currency[] = ["USD", "MXN", "CRC", "GTQ", "HNL", "PEN", "EUR", "NIO"];
-const VALID_UNITS = ["lb", "kg", "oz", "g", "unidad", "pza", "litro", "galón", "caja", "docena", "quintal", "saco", "atado", "bolsa", "paquete", "lata", "botella", "frasco", "manojo", "bandeja", "arroba"];
+const VALID_CURRENCIES: readonly Currency[] = [
+  "USD",
+  "MXN",
+  "CRC",
+  "GTQ",
+  "HNL",
+  "PEN",
+  "EUR",
+  "NIO",
+];
+const VALID_UNITS = [
+  "lb",
+  "kg",
+  "oz",
+  "g",
+  "unidad",
+  "pza",
+  "litro",
+  "galón",
+  "caja",
+  "docena",
+  "quintal",
+  "saco",
+  "atado",
+  "bolsa",
+  "paquete",
+  "lata",
+  "botella",
+  "frasco",
+  "manojo",
+  "bandeja",
+  "arroba",
+];
 
 function buildSystemPrompt(context: KitchenIntentContext): string {
   const currencyList = VALID_CURRENCIES.join(", ");
   const unitList = VALID_UNITS.join(", ");
-  
+
   let ingredientSection = "";
   if (context.ingredient_hints.length > 0) {
     const list = context.ingredient_hints
@@ -112,7 +146,11 @@ Devuelve SOLO JSON:
       "matched_ingredient_id": string | null,
       "amount": number,
       "unit": string | null,
-      "currency": "${context.company_currency}" | ${currencyList.split(", ").filter(c => c !== context.company_currency).map(c => `"${c}"`).join(" | ")} | null
+      "currency": "${context.company_currency}" | ${currencyList
+        .split(", ")
+        .filter((c) => c !== context.company_currency)
+        .map((c) => `"${c}"`)
+        .join(" | ")} | null
     }
   ],
   "clarify_question": string | null
@@ -156,7 +194,7 @@ export type KitchenIntentAi = (
 export const askKitchenIntentAi: KitchenIntentAi = async (text, context) => {
   const made = await createOpenAIClient(KITCHEN_INTENT_TIMEOUT_MS);
   if (!made.ok) return null;
-  
+
   try {
     const completion = await made.client.chat.completions.create({
       model: openAiModel(),
@@ -188,34 +226,34 @@ export function validateKitchenIntent(
   context: KitchenIntentContext
 ): KitchenIntentResult | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  
+
   const obj = raw as Record<string, unknown>;
-  
+
   // Validate intent
   const intent = obj.intent;
   if (typeof intent !== "string") return null;
   const validIntents = [
     "price_update",
-    "answer_to_pending", 
+    "answer_to_pending",
     "stock_report",
     "recipe",
     "invoice_photo",
     "question",
     "greeting_or_smalltalk",
     "complaint_or_problem",
-    "unclear"
+    "unclear",
   ];
   if (!validIntents.includes(intent)) return null;
 
   // Validate items array
   const itemsRaw = obj.items;
   if (!Array.isArray(itemsRaw)) return null;
-  
+
   const items: KitchenIntentItem[] = [];
   const textLower = text.toLowerCase().replace(/\s+/g, " ");
   const numberRe = /(?<![\d:/.,-])(\d+(?:[.,]\d{1,2})?)(?!\d|[:/-]\d|[.,]\d)/g;
   const numbersInText = new Set<number>();
-  
+
   for (const m of textLower.matchAll(numberRe)) {
     const val = parseFloat(m[1].replace(",", "."));
     if (Number.isFinite(val) && val > 0) {
@@ -246,24 +284,29 @@ export function validateKitchenIntent(
 
     // Validate matched_ingredient_id
     const matched_ingredient_id =
-      item.matched_ingredient_id === null || item.matched_ingredient_id === undefined
+      item.matched_ingredient_id === null ||
+      item.matched_ingredient_id === undefined
         ? null
         : typeof item.matched_ingredient_id === "string"
-        ? item.matched_ingredient_id
-        : null;
+          ? item.matched_ingredient_id
+          : null;
 
     // Validate amount - MUST appear in text
-    if (typeof item.amount !== "number" || !Number.isFinite(item.amount)) continue;
+    if (typeof item.amount !== "number" || !Number.isFinite(item.amount))
+      continue;
     const amount = item.amount;
     if (amount <= 0 || amount > 100000) continue;
-    
+
     // Check if amount appears in text (with tolerance for rounding)
     const amountRounded = Math.round(amount * 100) / 100;
     if (!numbersInText.has(amount) && !numbersInText.has(amountRounded)) {
       // Also check if it's a simple integer match
       const intAmount = Math.round(amount);
       if (Math.abs(amount - intAmount) < 0.01) {
-        if (!numbersInText.has(intAmount) && !textLower.includes(String(intAmount))) {
+        if (
+          !numbersInText.has(intAmount) &&
+          !textLower.includes(String(intAmount))
+        ) {
           continue; // Amount not in text, skip
         }
       } else {
@@ -287,7 +330,11 @@ export function validateKitchenIntent(
 
     // Validate currency - must be from valid list or null
     let currency: Currency | null = null;
-    if (item.currency !== null && item.currency !== undefined && item.currency !== "") {
+    if (
+      item.currency !== null &&
+      item.currency !== undefined &&
+      item.currency !== ""
+    ) {
       if (typeof item.currency !== "string") continue;
       const cur = item.currency.toUpperCase();
       if (VALID_CURRENCIES.includes(cur as Currency)) {
@@ -311,8 +358,8 @@ export function validateKitchenIntent(
     obj.clarify_question === null || obj.clarify_question === undefined
       ? null
       : typeof obj.clarify_question === "string"
-      ? obj.clarify_question.slice(0, 300) || null
-      : null;
+        ? obj.clarify_question.slice(0, 300) || null
+        : null;
 
   return {
     intent: intent as KitchenIntent,

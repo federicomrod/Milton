@@ -9,9 +9,22 @@
 export const PRICE_UPDATE_MAX_ITEMS = 25;
 const MAX_PRICE = 100000;
 
-export type Currency = "USD" | "MXN" | "CRC" | "GTQ" | "HNL" | "PEN" | "EUR" | "NIO";
+export type Currency =
+  | "USD"
+  | "MXN"
+  | "CRC"
+  | "GTQ"
+  | "HNL"
+  | "PEN"
+  | "EUR"
+  | "NIO";
 
-export type PriceUpdateItem = { name: string; price: number; unit: string; currency?: Currency | null };
+export type PriceUpdateItem = {
+  name: string;
+  price: number;
+  unit: string;
+  currency?: Currency | null;
+};
 
 export type PriceUpdateParse =
   | { kind: "price_update"; items: PriceUpdateItem[] }
@@ -105,7 +118,9 @@ function detectCurrency(foldedRest: string): Currency | null {
 /** Checks if the text starts with Q followed immediately by a digit (Q150). */
 function hasQPrefix(original: string, start: number): boolean {
   if (start === 0) return false;
-  const before = original.slice(Math.max(0, start - 1), start + 1).toLowerCase();
+  const before = original
+    .slice(Math.max(0, start - 1), start + 1)
+    .toLowerCase();
   return Q_PREFIX.test(before);
 }
 
@@ -181,7 +196,8 @@ const WORD_VALUES: Record<string, number> = {
 };
 const ONES_W = "uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve";
 const TENS_W = "treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa";
-const HUNDREDS_W = "(?:cien(?:to)?|doscientos?|doscientas?|trescientos?|trescientas?|cuatrocientos?|cuatrocientas?|quinientos?|quinientas?|seiscientos?|seiscientas?|setecientos?|setecientas?|ochocientos?|ochocientas?|novecientos?|novecientas?)";
+const HUNDREDS_W =
+  "(?:cien(?:to)?|doscientos?|doscientas?|trescientos?|trescientas?|cuatrocientos?|cuatrocientas?|quinientos?|quinientas?|seiscientos?|seiscientas?|setecientos?|setecientas?|ochocientos?|ochocientas?|novecientos?|novecientas?)";
 const UP_TO_29 = Object.keys(WORD_VALUES)
   .filter((w) => WORD_VALUES[w] < 30)
   .sort((a, b) => b.length - a.length)
@@ -462,9 +478,18 @@ function parseSegment(folded: string, original: string): SegmentResult {
     let pos = end;
     const rest = folded.slice(pos);
 
-    const cur = CURRENCY_AFTER.exec(rest);
-    const currency = !!cur;
-    if (cur) pos += cur[0].length;
+    const detectedCurrency = detectCurrency(rest);
+    const currency = detectedCurrency !== null;
+    if (currency) {
+      // Find how many chars the currency match consumed
+      for (const [pattern] of CURRENCY_PATTERNS) {
+        const match = pattern.exec(rest);
+        if (match) {
+          pos += match[0].length;
+          break;
+        }
+      }
+    }
     // Nothing after the price (and its currency): «queso 3.25», «aguacate $1.50».
     const atEnd = /^[\s.!?)]*$/.test(folded.slice(pos));
 

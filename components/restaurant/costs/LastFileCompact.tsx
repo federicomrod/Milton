@@ -7,6 +7,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { ageLabel } from "@/lib/restaurant/costs-setup-client";
 
 type Upload = {
   id: string;
@@ -65,19 +66,4 @@ export function LastFileCompact({
       </p>
     </section>
   );
-}
-
-function ageLabel(
-  createdAt: string | null | undefined,
-  now: number
-): string | null {
-  if (!createdAt) return null;
-  const t = Date.parse(createdAt);
-  if (Number.isNaN(t)) return null;
-  const days = Math.max(0, Math.floor((now - t) / 86_400_000));
-  return days === 0
-    ? "de hoy"
-    : days === 1
-      ? "de hace 1 día"
-      : `de hace ${days} días`;
 }

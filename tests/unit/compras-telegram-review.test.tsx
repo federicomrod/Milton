@@ -111,6 +111,8 @@ describe("Compras: Telegram invoices", () => {
     // total is not computable: never "$0.00"
     expect(screen.getAllByText("Incompleto").length).toBeGreaterThan(0);
     expect(screen.queryByText(/\$0\.00/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/USD\s?0\.00/);
+    expect(document.body.textContent).not.toMatch(/(?<!\d)0[.,]00/);
     // the list row now shows «por Telegram» as text; the chip lives in the panel only
     expect(screen.getAllByTestId("telegram-label").length).toBe(1);
   });

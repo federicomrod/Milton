@@ -16,6 +16,7 @@ import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { fmtMoney } from "@/components/restaurant/InvoicesPage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +36,20 @@ export interface SupplierRow {
   ingredient_count: number;
   latest_cost_date: string | null;
   total_spend: number | null;
+  /** Company currency for «gasto total»; missing = USD. */
+  currency?: string;
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  active: "Activo",
+  inactive: "Inactivo",
+  archived: "Archivado",
+};
+
+/** «2026-03-05» → «05/03/2026» (string split: no timezone shift). */
+export function formatSupplierDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +108,7 @@ export function SuppliersPage({
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Plus className="h-4 w-4" /> New supplier
+                <Plus className="h-4 w-4" /> Nuevo proveedor
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -163,7 +178,7 @@ function SupplierCard({
   const onArchive = () => {
     if (
       !confirm(
-        `Archive "${supplier.name}"?\n\nThe supplier will be hidden from new cost entries but existing cost history is preserved.`
+        `¿Archivar a «${supplier.name}»?\n\nEl proveedor se ocultará en los costos nuevos, pero el historial de costos se conserva.`
       )
     )
       return;
@@ -183,7 +198,7 @@ function SupplierCard({
         }
         onArchived(supplier.id);
       } catch (err) {
-        setArchiveError(err instanceof Error ? err.message : "Network error");
+        setArchiveError(err instanceof Error ? err.message : "Error de red");
       }
     });
   };
@@ -214,9 +229,9 @@ function SupplierCard({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-sm">{supplier.name}</span>
                 <span
-                  className={`text-xs uppercase tracking-wide rounded px-1.5 py-0.5 font-medium ${statusColor}`}
+                  className={`text-xs rounded px-1.5 py-0.5 font-medium ${statusColor}`}
                 >
-                  {supplier.status}
+                  {STATUS_LABEL[supplier.status] ?? supplier.status}
                 </span>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
@@ -237,25 +252,22 @@ function SupplierCard({
                 <div className="font-semibold text-base">
                   {supplier.ingredient_count}
                 </div>
-                <div className="text-muted-foreground">ingredients</div>
+                <div className="text-muted-foreground">ingredientes</div>
               </div>
               {supplier.latest_cost_date && (
                 <div>
                   <div className="font-semibold text-base">
-                    {supplier.latest_cost_date}
+                    {formatSupplierDate(supplier.latest_cost_date)}
                   </div>
-                  <div className="text-muted-foreground">last purchase</div>
+                  <div className="text-muted-foreground">última compra</div>
                 </div>
               )}
               {supplier.total_spend !== null && (
                 <div>
                   <div className="font-semibold text-base">
-                    {supplier.total_spend.toLocaleString("es-MX", {
-                      minimumFractionDigits: 0,
-                      maximumFractionDigits: 0,
-                    })}
+                    {fmtMoney(supplier.total_spend, supplier.currency ?? "USD")}
                   </div>
-                  <div className="text-muted-foreground">total spend</div>
+                  <div className="text-muted-foreground">gasto total</div>
                 </div>
               )}
             </div>
@@ -270,17 +282,17 @@ function SupplierCard({
                 onClick={() => setEditing(true)}
               >
                 <Pencil className="h-3.5 w-3.5" />
-                Edit
+                Editar
               </Button>
               {supplier.status !== "archived" && (
                 <Button
                   size="sm"
-                  variant="ghost"
-                  className="text-xs text-muted-foreground hover:text-red-700"
+                  variant="outline"
+                  className="text-xs border-[#d5dae3] text-[#151c2c] hover:bg-[#E7EDFD]"
                   onClick={onArchive}
                   disabled={archiving || !canEdit}
                 >
-                  Archive
+                  Archivar
                 </Button>
               )}
             </div>
@@ -326,7 +338,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
   const submit = () => {
     setError(null);
     if (!name.trim()) {
-      setError("Supplier name is required.");
+      setError("El nombre es obligatorio.");
       return;
     }
     startTx(async () => {
@@ -362,7 +374,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
             : null
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Network error");
+        setError(err instanceof Error ? err.message : "Error de red");
       }
     });
   };
@@ -371,28 +383,32 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-xs text-muted-foreground">Name *</span>
+          <span className="text-xs text-muted-foreground">Nombre *</span>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Fresh Fields Co."
+            placeholder="Ej. Distribuidora La Esperanza"
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Status</span>
+          <span className="text-xs text-muted-foreground">Estado</span>
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"
           >
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="archived">Archived</option>
+            <option value="active">Activo</option>
+            {status === "inactive" && (
+              <option value="inactive">Inactivo</option>
+            )}
+            <option value="archived">Archivado</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Contact name</span>
+          <span className="text-xs text-muted-foreground">
+            Nombre de contacto
+          </span>
           <Input
             value={contactName}
             onChange={(e) => setContactName(e.target.value)}
@@ -401,48 +417,50 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Email</span>
+          <span className="text-xs text-muted-foreground">Correo</span>
           <Input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="contact@supplier.com"
+            placeholder="contacto@proveedor.com"
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Phone</span>
+          <span className="text-xs text-muted-foreground">Teléfono</span>
           <Input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+52 55 1234 5678"
+            placeholder="+503 2222 3333"
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Payment terms</span>
+          <span className="text-xs text-muted-foreground">
+            Condiciones de pago
+          </span>
           <Input
             value={paymentTerms}
             onChange={(e) => setPaymentTerms(e.target.value)}
-            placeholder="Net 30"
+            placeholder="30 días"
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-xs text-muted-foreground">Address</span>
+          <span className="text-xs text-muted-foreground">Dirección</span>
           <Input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="Calle Reforma 100, CDMX"
+            placeholder="Calle Arce 100, San Salvador"
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1 md:col-span-3">
-          <span className="text-xs text-muted-foreground">Notes</span>
+          <span className="text-xs text-muted-foreground">Notas</span>
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional notes…"
+            placeholder="Notas opcionales…"
             className="h-9"
           />
         </label>
@@ -455,7 +473,11 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           className="gap-1"
         >
           <Check className="h-4 w-4" />
-          {pending ? "Saving…" : isEdit ? "Save changes" : "Add supplier"}
+          {pending
+            ? "Guardando…"
+            : isEdit
+              ? "Guardar cambios"
+              : "Agregar proveedor"}
         </Button>
         <Button
           size="sm"
@@ -465,7 +487,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           className="gap-1"
         >
           <X className="h-4 w-4" />
-          Cancel
+          Cancelar
         </Button>
         {error && (
           <span className="text-xs text-red-700 dark:text-red-300">

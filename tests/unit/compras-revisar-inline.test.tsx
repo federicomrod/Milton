@@ -445,3 +445,63 @@ describe("Compras: Revisar panel Origen and Agregar línea", () => {
     expect(chip.className).toContain("text-[#1B40C8]");
   });
 });
+
+describe("Compras: the Revisar panel never shows $0", () => {
+  const ZERO = /(?<!\d)0[.,]00/;
+  const openWith = async (
+    lines: Array<Record<string, unknown>>,
+    invOver: Partial<InvoiceListItem> = {}
+  ) => {
+    const inv = item(1, { status: "needs_review", ...invOver });
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ invoice: inv, lines, events: [] }),
+    }));
+    renderPage([inv]);
+    fireEvent.click(revisarButtons()[0]);
+    const panel = await screen.findByTestId("invoice-review-row");
+    await within(panel).findByText("Publicar factura");
+    return panel;
+  };
+  const line = (over: Record<string, unknown>) => ({
+    ...detailLine("ln1"),
+    ...over,
+  });
+  const expectNoZero = (panel: HTMLElement) => {
+    expect(panel.textContent).not.toContain("USD 0.00");
+    expect(panel.textContent).not.toContain("$0.00");
+    expect(panel.textContent ?? "").not.toMatch(ZERO);
+  };
+
+  it("unit_cost 0 and line_total 0: «Sin precio» in both cells", async () => {
+    const panel = await openWith([line({ unit_cost: 0, line_total: 0 })], {
+      total_amount: null,
+    });
+    expectNoZero(panel);
+    expect(
+      within(panel).getAllByText("Sin precio").length
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("unit_cost 0 but line_total 5: the unit cost reads «Sin precio», the total is real", async () => {
+    const panel = await openWith([line({ unit_cost: 0, line_total: 5 })], {
+      total_amount: null,
+    });
+    expectNoZero(panel);
+    expect(within(panel).getAllByText("Sin precio").length).toBeGreaterThan(0);
+    expect(panel.textContent).toContain("5.00");
+  });
+
+  it("total_amount null with lines that add up to 0: «Incompleto», never $0", async () => {
+    const panel = await openWith(
+      [
+        line({ id: "a", unit_cost: 0, line_total: 0 }),
+        line({ id: "b", unit_cost: null, line_total: 0 }),
+      ],
+      { total_amount: null }
+    );
+    expectNoZero(panel);
+    expect(panel.textContent).toContain("Incompleto");
+  });
+});

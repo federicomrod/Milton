@@ -59,7 +59,10 @@ export async function GET() {
   if (suppliersRes.error) {
     console.error("[suppliers GET]", suppliersRes.error.message);
     return NextResponse.json(
-      { error: "Read failed", details: suppliersRes.error.message },
+      {
+        error: "No pude leer los proveedores. Inténtalo de nuevo.",
+        details: suppliersRes.error.message,
+      },
       { status: 500 }
     );
   }
@@ -125,12 +128,18 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo de la solicitud debe ser JSON." },
+      { status: 400 }
+    );
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json({ error: "`name` is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El nombre es obligatorio." },
+      { status: 400 }
+    );
   }
 
   const str = (v: unknown) =>
@@ -165,13 +174,16 @@ export async function POST(req: NextRequest) {
     const pgCode = (error as { code?: string } | null)?.code;
     if (pgCode === "23505") {
       return NextResponse.json(
-        { error: "A supplier with that name already exists" },
+        { error: "Ya existe un proveedor con ese nombre." },
         { status: 409 }
       );
     }
     console.error("[suppliers POST]", error?.message);
     return NextResponse.json(
-      { error: "Create failed", details: error?.message },
+      {
+        error: "No pude crear el proveedor. Inténtalo de nuevo.",
+        details: error?.message,
+      },
       { status: 500 }
     );
   }

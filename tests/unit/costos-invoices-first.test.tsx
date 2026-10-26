@@ -379,8 +379,8 @@ describe("the page order", () => {
       getCachedAuthUser: async () => ({ id: "u1" }),
       getCachedCompanyId: async () => "co-1",
     }));
-    vi.doMock("@/components/restaurant/costs/CostsSetupSection", () => ({
-      CostsSetupSection: () => createElement("div", null, "SETUP-MARKER"),
+    vi.doMock("@/components/restaurant/costs/CostsFileWorkspace", () => ({
+      CostsFileWorkspace: () => createElement("div", null, "FILE-WORKSPACE"),
     }));
     vi.doMock("@/components/restaurant/shell/OperatingPageHeader", () => ({
       OperatingPageHeader: ({ title }: { title: string }) =>
@@ -393,13 +393,18 @@ describe("the page order", () => {
     );
     const at = (s: string) => html.indexOf(s);
     expect(at("Precios que subieron")).toBeGreaterThan(at("HEADER-"));
-    expect(at("Últimas facturas")).toBeGreaterThan(at("Precios que subieron"));
-    expect(at("SETUP-MARKER")).toBeGreaterThan(at("Últimas facturas"));
-    expect(at("Cambios de precio")).toBeGreaterThan(at("SETUP-MARKER"));
+    expect(at("Cambios de precio")).toBeGreaterThan(at("Precios que subieron"));
+    // Workspace sits after the tabs (main column).
+    expect(at("FILE-WORKSPACE")).toBeGreaterThan(at("Cambios de precio"));
+    // Desktop: Últimas facturas lives in the sticky <aside>, not above the tabs.
+    const asideStart = html.indexOf("<aside");
+    const asideEnd = html.indexOf("</aside>");
+    expect(asideStart).toBeGreaterThan(at("Cambios de precio"));
+    expect(html.slice(asideStart, asideEnd)).toContain("Últimas facturas");
     // «con facturas pendientes» links to Compras
     expect(html).toMatch(
       /href="[^"]*tab=compras[^"]*"[^>]*>[\s\S]*?con facturas pendientes/
     );
-    vi.doUnmock("@/components/restaurant/costs/CostsSetupSection");
+    vi.doUnmock("@/components/restaurant/costs/CostsFileWorkspace");
   });
 });

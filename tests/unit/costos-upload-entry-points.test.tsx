@@ -188,13 +188,13 @@ describe("«Subir factura» is a brand-blue secondary", () => {
     join(process.cwd(), "app/dashboard/restaurant/costs/page.tsx"),
     "utf8"
   );
-  it("white background, #1B40C8 border and text, #f6f8fe hover, blue focus ring", () => {
+  it("white background, #1B40C8 border and text, #E7EDFD hover, blue focus ring", () => {
     const at = page.indexOf('"Upload invoice", "Subir factura"');
     const link = page.slice(Math.max(0, at - 600), at);
     expect(link).toContain("border-[#1B40C8]");
     expect(link).toContain("bg-white");
     expect(link).toContain("text-[#1B40C8]");
-    expect(link).toContain("hover:bg-[#f6f8fe]");
+    expect(link).toContain("hover:bg-[#E7EDFD]");
     expect(link).toContain("focus-visible:ring-[#1B40C8]");
   });
   it("no orange anywhere on the Costos page or its tabs", () => {

@@ -47,6 +47,7 @@ import {
 } from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
 import {
   COSTS_FILE_ANCHOR,
+  COSTS_SETUP_REFRESH_EVENT,
   OPEN_COSTS_PICKER_EVENT,
 } from "@/lib/restaurant/costs-picker";
 import { menuResumenHref } from "@/lib/restaurant/menu-links";
@@ -121,15 +122,28 @@ export function nextStepText(action: string): string {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
+function notifySetupRefresh() {
+  window.dispatchEvent(new CustomEvent(COSTS_SETUP_REFRESH_EVENT));
+}
+
 export function CostsSetupSection({
   locationId,
   companyId = null,
   startOpen = false,
+  embeddedInWorkspace = false,
+  onWorkInProgress,
+  onBusyChange,
 }: {
   locationId: string | null;
   companyId?: string | null;
   /** An account with no data yet: the setup IS the next step, so it starts open (unless the person closed it). */
   startOpen?: boolean;
+  /** Mounted inside CostsFileWorkspace: always show the file card, never hide it. */
+  embeddedInWorkspace?: boolean;
+  /** Callback when work is in progress (file uploaded, import pending, reset open). */
+  onWorkInProgress?: (inProgress: boolean) => void;
+  /** Callback when busy state changes. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const key = menuTabKey("resumen", { location: locationId });
@@ -231,6 +245,27 @@ export function CostsSetupSection({
     return () => clearTimeout(id);
   }, [data !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Notify parent about work in progress
+  useEffect(() => {
+    const hasWork =
+      importPending !== null ||
+      busy ||
+      resetOpen ||
+      !!data?.upload_draft_pending;
+    onWorkInProgress?.(hasWork);
+  }, [
+    importPending,
+    busy,
+    resetOpen,
+    data?.upload_draft_pending,
+    onWorkInProgress,
+  ]);
+
+  // Notify parent about busy state
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
+
   if (!data) {
     return failed ? (
       <div
@@ -276,6 +311,7 @@ export function CostsSetupSection({
     } finally {
       markTabsStale();
       await reload().catch(() => undefined);
+      notifySetupRefresh();
       setBusy(false);
       setProgress(null);
       router.refresh();
@@ -286,6 +322,7 @@ export function CostsSetupSection({
   const onPricesSaved = () => {
     markTabsStale();
     void reload().catch(() => undefined);
+    notifySetupRefresh();
     router.refresh();
   };
   const goToImport = () => {
@@ -302,6 +339,7 @@ export function CostsSetupSection({
     markTabsStale();
     setEpoch((n) => n + 1);
     void reload().catch(() => undefined);
+    notifySetupRefresh();
     router.refresh();
   };
   const onUndoBatch = async (batchIds: string[]) => {
@@ -341,10 +379,14 @@ export function CostsSetupSection({
     : setup.next;
   const goToFile = () => {
     // The file card lives in the detail: open it, scroll to it and open the
-    // picker in this same click (the panel stays mounted, hidden, for that).
-    if (!setup.complete) setDetail(true);
-    else if (!expanded) setExpanded(true);
-    panelRef.current?.openPicker();
+    // picker in this same click (the panel stays mounted for that).
+    if (!embeddedInWorkspace) {
+      if (!setup.complete) setDetail(true);
+      else if (!expanded) setExpanded(true);
+    }
+    const open = () => panelRef.current?.openPicker();
+    if (panelRef.current) open();
+    else requestAnimationFrame(open);
     setTimeout(
       () =>
         document
@@ -365,6 +407,87 @@ export function CostsSetupSection({
       onReset={() => setResetOpen(true)}
     />
   );
+  const filePanel = (
+    <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
+      <div className="mb-1 flex items-baseline">
+        <h2 className="text-[13px] font-semibold text-[#151c2c]">
+          Último archivo
+        </h2>
+        {more}
+        {data.latest_upload ? (
+          <span className="ml-auto truncate text-[12px] text-[#6b7280]">
+            {data.latest_upload.filename}
+          </span>
+        ) : (
+          <span className="ml-auto text-[12px] text-[#6b7280]">
+            Aún no subes uno
+          </span>
+        )}
+      </div>
+      <PriceCatalogPanel
+        ref={panelRef}
+        key={`upload-${epoch}`}
+        embedded
+        onUploaded={() => void onUploaded()}
+        onRecipesImported={onResetDone}
+        onPricesSaved={onPricesSaved}
+        onImportPending={setImportPending}
+        locationId={locationId}
+        busyExternal={busy}
+        canEditPrices={canEditPrices}
+      />
+      <p className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
+        <Link
+          href={READ_MENU_HREF}
+          className="font-semibold text-[#1b40c8] hover:underline"
+        >
+          Leer tu menú →
+        </Link>
+      </p>
+    </section>
+  );
+  const resetBlock =
+    resetOpen && data.reset ? (
+      <ResetPanel
+        key={`reset-${epoch}`}
+        reset={data.reset}
+        locationId={locationId}
+        initiallyOpen
+        onCancel={() => setResetOpen(false)}
+        onDone={() => {
+          setResetOpen(false);
+          onResetDone();
+        }}
+      />
+    ) : null;
+  if (embeddedInWorkspace) {
+    return (
+      <div className="space-y-3" data-testid="costs-setup">
+        {error ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        ) : null}
+        {progress ? (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+            Preparando tus platos desde el archivo…{" "}
+            {progress.total
+              ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
+              : "empezando por los platos que más venden"}
+          </div>
+        ) : notice ? (
+          <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
+            {notice}
+          </div>
+        ) : null}
+        {filePanel}
+        {resetBlock}
+      </div>
+    );
+  }
   const age = ageLabel(data.latest_upload?.created_at, Date.now());
 
   const foldedLine =
@@ -544,61 +667,11 @@ export function CostsSetupSection({
             ) : null}
           </section>
 
-          <section
-            id={COSTS_FILE_ANCHOR}
-            className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
-          >
-            <div className="mb-1 flex items-baseline">
-              <h2 className="text-[13px] font-semibold text-[#151c2c]">
-                Último archivo
-              </h2>
-              {data.latest_upload ? (
-                <span className="ml-auto truncate text-[12px] text-[#6b7280]">
-                  {data.latest_upload.filename}
-                </span>
-              ) : (
-                <span className="ml-auto text-[12px] text-[#6b7280]">
-                  Aún no subes uno
-                </span>
-              )}
-            </div>
-            <PriceCatalogPanel
-              ref={panelRef}
-              key={`upload-${epoch}`}
-              embedded
-              onUploaded={() => void onUploaded()}
-              onRecipesImported={onResetDone}
-              onPricesSaved={onPricesSaved}
-              onImportPending={setImportPending}
-              locationId={locationId}
-              busyExternal={busy}
-              canEditPrices={canEditPrices}
-            />
-            <p className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
-              <Link
-                href={READ_MENU_HREF}
-                className="font-semibold text-[#1b40c8] hover:underline"
-              >
-                Leer tu menú →
-              </Link>
-            </p>
-          </section>
+          {filePanel}
         </div>
       }
 
-      {resetOpen && data.reset ? (
-        <ResetPanel
-          key={`reset-${epoch}`}
-          reset={data.reset}
-          locationId={locationId}
-          initiallyOpen
-          onCancel={() => setResetOpen(false)}
-          onDone={() => {
-            setResetOpen(false);
-            onResetDone();
-          }}
-        />
-      ) : null}
+      {resetBlock}
     </div>
   );
 }

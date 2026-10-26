@@ -31,12 +31,19 @@ export function invalidateEstimateProbe(): void {
 // Any save that other Menú tabs show (approval, price, link, import, reset).
 onTabsInvalidated(invalidateEstimateProbe);
 
+/**
+ * The key is company + restaurant: two companies with no location selected
+ * never share an answer, not even for a moment. Without a company id the
+ * answer is not cached at all (the read always goes to the server).
+ */
 export function loadEstimateProbe<T>(
+  companyId: string | null | undefined,
   locationId: string | null,
   load: () => Promise<T>,
   now: number = Date.now()
 ): Promise<T> {
-  const key = locationId ?? "";
+  if (!companyId) return load();
+  const key = `${companyId}|${locationId ?? ""}`;
   const hit = entries.get(key) as Entry<T> | undefined;
   if (hit && now - hit.at <= TAB_FRESH_MS) return Promise.resolve(hit.data);
   const running = inflight.get(key) as Promise<T> | undefined;

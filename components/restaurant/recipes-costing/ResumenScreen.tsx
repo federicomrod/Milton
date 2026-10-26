@@ -116,6 +116,7 @@ export function ResumenScreen({
       menuReader={
         <MenuReaderCard
           canEdit={canEditRecipes(data.actor)}
+          companyId={data.company_id}
           noRecipeDishes={summary.dish_kpis?.no_recipe_dishes ?? null}
           locationId={locationId}
           onDone={() => {

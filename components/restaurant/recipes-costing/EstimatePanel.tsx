@@ -5,6 +5,7 @@
 // purpose: it never replaces the real cost, margin or status of the dish.
 // «Usar como borrador» turns it into a draft recipe the person validates.
 
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
@@ -12,8 +13,11 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import {
   ESTIMATE_BADGE,
   ESTIMATE_USE_BUTTON,
+  ESTIMATE_USE_SUCCESS,
   PRICE_ESTIMATE_BADGE,
+  canUseEstimateAsDraft,
 } from "@/components/restaurant/menu/estimate-overlay";
+import { useToast } from "@/components/ui/use-toast";
 import { PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<string, string> = {
@@ -61,9 +65,11 @@ export function EstimatePanel({
 }) {
   const [posting, setPosting] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const { toast } = useToast();
+  const canUse = canUseEstimateAsDraft(estimate);
 
   async function use() {
-    if (posting) return;
+    if (posting || !canUse) return;
     setPosting(true);
     setNote(null);
     try {
@@ -72,11 +78,23 @@ export function EstimatePanel({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ menu_item_id: estimate.menu_item_id }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        applied?: number;
+      };
       if (!res.ok) {
         setNote(json.error ?? "No pude usar el estimado como borrador.");
         return;
       }
+      // The counts «Estimar con Milton» shows just changed.
+      invalidateEstimateProbe();
+      toast({
+        title: ESTIMATE_USE_SUCCESS(
+          typeof json.applied === "number"
+            ? json.applied
+            : estimate.lines.length
+        ),
+      });
       onUsed();
     } catch {
       setNote("No pude usar el estimado como borrador.");
@@ -142,7 +160,7 @@ export function EstimatePanel({
           {estimate.portion_note}
         </p>
       ) : null}
-      {canEdit ? (
+      {canEdit && canUse ? (
         <div className="flex flex-wrap items-center gap-3">
           <PrimaryBtn disabled={busy || posting} onClick={() => void use()}>
             {ESTIMATE_USE_BUTTON}
@@ -156,6 +174,10 @@ export function EstimatePanel({
             </span>
           ) : null}
         </div>
+      ) : note ? (
+        <span role="status" className="text-[12px] text-[var(--brand-muted)]">
+          {note}
+        </span>
       ) : null}
     </div>
   );

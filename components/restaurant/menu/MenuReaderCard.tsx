@@ -25,12 +25,15 @@ export function noRecipeDishesLabel(n: number): string {
 
 export function MenuReaderCard({
   canEdit,
+  companyId,
   noRecipeDishes,
   locationId,
   onDone,
 }: {
   /** capabilities["recipes.edit"] (canEditRecipes). */
   canEdit: boolean;
+  /** The active company (keys the cached estimate check). */
+  companyId?: string | null;
   /** Dishes with no recipe; null when the page does not know. */
   noRecipeDishes: number | null;
   locationId: string | null;
@@ -92,6 +95,7 @@ export function MenuReaderCard({
           <MenuReaderPanel
             embedded
             canEdit
+            companyId={companyId}
             hideReader={!open}
             busyExternal={false}
             locationId={locationId}

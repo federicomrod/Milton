@@ -12,6 +12,11 @@ import {
   type SalesWeekdayBucket,
 } from "@/lib/restaurant/ask-milton-sales";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { dishFoodCostAnswer } from "@/lib/restaurant/ask-milton-dish-cost";
+import {
+  ASK_MILTON_MAX_FOLLOWUPS,
+  ASK_MILTON_MAX_RELATED_LINKS,
+} from "@/lib/restaurant/ask-milton-limits";
 
 // ---------------------------------------------------------------------------
 // Output schema
@@ -98,7 +103,9 @@ export function isAskMiltonAnswer(v: unknown): v is AskMiltonAnswer {
 export function sanitizeRelatedLinks(
   links: AskMiltonRelatedLink[]
 ): AskMiltonRelatedLink[] {
-  return links.filter((l) => ALLOWED_HREFS.has(l.href)).slice(0, 6);
+  return links
+    .filter((l) => ALLOWED_HREFS.has(l.href))
+    .slice(0, ASK_MILTON_MAX_RELATED_LINKS);
 }
 
 import type { AskMiltonIntent } from "@/lib/restaurant/prompts/intent";
@@ -343,7 +350,7 @@ function mostProfitableAnswer(
       answer: t(
         lang,
         "I don't have enough complete costing data to identify your most profitable dish yet. Add recipes and ingredient costs to enable margin calculation.",
-        "Aún no tengo suficientes datos de costeo completos para identificar tu platillo más rentable. Agrega recetas y costos de ingredientes para habilitar el cálculo de margen."
+        "Aún no tengo suficientes datos de costeo completos para identificar tu plato más rentable. Agrega recetas y costos de ingredientes para habilitar el cálculo de margen."
       ),
       supporting_facts: [],
       related_links: [
@@ -376,7 +383,7 @@ function mostProfitableAnswer(
           ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} profit per serving)`
           : "") +
         ".",
-      `Tu platillo más rentable es ${top.name} con ${pct(top.gross_margin_pct)} de margen bruto` +
+      `Tu plato más rentable es ${top.name} con ${pct(top.gross_margin_pct)} de margen bruto` +
         (top.gross_profit_per_item !== null
           ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} de utilidad por porción)`
           : "") +
@@ -443,7 +450,7 @@ function mostProfitableAnswer(
       t(
         lang,
         "Which dishes are least profitable?",
-        "¿Qué platillos son menos rentables?"
+        "¿Qué platos son menos rentables?"
       ),
       t(
         lang,
@@ -451,203 +458,6 @@ function mostProfitableAnswer(
         "¿Qué ingredientes son más costosos?"
       ),
       t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
-    ],
-    confidence_notes: notes,
-  };
-}
-
-// ---- Least profitable dishes ----
-
-function leastProfitableAnswer(
-  ctx: AskMiltonContext,
-  lang: PreferredLanguage
-): AskMiltonAnswer {
-  const items = ctx.menu.least_profitable_items;
-
-  if (items.length === 0) {
-    // Fall back to briefing low_margin_items
-    return marginFallbackAnswer(ctx, lang);
-  }
-
-  const lines: string[] = [];
-  const facts: AskMiltonSupportingFact[] = [];
-
-  const worst = items[0];
-  lines.push(
-    t(
-      lang,
-      `Least profitable dish: ${worst.name} at ${pct(worst.gross_margin_pct)} gross margin` +
-        (worst.food_cost_pct !== null
-          ? ` (${pct(worst.food_cost_pct)} food cost)`
-          : "") +
-        ".",
-      `Platillo menos rentable: ${worst.name} con ${pct(worst.gross_margin_pct)} de margen bruto` +
-        (worst.food_cost_pct !== null
-          ? ` (${pct(worst.food_cost_pct)} de costo de alimentos)`
-          : "") +
-        "."
-    )
-  );
-  facts.push({
-    label: worst.name,
-    value: pct(worst.gross_margin_pct),
-    source_area: "menu",
-  });
-
-  if (items.length > 1) {
-    const rest = items
-      .slice(1, 4)
-      .map((i) => `${i.name} (${pct(i.gross_margin_pct)})`)
-      .join(", ");
-    lines.push(
-      t(lang, `Also low-margin: ${rest}.`, `También con margen bajo: ${rest}.`)
-    );
-    for (const i of items.slice(1, 3)) {
-      facts.push({
-        label: i.name,
-        value: pct(i.gross_margin_pct),
-        source_area: "menu",
-      });
-    }
-  }
-
-  const missingCount = ctx.briefing.data_quality.menu_items_without_recipe;
-  const notes: string[] = [];
-  if (ctx.briefing.kpis.cost_coverage_pct < 90) {
-    notes.push(
-      t(
-        lang,
-        `Cost coverage ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes are ranked here.`,
-        `Cobertura de costo ${ctx.briefing.kpis.cost_coverage_pct}% — solo los artículos con recetas completas están clasificados aquí.`
-      )
-    );
-  }
-  if (missingCount > 0) {
-    notes.push(
-      t(
-        lang,
-        `${missingCount} item(s) without recipes are excluded.`,
-        `${missingCount} artículo(s) sin receta quedaron excluidos.`
-      )
-    );
-  }
-
-  return {
-    answer: lines.join(" "),
-    supporting_facts: facts.slice(0, 4),
-    related_links: [
-      relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant"),
-    ],
-    suggested_followups: [
-      t(
-        lang,
-        "What is my most profitable dish?",
-        "¿Cuál es mi platillo más rentable?"
-      ),
-      t(
-        lang,
-        "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
-      ),
-      t(
-        lang,
-        "Which menu items have missing recipes?",
-        "¿Qué artículos del menú no tienen receta?"
-      ),
-    ],
-    confidence_notes: notes,
-  };
-}
-
-// ---- Generic margin fallback (when profitability data is empty) ----
-
-function marginFallbackAnswer(
-  ctx: AskMiltonContext,
-  lang: PreferredLanguage
-): AskMiltonAnswer {
-  const b = ctx.briefing;
-  const lines: string[] = [];
-  const facts: AskMiltonSupportingFact[] = [];
-
-  if (b.kpis.estimated_gross_margin_pct !== null) {
-    lines.push(
-      t(
-        lang,
-        `Estimated gross margin is ${pct(b.kpis.estimated_gross_margin_pct)} with food cost at ${pct(b.kpis.food_cost_pct)}.`,
-        `El margen bruto estimado es ${pct(b.kpis.estimated_gross_margin_pct)} con un costo de alimentos de ${pct(b.kpis.food_cost_pct)}.`
-      )
-    );
-    facts.push({
-      label: t(lang, "Gross margin (est.)", "Margen bruto (est.)"),
-      value: pct(b.kpis.estimated_gross_margin_pct),
-      source_area: "menu",
-    });
-  } else if (b.kpis.estimated_gross_margin_pct_reason) {
-    lines.push(b.kpis.estimated_gross_margin_pct_reason);
-  }
-
-  if (b.low_margin_items.length > 0) {
-    const names = b.low_margin_items
-      .slice(0, 3)
-      .map((m) => `${m.name} (${pct(m.gross_margin_pct)})`)
-      .join(", ");
-    lines.push(
-      t(
-        lang,
-        `Lowest-margin items: ${names}.`,
-        `Artículos con menor margen: ${names}.`
-      )
-    );
-    for (const m of b.low_margin_items.slice(0, 2)) {
-      facts.push({
-        label: m.name,
-        value: pct(m.gross_margin_pct),
-        source_area: "menu",
-      });
-    }
-  }
-
-  const notes: string[] = [];
-  if (b.kpis.cost_coverage_pct < 90) {
-    notes.push(
-      t(
-        lang,
-        `Cost coverage is ${b.kpis.cost_coverage_pct}% — margin numbers only cover that share of revenue.`,
-        `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — los márgenes solo cubren esa parte de los ingresos.`
-      )
-    );
-  }
-
-  return {
-    answer:
-      lines.join(" ") ||
-      t(
-        lang,
-        "No margin data available yet.",
-        "Aún no hay datos de margen disponibles."
-      ),
-    supporting_facts: facts.slice(0, 4),
-    related_links: [
-      relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant"),
-    ],
-    suggested_followups: [
-      t(
-        lang,
-        "Which dishes should I fix first?",
-        "¿Qué platillos debería corregir primero?"
-      ),
-      t(
-        lang,
-        "Which menu items have missing recipes?",
-        "¿Qué artículos del menú no tienen receta?"
-      ),
-      t(
-        lang,
-        "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
-      ),
     ],
     confidence_notes: notes,
   };
@@ -661,20 +471,6 @@ function marginFallbackAnswer(
 //   Tier 3 — high_food_cost_items / low_margin_items (menu cost lens)
 //   Tier 4 — clear diagnostic, never generic "no data"
 //
-// All tiers append a business note about profitability impact.
-
-function ingredientCostBusinessNote(lang: PreferredLanguage): string {
-  return t(
-    lang,
-    "Unit cost alone does not show profitability impact. " +
-      "What matters most is how much of the ingredient is used in recipes " +
-      "and how much those dishes sell.",
-    "El costo unitario por sí solo no muestra el impacto en la rentabilidad. " +
-      "Lo que más importa es cuánto se usa el ingrediente en las recetas " +
-      "y cuánto se venden esos platillos."
-  );
-}
-
 function expensiveIngredientsAnswer(
   ctx: AskMiltonContext,
   lang: PreferredLanguage
@@ -683,12 +479,12 @@ function expensiveIngredientsAnswer(
     t(
       lang,
       "Which dishes use these ingredients?",
-      "¿Qué platillos usan estos ingredientes?"
+      "¿Qué platos usan estos ingredientes?"
     ),
     t(
       lang,
       "Which dishes have the highest food cost?",
-      "¿Qué platillos tienen el mayor costo de alimentos?"
+      "¿Qué platos tienen el mayor costo de alimentos?"
     ),
     t(
       lang,
@@ -712,52 +508,31 @@ function expensiveIngredientsAnswer(
     const top = prices.top_by_unit_cost.slice(0, 5);
     const money = (i: (typeof top)[number]) =>
       `${fmtCurrencyDec(i.price, i.currency)}/${i.unit}`;
-    const line = (i: (typeof top)[number]) =>
-      `${i.name}: ${money(i)}` +
-      (i.supplier_name ? ` (${i.supplier_name})` : "") +
-      (i.dishes_using ? ` · ${i.dishes_using} platos` : "");
+    const line = (i: (typeof top)[number], idx: number) =>
+      `${idx + 1}. ${i.name} — ${money(i)}`;
     const lines = [
       t(
         lang,
-        `The most expensive ingredients by latest price: ${top.map(line).join("; ")}.`,
-        `Los ingredientes más caros por su último precio: ${top.map(line).join("; ")}.`
+        "The most expensive ingredients by latest price:",
+        "Los ingredientes más caros por su último precio:"
       ),
+      ...top.map(line),
     ];
-    const first = top[0];
-    if (first.used_in.length > 0) {
-      lines.push(
-        t(
-          lang,
-          `${first.name} is used in: ${first.used_in.join(", ")}.`,
-          `${first.name} se usa en: ${first.used_in.join(", ")}.`
-        )
-      );
-    }
     if (prices.unpriced_count > 0) {
       lines.push(
         t(
           lang,
-          `${prices.unpriced_count} ingredients have no price yet (Sin precio) and are not in this ranking.`,
-          `${prices.unpriced_count} ingredientes no tienen precio todavía (Sin precio) y no entran en este ranking.`
+          `${prices.unpriced_count} ingredients have no price yet (Sin precio).`,
+          `${prices.unpriced_count} ingredientes no tienen precio todavía (Sin precio).`
         )
       );
     }
     return {
-      answer: lines.join(" "),
-      supporting_facts: top.slice(0, 4).map((i) => ({
-        label: i.name,
-        value: `${money(i)}${i.source ? ` · ${i.source}` : ""}`,
-        source_area: "supplier" as const,
-      })),
+      answer: lines.join("\n"),
+      supporting_facts: [],
       related_links: LINKS,
       suggested_followups: FOLLOWUPS,
-      confidence_notes: [
-        t(
-          lang,
-          "Units differ (lb, oz, g, unit): compare prices within the same unit. Unit price alone does not show profitability impact.",
-          "Las unidades difieren (lb, oz, g, unidad): compara precios dentro de la misma unidad. El precio unitario por sí solo no muestra el impacto en rentabilidad."
-        ),
-      ],
+      confidence_notes: [],
     };
   }
 
@@ -824,7 +599,7 @@ function expensiveIngredientsAnswer(
       supporting_facts: facts.slice(0, 4),
       related_links: LINKS,
       suggested_followups: FOLLOWUPS,
-      confidence_notes: [ingredientCostBusinessNote(lang)],
+      confidence_notes: [],
     };
   }
 
@@ -878,7 +653,7 @@ function expensiveIngredientsAnswer(
       supporting_facts: facts.slice(0, 4),
       related_links: LINKS,
       suggested_followups: FOLLOWUPS,
-      confidence_notes: [ingredientCostBusinessNote(lang)],
+      confidence_notes: [],
     };
   }
 
@@ -910,7 +685,7 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `High food-cost dishes — ${names}.`,
-          `Platillos con alto costo de alimentos — ${names}.`
+          `Platos con alto costo de alimentos — ${names}.`
         )
       );
       for (const i of highFoodCost.slice(0, 2)) {
@@ -932,7 +707,7 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `Low-margin dishes — ${names}.`,
-          `Platillos de bajo margen — ${names}.`
+          `Platos de bajo margen — ${names}.`
         )
       );
       for (const i of lowMargin.slice(0, 2)) {
@@ -944,7 +719,7 @@ function expensiveIngredientsAnswer(
       }
     }
 
-    const notes = [ingredientCostBusinessNote(lang)];
+    const notes: string[] = [];
     if (b.kpis.cost_coverage_pct < 90) {
       notes.push(
         t(
@@ -967,12 +742,12 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           "Which dishes have the highest food cost?",
-          "¿Qué platillos tienen el mayor costo de alimentos?"
+          "¿Qué platos tienen el mayor costo de alimentos?"
         ),
         t(
           lang,
           "Which dishes are least profitable?",
-          "¿Qué platillos son menos rentables?"
+          "¿Qué platos son menos rentables?"
         ),
         t(
           lang,
@@ -998,7 +773,7 @@ function expensiveIngredientsAnswer(
         "and build recipes to see which dishes drive cost.",
       "Aún no hay costos de ingredientes ni datos de rentabilidad del menú disponibles. " +
         "Sube facturas o usa Importar Costos para empezar a registrar precios de ingredientes, " +
-        "y crea recetas para ver qué platillos generan más costo."
+        "y crea recetas para ver qué platos generan más costo."
     ),
     supporting_facts: [],
     related_links: [
@@ -1227,7 +1002,7 @@ function ingredientUsageAnswer(
       t(
         lang,
         "Which of these dishes have the worst margin?",
-        "¿Cuáles de estos platillos tienen el peor margen?"
+        "¿Cuáles de estos platos tienen el peor margen?"
       ),
       t(
         lang,
@@ -1480,7 +1255,7 @@ function missingRecipesAnswer(
       t(
         lang,
         "Which dishes should I fix first?",
-        "¿Qué platillos debería corregir primero?"
+        "¿Qué platos debería corregir primero?"
       ),
       t(
         lang,
@@ -1656,7 +1431,7 @@ function agentAnswer(
       t(
         lang,
         "Which dishes should I fix first?",
-        "¿Qué platillos debería corregir primero?"
+        "¿Qué platos debería corregir primero?"
       ),
     ],
     confidence_notes: [],
@@ -1866,7 +1641,7 @@ function topSellingItemsAnswer(
       t(
         lang,
         "What is my most profitable dish?",
-        "¿Cuál es mi platillo más rentable?"
+        "¿Cuál es mi plato más rentable?"
       ),
     ],
     confidence_notes: sales.period.truncated
@@ -2002,7 +1777,7 @@ function bestSalesDayAnswer(
       t(
         lang,
         "What is my most profitable dish?",
-        "¿Cuál es mi platillo más rentable?"
+        "¿Cuál es mi plato más rentable?"
       ),
     ],
     confidence_notes: [
@@ -2100,12 +1875,12 @@ function genericBriefingAnswer(
       t(
         lang,
         "What is my most profitable dish?",
-        "¿Cuál es mi platillo más rentable?"
+        "¿Cuál es mi plato más rentable?"
       ),
       t(
         lang,
         "Which dishes are least profitable?",
-        "¿Qué platillos son menos rentables?"
+        "¿Qué platos son menos rentables?"
       ),
       t(
         lang,
@@ -2136,30 +1911,55 @@ export function buildDeterministicAnswer(
   // deterministic fallback never silently reverts to English for a
   // Spanish-preference company. See lib/restaurant/language.ts.
   const lang = ctx.briefing.preferred_language;
+  let answer: AskMiltonAnswer;
   switch (intent) {
     case "most_profitable_dish":
-      return mostProfitableAnswer(ctx, lang);
+      answer = mostProfitableAnswer(ctx, lang);
+      break;
     case "least_profitable_dishes":
-      return leastProfitableAnswer(ctx, lang);
+    case "dish_food_cost":
+      answer = dishFoodCostAnswer(ctx, lang);
+      break;
     case "expensive_ingredients":
-      return expensiveIngredientsAnswer(ctx, lang);
+      answer = expensiveIngredientsAnswer(ctx, lang);
+      break;
     case "ingredient_usage":
-      return ingredientUsageAnswer(ctx, message, resolved, lang);
+      answer = ingredientUsageAnswer(ctx, message, resolved, lang);
+      break;
     case "supplier_risk":
-      return supplierAnswer(ctx, lang);
+      answer = supplierAnswer(ctx, lang);
+      break;
     case "invoices_needing_review":
-      return invoiceAnswer(ctx, lang);
+      answer = invoiceAnswer(ctx, lang);
+      break;
     case "missing_recipes":
-      return missingRecipesAnswer(ctx, lang);
+      answer = missingRecipesAnswer(ctx, lang);
+      break;
     case "cost_coverage":
-      return costCoverageAnswer(ctx, lang);
+      answer = costCoverageAnswer(ctx, lang);
+      break;
     case "agent_recommendations":
-      return agentAnswer(ctx, lang);
+      answer = agentAnswer(ctx, lang);
+      break;
     case "top_selling_items":
-      return topSellingItemsAnswer(ctx, message, lang);
+      answer = topSellingItemsAnswer(ctx, message, lang);
+      break;
     case "best_sales_day":
-      return bestSalesDayAnswer(ctx, message, lang);
+      answer = bestSalesDayAnswer(ctx, message, lang);
+      break;
     default:
-      return genericBriefingAnswer(ctx, lang);
+      answer = genericBriefingAnswer(ctx, lang);
   }
+  return capAnswerChrome(answer);
+}
+
+function capAnswerChrome(answer: AskMiltonAnswer): AskMiltonAnswer {
+  return {
+    ...answer,
+    related_links: sanitizeRelatedLinks(answer.related_links),
+    suggested_followups: answer.suggested_followups.slice(
+      0,
+      ASK_MILTON_MAX_FOLLOWUPS
+    ),
+  };
 }

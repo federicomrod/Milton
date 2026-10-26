@@ -317,4 +317,78 @@ describe("applyEstimateToEvidence", () => {
     expect(line.unit_cost).toBeNull();
     expect(evidence.status).toBe("borrador");
   });
+
+  it("appends each missing estimate line on an empty draft", () => {
+    const { evidence, applied, not_copied } = applyEstimateToEvidence(
+      { source: "menu", status: "borrador", lines: [] },
+      [
+        estLine({
+          raw_name: "entraña",
+          qty: 8,
+          unit: "oz",
+          ingredient_id: "i-1",
+        }),
+        estLine({ raw_name: "chimichurri", qty: 30, unit: "g" }),
+      ]
+    );
+    expect(applied).toBe(2);
+    expect(not_copied).toEqual([]);
+    const lines = evidence.lines as Array<Record<string, unknown>>;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({
+      raw_name: "entraña",
+      qty: 8,
+      unit: "oz",
+      unit_cost: null,
+      ingredient_match: "entraña",
+      pending: true,
+    });
+    expect(lines[0].flags).toEqual([
+      "pendiente_ingrediente",
+      FLAG_MILTON_ESTIMATE,
+    ]);
+    expect(lines[1]).toMatchObject({
+      raw_name: "chimichurri",
+      qty: 30,
+      unit: "g",
+      unit_cost: null,
+      ingredient_match: null,
+    });
+    expect(lines[1].flags).toEqual([
+      "pendiente_ingrediente",
+      FLAG_MILTON_ESTIMATE,
+      "nuevo_sugerido",
+    ]);
+    expect(evidence.status).toBe("borrador");
+  });
+
+  it("fills existing lines and does not duplicate by normalized name", () => {
+    const lines = menuDraftLines(["Pollo", "salsa"], {
+      ingredients: [],
+      preparations: [],
+    });
+    const { evidence, applied, not_copied } = applyEstimateToEvidence(
+      { source: "menu", status: "borrador", lines },
+      [
+        estLine({ raw_name: "pollo" }),
+        estLine({ raw_name: "POLLO", qty: 99, unit: "oz" }),
+        estLine({ raw_name: "cebolla", qty: 20, unit: "g" }),
+      ]
+    );
+    expect(applied).toBe(2);
+    expect(not_copied).toEqual([]);
+    const next = evidence.lines as Array<Record<string, unknown>>;
+    expect(next.map((l) => l.raw_name)).toEqual(["Pollo", "salsa", "cebolla"]);
+    expect(next[0]).toMatchObject({ qty: 200, unit: "g" });
+    expect(next[0].flags).toContain(FLAG_MILTON_ESTIMATE);
+    expect(next[1]).toMatchObject({ qty: null, unit: null });
+    expect(next[1].flags).not.toContain(FLAG_MILTON_ESTIMATE);
+    expect(next[2]).toMatchObject({
+      raw_name: "cebolla",
+      qty: 20,
+      unit: "g",
+      unit_cost: null,
+    });
+    expect(next[2].flags).toContain(FLAG_MILTON_ESTIMATE);
+  });
 });

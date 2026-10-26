@@ -13,13 +13,21 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createElement } from "react";
-import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
+import {
+  invalidateEstimateProbe,
+  loadEstimateProbe,
+} from "@/lib/restaurant/menu-estimate-probe-cache";
 import { renderToString } from "react-dom/server";
+
+const toastWorld = vi.hoisted(() => ({ toast: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push() {}, refresh() {}, replace() {} }),
   usePathname: () => "/dashboard/restaurant/menu/platos",
   useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/ui/use-toast", () => ({
+  useToast: () => ({ toast: toastWorld.toast }),
 }));
 vi.mock("@/components/restaurant/recipes-costing/TreatmentPanel", () => ({
   TreatmentControl: () => <div>TREATMENT</div>,
@@ -44,6 +52,8 @@ import { PlatoScreen } from "@/components/restaurant/recipes-costing/PlatoScreen
 import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
 import { ResumenCockpit } from "@/components/restaurant/recipes-costing/ResumenScreen";
 import {
+  canUseEstimateAsDraft,
+  ESTIMATE_USE_SUCCESS,
   estimateText,
   extraEstimatedDishes,
   extraEstimatedLabel,
@@ -126,6 +136,36 @@ afterEach(() => {
   vi.unstubAllGlobals();
   // The check's answer is cached for a few seconds; every test starts clean.
   invalidateEstimateProbe();
+  toastWorld.toast.mockClear();
+});
+
+describe("the check is cached per company", () => {
+  const mountFor = (companyId: string | null) =>
+    render(
+      <MenuReaderPanel
+        canEdit
+        companyId={companyId}
+        busyExternal={false}
+        locationId={null}
+        onDone={() => undefined}
+        embedded
+      />
+    );
+
+  it("the same company mounted twice reads once; another company (same null location) reads again", async () => {
+    const fetchMock = vi.fn(() => jsonRes({ available: true, eligible: 7 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    cleanup();
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    cleanup();
+    mountFor("co-b");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("MenuReaderPanel · Estimar con Milton", () => {
@@ -493,6 +533,80 @@ describe("PlatoScreen · estimate overlay", () => {
       "Este plato ya tiene receta aprobada; Milton no la cambia."
     );
     expect(note.className).toContain("text-[var(--brand-muted)]");
+    expect(toastWorld.toast).not.toHaveBeenCalled();
+  });
+
+  it("a successful «Usar como borrador» on the dish page forgets the cached check; a refused one keeps it", async () => {
+    let reads = 0;
+    const probe = async () => {
+      reads++;
+      return { eligible: reads };
+    };
+    await loadEstimateProbe("co-x", null, probe);
+    for (const [status, forgets] of [
+      [409, false],
+      [200, true],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          jsonRes(status === 200 ? { ok: true } : { error: "x" }, status)
+        )
+      );
+      render(
+        <PlatoScreen
+          {...platoProps}
+          data={workspace({})}
+          estimates={[estimate()]}
+        />
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Usar como borrador" })
+      );
+      await waitFor(() =>
+        expect(
+          (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+        ).toHaveLength(1)
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      const before = reads;
+      await loadEstimateProbe("co-x", null, probe);
+      expect(reads).toBe(forgets ? before + 1 : before);
+      cleanup();
+    }
+  });
+
+  it("shows a success toast after using the estimate as a draft", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ ok: true, applied: 2 }))
+    );
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Usar como borrador" }));
+    await waitFor(() => expect(toastWorld.toast).toHaveBeenCalled());
+    expect(toastWorld.toast).toHaveBeenCalledWith({
+      title:
+        "Listo: 2 ingredientes estimados en el borrador. Revísalos y aprueba.",
+    });
+  });
+
+  it("hides «Usar como borrador» when the estimate has no lines", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate({ lines: [] })]}
+      />
+    );
+    expect(screen.getByTestId("estimate-panel")).toBeTruthy();
+    expect(screen.getByText("Sin precio")).toBeTruthy();
+    expect(screen.queryByText("Usar como borrador")).toBeNull();
   });
 });
 
@@ -941,6 +1055,20 @@ describe("pure helpers", () => {
     expect(
       overlayAllowed(estimate(), { real_cost: null, link_confirmed: true })
     ).toBe(true);
+  });
+  it("hides «Usar como borrador» when the estimate has no lines or was used", () => {
+    expect(canUseEstimateAsDraft(estimate())).toBe(true);
+    expect(canUseEstimateAsDraft(estimate({ lines: [] }))).toBe(false);
+    expect(
+      canUseEstimateAsDraft(estimate({ used_as_draft_at: "2026-07-01" }))
+    ).toBe(false);
+    expect(canUseEstimateAsDraft(null)).toBe(false);
+    expect(ESTIMATE_USE_SUCCESS(1)).toBe(
+      "Listo: 1 ingrediente estimado en el borrador. Revísalos y aprueba."
+    );
+    expect(ESTIMATE_USE_SUCCESS(3)).toBe(
+      "Listo: 3 ingredientes estimados en el borrador. Revísalos y aprueba."
+    );
   });
 });
 

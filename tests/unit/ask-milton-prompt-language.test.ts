@@ -156,7 +156,7 @@ describe("buildDeterministicAnswer — Spanish (Phase 6, scenario 4 — must not
       "most_profitable_dish",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/platillo más rentable/i);
+    expect(out.answer).toMatch(/plato más rentable/i);
     expect(out.answer).not.toMatch(/most profitable dish/i);
     expect(out.related_links[0]?.label).toBe("Menú");
   });
@@ -195,7 +195,7 @@ describe("buildDeterministicAnswer — multi-restaurant selection is orthogonal 
       "most_profitable_dish",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/platillo más rentable/i);
+    expect(out.answer).toMatch(/plato más rentable/i);
   });
 
   it("an English company with a specific restaurant selected still answers fully in English", () => {

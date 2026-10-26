@@ -1,15 +1,17 @@
 // components/restaurant/kitchen/KitchenSummaries.tsx
 //
 // Three compact cards. Waste money is always "Pendiente de recetas".
+// The whole card is the hit target: Se agota/Merma open Historial y
+// análisis; Recetas en borrador scrolls to Recetas.
 
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { KitchenSummary } from "@/lib/restaurant/kitchen-insights";
 import type { KitchenExploreTab } from "@/lib/restaurant/kitchen-explore";
 
 const BAR: Record<KitchenSummary["id"], string> = {
-  running_out: "bg-red-600",
-  waste: "bg-gray-400",
-  drafts: "bg-blue-500",
+  running_out: "bg-[#1B40C8]",
+  waste: "bg-[#1B40C8]",
+  drafts: "bg-[#D8D0F8]",
 };
 
 export function KitchenSummaries({
@@ -17,38 +19,53 @@ export function KitchenSummaries({
   pendingLabel,
   lang,
   onOpenExplore,
+  layout = "row",
 }: {
   summaries: KitchenSummary[];
   pendingLabel: string;
   lang: PreferredLanguage;
   onOpenExplore: (tab: KitchenExploreTab) => void;
+  layout?: "row" | "scroll";
 }) {
   return (
     <div
       data-testid="kitchen-summaries"
-      className="grid grid-cols-1 sm:grid-cols-3 gap-3"
+      data-layout={layout}
+      className={
+        layout === "scroll"
+          ? "flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory"
+          : "grid grid-cols-1 sm:grid-cols-3 gap-3"
+      }
     >
       {summaries.map((row) => (
         <article
           key={row.id}
           data-testid={`kitchen-summary-${row.id}`}
-          className="rounded-md border border-border bg-background px-3 py-2.5"
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpenExplore(row.explore_tab)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpenExplore(row.explore_tab);
+            }
+          }}
+          className={
+            "rounded-md border border-border bg-background px-3 py-2.5 text-left cursor-pointer hover:border-[#1B40C8] " +
+            (layout === "scroll" ? "min-w-[220px] snap-start shrink-0" : "")
+          }
         >
           <div className="flex items-center justify-between gap-2">
             <p className="text-[12px] font-semibold text-muted-foreground">
               {row.label}
             </p>
-            <button
-              type="button"
-              onClick={() => onOpenExplore(row.explore_tab)}
-              className="text-[12px] font-medium text-blue-700 dark:text-blue-300"
-            >
+            <span className="text-[12px] font-medium text-[#1B40C8]">
               {row.id === "drafts"
                 ? t(lang, "Review →", "Revisar →")
                 : row.id === "waste"
                   ? t(lang, "See details →", "Ver detalles →")
                   : t(lang, "See all →", "Ver todo →")}
-            </button>
+            </span>
           </div>
           <p className="text-[17px] font-bold mt-1">{row.value}</p>
           {row.hint ? (
@@ -59,11 +76,7 @@ export function KitchenSummaries({
               {row.segments.map((pct, i) => (
                 <div
                   key={`${row.id}-${i}`}
-                  className={
-                    row.id === "waste" && i === 1
-                      ? "bg-gray-100 dark:bg-gray-800"
-                      : BAR[row.id]
-                  }
+                  className={BAR[row.id]}
                   style={{ width: `${pct}%` }}
                 />
               ))}
@@ -76,7 +89,7 @@ export function KitchenSummaries({
               <span>{row.extra}</span>
               <span
                 data-testid="kitchen-pending-recipes"
-                className="inline-flex items-center rounded border border-dashed border-muted-foreground/40 bg-muted px-1.5 py-0.5 text-[12px] font-semibold text-muted-foreground"
+                className="inline-flex items-center rounded border border-[#D8D0F8] bg-[#D8D0F8] px-1.5 py-0.5 text-[12px] font-semibold text-[#0D1117]"
               >
                 {pendingLabel}
               </span>

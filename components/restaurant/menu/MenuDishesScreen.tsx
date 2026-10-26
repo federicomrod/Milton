@@ -45,12 +45,15 @@ import {
   ESTIMATE_BUTTON,
   ESTIMATE_ROW_NEEDS_LINK,
   ESTIMATE_USE_BUTTON,
+  ESTIMATE_USE_SUCCESS,
+  canUseEstimateAsDraft,
   estimateSkipMessage,
   estimateForProducts,
   estimateText,
   overlayAllowed,
   canEditRecipes,
 } from "@/components/restaurant/menu/estimate-overlay";
+import { useToast } from "@/components/ui/use-toast";
 import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
 import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
@@ -275,7 +278,15 @@ export function MenuDishesScreen({
 
   // The estimate of each dish with NO real cost (never in the real columns).
   const estimateOf = useMemo(() => {
-    const map = new Map<string, { text: string; menu_item_id: string }>();
+    const map = new Map<
+      string,
+      {
+        text: string;
+        menu_item_id: string;
+        usable: boolean;
+        line_count: number;
+      }
+    >();
     if (estimates.length === 0) return map;
     for (const dish of [...dishes, ...excluded]) {
       if (dish.status === "excluded") continue;
@@ -299,6 +310,8 @@ export function MenuDishesScreen({
       map.set(dish.id, {
         text: estimateText(est, data.currency, avg).text,
         menu_item_id: est.menu_item_id,
+        usable: canUseEstimateAsDraft(est),
+        line_count: est.lines.length,
       });
     }
     return map;
@@ -634,6 +647,7 @@ export function MenuDishesScreen({
           <EstimateWithMilton
             variant="link"
             canEdit={canEditRecipes(data.actor)}
+            companyId={data.company_id}
             locationId={data.view_location_id ?? null}
             onDone={() => onEstimated?.()}
           />
@@ -926,13 +940,16 @@ function RowEstimate({
 /** «Usar como borrador» for an estimate shown on a row (the existing route). */
 function RowEstimateUse({
   menuItemId,
+  lineCount,
   onUsed,
 }: {
   menuItemId: string;
+  lineCount: number;
   onUsed?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const { toast } = useToast();
   async function use() {
     if (busy) return;
     setBusy(true);
@@ -943,12 +960,20 @@ function RowEstimateUse({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ menu_item_id: menuItemId }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        applied?: number;
+      };
       if (!res.ok) {
         setNote(json.error ?? "No pude usar el estimado como borrador.");
         return;
       }
       invalidateEstimateProbe();
+      toast({
+        title: ESTIMATE_USE_SUCCESS(
+          typeof json.applied === "number" ? json.applied : lineCount
+        ),
+      });
       onUsed?.();
     } catch {
       setNote("No pude usar el estimado como borrador.");
@@ -1030,7 +1055,12 @@ const DishRows = memo(function DishRows({
 }: {
   dish: MenuDish;
   /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
-  estimate?: { text: string; menu_item_id: string } | null;
+  estimate?: {
+    text: string;
+    menu_item_id: string;
+    usable?: boolean;
+    line_count?: number;
+  } | null;
   /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
   canEstimate?: boolean;
   locationId?: string | null;
@@ -1125,11 +1155,12 @@ const DishRows = memo(function DishRows({
               >
                 Ver estimado
               </Link>
-              {canEstimate ? (
+              {canEstimate && estimate.usable !== false ? (
                 <>
                   <span className="text-[var(--brand-ink)]">·</span>
                   <RowEstimateUse
                     menuItemId={estimate.menu_item_id}
+                    lineCount={estimate.line_count ?? 0}
                     onUsed={onEstimated}
                   />
                 </>

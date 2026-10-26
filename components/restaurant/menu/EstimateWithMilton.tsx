@@ -176,6 +176,7 @@ type Probe =
  */
 export function EstimateWithMilton({
   canEdit,
+  companyId,
   locationId,
   onDone,
   forceShow = false,
@@ -186,6 +187,8 @@ export function EstimateWithMilton({
 }: {
   /** From capabilities["recipes.edit"] (see canEditRecipes). */
   canEdit: boolean;
+  /** The active company (keys the cached check; none = never cached). */
+  companyId?: string | null;
   locationId: string | null;
   onDone: () => void;
   forceShow?: boolean;
@@ -206,15 +209,19 @@ export function EstimateWithMilton({
       : "";
     void (async () => {
       try {
-        const json = await loadEstimateProbe(locationId, async () => {
-          const res = await fetch(`${ENDPOINT}${q}`);
-          if (!res || !res.ok) throw new Error("probe");
-          return (await res.json()) as {
-            available?: boolean;
-            eligible?: number;
-            needs_link?: number;
-          };
-        });
+        const json = await loadEstimateProbe(
+          companyId,
+          locationId,
+          async () => {
+            const res = await fetch(`${ENDPOINT}${q}`);
+            if (!res || !res.ok) throw new Error("probe");
+            return (await res.json()) as {
+              available?: boolean;
+              eligible?: number;
+              needs_link?: number;
+            };
+          }
+        );
         if (!cancelled)
           setProbe({
             status: "ok",
@@ -229,7 +236,7 @@ export function EstimateWithMilton({
     return () => {
       cancelled = true;
     };
-  }, [canEdit, locationId, attempt]);
+  }, [canEdit, companyId, locationId, attempt]);
 
   const eligible = probe.status === "ok" ? probe.eligible : null;
   const hasWork =

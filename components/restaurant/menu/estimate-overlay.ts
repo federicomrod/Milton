@@ -15,6 +15,17 @@ export const ESTIMATE_BUTTON = "Estimar con Milton";
 export const ESTIMATE_HELP =
   "Milton estima cuánto lleva cada plato y cuánto cuesta cada ingrediente en tu país. Son aproximaciones para que veas por dónde van tus márgenes; tú las validas.";
 export const ESTIMATE_USE_BUTTON = "Usar como borrador";
+export const ESTIMATE_USE_SUCCESS = (n: number) =>
+  `Listo: ${n} ${n === 1 ? "ingrediente estimado" : "ingredientes estimados"} en el borrador. Revísalos y aprueba.`;
+
+/** The button can copy this estimate into a draft. Hide it otherwise. */
+export function canUseEstimateAsDraft(
+  estimate: Pick<DishEstimateRow, "lines" | "used_as_draft_at"> | null
+): boolean {
+  return Boolean(
+    estimate && !estimate.used_as_draft_at && estimate.lines.length > 0
+  );
+}
 export const ESTIMATE_MISSING_TABLE =
   "Falta aplicar la actualización de la base de datos (062).";
 

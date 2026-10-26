@@ -299,7 +299,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
     const note = await screen.findByText(
       "Falta aplicar la actualización de la base de datos (062)."
     );
-    expect(note.className).toContain("text-[#6b7280]");
+    expect(note.className).toContain("text-[var(--brand-muted)]");
     expect(note.className).not.toMatch(/c03535|red-/);
   });
 });
@@ -373,9 +373,11 @@ describe("PlatoScreen · estimate overlay", () => {
         estimates={[estimate()]}
       />
     );
-    expect(
-      screen.getByText("≈ $4.20 costo estimado · ≈ 62% margen estimado")
-    ).toBeTruthy();
+    // Text is now split across styled spans, so check for parts
+    expect(screen.getByText("$4.20")).toBeTruthy();
+    expect(screen.getByText("62%")).toBeTruthy();
+    expect(screen.getByText(/costo estimado/)).toBeTruthy();
+    expect(screen.getByText(/margen estimado/)).toBeTruthy();
     expect(screen.getAllByText("Estimado por Milton").length).toBeGreaterThan(
       0
     );
@@ -485,7 +487,7 @@ describe("PlatoScreen · estimate overlay", () => {
     const note = await screen.findByText(
       "Este plato ya tiene receta aprobada; Milton no la cambia."
     );
-    expect(note.className).toContain("text-[#6b7280]");
+    expect(note.className).toContain("text-[var(--brand-muted)]");
   });
 });
 

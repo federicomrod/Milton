@@ -6,6 +6,7 @@
 // «Usar como borrador» turns it into a draft recipe the person validates.
 
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import {
@@ -13,7 +14,7 @@ import {
   ESTIMATE_USE_BUTTON,
   PRICE_ESTIMATE_BADGE,
 } from "@/components/restaurant/menu/estimate-overlay";
-import { GhostBtn } from "./ui";
+import { PrimaryBtn } from "./ui";
 
 const UNIT_LABEL: Record<string, string> = {
   g: "g",
@@ -25,9 +26,20 @@ const UNIT_LABEL: Record<string, string> = {
   unidad: "unidad",
 };
 
-function Tag({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold whitespace-nowrap text-[#5b6476]">
+function Tag({
+  children,
+  variant = "default",
+}: {
+  children: React.ReactNode;
+  variant?: "default" | "estimate";
+}) {
+  return variant === "estimate" ? (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[var(--brand-ink)]">
+      <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
+      {children}
+    </span>
+  ) : (
+    <span className="rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[var(--brand-ink)]">
       {children}
     </span>
   );
@@ -76,11 +88,11 @@ export function EstimatePanel({
   return (
     <div
       data-testid="estimate-panel"
-      className="space-y-2 rounded-lg border border-dashed border-[#c9cfdb] bg-[#fafbfc] px-3 py-2.5 text-[13px] text-[#6b7280]"
+      className="space-y-2 rounded-lg bg-[#D8D0F8]/40 px-3 py-2.5 text-[13px]"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <Tag>{ESTIMATE_BADGE}</Tag>
-        <span>
+        <Tag variant="estimate">{ESTIMATE_BADGE}</Tag>
+        <span className="text-[var(--brand-ink)]">
           Cuánto lleva y cuánto cuesta cada ingrediente son aproximaciones; tú
           las validas.
         </span>
@@ -92,15 +104,19 @@ export function EstimatePanel({
               key={`${line.raw_name}-${i}`}
               className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
             >
-              <b className="font-semibold text-[#4b5466]">{line.raw_name}</b>
-              <span>
+              <b className="font-semibold text-[var(--brand-ink)]">
+                {line.raw_name}
+              </b>
+              <span className="text-[var(--brand-ink)]">
                 {line.qty} {UNIT_LABEL[line.unit] ?? line.unit}
               </span>
               <Tag>{ESTIMATE_BADGE}</Tag>
-              <span aria-hidden>·</span>
+              <span aria-hidden className="text-[var(--brand-ink)]">
+                ·
+              </span>
               {line.unit_price != null && line.price_source ? (
                 <>
-                  <span>
+                  <span className="font-semibold text-[var(--brand-blue)]">
                     {formatMoneyEs(line.unit_price, currency, {
                       decimals: line.unit_price >= 1 ? 2 : 4,
                     })}
@@ -115,22 +131,27 @@ export function EstimatePanel({
                   </Tag>
                 </>
               ) : (
-                <span>Sin precio</span>
+                <span className="text-[var(--brand-ink)]">Sin precio</span>
               )}
             </li>
           ))}
         </ul>
       ) : null}
       {estimate.portion_note ? (
-        <p className="text-[12px]">{estimate.portion_note}</p>
+        <p className="text-[12px] text-[var(--brand-ink)]">
+          {estimate.portion_note}
+        </p>
       ) : null}
       {canEdit ? (
         <div className="flex flex-wrap items-center gap-3">
-          <GhostBtn disabled={busy || posting} onClick={() => void use()}>
+          <PrimaryBtn disabled={busy || posting} onClick={() => void use()}>
             {ESTIMATE_USE_BUTTON}
-          </GhostBtn>
+          </PrimaryBtn>
           {note ? (
-            <span role="status" className="text-[12px] text-[#6b7280]">
+            <span
+              role="status"
+              className="text-[12px] text-[var(--brand-muted)]"
+            >
               {note}
             </span>
           ) : null}

@@ -1238,7 +1238,20 @@ function Row({
         )}
         {line.flags.includes(FLAG_MILTON_ESTIMATE) ? (
           <div className="mt-1" data-testid="milton-estimate-badge">
-            <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold whitespace-nowrap text-[#5b6476]">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[var(--brand-ink)]">
+              <svg
+                className="h-3 w-3 text-[var(--brand-blue)]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                />
+              </svg>
               Estimado por Milton
             </span>
           </div>

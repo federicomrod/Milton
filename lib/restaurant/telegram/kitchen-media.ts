@@ -503,6 +503,9 @@ export function closeIngredientNames(
   const add = (n: string | undefined) => {
     if (n && !out.includes(n)) out.push(n);
   };
+  // A name equal to the said one is not a "parecido": it would be the match.
+  const equalToSaid = (n: string) =>
+    findExactIngredient(name, [{ id: "x", name: n }]) !== null;
   add(findExactIngredient(name, ingredients)?.name);
   add(findSynonymIngredient(name, ingredients)?.name);
   const scored = ingredients
@@ -515,7 +518,7 @@ export function closeIngredientNames(
         a.ing.name.localeCompare(b.ing.name, "es")
     );
   for (const x of scored) add(x.ing.name);
-  return out.slice(0, 3);
+  return out.filter((n) => !equalToSaid(n)).slice(0, 3);
 }
 
 /**
@@ -547,13 +550,21 @@ async function ingredientNotFoundLines(
     const catalog = ((ings ?? []) as Array<Record<string, unknown>>).map(
       (i) => ({ id: String(i.id), name: String(i.name ?? "") })
     );
-    return [...new Set(unmatched)].slice(0, 5).map((name) => {
-      const close = closeIngredientNames(name, catalog);
-      return renderKitchenCopy(KITCHEN_COPY.PRICE_INGREDIENT_NOT_FOUND, {
-        ingrediente: name,
-        parecidos: close.length > 0 ? `Parecidos: ${close.join(", ")}. ` : "",
-      });
-    });
+    return (
+      [...new Set(unmatched)]
+        // A said name that IS an active ingredient's name never gets a
+        // «no encontré» (it would be a lie, whatever the saved status).
+        .filter((name) => findExactIngredient(name, catalog) === null)
+        .slice(0, 5)
+        .map((name) => {
+          const close = closeIngredientNames(name, catalog);
+          return renderKitchenCopy(KITCHEN_COPY.PRICE_INGREDIENT_NOT_FOUND, {
+            ingrediente: name,
+            parecidos:
+              close.length > 0 ? `Parecidos: ${close.join(", ")}. ` : "",
+          });
+        })
+    );
   } catch {
     return [];
   }
@@ -700,6 +711,8 @@ export async function processPriceUpdate(
       staff_id: staff.id,
     },
     strictPrices: true,
+    // The cook says «harina de trigo»: match it to the ingredient of that name.
+    matchByIngredientName: true,
   });
   if (!created.ok) {
     console.error(

@@ -348,7 +348,11 @@ function SignInNote({ lang }: { lang: PreferredLanguage }) {
 }
 
 async function ComprasTab({ lang }: { lang: PreferredLanguage }) {
-  const data = await loadInvoicesTabData();
+  // The permission read does not depend on the tab data: run both together.
+  const [data, canEditPrices] = await Promise.all([
+    loadInvoicesTabData(),
+    canEditPricesForUser(),
+  ]);
   if (!data) return <SignInNote lang={lang} />;
   return (
     <InvoicesPage
@@ -356,18 +360,16 @@ async function ComprasTab({ lang }: { lang: PreferredLanguage }) {
       suppliers={data.suppliers}
       ingredients={data.ingredients}
       companyCurrency={data.companyCurrency}
-      canEditPrices={await canEditPricesForUser()}
+      canEditPrices={canEditPrices}
     />
   );
 }
 
 async function ProveedoresTab({ lang }: { lang: PreferredLanguage }) {
-  const suppliers = await loadSuppliersTabData();
+  const [suppliers, canEditPrices] = await Promise.all([
+    loadSuppliersTabData(),
+    canEditPricesForUser(),
+  ]);
   if (!suppliers) return <SignInNote lang={lang} />;
-  return (
-    <SuppliersPage
-      suppliers={suppliers}
-      canEditPrices={await canEditPricesForUser()}
-    />
-  );
+  return <SuppliersPage suppliers={suppliers} canEditPrices={canEditPrices} />;
 }

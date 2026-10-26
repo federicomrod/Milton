@@ -26,6 +26,12 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { fetchAllRows, warnIfTruncated } from "@/lib/restaurant/paginated-read";
 import {
+  INVOICE_LINE_PREVIEW_SELECT,
+  buildInvoiceLineSummaries,
+  emptyLineCounts,
+  type InvoiceLinePreviewRow,
+} from "@/lib/restaurant/invoice-list-preview";
+import {
   isInvoiceStatus,
   type SupplierInvoice,
 } from "@/types/supplier-invoices";
@@ -76,26 +82,12 @@ export async function GET(req: NextRequest) {
   // Pull aggregated line counts in one round-trip so the list can show
   // "matched / total" progress without a per-row query.
   const ids = (invoices ?? []).map((i) => (i as SupplierInvoice).id);
-  type LineRow = {
-    invoice_id: string;
-    match_status: string;
-    review_status: string;
-  };
-  let linesByInvoice = new Map<
-    string,
-    {
-      total: number;
-      matched: number;
-      approved: number;
-      unmatched: number;
-      pending: number;
-    }
-  >();
+  let summaries = buildInvoiceLineSummaries(ids, [], new Map());
   if (ids.length > 0) {
-    const linesRes = await fetchAllRows<LineRow>(() =>
+    const linesRes = await fetchAllRows<InvoiceLinePreviewRow>(() =>
       supabase
         .from("supplier_invoice_lines")
-        .select("invoice_id, match_status, review_status")
+        .select(INVOICE_LINE_PREVIEW_SELECT)
         .eq("company_id", companyId)
         .in("invoice_id", ids)
     );
@@ -103,27 +95,30 @@ export async function GET(req: NextRequest) {
       console.error("[invoices GET] line counts:", linesRes.error.message);
     } else {
       warnIfTruncated("invoices GET line counts", linesRes);
-      linesByInvoice = new Map();
-      for (const id of ids) {
-        linesByInvoice.set(id, {
-          total: 0,
-          matched: 0,
-          approved: 0,
-          unmatched: 0,
-          pending: 0,
-        });
-      }
-      for (const l of linesRes.rows) {
-        const bucket = linesByInvoice.get(l.invoice_id);
-        if (!bucket) continue;
-        bucket.total++;
-        if (l.match_status === "matched" || l.match_status === "auto_matched") {
-          bucket.matched++;
+      // Names of the matched ingredients (company-scoped, one lookup).
+      const ingredientIds = Array.from(
+        new Set(
+          linesRes.rows
+            .map((l) => l.ingredient_id)
+            .filter((x): x is string => !!x)
+        )
+      );
+      const ingredientNameById = new Map<string, string>();
+      if (ingredientIds.length > 0) {
+        const { data: ings } = await supabase
+          .from("ingredients")
+          .select("id, name")
+          .eq("company_id", companyId)
+          .in("id", ingredientIds);
+        for (const i of (ings ?? []) as { id: string; name: string }[]) {
+          ingredientNameById.set(i.id, i.name);
         }
-        if (l.match_status === "unmatched") bucket.unmatched++;
-        if (l.review_status === "approved") bucket.approved++;
-        if (l.review_status === "pending") bucket.pending++;
       }
+      summaries = buildInvoiceLineSummaries(
+        ids,
+        linesRes.rows,
+        ingredientNameById
+      );
     }
   }
 
@@ -149,19 +144,13 @@ export async function GET(req: NextRequest) {
 
   const enriched = (invoices ?? []).map((row) => {
     const inv = row as SupplierInvoice;
-    const counts = linesByInvoice.get(inv.id) ?? {
-      total: 0,
-      matched: 0,
-      approved: 0,
-      unmatched: 0,
-      pending: 0,
-    };
     return {
       ...inv,
       supplier_name: inv.supplier_id
         ? (supplierNameById.get(inv.supplier_id) ?? null)
         : null,
-      line_counts: counts,
+      line_counts: summaries.get(inv.id)?.counts ?? emptyLineCounts(),
+      line_preview: summaries.get(inv.id)?.preview ?? [],
     };
   });
 

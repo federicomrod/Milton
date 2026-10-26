@@ -48,7 +48,7 @@ export function KitchenReportsCard({
   canManage: boolean;
   locations: { id: string; name: string }[];
   initialType?: string;
-  /** When set and the type filter is empty, show only these report types. */
+  /** When set and the type filter is empty, fetch each type (API caps at 50) and merge. */
   includeTypes?: readonly string[];
 }) {
   const [reports, setReports] = useState<Report[]>([]);
@@ -61,24 +61,38 @@ export function KitchenReportsCard({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const params = new URLSearchParams();
-      if (locationId) params.set("location_id", locationId);
-      if (type) params.set("type", type);
-      const res = await fetch(`/api/restaurant/kitchen/reports?${params}`);
+      const typesToFetch =
+        type !== "" ? [type] : includeTypes?.length ? [...includeTypes] : [""];
+      const pages = await Promise.all(
+        typesToFetch.map(async (reportType) => {
+          const params = new URLSearchParams();
+          if (locationId) params.set("location_id", locationId);
+          if (reportType) params.set("type", reportType);
+          const res = await fetch(`/api/restaurant/kitchen/reports?${params}`);
+          if (!res.ok) return null;
+          const data = (await res.json()) as { reports?: Report[] };
+          return data.reports ?? [];
+        })
+      );
       if (cancelled) return;
-      if (!res.ok) {
+      if (pages.some((page) => page === null)) {
         setError("No se pudieron cargar los reportes.");
         return;
       }
-      const data = await res.json();
-      if (cancelled) return;
+      const byId = new Map<string, Report>();
+      for (const page of pages) {
+        for (const row of page ?? []) byId.set(row.id, row);
+      }
+      const merged = [...byId.values()].sort((a, b) =>
+        b.created_at.localeCompare(a.created_at)
+      );
       setError(null);
-      setReports(data.reports ?? []);
+      setReports(merged);
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, type, reloadKey]);
+  }, [locationId, type, reloadKey, includeTypes]);
 
   const reclassify = async (id: string, report_type: string) => {
     const res = await fetch(`/api/restaurant/kitchen/reports/${id}`, {
@@ -89,11 +103,6 @@ export function KitchenReportsCard({
     if (!res.ok) setError("No se pudo actualizar el reporte.");
     setReloadKey((k) => k + 1);
   };
-
-  const visible =
-    type || !includeTypes?.length
-      ? reports
-      : reports.filter((r) => includeTypes.includes(r.report_type));
 
   return (
     <Card>
@@ -133,10 +142,10 @@ export function KitchenReportsCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-destructive">{error}</p>}
-        {visible.length === 0 && (
+        {reports.length === 0 && (
           <p className="text-sm text-muted-foreground">Aún no hay reportes.</p>
         )}
-        {visible.map((r) => (
+        {reports.map((r) => (
           <div key={r.id} className="space-y-2 border-b pb-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground">

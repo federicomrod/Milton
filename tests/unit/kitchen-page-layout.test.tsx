@@ -132,7 +132,17 @@ function mockFetch(
         return ok({ drafts });
       }
       if (url.startsWith("/api/restaurant/kitchen/reports")) {
-        return ok({ reports });
+        const q = new URL(url, "http://local.test").searchParams;
+        const typed = q.get("type");
+        let list = reports as Array<{
+          report_type: string;
+          created_at: string;
+        }>;
+        if (typed) list = list.filter((r) => r.report_type === typed);
+        const sorted = [...list].sort((a, b) =>
+          b.created_at.localeCompare(a.created_at)
+        );
+        return ok({ reports: typed ? sorted : sorted.slice(0, 50) });
       }
       if (url === "/api/restaurant/kitchen/recipe-upload") {
         return ok({
@@ -165,6 +175,7 @@ function renderPage(
     canManage?: boolean;
     canManageDrafts?: boolean;
     initialTab?: KitchenExploreTab;
+    locations?: { id: string; name: string }[];
   } = {}
 ) {
   const model = over.insights ?? insights();
@@ -175,7 +186,7 @@ function renderPage(
       lang="es"
       canManage={manage}
       canManageDrafts={over.canManageDrafts ?? manage}
-      locations={LOCATIONS}
+      locations={over.locations ?? LOCATIONS}
       initialTab={over.initialTab}
     >
       <KitchenHighlights
@@ -409,6 +420,9 @@ describe("QR when has_active_qr is not cached this session", () => {
     const generate = await screen.findAllByTestId("kitchen-qr-generate");
     expect(generate[0].textContent).toContain("Generar QR nuevo");
     expect(generate[0].textContent).toContain("Esto reemplaza el QR anterior.");
+    expect(document.body.textContent).not.toContain(
+      "Tu equipo escanea este código con Telegram"
+    );
     expect(screen.queryByTestId("kitchen-qr")).toBeNull();
     expect(screen.queryByRole("button", { name: /Descargar/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Compartir/ })).toBeNull();
@@ -417,6 +431,9 @@ describe("QR when has_active_qr is not cached this session", () => {
     );
     await waitFor(() =>
       expect(screen.getAllByTestId("kitchen-qr").length).toBeGreaterThan(0)
+    );
+    expect(document.body.textContent).toContain(
+      "Tu equipo escanea este código con Telegram"
     );
     const posts = (
       fetch as unknown as ReturnType<typeof vi.fn>
@@ -432,6 +449,9 @@ describe("QR when has_active_qr is not cached this session", () => {
     const ask = await screen.findAllByTestId("kitchen-qr-ask-owner");
     expect(ask[0].textContent).toContain(
       "Pide al dueño que te comparta el QR."
+    );
+    expect(document.body.textContent).not.toContain(
+      "Tu equipo escanea este código con Telegram"
     );
     expect(screen.queryByTestId("kitchen-qr-generate")).toBeNull();
     expect(screen.queryByRole("button", { name: /Descargar/ })).toBeNull();
@@ -595,5 +615,110 @@ describe("Se agota includes 86", () => {
     const typeFilter = screen.getByLabelText("Filtrar por tipo");
     expect(typeFilter.textContent).toContain("Se agota");
     expect(typeFilter.textContent).not.toContain("Se acaba");
+  });
+
+  it("still shows a running_out report when the latest 50 untyped rows are all merma", async () => {
+    const merma = Array.from({ length: 50 }, (_, i) => ({
+      id: `w${i}`,
+      report_type: "waste",
+      text: `Merma ${i}`,
+      media_kind: null,
+      created_at: new Date(
+        Date.parse("2026-10-26T20:00:00Z") - i * 1000
+      ).toISOString(),
+      staff_name: "Ana",
+      location_name: "Centro",
+    }));
+    mockFetch([], {}, [
+      ...merma,
+      {
+        id: "ro-old",
+        report_type: "running_out",
+        text: "Tortillas de maíz",
+        media_kind: null,
+        created_at: "2026-10-01T10:00:00Z",
+        staff_name: "Luis",
+        location_name: "Centro",
+      },
+    ]);
+    renderPage({
+      initialTab: "running_out",
+      insights: insights({
+        today_running_out: 1,
+        explore: {
+          running_out: [
+            {
+              key: "tortillas",
+              rank: 1,
+              label: "Tortillas de maíz",
+              count: 1,
+              bar_pct: 100,
+              last_label: "Hoy",
+              estimated_value: null,
+              pending_value: false,
+            },
+          ],
+          waste: [],
+          drafts: [],
+          staff: [],
+          history: [],
+          waste_total_products: 0,
+        },
+      }),
+    });
+    fireEvent.click(screen.getByTestId("kitchen-explore-running_out"));
+    await waitFor(() =>
+      expect(screen.getByText("Tortillas de maíz")).toBeTruthy()
+    );
+    expect(screen.queryByText("Aún no hay reportes.")).toBeNull();
+    expect(screen.queryByText("Merma 0")).toBeNull();
+    const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.startsWith("/api/restaurant/kitchen/reports"));
+    expect(calls.some((u) => u.includes("type=running_out"))).toBe(true);
+    expect(calls.some((u) => u.includes("type=86"))).toBe(true);
+  });
+});
+
+describe("Recetas location filter", () => {
+  it("shows the location filter only when the company has more than one location", async () => {
+    mockFetch([
+      {
+        id: "d-1",
+        dish_name: "Pozole",
+        portions: 8,
+        status: "draft",
+        confidence: "high",
+        per_portion_cost: null,
+        currency: "MXN",
+        created_at: "2026-10-18T10:00:00Z",
+        staff_name: "Ana",
+        location_name: "Centro",
+        lines: [],
+      },
+    ]);
+    const { unmount } = renderPage();
+    await screen.findByText("Pozole");
+    expect(screen.queryByTestId("kitchen-recipes-location")).toBeNull();
+    unmount();
+    const norte = {
+      id: "22222222-2222-2222-2222-222222222222",
+      name: "Norte",
+    };
+    renderPage({ locations: [...LOCATIONS, norte] });
+    const filter = await screen.findByTestId("kitchen-recipes-location");
+    expect(filter.textContent).toContain("Todas las ubicaciones");
+    expect(filter.textContent).toContain("Centro");
+    expect(filter.textContent).toContain("Norte");
+    fireEvent.change(filter, { target: { value: norte.id } });
+    await waitFor(() =>
+      expect(
+        (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+          (c) =>
+            String(c[0]).startsWith("/api/restaurant/kitchen/recipe-drafts") &&
+            String(c[0]).includes(`location_id=${norte.id}`)
+        )
+      ).toBe(true)
+    );
   });
 });

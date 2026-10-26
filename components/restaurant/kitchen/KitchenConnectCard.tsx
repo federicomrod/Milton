@@ -355,10 +355,12 @@ export function KitchenConnectCard({
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
               <DialogTitle>Conecta tu cocina</DialogTitle>
-              <DialogDescription>
-                Tu equipo escanea este código con Telegram y ya puede mandarte
-                reportes y recetas por nota de voz.
-              </DialogDescription>
+              {qr ? (
+                <DialogDescription>
+                  Tu equipo escanea este código con Telegram y ya puede mandarte
+                  reportes y recetas por nota de voz.
+                </DialogDescription>
+              ) : null}
             </DialogHeader>
             {qrBlock}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -400,10 +402,12 @@ export function KitchenConnectCard({
           />
         </div>
       ) : null}
-      <p className="text-sm text-[#0D1117]">
-        Tu equipo escanea este código con Telegram y ya puede mandarte reportes
-        y recetas por nota de voz.
-      </p>
+      {qr ? (
+        <p className="text-sm text-[#0D1117]">
+          Tu equipo escanea este código con Telegram y ya puede mandarte
+          reportes y recetas por nota de voz.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {qr ? (
         <>

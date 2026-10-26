@@ -800,6 +800,8 @@ export function KitchenRecipeDraftsCard({
   const visibleDrafts = listExpanded
     ? drafts
     : drafts.slice(0, KITCHEN_RECIPES_PREVIEW);
+  const selectClass =
+    "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
 
   return (
     <>
@@ -814,6 +816,22 @@ export function KitchenRecipeDraftsCard({
           >
             {drafts.length}
           </span>
+          {locations.length > 1 ? (
+            <select
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              className={`${selectClass} ml-auto`}
+              aria-label="Filtrar por ubicación"
+              data-testid="kitchen-recipes-location"
+            >
+              <option value="">Todas las ubicaciones</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         {drafts.length === 0 && !error ? (

@@ -207,7 +207,51 @@ function isMissingResolvedColumn(message: string | undefined): boolean {
   return /resolved_at|column/i.test(message);
 }
 
+/**
+ * The company's ACTIVE ingredients (id, name), so a report about «harina»
+ * can show «Harina de trigo». Best effort: any failure means no names.
+ */
+async function loadActiveIngredients(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const { data, error } = await supabase
+      .from("ingredients")
+      .select("id, name")
+      .eq("company_id", companyId)
+      .is("archived_at", null)
+      .limit(5000);
+    if (error) return [];
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? ""),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchKitchenAttentionBundle(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string;
+    locationId: string | null;
+    period: InclusiveDateRange;
+    timezone: string;
+  }
+): Promise<{ bundle: KitchenEventBundle; source: "rpc" | "rows" | "denied" }> {
+  const out = await fetchKitchenAttentionBase(supabase, input);
+  if (out.source !== "denied" && out.bundle.reports.length > 0) {
+    out.bundle.ingredients = await loadActiveIngredients(
+      supabase,
+      input.companyId
+    );
+  }
+  return out;
+}
+
+async function fetchKitchenAttentionBase(
   supabase: SupabaseClient,
   input: {
     companyId: string;

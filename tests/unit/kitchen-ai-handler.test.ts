@@ -101,7 +101,7 @@ describe("AI kitchen handler - realistic messages", () => {
       desc: "voice follow-up after unit question",
       message: "por libra",
       mockIntent: "answer_to_pending",
-      expectedReply: /Anotado/i, // Assuming existing unit handler deals with this
+      shouldCreateDraft: true, // Falls through to existing unit handler
     },
 
     // Stock reports

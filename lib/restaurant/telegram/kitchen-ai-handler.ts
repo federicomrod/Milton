@@ -50,8 +50,27 @@ export async function handleWithAi(ctx: AiHandlerContext): Promise<boolean> {
     // Call AI interpreter
     const result = await interpretKitchenMessage(ctx.text, context);
 
-    // AI timeout or failure: let existing logic handle it
-    if (!result) return false;
+    // AI timeout or failure: send fallback and store message
+    if (!result) {
+      try {
+        await sendTelegramMessage(
+          ctx.chatId,
+          renderKitchenCopy(
+            KITCHEN_COPY.PROCESSING_FAILED,
+            destinationVars(ctx.staff)
+          ),
+          ctx.markup ? { replyMarkup: ctx.markup } : undefined
+        );
+        // Store message so no data is lost
+        await storeAsReport(ctx.admin, ctx.staff, ctx.chatId, {
+          telegram_message_id: ctx.messageId,
+          text: ctx.text,
+        });
+      } catch {
+        // At least we tried
+      }
+      return true; // Handled with fallback
+    }
 
     // Handle each intent
     return await handleIntent(result, ctx);
@@ -60,7 +79,7 @@ export async function handleWithAi(ctx: AiHandlerContext): Promise<boolean> {
       "[kitchen-ai-handler] failed:",
       err instanceof Error ? err.message : "unknown"
     );
-    // On hard failure, send fallback reply
+    // On hard failure, send fallback reply and store
     try {
       await sendTelegramMessage(
         ctx.chatId,
@@ -70,6 +89,10 @@ export async function handleWithAi(ctx: AiHandlerContext): Promise<boolean> {
         ),
         ctx.markup ? { replyMarkup: ctx.markup } : undefined
       );
+      await storeAsReport(ctx.admin, ctx.staff, ctx.chatId, {
+        telegram_message_id: ctx.messageId,
+        text: ctx.text,
+      });
     } catch {
       // Even send failed - at least we tried
     }

@@ -1253,22 +1253,31 @@ async function processRecipeDraftAsync(
         return;
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {
-        // Try AI interpretation for greeting/question/unclear messages
-        const { handleWithAi } =
-          await import("@/lib/restaurant/telegram/kitchen-ai-handler");
-        const handled = await handleWithAi({
-          admin,
-          staff,
-          chatId,
-          messageId,
-          text: finalTextContent,
-          markup: opts.markup,
-        });
-        if (handled) {
-          logPriceRoute(logCtx, "ai_handled", undefined, price.aiCalled);
-          return;
+        // Only call AI for messages with conversational/question/greeting markers
+        const hasConversationalMarkers =
+          /\?|hola|gracias|buenos dias|buenas tardes|help|ayuda|problema|no funciona/i.test(
+            finalTextContent
+          );
+
+        if (hasConversationalMarkers) {
+          // Try AI interpretation for greeting/question/complaint messages
+          const { handleWithAi } =
+            await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+          const handled = await handleWithAi({
+            admin,
+            staff,
+            chatId,
+            messageId,
+            text: finalTextContent,
+            markup: opts.markup,
+          });
+          if (handled) {
+            logPriceRoute(logCtx, "ai_handled", undefined, price.aiCalled);
+            return;
+          }
         }
-        // Fallback to generic ack if AI didn't handle it
+
+        // Generic acknowledgement for everything else
         logPriceRoute(logCtx, "ack", undefined, price.aiCalled);
         await ack();
         return;

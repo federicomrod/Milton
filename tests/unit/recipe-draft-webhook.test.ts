@@ -244,7 +244,9 @@ describe("telegram webhook recipe drafts", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(replies).toHaveLength(0);
+    // Per spec: unsupported media gets helpful reply explaining what's supported
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toMatch(/no puedo procesar/i);
     expect(recordKitchenReport).not.toHaveBeenCalled();
     expect(extractAndCreateRecipeDraft).not.toHaveBeenCalled();
   });

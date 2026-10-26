@@ -13,7 +13,11 @@ import type {
   Currency,
 } from "./kitchen-intent-ai";
 import { findOpenUnitQuestion, itemsOfQuestion } from "./price-unit-question";
-import { distinguishingWords, looselySameName } from "@/lib/restaurant/kitchen-ingredient-match";
+import {
+  distinguishingWords,
+  looselySameName,
+} from "@/lib/restaurant/kitchen-ingredient-match";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 const CONTEXT_MESSAGE_LIMIT = 5;
 const INGREDIENT_HINT_LIMIT = 10;
@@ -107,7 +111,7 @@ export async function fetchPendingQuestion(
     const first = items[0];
     // Check if it's a unit question or amount question based on payload
     const payload = question.payload as Record<string, unknown>;
-    
+
     if (payload.price_amount_question) {
       return {
         question: `¿${first.product} está a cuánto?`,
@@ -126,35 +130,29 @@ export async function fetchPendingQuestion(
 }
 
 /**
- * Gets company currency. Defaults to USD (first client in El Salvador).
- * TODO: Add company-level currency field when available.
+ * Gets company currency using the same source as existing price logic (PR #314).
  */
 export async function getCompanyCurrency(
   admin: SupabaseClient,
   companyId: string
 ): Promise<Currency> {
   try {
-    // Check if company has any ingredients with currency
-    const { data, error } = await admin
-      .from("ingredients")
-      .select("currency")
-      .eq("company_id", companyId)
-      .not("currency", "is", null)
-      .limit(1)
-      .maybeSingle();
-
-    if (!error && data?.currency) {
-      const cur = data.currency.toUpperCase();
-      if (["USD", "MXN", "CRC", "GTQ", "HNL", "PEN", "EUR", "NIO"].includes(cur)) {
-        return cur as Currency;
-      }
+    // Use the same currency resolution as all other price features
+    const currency = await resolveCompanyCurrency(admin as never, companyId);
+    // Validate it's one of our supported currencies
+    if (
+      ["USD", "MXN", "CRC", "GTQ", "HNL", "PEN", "EUR", "NIO"].includes(
+        currency
+      )
+    ) {
+      return currency as Currency;
     }
+    // If not supported, fall back to USD
+    return "USD";
   } catch {
-    // Fall through to default
+    // On error, default to USD
+    return "USD";
   }
-
-  // Default to USD (first client in El Salvador)
-  return "USD";
 }
 
 /**
@@ -166,12 +164,13 @@ export async function buildKitchenContext(
   companyId: string,
   messageText: string
 ): Promise<KitchenIntentContext> {
-  const [conversation, ingredient_hints, pending_question, companyCurrency] = await Promise.all([
-    fetchConversationHistory(admin, chatId),
-    fetchIngredientHints(admin, companyId, messageText),
-    fetchPendingQuestion(chatId),
-    getCompanyCurrency(admin, companyId),
-  ]);
+  const [conversation, ingredient_hints, pending_question, companyCurrency] =
+    await Promise.all([
+      fetchConversationHistory(admin, chatId),
+      fetchIngredientHints(admin, companyId, messageText),
+      fetchPendingQuestion(chatId),
+      getCompanyCurrency(admin, companyId),
+    ]);
 
   return {
     conversation,

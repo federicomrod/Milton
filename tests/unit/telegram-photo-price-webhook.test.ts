@@ -291,16 +291,29 @@ describe("photo routing", () => {
     expect(invoices()).toHaveLength(0);
   });
 
-  it.each([
-    ["other", { ok: true, kind: "other", confidence: "high" }],
-    ["low confidence", { ok: true, kind: "invoice", confidence: "low" }],
-    ["error", { ok: false, reason: "timeout" }],
-  ])("classifier %s asks «¿factura o receta?»", async (_n, verdict) => {
-    classify.mockResolvedValue(verdict);
+  it("classifier low confidence asks «¿factura o receta?»", async () => {
+    classify.mockResolvedValue({
+      ok: true,
+      kind: "invoice",
+      confidence: "low",
+    });
     await send(photo());
     expect(replies).toEqual([
       "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
     ]);
+    expect(invoices()).toHaveLength(0);
+    expect(extractRecipe).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["other", { ok: true, kind: "other", confidence: "high" }],
+    ["error", { ok: false, reason: "timeout" }],
+  ])("classifier %s explains what photos work", async (_n, verdict) => {
+    classify.mockResolvedValue(verdict);
+    await send(photo());
+    // Per spec: unrecognized photo gets explanation, not question
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toMatch(/puedo leer facturas/i);
     expect(invoices()).toHaveLength(0);
     expect(extractRecipe).not.toHaveBeenCalled();
   });

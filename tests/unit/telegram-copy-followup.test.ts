@@ -83,11 +83,20 @@ describe("formatPriceUpdateItems", () => {
 });
 
 describe("invoice copy", () => {
-  it("reviewer term is the app's own («el dueño o un admin»)", () => {
-    for (const key of ["INVOICE_RECEIVED", "PRICE_UPDATE_RECEIVED"] as const) {
-      expect(KITCHEN_COPY[key].toLowerCase()).toContain("el dueño o un admin");
-      expect(KITCHEN_COPY[key]).not.toContain("encargado");
-    }
+  it("reviewer term is the app's own («el dueño o un admin») or location pointer", () => {
+    // INVOICE_RECEIVED still mentions reviewer
+    expect(KITCHEN_COPY.INVOICE_RECEIVED.toLowerCase()).toContain(
+      "el dueño o un admin"
+    );
+    expect(KITCHEN_COPY.INVOICE_RECEIVED).not.toContain("encargado");
+
+    // PRICE_UPDATE_RECEIVED changed per spec to show location («Lo ves en Costos › Compras»)
+    expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED.toLowerCase()).toContain(
+      "costos"
+    );
+    expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED.toLowerCase()).toContain(
+      "compras"
+    );
     expect(KITCHEN_COPY.PRICE_UPDATE_RECEIVED).not.toContain("{origen}");
   });
 });

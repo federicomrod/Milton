@@ -121,6 +121,19 @@ export async function POST(req: NextRequest) {
         });
         return created.ok ? { ok: true } : created;
       },
+      isRecipeShared: async (menuItemId, exceptLinkId) => {
+        const { data, error } = await auth.supabase
+          .from("pos_product_links")
+          .select("id")
+          .eq("company_id", auth.companyId)
+          .eq("menu_item_id", menuItemId)
+          .neq("id", exceptLinkId)
+          .limit(1);
+        // Fail closed: if sharing cannot be read, treat the recipe as shared
+        // (the copy then goes to a NEW recipe, never into one that may be shared).
+        if (error) return true;
+        return (data ?? []).length > 0;
+      },
       companyId: auth.companyId,
       odooProductId,
       locationId,

@@ -91,7 +91,7 @@ export function pickApprovedSibling(
   return sameSize[0] ?? candidates[0] ?? null;
 }
 
-/** «Faltan: Churrasco Típico 6 oz Eventos (Sin receta), …» or null. */
+/** «Faltan: Parrillada Demo 6 oz Eventos (Sin receta), …» or null. */
 export function missingProductsTip(
   dishVariants: readonly MenuDishVariant[]
 ): string | null {

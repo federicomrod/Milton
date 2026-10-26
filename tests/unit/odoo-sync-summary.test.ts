@@ -35,7 +35,7 @@ describe("summarizeOdooSync + syncSummaryCopy", () => {
     );
     expect(copy.skipped).toBe("3 filas se omitieron.");
     expect(copy.unmatchedItems).toBe(
-      "3 combinaciones de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guardan como ventas del producto; no afectan tus costos."
+      "3 combinaciones de opciones del POS se guardan como ventas del producto; no afectan tus costos."
     );
     expect(copy.unmatchedTills).toBe(
       "1 nombre de caja no es una ubicación de Milton."
@@ -108,7 +108,7 @@ describe("unmatched items info line", () => {
       summarizeOdooSync({ ...julyBody, unmatched_menu_items: ["Flan"] })
     );
     expect(copy.unmatchedItems).toBe(
-      "1 combinación de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guarda como ventas del producto; no afecta tus costos."
+      "1 combinación de opciones del POS se guarda como ventas del producto; no afecta tus costos."
     );
     expect(copy.unmatchedItems).not.toMatch(/did not match|no coincid/i);
   });

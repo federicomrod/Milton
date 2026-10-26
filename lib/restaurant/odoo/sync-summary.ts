@@ -161,8 +161,8 @@ export function syncSummaryCopy(
       comboCount === 0
         ? "Todo lo que se sincronizó coincide con tu menú."
         : comboCount === 1
-          ? "1 combinación de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guarda como ventas del producto; no afecta tus costos."
-          : `${formatCount(comboCount)} combinaciones de opciones del POS (como «Desayuno Vicentino (Pan con Ajo)») se guardan como ventas del producto; no afectan tus costos.`,
+          ? "1 combinación de opciones del POS se guarda como ventas del producto; no afecta tus costos."
+          : `${formatCount(comboCount)} combinaciones de opciones del POS se guardan como ventas del producto; no afectan tus costos.`,
     unmatchedTills:
       tillCount === 0
         ? "Todos los nombres de caja coinciden con una ubicación de Milton."

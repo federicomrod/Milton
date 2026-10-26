@@ -31,7 +31,7 @@ function variant(over: Partial<MenuDishVariant>): MenuDishVariant {
     key: String(over.odoo_product_id ?? 1),
     sales_scope: null,
     saved: true,
-    name: "Churrasco Típico 6 oz",
+    name: "Parrillada Demo 6 oz",
     size: 6,
     size_unit: "oz",
     side: null,
@@ -56,13 +56,13 @@ function variant(over: Partial<MenuDishVariant>): MenuDishVariant {
 const V6 = variant({ odoo_product_id: 1, net_sales: 300 });
 const V6_PLUS = variant({
   odoo_product_id: 2,
-  name: "Churrasco Típico 6 oz Plus",
+  name: "Parrillada Demo 6 oz Plus",
   net_sales: 50,
   status: "aprobado",
 });
 const V6_EVENTOS = variant({
   odoo_product_id: 3,
-  name: "Churrasco Típico 6 oz Eventos",
+  name: "Parrillada Demo 6 oz Eventos",
   net_sales: 80,
   unit_cost: null,
   cost_total: null,
@@ -75,13 +75,13 @@ const V6_EVENTOS = variant({
 });
 const V10 = variant({
   odoo_product_id: 4,
-  name: "Churrasco Típico 10 oz",
+  name: "Parrillada Demo 10 oz",
   size: 10,
   net_sales: 200,
 });
 const V10_DRAFT = variant({
   odoo_product_id: 5,
-  name: "Churrasco Típico 10 oz Eventos",
+  name: "Parrillada Demo 10 oz Eventos",
   size: 10,
   net_sales: 20,
   unit_cost: null,
@@ -102,7 +102,7 @@ function workspace(
   const dish = {
     id: "d1",
     stored: true,
-    name: "Churrasco Típico",
+    name: "Parrillada Demo",
     category: null,
     source: "menu",
     status: "confirmed",
@@ -190,15 +190,15 @@ describe("sibling choice (pure)", () => {
   const all = [V6, V6_PLUS, V6_EVENTOS, V10, V10_DRAFT];
   it("prefers the same size, then the best seller", () => {
     expect(pickApprovedSibling(all, productsOf([V6_EVENTOS])[0])?.name).toBe(
-      "Churrasco Típico 6 oz"
+      "Parrillada Demo 6 oz"
     );
     expect(pickApprovedSibling(all, productsOf([V10_DRAFT])[0])?.name).toBe(
-      "Churrasco Típico 10 oz"
+      "Parrillada Demo 10 oz"
     );
     // no approved product of the same size: the best seller of the dish
     expect(
       pickApprovedSibling([V6, V10_DRAFT], productsOf([V10_DRAFT])[0])?.name
-    ).toBe("Churrasco Típico 6 oz");
+    ).toBe("Parrillada Demo 6 oz");
   });
   it("is null when the dish has no approved sibling", () => {
     expect(
@@ -207,7 +207,7 @@ describe("sibling choice (pure)", () => {
   });
   it("lists the missing products with their status", () => {
     expect(missingProductsTip(all)).toBe(
-      "Faltan: Churrasco Típico 6 oz Eventos (Sin receta), Churrasco Típico 10 oz Eventos (Borrador)"
+      "Faltan: Parrillada Demo 6 oz Eventos (Sin receta), Parrillada Demo 10 oz Eventos (Borrador)"
     );
     expect(missingProductsTip([V6, V10])).toBeNull();
   });
@@ -227,7 +227,7 @@ describe("MenuDishesScreen · size rows open into products", () => {
       within(eventos).getByRole("link", { name: /Abrir/ }).getAttribute("href")
     ).toBe("/dashboard/restaurant/menu/platos?producto=3");
     // the 10 oz size stays closed
-    expect(screen.queryByText("Churrasco Típico 10 oz")).toBeNull();
+    expect(screen.queryByText("Parrillada Demo 10 oz")).toBeNull();
   });
 
   it("prefills «Usar la receta de {hermano}» with the same-size approved product and confirms before linking", async () => {
@@ -254,14 +254,14 @@ describe("MenuDishesScreen · size rows open into products", () => {
     }
     fireEvent.click(
       within(eventos).getByRole("button", {
-        name: "Usar la receta de Churrasco Típico 6 oz",
+        name: "Usar la receta de Parrillada Demo 6 oz",
       })
     );
     // nothing is saved until the person confirms
     expect(calls).toHaveLength(0);
     expect(
       within(eventos).getByText(
-        "Churrasco Típico 6 oz Eventos usará la receta de Churrasco Típico 6 oz. Comparten la misma receta."
+        "Parrillada Demo 6 oz Eventos usará la receta de Parrillada Demo 6 oz. Comparten la misma receta."
       )
     ).toBeTruthy();
     fireEvent.click(within(eventos).getByRole("button", { name: "Confirmar" }));
@@ -269,7 +269,7 @@ describe("MenuDishesScreen · size rows open into products", () => {
     expect(calls[0].url).toBe("/api/restaurant/pos/links/change");
     expect(calls[0].body).toEqual({
       odoo_product_id: 3,
-      odoo_name: "Churrasco Típico 6 oz Eventos",
+      odoo_name: "Parrillada Demo 6 oz Eventos",
       menu_item_id: "m-1",
     });
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
@@ -280,7 +280,7 @@ describe("MenuDishesScreen · size rows open into products", () => {
     openSize("10 oz");
     expect(
       screen.getByRole("button", {
-        name: "Usar la receta de Churrasco Típico 10 oz",
+        name: "Usar la receta de Parrillada Demo 10 oz",
       })
     ).toBeTruthy();
   });
@@ -302,7 +302,7 @@ describe("MenuDishesScreen · size rows open into products", () => {
     const chip = screen.getByText("Aprobado 3 de 5");
     const tip = chip.closest("span[title]")!.getAttribute("title")!;
     expect(tip).toContain(
-      "Faltan: Churrasco Típico 6 oz Eventos (Sin receta), Churrasco Típico 10 oz Eventos (Borrador)"
+      "Faltan: Parrillada Demo 6 oz Eventos (Sin receta), Parrillada Demo 10 oz Eventos (Borrador)"
     );
   });
 });

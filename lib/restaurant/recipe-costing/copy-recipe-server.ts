@@ -211,8 +211,21 @@ export async function copyRecipeLinesForCompany(input: {
   store: EditorStore;
   /** Read-only source (already company-scoped). */
   loadSource: (menuItemId: string) => Promise<CopySource | null>;
-  /** Creates the empty recipe + link for a product that has none (same as «Crear receta»). */
+  /**
+   * Creates the empty recipe + link for a product that has none (same as
+   * «Crear receta»). It re-points ONLY this product's link; it is also used
+   * when the product's current recipe is shared with another product.
+   */
   createRecipe: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * True when another pos_product_link of the same company uses this recipe
+   * (a shared recipe from «Usar la receta de otro plato»). `exceptLinkId` is
+   * this product's own link.
+   */
+  isRecipeShared: (
+    menuItemId: string,
+    exceptLinkId: string
+  ) => Promise<boolean>;
   companyId: string;
   odooProductId: number;
   locationId?: string | null;
@@ -253,6 +266,31 @@ export async function copyRecipeLinesForCompany(input: {
       error: "No pude preparar la receta de este plato.",
       status: 500,
     };
+  }
+  // A recipe shared with another product is NEVER written into: the copy
+  // must be independent, so this product first gets its own new recipe and
+  // link (only its own link is re-pointed). The shared recipe, its drafts, its
+  // approved version and the other products' links stay exactly as they were.
+  if (
+    !createdRecipe &&
+    link.id &&
+    (await input.isRecipeShared(link.menu_item_id, link.id))
+  ) {
+    const created = await input.createRecipe();
+    if (!created.ok) return { ok: false, error: created.error, status: 400 };
+    createdRecipe = true;
+    link = await store.loadLink(
+      companyId,
+      input.odooProductId,
+      input.locationId ?? null
+    );
+    if (!link?.menu_item_id) {
+      return {
+        ok: false,
+        error: "No pude preparar la receta de este plato.",
+        status: 500,
+      };
+    }
   }
   if (link.menu_item_id === source.menu_item_id) {
     return {

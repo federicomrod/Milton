@@ -47,6 +47,7 @@ async function guard(): Promise<
       ok: true;
       auth: Extract<Awaited<ReturnType<typeof authAndCompany>>, { ok: true }>;
       actor: ReturnType<typeof toRecipeActor>;
+      permission: Awaited<ReturnType<typeof resolveActor>>;
     }
   | { ok: false; response: NextResponse }
 > {
@@ -57,7 +58,7 @@ async function guard(): Promise<
   });
   const denied = requireCapability(actor, "recipes.edit", { message: DENIED });
   if (denied) return { ok: false, response: denied };
-  return { ok: true, auth, actor: toRecipeActor(actor) };
+  return { ok: true, auth, actor: toRecipeActor(actor), permission: actor };
 }
 
 export async function GET() {
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
   const checked = await guard();
   if (!checked.ok) return checked.response;
   const { supabase, companyId, userId } = checked.auth;
-  const { actor } = checked;
+  const { actor, permission } = checked;
 
   let body: Record<string, unknown> = {};
   try {
@@ -139,6 +140,13 @@ export async function POST(req: NextRequest) {
       odoo_product_id: p.odoo_product_id,
       odoo_name: p.odoo_name.trim(),
     }));
+  }
+  // A request that can CREATE recipes and links (products given, or a bulk
+  // run that links unlinked products) needs the same permission as «Crear
+  // receta». An estimate of existing platos (menu_item_ids) does not.
+  if (products !== undefined || menuItemIds === undefined) {
+    const noLink = requireCapability(permission, "links.confirm");
+    if (noLink) return noLink;
   }
   const locationId =
     typeof body.location_id === "string" && body.location_id.trim()

@@ -653,11 +653,11 @@ describe("the report per menu dish", () => {
       ({ id, name, variants }) as never;
     const groups = platoGroupsFromMenuDishes(
       [
-        plato("g1", "Desayuno Vicentino", [
+        plato("g1", "Plato Demo", [
           variant(1, "sin_receta"),
           variant(2, "sin_receta"),
         ]),
-        plato("g2", "Churrasco Mixto", [
+        plato("g2", "Parrillada Mixta Demo", [
           variant(3, "aprobado", true),
           variant(4, "sin_receta"),
         ]),
@@ -679,8 +679,8 @@ describe("the report per menu dish", () => {
     ]);
     // g1 and g2 match no menu dish; g4 matches the menu; g3/g5 are not sin receta.
     expect(platosNotOnMenu(groups, DISHES)).toEqual([
-      "Desayuno Vicentino",
-      "Churrasco Mixto",
+      "Plato Demo",
+      "Parrillada Mixta Demo",
     ]);
   });
 });

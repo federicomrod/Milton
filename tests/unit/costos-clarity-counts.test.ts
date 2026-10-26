@@ -47,7 +47,7 @@ const data: ResumenData = {
   dishes: [
     {
       id: "c",
-      name: "Churrasco Típico",
+      name: "Parrillada Demo",
       variants: [v(1, 5, "aprobado"), v(2, null, "sin_receta")],
     },
     { id: "p", name: "Pasta", variants: [v(3, 3, "aprobado")] },
@@ -70,7 +70,7 @@ const range = resumenRange("month", "2026-10-26");
 const view = computeResumen(data, range);
 
 describe("one count, no double counting (mixed dish)", () => {
-  const churrasco = view.dishes.find((d) => d.name === "Churrasco Típico")!;
+  const churrasco = view.dishes.find((d) => d.name === "Parrillada Demo")!;
 
   it("the mixed dish keeps «Aprobado 1 de 2»", () => {
     expect(churrasco.approved_count).toBe(1);

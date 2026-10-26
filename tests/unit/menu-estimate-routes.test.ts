@@ -21,7 +21,27 @@ const world = vi.hoisted(() => ({
     messages: Array<{ role: string; content: unknown }>;
   }) => unknown,
   calls: [] as Array<{ dish: string; hasImage: boolean; detail?: string }>,
+  /** A capability the actor lacks even though the role table grants it (to test one gate at a time). */
+  denyCap: null as string | null,
 }));
+
+vi.mock("@/lib/auth/permissions", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/auth/permissions")>();
+  return {
+    ...actual,
+    requireCapability: (
+      ...args: Parameters<typeof actual.requireCapability>
+    ) => {
+      if (world.denyCap && args[1] === world.denyCap) {
+        return new Response(JSON.stringify({ error: "denied" }), {
+          status: 403,
+        }) as unknown as ReturnType<typeof actual.requireCapability>;
+      }
+      return actual.requireCapability(...args);
+    },
+  };
+});
 
 vi.mock("@/lib/supabase/admin", () => {
   const chain: Record<string, unknown> = {
@@ -240,6 +260,7 @@ function setDb(options?: Parameters<typeof makeFakeDb>[1]) {
 
 beforeEach(() => {
   world.role = "owner";
+  world.denyCap = null;
   world.staff = false;
   world.sales = new Map();
   world.calls = [];
@@ -1073,7 +1094,10 @@ function nameOf(line: Row): string {
 }
 
 describe("a product with no linked recipe (Part C)", () => {
-  const PRODUCT = { odoo_product_id: 777, odoo_name: "Churrasco 6 oz Eventos" };
+  const PRODUCT = {
+    odoo_product_id: 777,
+    odoo_name: "Parrillada Demo 6 oz Eventos",
+  };
   const WRITES = [
     "menu_items",
     "recipes",
@@ -1167,5 +1191,25 @@ describe("a product with no linked recipe (Part C)", () => {
       403
     );
     expect(store.menu_items).toHaveLength(0);
+  });
+
+  it("links.confirm is required whenever the request can create recipes and links (products, or a bulk run); a per-plato estimate needs only recipes.edit", async () => {
+    world.denyCap = "links.confirm";
+    // products given → can create recipe + link → 403, nothing created
+    const withProducts = await POST(req("estimate", { products: [PRODUCT] }));
+    expect(withProducts.status).toBe(403);
+    // a bulk run (no ids) links unlinked products → 403
+    const bulk = await POST(req("estimate", {}));
+    expect(bulk.status).toBe(403);
+    expect(store.menu_items).toHaveLength(0);
+    expect(store.recipes).toHaveLength(0);
+    // an estimate of existing platos by id does not create anything → allowed
+    const byId = await POST(req("estimate", { menu_item_ids: [] }));
+    expect(byId.status).not.toBe(403);
+    // and without recipes.edit nothing passes, links.confirm or not
+    world.denyCap = "recipes.edit";
+    expect((await POST(req("estimate", { menu_item_ids: [] }))).status).toBe(
+      403
+    );
   });
 });

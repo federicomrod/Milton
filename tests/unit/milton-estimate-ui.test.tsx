@@ -180,7 +180,7 @@ describe("MenuReaderPanel · lo que leyó, por plato del menú", () => {
     no_pos_match: 2,
     failed: 0,
     not_on_menu: 2,
-    not_found: ["Desayuno Vicentino", "Cena Especial"],
+    not_found: ["Plato Demo", "Cena Especial"],
     new_components: 0,
     menu_outcomes: [
       {
@@ -234,7 +234,7 @@ describe("MenuReaderPanel · lo que leyó, por plato del menú", () => {
     ).toBeTruthy();
     // «Ver cuáles» names the platos.
     fireEvent.click(screen.getByRole("button", { name: "Ver cuáles" }));
-    expect(screen.getByText("Desayuno Vicentino, Cena Especial")).toBeTruthy();
+    expect(screen.getByText("Plato Demo, Cena Especial")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Ver detalle" }));
     const titles = screen

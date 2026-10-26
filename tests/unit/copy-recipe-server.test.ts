@@ -18,7 +18,7 @@ import {
 
 const SOURCE: CopySource = {
   menu_item_id: "m-src",
-  name: "Churrasco Típico 6 oz",
+  name: "Parrillada Demo 6 oz",
   version_status: "approved",
   inputs: [
     {
@@ -75,6 +75,7 @@ function run(
     store: createMemoryEditorStore(state),
     loadSource: async (id) => (id === SOURCE.menu_item_id ? SOURCE : null),
     createRecipe: async () => ({ ok: true }),
+    isRecipeShared: async () => false,
     companyId: "co-1",
     odooProductId: 7,
     sourceMenuItemId: "m-src",
@@ -357,5 +358,176 @@ describe("company scoping of the source", () => {
       "co-1",
       expect.objectContaining({ id: "va" })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A target whose recipe is SHARED with another product (from «Usar la receta
+// de otro plato») gets its OWN new recipe and link; the shared one is never
+// written to.
+// ---------------------------------------------------------------------------
+
+describe("copy onto a product that shares its recipe with a sibling", () => {
+  const sharedState = (draft: boolean) =>
+    targetState({
+      link: { id: "l1", menu_item_id: "m-shared", evidence: { keep: "x" } },
+      version: {
+        id: draft ? "v-shared-draft" : "v-shared-appr",
+        status: draft ? "in_review" : "approved",
+        kind: "dish",
+        menu_item_id: "m-shared",
+        version_number: 1,
+      },
+      inputs: [
+        {
+          id: "sh1",
+          input_type: "ingredient",
+          ingredient_id: "i-pollo",
+          quantity: 5,
+          unit: "oz",
+          component_id: null,
+        },
+        {
+          id: "sh2",
+          input_type: "ingredient",
+          ingredient_id: "i-sal",
+          quantity: 1,
+          unit: "g",
+          component_id: null,
+        },
+      ],
+    });
+
+  /** createRecipeAndLink, modelled: ONLY this product's link is re-pointed. */
+  function setup(draft: boolean) {
+    const state = sharedState(draft);
+    const sibling = {
+      link: JSON.stringify(state.link),
+      version: JSON.stringify(state.version),
+      inputs: JSON.stringify(state.inputs),
+    };
+    const store = createMemoryEditorStore(state);
+    const deleted: string[] = [];
+    const realDelete = store.deleteInput.bind(store);
+    store.deleteInput = async (...args: Parameters<typeof realDelete>) => {
+      deleted.push(String(args[2]));
+      return realDelete(...args);
+    };
+    const createRecipe = vi.fn(async () => {
+      state.link = {
+        id: "l1",
+        menu_item_id: "m-own",
+        evidence: { source: "create_recipe" },
+      };
+      state.version = {
+        id: "v-own",
+        status: "in_review",
+        kind: "dish",
+        menu_item_id: "m-own",
+        version_number: 1,
+      };
+      state.inputs = [];
+      return { ok: true as const };
+    });
+    const isRecipeShared = vi.fn(async (id: string) => id === "m-shared");
+    return { state, sibling, store, deleted, createRecipe, isRecipeShared };
+  }
+
+  const exec = (
+    ctx: ReturnType<typeof setup>,
+    over: Partial<Parameters<typeof copyRecipeLinesForCompany>[0]> = {}
+  ) =>
+    copyRecipeLinesForCompany({
+      store: ctx.store,
+      loadSource: async (id) => (id === SOURCE.menu_item_id ? SOURCE : null),
+      createRecipe: ctx.createRecipe,
+      isRecipeShared: ctx.isRecipeShared,
+      companyId: "co-1",
+      odooProductId: 7,
+      sourceMenuItemId: "m-src",
+      ...over,
+    });
+
+  it("an approved shared recipe: the target gets its own new draft with the copied lines; the shared recipe, version, lines and link stay as they were", async () => {
+    const ctx = setup(false);
+    const res = await exec(ctx);
+    expect(res).toMatchObject({
+      ok: true,
+      lines_copied: 2,
+      created_recipe: true,
+    });
+    expect(ctx.createRecipe).toHaveBeenCalledTimes(1);
+    // The target now has its own draft holding ONLY the copied lines.
+    expect(ctx.state.link?.menu_item_id).toBe("m-own");
+    expect(ctx.state.version).toMatchObject({
+      id: "v-own",
+      status: "in_review",
+      menu_item_id: "m-own",
+    });
+    expect(
+      ctx.state.inputs.map((i) => [i.ingredient_id, i.component_id])
+    ).toEqual([
+      ["i-res", null],
+      [null, "c-chimi"],
+    ]);
+    // The shared recipe was never written to: nothing deleted, nothing inserted
+    // into its version, and its snapshot is intact.
+    expect(ctx.deleted).toEqual([]);
+    expect(ctx.state.inputs.some((i) => i.id.startsWith("sh"))).toBe(false);
+    expect(ctx.sibling.version).toContain("m-shared");
+    expect(ctx.sibling.inputs).toContain("sh1");
+  });
+
+  it("replace mode on a shared DRAFT never deletes lines from the shared draft", async () => {
+    const ctx = setup(true);
+    const res = await exec(ctx, { mode: "replace" });
+    expect(res).toMatchObject({ ok: true, created_recipe: true });
+    // No shared line was deleted (the shared draft had sh1/sh2).
+    expect(ctx.deleted.filter((id) => id.startsWith("sh"))).toEqual([]);
+    expect(ctx.state.version?.id).toBe("v-own");
+    expect(ctx.state.inputs).toHaveLength(2);
+  });
+
+  it("without a mode, a shared draft with lines does not ask or touch anything: the copy goes to the new recipe", async () => {
+    const ctx = setup(true);
+    const res = await exec(ctx);
+    expect(res.ok).toBe(true);
+    expect((res as { needs_mode?: boolean }).needs_mode).toBeUndefined();
+    expect(ctx.deleted).toEqual([]);
+  });
+
+  it("the yield goes only to this product's own (new) link, never the shared one", async () => {
+    const ctx = setup(false);
+    const saved: Array<{ id: string | null; evidence: unknown }> = [];
+    const realSave = ctx.store.saveEvidence.bind(ctx.store);
+    ctx.store.saveEvidence = async (...args: Parameters<typeof realSave>) => {
+      saved.push({ id: args[1].id, evidence: args[2] });
+      return realSave(...args);
+    };
+    await exec(ctx);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].id).toBe("l1"); // this product's link, now pointing at m-own
+    expect(ctx.state.link?.menu_item_id).toBe("m-own");
+    expect(
+      (saved[0].evidence as { yield?: { confirmed?: boolean } }).yield
+    ).toMatchObject({ confirmed: false });
+  });
+
+  it("copying the recipe it shares with a sibling is allowed: it becomes an independent copy", async () => {
+    const ctx = setup(false);
+    const res = await exec(ctx, {
+      sourceMenuItemId: "m-shared",
+      loadSource: async () => ({ ...SOURCE, menu_item_id: "m-shared" }),
+    });
+    expect(res.ok).toBe(true);
+    expect(ctx.state.link?.menu_item_id).toBe("m-own");
+  });
+
+  it("a recipe NOT shared is written as before (no new recipe)", async () => {
+    const ctx = setup(false);
+    ctx.isRecipeShared.mockResolvedValue(false);
+    const res = await exec(ctx);
+    expect(res).toMatchObject({ ok: true, created_recipe: false });
+    expect(ctx.createRecipe).not.toHaveBeenCalled();
   });
 });

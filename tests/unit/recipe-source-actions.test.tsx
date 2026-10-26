@@ -24,10 +24,10 @@ function Harness(props: {
 }) {
   const { buttons, helper, panel } = useRecipeSourceActions({
     odooProductId: 7,
-    odooName: "Churrasco Típico 6 oz Eventos",
+    odooName: "Parrillada Demo 6 oz Eventos",
     menuItems: [
-      { id: "m-self", name: "Churrasco Típico 6 oz Eventos" },
-      { id: "m-1", name: "Churrasco Típico 6 oz" },
+      { id: "m-self", name: "Parrillada Demo 6 oz Eventos" },
+      { id: "m-1", name: "Parrillada Demo 6 oz" },
       { id: "m-2", name: "Pollo asado" },
     ],
     currentMenuItemId: "m-self",
@@ -106,7 +106,7 @@ describe("RecipeSourceActions", () => {
               candidates: [
                 {
                   menu_item_id: "m-1",
-                  name: "Churrasco Típico 6 oz",
+                  name: "Parrillada Demo 6 oz",
                   status: "aprobada",
                   line_count: 3,
                 },
@@ -123,7 +123,7 @@ describe("RecipeSourceActions", () => {
     render(<Harness onCopied={onCopied} />);
     fireEvent.click(screen.getByRole("button", { name: "Copiar receta de…" }));
     const first = await screen.findAllByRole("option");
-    expect(first[0].textContent).toContain("Churrasco Típico 6 oz");
+    expect(first[0].textContent).toContain("Parrillada Demo 6 oz");
     expect(first[0].textContent).toContain("Aprobada");
     fireEvent.click(first[0]);
     await waitFor(() => expect(onCopied).toHaveBeenCalled());
@@ -145,7 +145,7 @@ describe("RecipeSourceActions", () => {
             candidates: [
               {
                 menu_item_id: "m-1",
-                name: "Churrasco Típico 6 oz",
+                name: "Parrillada Demo 6 oz",
                 status: "aprobada",
                 line_count: 3,
               },

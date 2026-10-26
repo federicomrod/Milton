@@ -369,20 +369,20 @@ describe("the report is per menu dish", () => {
 describe("«no aparecen en el menú»: Platos with sales this month", () => {
   it("counts Platos groups, not the option combinations inside them", async () => {
     world.products = [
-      product(10, "Desayuno Vicentino (Pan con Ajo)"),
-      product(11, "Desayuno Vicentino (Papas)"),
-      product(12, "Desayuno Vicentino (Arroz)"),
+      product(10, "Plato Demo (Opción A)"),
+      product(11, "Plato Demo (Opción B)"),
+      product(12, "Plato Demo (Opción C)"),
       product(20, "Cena Especial"),
       product(30, "Plato Con Receta"),
     ];
     world.groups = [
-      group("gD", "Desayuno Vicentino", [10, 11, 12]),
+      group("gD", "Plato Demo", [10, 11, 12]),
       group("gC", "Cena Especial", [20]),
       group("gR", "Plato Con Receta", [30], "aprobado"),
     ];
     const result = await read();
     expect(result.not_on_menu).toBe(2);
-    expect(result.not_found).toEqual(["Desayuno Vicentino", "Cena Especial"]);
+    expect(result.not_found).toEqual(["Plato Demo", "Cena Especial"]);
   });
 
   it("a Platos group the menu lists is not «fuera del menú»", async () => {

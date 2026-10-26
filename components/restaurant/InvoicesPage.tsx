@@ -217,15 +217,17 @@ export function parseMissingSections(notes: string | null | undefined): {
   return out;
 }
 
+/** A price that can be shown: a finite number above 0 (0 is never a price). */
+function isShownPrice(n: number | null | undefined): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
 /** Line total, or null when the price is missing (never a made-up 0). */
 function lineTotalOrNull(l: {
   unit_cost: number | null;
   line_total: number | null;
 }): number | null {
-  if (typeof l.line_total !== "number" || !Number.isFinite(l.line_total))
-    return null;
-  if (l.unit_cost === null && l.line_total === 0) return null;
-  return l.line_total;
+  return isShownPrice(l.line_total) ? l.line_total : null;
 }
 
 /** Text for an invoice total; a missing price is never counted as 0. */
@@ -240,10 +242,8 @@ function totalText(
     return fmtMoney(total, currency);
   }
   if (lines && lines.length > 0 && !missing) {
-    return fmtMoney(
-      lines.reduce((a, l) => a + (lineTotalOrNull(l) ?? 0), 0),
-      currency
-    );
+    const sum = lines.reduce((a, l) => a + (lineTotalOrNull(l) ?? 0), 0);
+    return sum > 0 ? fmtMoney(sum, currency) : "Sin precio";
   }
   return lines && lines.length > 0 ? "Incompleto" : "Sin precio";
 }
@@ -1852,7 +1852,7 @@ function LineRow({
       <td className="px-2 py-2 text-right tabular-nums">{line.quantity}</td>
       <td className="px-2 py-2">{line.unit}</td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {line.unit_cost !== null ? (
+        {isShownPrice(line.unit_cost) ? (
           fmtMoney(line.unit_cost, currency)
         ) : (
           <MissingBadge>Sin precio</MissingBadge>
@@ -1860,7 +1860,7 @@ function LineRow({
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
         {lineTotalOrNull(line) !== null ? (
-          fmtMoney(line.line_total, currency)
+          fmtMoney(line.line_total as number, currency)
         ) : (
           <MissingBadge>Sin precio</MissingBadge>
         )}

@@ -45,7 +45,10 @@ export async function PATCH(
   try {
     body = (await req.json()) as PatchBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo de la solicitud debe ser JSON." },
+      { status: 400 }
+    );
   }
 
   const str = (v: unknown) =>
@@ -76,7 +79,7 @@ export async function PATCH(
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json(
-      { error: "Nothing to update — supply at least one field" },
+      { error: "No hay nada que actualizar: envía al menos un campo." },
       { status: 400 }
     );
   }
@@ -95,13 +98,16 @@ export async function PATCH(
     const pgCode = (error as { code?: string } | null)?.code;
     if (pgCode === "23505") {
       return NextResponse.json(
-        { error: "A supplier with that name already exists" },
+        { error: "Ya existe un proveedor con ese nombre." },
         { status: 409 }
       );
     }
     console.error("[suppliers PATCH]", error?.message);
     return NextResponse.json(
-      { error: "Update failed", details: error?.message },
+      {
+        error: "No pude actualizar el proveedor. Inténtalo de nuevo.",
+        details: error?.message,
+      },
       { status: 500 }
     );
   }
@@ -134,7 +140,10 @@ export async function DELETE(
   if (error || !data) {
     console.error("[suppliers DELETE]", error?.message);
     return NextResponse.json(
-      { error: "Archive failed", details: error?.message },
+      {
+        error: "No pude archivar el proveedor. Inténtalo de nuevo.",
+        details: error?.message,
+      },
       { status: 500 }
     );
   }

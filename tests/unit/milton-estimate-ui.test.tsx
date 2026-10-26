@@ -13,6 +13,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { createElement } from "react";
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { renderToString } from "react-dom/server";
 
 vi.mock("next/navigation", () => ({
@@ -123,6 +124,8 @@ function jsonRes(body: unknown, status = 200) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The check's answer is cached for a few seconds; every test starts clean.
+  invalidateEstimateProbe();
 });
 
 describe("MenuReaderPanel · Estimar con Milton", () => {
@@ -171,6 +174,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
       ).disabled
     ).toBe(true);
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
 
     vi.stubGlobal(
       "fetch",
@@ -183,6 +187,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
       )
     ).toBeTruthy();
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
 
     const noPerm = vi.fn(() => jsonRes({ available: true, eligible: 9 }));
     vi.stubGlobal("fetch", noPerm);
@@ -813,6 +818,7 @@ describe("MenuDishesScreen · estimate overlay", () => {
       vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 0 }))
     );
     cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
     mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
     expect(
       await screen.findByText(

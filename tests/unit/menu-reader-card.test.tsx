@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // «Lee tu menú y estima costos»: one gate (recipes.edit), never hidden.
 // Synthetic data only.
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -25,6 +26,7 @@ const jsonRes = (body: unknown) =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  invalidateEstimateProbe(); // the check is cached for a few seconds
 });
 
 const card = (over: Partial<Parameters<typeof MenuReaderCard>[0]> = {}) =>

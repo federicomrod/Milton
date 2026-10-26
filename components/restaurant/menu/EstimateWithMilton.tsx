@@ -25,6 +25,11 @@ import {
   ESTIMATE_UNAVAILABLE,
 } from "./estimate-overlay";
 
+import {
+  invalidateEstimateProbe,
+  loadEstimateProbe,
+} from "@/lib/restaurant/menu-estimate-probe-cache";
+
 const ENDPOINT = "/api/restaurant/recipes/menu/estimate";
 export const MAX_DISHES_PER_RUN = 20;
 
@@ -129,6 +134,8 @@ export function useEstimateRun({
       }
     } finally {
       runningRef.current = false;
+      // The counts changed (or may have): the next check reads again.
+      invalidateEstimateProbe();
       setState({
         running: false,
         processed: seen.size,
@@ -199,13 +206,15 @@ export function EstimateWithMilton({
       : "";
     void (async () => {
       try {
-        const res = await fetch(`${ENDPOINT}${q}`);
-        if (!res || !res.ok) throw new Error("probe");
-        const json = (await res.json()) as {
-          available?: boolean;
-          eligible?: number;
-          needs_link?: number;
-        };
+        const json = await loadEstimateProbe(locationId, async () => {
+          const res = await fetch(`${ENDPOINT}${q}`);
+          if (!res || !res.ok) throw new Error("probe");
+          return (await res.json()) as {
+            available?: boolean;
+            eligible?: number;
+            needs_link?: number;
+          };
+        });
         if (!cancelled)
           setProbe({
             status: "ok",
@@ -244,6 +253,7 @@ export function EstimateWithMilton({
           <button
             type="button"
             onClick={() => {
+              invalidateEstimateProbe();
               setProbe({ status: "loading" });
               setAttempt((n) => n + 1);
             }}

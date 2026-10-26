@@ -7,6 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
   GROUP_COVERAGE_TIP,
@@ -889,6 +890,7 @@ function RowEstimate({
         setNote(estimateSkipMessage(skipped));
         return;
       }
+      invalidateEstimateProbe();
       onEstimated?.();
     } catch {
       setNote(estimateSkipMessage(null));
@@ -946,6 +948,7 @@ function RowEstimateUse({
         setNote(json.error ?? "No pude usar el estimado como borrador.");
         return;
       }
+      invalidateEstimateProbe();
       onUsed?.();
     } catch {
       setNote("No pude usar el estimado como borrador.");

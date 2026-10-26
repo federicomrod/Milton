@@ -29,6 +29,16 @@ let generation = 0;
 /** Bumped by every invalidation; a read that started before it is stale. */
 let epoch = 0;
 
+const invalidationListeners = new Set<() => void>();
+/** Runs when any save marks the tabs stale or the cache is cleared. */
+export function onTabsInvalidated(fn: () => void): () => void {
+  invalidationListeners.add(fn);
+  return () => invalidationListeners.delete(fn);
+}
+function notifyInvalidated(): void {
+  for (const fn of invalidationListeners) fn();
+}
+
 export function tabEpoch(): number {
   return epoch;
 }
@@ -71,6 +81,7 @@ export function putTab(
 /** Any save that other tabs show (approval, price, link): re-read them. */
 export function markTabsStale(now: number = Date.now()): void {
   epoch++;
+  notifyInvalidated();
   // Still shown at once, but no longer "fresh": the next visit re-reads.
   for (const entry of entries.values()) {
     entry.at = Math.min(entry.at, now - TAB_FRESH_MS - 1);
@@ -82,6 +93,7 @@ export function clearTabs(): void {
   inflight.clear();
   refreshing.clear();
   generation++;
+  notifyInvalidated();
 }
 
 /**

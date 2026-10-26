@@ -125,29 +125,19 @@ const draw = (extra: Partial<Parameters<typeof CostsSetupSection>[0]> = {}) => {
   );
 };
 
-describe("setup incomplete: one compact banner", () => {
-  it("collapsed by default: one row with the progress, the next step, a button and «Ver detalle»; no checklist or file card", async () => {
+describe("embedded workspace (the path Costos actually renders)", () => {
+  it("file card is mounted with no hidden ancestor", async () => {
     current = workspace(false);
-    draw();
-    const banner = await screen.findByTestId("costs-setup-banner");
-    expect(banner.textContent).toContain("Configura tus costos · 1 de 4");
-    expect(banner.textContent).toContain("Siguiente: Completar 42 precios");
-    expect(banner.className).toMatch(/max-h-\[56px\]/);
-    // the primary button is the same next-step action (the same link)
-    const cta = screen.getByRole("link", { name: "Continuar" });
-    expect(cta.getAttribute("href")).toBe(
-      "/dashboard/restaurant/menu/ingredientes?filtro=falta_precio"
-    );
+    draw({ embeddedInWorkspace: true });
+    const panel = await screen.findByTestId("price-catalog-panel");
     expect(
-      screen
-        .getByRole("button", { name: /Ver detalle/ })
-        .getAttribute("aria-expanded")
-    ).toBe("false");
-    // nothing of the full block yet
-    expect(screen.queryByTestId("costs-setup-detail")).toBeNull();
-    // the file card stays mounted (hidden) so «Continuar» can open the picker
-    const card = document.getElementById("costos-ultimo-archivo");
-    expect(card?.parentElement?.className).toMatch(/\bhidden\b/);
+      screen.getByRole("heading", { name: "Último archivo" })
+    ).toBeTruthy();
+    let node: HTMLElement | null = panel;
+    while (node) {
+      expect(node.classList.contains("hidden")).toBe(false);
+      node = node.parentElement;
+    }
   });
 
   it("«Ver detalle» expands the EXISTING checklist and «Último archivo» inline, unchanged", async () => {
@@ -227,8 +217,8 @@ describe("helpers", () => {
   });
 });
 
-describe("the page: header, 4 KPIs, setup banner, tabs", () => {
-  it("renders the KPI cards before the setup block and the setup block before the tabs", async () => {
+describe("the page: header, 4 KPIs, tabs (file workspace for picker)", () => {
+  it("renders KPI cards, then tabs; file workspace present after tabs", async () => {
     vi.resetModules();
     vi.doMock("@/lib/restaurant/cockpit-page-data", () => ({
       loadMenuAreaModel: async () => ({ profitability: null }),
@@ -243,14 +233,19 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
       loadCostsKpiExtras: async () => null,
       loadInvoicesTabData: async () => null,
       loadSuppliersTabData: async () => null,
+      loadLatestInvoices: async () => null,
     }));
     vi.doMock("@/lib/restaurant/auth-user", () => ({
       getCachedAuthUser: async () => ({ id: "u1" }),
       getCachedCompanyId: async () => "co-1",
     }));
-    vi.doMock("@/components/restaurant/costs/CostsSetupSection", () => ({
-      CostsSetupSection: () =>
-        createElement("div", { "data-testid": "setup-marker" }, "SETUP-MARKER"),
+    vi.doMock("@/components/restaurant/costs/CostsFileWorkspace", () => ({
+      CostsFileWorkspace: () =>
+        createElement(
+          "div",
+          { "data-testid": "file-workspace" },
+          "FILE-WORKSPACE"
+        ),
     }));
     vi.doMock("@/components/restaurant/shell/OperatingPageHeader", () => ({
       OperatingPageHeader: ({ title }: { title: string }) =>
@@ -264,13 +259,15 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
     const at = (needle: string) => html.indexOf(needle);
     const header = at("HEADER-");
     const kpi = at("Compras");
-    const setup = at("SETUP-MARKER");
+    const workspace = at("FILE-WORKSPACE");
     const tabs = at("Cambios de precio");
     expect(header).toBeGreaterThan(-1);
     expect(kpi).toBeGreaterThan(header);
-    expect(setup).toBeGreaterThan(kpi);
-    expect(tabs).toBeGreaterThan(setup);
-    // all four KPI cards precede the setup block
+    // Two-column layout: tabs come right after KPIs
+    expect(tabs).toBeGreaterThan(kpi);
+    // File workspace comes after tabs
+    expect(workspace).toBeGreaterThan(tabs);
+    // all four KPI cards precede the tabs
     for (const label of [
       "Compras",
       "Costo de comida",
@@ -278,7 +275,7 @@ describe("the page: header, 4 KPIs, setup banner, tabs", () => {
       "Proveedores",
     ]) {
       expect(at(label), label).toBeGreaterThan(-1);
-      expect(at(label), label).toBeLessThan(setup);
+      expect(at(label), label).toBeLessThan(tabs);
     }
   });
 });

@@ -1,0 +1,1105 @@
+// @vitest-environment jsdom
+// «Estimado por Milton» (#212) on screen: the run button on the menu reader,
+// the muted overlay on Platos / the dish, the Resumen line and the editor
+// badge. Estimates never enter the real columns. Synthetic data only.
+import { readFileSync } from "fs";
+import { join } from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { createElement } from "react";
+import {
+  invalidateEstimateProbe,
+  loadEstimateProbe,
+} from "@/lib/restaurant/menu-estimate-probe-cache";
+import { renderToString } from "react-dom/server";
+
+const toastWorld = vi.hoisted(() => ({ toast: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push() {}, refresh() {}, replace() {} }),
+  usePathname: () => "/dashboard/restaurant/menu/platos",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/ui/use-toast", () => ({
+  useToast: () => ({ toast: toastWorld.toast }),
+}));
+vi.mock("@/components/restaurant/recipes-costing/TreatmentPanel", () => ({
+  TreatmentControl: () => <div>TREATMENT</div>,
+}));
+vi.mock("@/components/restaurant/recipes-costing/LastFileRecipe", () => ({
+  LastFileDialog: () => null,
+  useLastFileRecipe: () => ({
+    lookup: null,
+    refresh: () => undefined,
+  }),
+}));
+vi.mock(
+  "@/components/restaurant/recipes-costing/RecipeLinesEditor",
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    RecipeLinesEditor: () => <div>EDITOR</div>,
+  })
+);
+
+import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
+import { PlatoScreen } from "@/components/restaurant/recipes-costing/PlatoScreen";
+import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
+import { ResumenCockpit } from "@/components/restaurant/recipes-costing/ResumenScreen";
+import {
+  canUseEstimateAsDraft,
+  ESTIMATE_USE_SUCCESS,
+  estimateText,
+  extraEstimatedDishes,
+  extraEstimatedLabel,
+  overlayAllowed,
+} from "@/components/restaurant/menu/estimate-overlay";
+import { estimatedPriceMessage } from "@/components/restaurant/recipes-costing/RecipeLinesEditor";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
+import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import {
+  computeResumen,
+  resumenRange,
+  type ResumenData,
+} from "@/lib/restaurant/menu-resumen";
+
+const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+function estimate(over: Partial<DishEstimateRow> = {}): DishEstimateRow {
+  return {
+    menu_item_id: "m1",
+    lines: [
+      {
+        raw_name: "Salmón",
+        ingredient_id: null,
+        qty: 120,
+        unit: "g",
+        price_source: "estimado",
+        unit_price: 0.02,
+        price_unit: "g",
+        price_estimate_id: "pe1",
+        line_cost: 2.4,
+        confidence: "media",
+      },
+      {
+        raw_name: "Arroz",
+        ingredient_id: "i2",
+        qty: 80,
+        unit: "g",
+        price_source: "real",
+        unit_price: 0.005,
+        price_unit: "g",
+        price_estimate_id: null,
+        line_cost: 0.4,
+        confidence: "alta",
+      },
+      {
+        raw_name: "Salsa secreta",
+        ingredient_id: null,
+        qty: 10,
+        unit: "ml",
+        price_source: null,
+        unit_price: null,
+        price_unit: null,
+        price_estimate_id: null,
+        line_cost: null,
+        confidence: null,
+      },
+    ],
+    portion_note: null,
+    est_cost: 4.2,
+    currency: "USD",
+    model: "m",
+    used_as_draft_at: null,
+    updated_at: null,
+    odoo_product_id: 1,
+    location_id: null,
+    ...over,
+  };
+}
+
+function jsonRes(body: unknown, status = 200) {
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  } as Response);
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  // The check's answer is cached for a few seconds; every test starts clean.
+  invalidateEstimateProbe();
+  toastWorld.toast.mockClear();
+});
+
+describe("the check is cached per company", () => {
+  const mountFor = (companyId: string | null) =>
+    render(
+      <MenuReaderPanel
+        canEdit
+        companyId={companyId}
+        busyExternal={false}
+        locationId={null}
+        onDone={() => undefined}
+        embedded
+      />
+    );
+
+  it("the same company mounted twice reads once; another company (same null location) reads again", async () => {
+    const fetchMock = vi.fn(() => jsonRes({ available: true, eligible: 7 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    cleanup();
+    mountFor("co-a");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    cleanup();
+    mountFor("co-b");
+    await screen.findByRole("button", { name: "Estimar con Milton" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("MenuReaderPanel · Estimar con Milton", () => {
+  const mount = (canEdit = true) =>
+    render(
+      <MenuReaderPanel
+        canEdit={canEdit}
+        busyExternal={false}
+        locationId={null}
+        onDone={() => undefined}
+        embedded
+      />
+    );
+
+  it("shows the button and help text when there are eligible drafts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 7 }))
+    );
+    mount();
+    expect(
+      await screen.findByRole("button", { name: "Estimar con Milton" })
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Milton estima cuánto lleva cada plato y cuánto cuesta cada ingrediente en tu país. Son aproximaciones para que veas por dónde van tus márgenes; tú las validas."
+      )
+    ).toBeTruthy();
+  });
+
+  it("never hides silently: nothing eligible, unavailable and no permission each show a disabled button and a reason", async () => {
+    const fetchMock = vi.fn(() => jsonRes({ available: true, eligible: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mount();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(
+      await screen.findByText(
+        "Todos tus platos tienen receta. No hay nada que estimar."
+      )
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Estimar con Milton",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+    cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: false, eligible: 9 }))
+    );
+    mount();
+    expect(
+      await screen.findByText(
+        "Las estimaciones aún no están activas en este ambiente."
+      )
+    ).toBeTruthy();
+    cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
+
+    const noPerm = vi.fn(() => jsonRes({ available: true, eligible: 9 }));
+    vi.stubGlobal("fetch", noPerm);
+    mount(false);
+    expect(screen.getByText(/Tu rol no puede editar recetas\./)).toBeTruthy();
+    expect(
+      screen.getByText(/Pídele a la persona dueña o administradora/)
+    ).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Estimar con Milton",
+        }) as HTMLButtonElement
+      ).disabled
+    ).toBe(true);
+    expect(noPerm).not.toHaveBeenCalled();
+  });
+
+  it("a failed check says so and offers Reintentar", async () => {
+    let fail = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        fail
+          ? Promise.resolve({ ok: false, json: async () => ({}) } as Response)
+          : jsonRes({ available: true, eligible: 3 })
+      )
+    );
+    mount();
+    expect(
+      await screen.findByText(/No pude revisar tus platos\./)
+    ).toBeTruthy();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(
+      await screen.findByText(/Milton estima cuánto lleva cada plato/)
+    ).toBeTruthy();
+  });
+
+  it("runs chunks of 5, shows progress and stops at 20; one skipped dish does not stop the loop", async () => {
+    let n = 0;
+    const bodies: Array<Record<string, unknown>> = [];
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (!init || init.method !== "POST")
+        return jsonRes({ available: true, eligible: 30 });
+      bodies.push(JSON.parse(String(init.body)));
+      const results = Array.from({ length: 5 }, (_, i) => ({
+        menu_item_id: `m${n * 5 + i}`,
+        name: `Plato ${n * 5 + i}`,
+        est_cost: 3,
+        est_margin_pct: 50,
+        skipped_reason: n === 0 && i === 2 ? "sin_datos" : null,
+      }));
+      n += 1;
+      const answer = jsonRes({ done: false, remaining: 10, results });
+      // hold the 2nd call to read the progress text
+      return n === 2 ? gate.then(() => answer) : answer;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const done = vi.fn();
+    render(
+      <MenuReaderPanel
+        canEdit
+        busyExternal={false}
+        locationId={null}
+        onDone={done}
+        onEstimated={done}
+        embedded
+      />
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Estimar con Milton" })
+    );
+    expect(
+      await screen.findByText(
+        "Estimando 6 de 20 platos (los que más venden primero)…"
+      )
+    ).toBeTruthy();
+    release!();
+    expect(
+      await screen.findByText(
+        "Listo: 19 platos estimados. 1 plato quedó sin estimar."
+      )
+    ).toBeTruthy();
+    const posts = fetchMock.mock.calls.filter(
+      (c) => (c[1] as RequestInit | undefined)?.method === "POST"
+    );
+    expect(posts).toHaveLength(4);
+    expect(done).toHaveBeenCalledTimes(1);
+    for (const b of bodies) expect(b.limit as number).toBeLessThanOrEqual(20);
+  });
+
+  it("shows the missing-migration note in gray on 503", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_u: string, init?: RequestInit) =>
+        init?.method === "POST"
+          ? jsonRes(
+              {
+                error:
+                  "Falta aplicar la actualización de la base de datos (062).",
+              },
+              503
+            )
+          : jsonRes({ available: true, eligible: 3 })
+      )
+    );
+    mount();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Estimar con Milton" })
+    );
+    const note = await screen.findByText(
+      "Falta aplicar la actualización de la base de datos (062)."
+    );
+    expect(note.className).toContain("text-[var(--brand-muted)]");
+    expect(note.className).not.toMatch(/c03535|red-/);
+  });
+});
+
+// A dish with no recipe and no sales cost, as the Platos screens receive it.
+function workspace(over: {
+  unit_cost?: number | null;
+  confirmed?: boolean;
+  excel_total?: number | null;
+  has_approved_version?: boolean;
+  canEdit?: boolean;
+}): RecipeCostingWorkspace {
+  const product = {
+    odoo_product_id: 1,
+    odoo_name: "Poke de salmón",
+    share_label: "12%",
+    is_combo: false,
+    treatment: "plato_preparado",
+    treatment_label: "Plato",
+    classification: "plato_preparado",
+    menu_item_id: null,
+    confirmed: over.confirmed ?? false,
+    in_food_sales: true,
+    pos_price_label: null,
+    can_undo: false,
+  };
+  return {
+    currency: "USD",
+    actor: {
+      can_submit: over.canEdit ?? true,
+      capabilities: { "recipes.edit": over.canEdit ?? true },
+    },
+    products: [product],
+    plato_queue: [],
+    selected: product,
+    selected_dish: {
+      unit_cost: over.unit_cost ?? null,
+      avg_net_price: 11,
+      excel_total: over.excel_total ?? null,
+      has_approved_version: over.has_approved_version ?? false,
+      link_confirmed: over.confirmed ?? false,
+      status: "sin_receta",
+      status_label: "Sin receta",
+      lines_missing_price: 0,
+      food_cost_pct: null,
+      unit_margin: null,
+    },
+    editor: null,
+    treatment_options: [],
+    menu_items: [],
+    menu_dishes: null,
+  } as unknown as RecipeCostingWorkspace;
+}
+
+const platoProps = {
+  locationId: null,
+  busy: false,
+  onSelect: () => undefined,
+  onEdited: () => undefined,
+  onPost: (() => undefined) as never,
+  onConfirm: () => undefined,
+  onOpenPreparation: () => undefined,
+};
+
+describe("PlatoScreen · estimate overlay", () => {
+  it("shows the muted estimate with the badge, never in the real columns", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    // Text is now split across styled spans, so check for parts
+    expect(screen.getByText("$4.20")).toBeTruthy();
+    expect(screen.getByText("62%")).toBeTruthy();
+    expect(screen.getByText(/costo estimado/)).toBeTruthy();
+    expect(screen.getByText(/margen estimado/)).toBeTruthy();
+    expect(screen.getAllByText("Estimado por Milton").length).toBeGreaterThan(
+      0
+    );
+    // The real Costo / Margen stay as before.
+    expect(screen.getAllByText("Sin precio").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    expect(screen.getByText("Precio estimado")).toBeTruthy();
+    expect(screen.getByText("Real")).toBeTruthy();
+  });
+
+  it("says «≈ Sin precio» when the estimate has no cost", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate({ est_cost: null })]}
+      />
+    );
+    expect(screen.getByText("≈ Sin precio")).toBeTruthy();
+    expect(screen.queryByText(/\$0\.00 costo/)).toBeNull();
+  });
+
+  it.each([
+    ["a real cost", { unit_cost: 3.5 }],
+    ["an approved recipe", { has_approved_version: true }],
+    ["a confirmed link", { confirmed: true }],
+    ["an Excel recipe", { excel_total: 4 }],
+  ])("shows no overlay with %s", (_n, over) => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace(over)}
+        estimates={[estimate()]}
+      />
+    );
+    expect(screen.queryByText(/costo estimado/)).toBeNull();
+    expect(screen.queryByText("Usar como borrador")).toBeNull();
+  });
+
+  it("hides «Usar como borrador» without recipes.edit", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({ canEdit: false })}
+        estimates={[estimate()]}
+      />
+    );
+    expect(screen.getByText(/costo estimado/)).toBeTruthy();
+    expect(screen.queryByText("Usar como borrador")).toBeNull();
+  });
+
+  it("renders exactly as before without estimates", () => {
+    const { container } = render(
+      <PlatoScreen {...platoProps} data={workspace({})} />
+    );
+    expect(container.textContent).not.toMatch(/Estimado por Milton|estimado/);
+  });
+
+  it("posts «Usar como borrador» once and refreshes", async () => {
+    const fetchMock = vi.fn(() => jsonRes({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const edited = vi.fn();
+    const changed = vi.fn();
+    render(
+      <PlatoScreen
+        {...platoProps}
+        onEdited={edited}
+        onEstimateChanged={changed}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    const btn = screen.getByRole("button", { name: "Usar como borrador" });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(changed).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/api/restaurant/recipes/menu/estimate/use");
+    expect(JSON.parse(String(init.body))).toEqual({ menu_item_id: "m1" });
+    expect(edited).toHaveBeenCalled();
+  });
+
+  it("shows the server's 409 message in gray", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        jsonRes(
+          {
+            error: "Este plato ya tiene receta aprobada; Milton no la cambia.",
+          },
+          409
+        )
+      )
+    );
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Usar como borrador" }));
+    const note = await screen.findByText(
+      "Este plato ya tiene receta aprobada; Milton no la cambia."
+    );
+    expect(note.className).toContain("text-[var(--brand-muted)]");
+    expect(toastWorld.toast).not.toHaveBeenCalled();
+  });
+
+  it("a successful «Usar como borrador» on the dish page forgets the cached check; a refused one keeps it", async () => {
+    let reads = 0;
+    const probe = async () => {
+      reads++;
+      return { eligible: reads };
+    };
+    await loadEstimateProbe("co-x", null, probe);
+    for (const [status, forgets] of [
+      [409, false],
+      [200, true],
+    ] as const) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() =>
+          jsonRes(status === 200 ? { ok: true } : { error: "x" }, status)
+        )
+      );
+      render(
+        <PlatoScreen
+          {...platoProps}
+          data={workspace({})}
+          estimates={[estimate()]}
+        />
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Usar como borrador" })
+      );
+      await waitFor(() =>
+        expect(
+          (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+        ).toHaveLength(1)
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      const before = reads;
+      await loadEstimateProbe("co-x", null, probe);
+      expect(reads).toBe(forgets ? before + 1 : before);
+      cleanup();
+    }
+  });
+
+  it("shows a success toast after using the estimate as a draft", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ ok: true, applied: 2 }))
+    );
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate()]}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Usar como borrador" }));
+    await waitFor(() => expect(toastWorld.toast).toHaveBeenCalled());
+    expect(toastWorld.toast).toHaveBeenCalledWith({
+      title:
+        "Listo: 2 ingredientes estimados en el borrador. Revísalos y aprueba.",
+    });
+  });
+
+  it("hides «Usar como borrador» when the estimate has no lines", () => {
+    render(
+      <PlatoScreen
+        {...platoProps}
+        data={workspace({})}
+        estimates={[estimate({ lines: [] })]}
+      />
+    );
+    expect(screen.getByTestId("estimate-panel")).toBeTruthy();
+    expect(screen.getByText("Sin precio")).toBeTruthy();
+    expect(screen.queryByText("Usar como borrador")).toBeNull();
+  });
+});
+
+function dishesWorkspace(opts: {
+  cost_total?: number | null;
+  source?: "excel" | "menu" | "name";
+  cost_status?: string;
+  /** The plato of the base variant; null = no plato yet. */
+  menu_item_id?: string | null;
+}): RecipeCostingWorkspace {
+  const dish = {
+    id: "d1",
+    stored: true,
+    name: "Hamburguesa clásica",
+    category: null,
+    source: opts.source ?? "menu",
+    status: "confirmed",
+    excluded_reason: null,
+    variants: [
+      {
+        odoo_product_id: 1,
+        key: "1",
+        sales_scope: null,
+        saved: true,
+        name: "Hamburguesa clásica",
+        size: null,
+        size_unit: null,
+        side: null,
+        sides: [],
+        cooking_point: null,
+        channel: "salón",
+        is_promo: false,
+        units: 10,
+        net_sales: 100,
+        unit_cost: null,
+        cost_total: null,
+        margin: null,
+        food_cost_pct: null,
+        cost_basis: null,
+        status: "sin_receta",
+        covered: false,
+      },
+    ],
+    units: 10,
+    net_sales: 100,
+    share_of_food_sales: 1,
+    cost_known_sales: 0,
+    cost_total: opts.cost_total ?? null,
+    food_cost_pct: null,
+    margin: null,
+    margin_pct: null,
+    coverage: 0,
+    cost_status: opts.cost_status ?? "sin_receta",
+    approved_count: 0,
+    variant_count: 1,
+    base_odoo_product_id: 1,
+    base_menu_item_id:
+      opts.menu_item_id === undefined ? "m1" : opts.menu_item_id,
+    base_portion_qty: null,
+    excel_total: null,
+    excel_diff_flag: false,
+  };
+  return {
+    currency: "USD",
+    period_label: null,
+    view_location_id: null,
+    actor: { can_submit: true, capabilities: { "recipes.edit": true } },
+    item_groups: null,
+    restaurants: [],
+    menu_dishes: {
+      dishes: [dish],
+      excluded: [],
+      stored: true,
+      unsaved_variant_count: 0,
+      variant_count: 1,
+      excluded_variant_count: 0,
+      kpis: {
+        food_cost_pct: null,
+        gross_margin: null,
+        coverage_pct: 0,
+        covered_dishes: 0,
+        partial_dishes: 0,
+        dish_count: 1,
+        problem_count: 1,
+        missing_price_dishes: 0,
+        no_recipe_dishes: 1,
+      },
+    },
+  } as unknown as RecipeCostingWorkspace;
+}
+
+describe("MenuDishesScreen · estimate overlay", () => {
+  const mountList = (
+    ws: RecipeCostingWorkspace,
+    estimates: DishEstimateRow[]
+  ) =>
+    render(
+      <MenuDishesScreen
+        data={ws}
+        onOpenDish={() => undefined}
+        estimates={estimates}
+      />
+    );
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 2 }))
+    );
+  });
+
+  it("puts the estimate in its own muted line, not in Margen / Costo %", () => {
+    mountList(dishesWorkspace({}), [estimate()]);
+    const overlay = screen.getByTestId("dish-estimate");
+    expect(overlay.textContent).toContain("Estimado por Milton");
+    expect(overlay.textContent).toContain(
+      "≈ $4.20 costo estimado · ≈ 58% margen estimado"
+    );
+    // avg price here is 100 / 10 = 10 → (10 - 4.2) / 10
+    const row = overlay.closest("tr")!;
+    const cells = row.querySelectorAll("td");
+    expect(cells[2].textContent).toBe("—");
+    expect(cells[3].textContent).toBe("—");
+  });
+
+  it("says «≈ Sin precio» when the estimate has no cost", () => {
+    mountList(dishesWorkspace({}), [estimate({ est_cost: null })]);
+    expect(screen.getByTestId("dish-estimate").textContent).toContain(
+      "≈ Sin precio"
+    );
+  });
+
+  it("shows nothing for an Excel dish, a dish with a real cost, an approved one or a used estimate", () => {
+    for (const [ws, est] of [
+      [dishesWorkspace({ source: "excel" }), estimate()],
+      [dishesWorkspace({ cost_total: 20 }), estimate()],
+      [dishesWorkspace({ cost_status: "aprobado" }), estimate()],
+      [dishesWorkspace({}), estimate({ used_as_draft_at: "2026-07-01" })],
+    ] as const) {
+      mountList(ws, [est]);
+      expect(screen.queryByTestId("dish-estimate")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("offers «Estimar con Milton» in the controls row and on the «Sin receta» row", async () => {
+    mountList(dishesWorkspace({}), []);
+    const buttons = await screen.findAllByRole("button", {
+      name: "Estimar con Milton",
+    });
+    expect(buttons).toHaveLength(2);
+    const row = screen.getByTestId("dish-estimate-action");
+    expect(row.closest("tr")).toBeTruthy();
+    expect(row.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("the row action estimates just that plato, then asks the page to refresh", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          calls.push({ url, body: JSON.parse(String(init.body)) });
+          return jsonRes({
+            done: 1,
+            remaining: 0,
+            results: [{ menu_item_id: "m1", skipped_reason: null }],
+          });
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    const onEstimated = vi.fn();
+    render(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[]}
+        onEstimated={onEstimated}
+      />
+    );
+    fireEvent.click(screen.getByTestId("dish-estimate-action"));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toBe("/api/restaurant/recipes/menu/estimate");
+    expect(calls[0].body).toEqual({ menu_item_ids: ["m1"] });
+    await waitFor(() => expect(onEstimated).toHaveBeenCalled());
+  });
+
+  it("a row whose product has no plato yet is disabled and says why", () => {
+    mountList(dishesWorkspace({ menu_item_id: null }), []);
+    const action = screen.getByTestId("dish-estimate-action");
+    expect(action.hasAttribute("disabled")).toBe(true);
+    expect(
+      screen.getByText("Primero vincula este producto a un plato.")
+    ).toBeTruthy();
+  });
+
+  it("the row action is disabled without recipes.edit", () => {
+    const ws = dishesWorkspace({});
+    (ws.actor as { capabilities: Record<string, boolean> }).capabilities = {
+      "recipes.edit": false,
+    };
+    mountList(ws, []);
+    expect(
+      screen.getByTestId("dish-estimate-action").hasAttribute("disabled")
+    ).toBe(true);
+  });
+
+  it("a plato with a Confirmado link still gets its estimate shown, with «Usar como borrador»", () => {
+    mountList(dishesWorkspace({}), [estimate()]);
+    expect(screen.getByTestId("dish-estimate").textContent).toContain(
+      "Estimado por Milton"
+    );
+    expect(
+      screen.getByRole("button", { name: "Usar como borrador" })
+    ).toBeTruthy();
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+  });
+
+  it("«Ver estimado» link uses dishHref with the base_odoo_product_id", () => {
+    mountList(dishesWorkspace({}), [estimate()]);
+    const link = screen.getByRole("link", { name: "Ver estimado" });
+    expect(link.getAttribute("href")).toBe(
+      "/dashboard/restaurant/menu/platos?producto=1"
+    );
+  });
+
+  it("inline flow: click «Estimar con Milton» shows «Estimando…», then estimate appears inline without reload", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          calls.push({ url, body: JSON.parse(String(init.body)) });
+          return jsonRes({
+            done: 1,
+            remaining: 0,
+            results: [{ menu_item_id: "m1", skipped_reason: null }],
+          });
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    const onEstimated = vi.fn();
+    const { rerender } = render(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[]}
+        onEstimated={onEstimated}
+      />
+    );
+    // Step 1: button shows «Estimar con Milton»
+    const button = screen.getByTestId("dish-estimate-action");
+    expect(button.textContent).toContain("Estimar con Milton");
+    expect(screen.queryByTestId("dish-estimate")).toBeNull();
+
+    // Step 2: click and verify «Estimando…» appears and button is disabled
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(button.textContent).toContain("Estimando…");
+      expect(button.hasAttribute("disabled")).toBe(true);
+    });
+
+    // Step 3: onEstimated is called, parent updates estimates
+    await waitFor(() => expect(onEstimated).toHaveBeenCalled());
+    rerender(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[estimate()]}
+        onEstimated={onEstimated}
+      />
+    );
+
+    // Step 4: estimate strip appears inline, button is gone
+    expect(screen.getByTestId("dish-estimate")).toBeTruthy();
+    expect(screen.getByTestId("dish-estimate").textContent).toContain(
+      "Estimado por Milton"
+    );
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+  });
+
+  it("when button is disabled, reason text is visible next to button in ink color, not grey", () => {
+    const ws = dishesWorkspace({ menu_item_id: null });
+    mountList(ws, []);
+    const button = screen.getByTestId("dish-estimate-action");
+    expect(button.hasAttribute("disabled")).toBe(true);
+    const reason = screen.getByText(
+      "Primero vincula este producto a un plato."
+    );
+    expect(reason.className).toContain("text-[var(--brand-ink)]");
+    expect(reason.className).not.toContain("text-[var(--brand-muted)]");
+  });
+
+  it("when estimate fails, error message is visible in ink color", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return jsonRes(
+            { error: "No pude estimar este plato. Intenta de nuevo." },
+            500
+          );
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    mountList(dishesWorkspace({}), []);
+    fireEvent.click(screen.getByTestId("dish-estimate-action"));
+    const error = await screen.findByText(
+      "No pude estimar este plato. Intenta de nuevo."
+    );
+    expect(error.className).toContain("text-[var(--brand-ink)]");
+    expect(error.className).not.toContain("text-[var(--brand-muted)]");
+  });
+
+  it("no «Sin receta» rows: no row action, and the link says there is nothing to estimate", async () => {
+    mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 0 }))
+    );
+    cleanup();
+    invalidateEstimateProbe(); // a new mount, a new check
+    mountList(dishesWorkspace({ cost_status: "aprobado" }), []);
+    expect(
+      await screen.findByText(
+        "Todos tus platos tienen receta. No hay nada que estimar."
+      )
+    ).toBeTruthy();
+  });
+
+  it("unlinked «Sin receta» products are not called «Todos tus platos tienen receta»", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes({ available: true, eligible: 0, needs_link: 3 }))
+    );
+    mountList(dishesWorkspace({ menu_item_id: null }), []);
+    expect(
+      await screen.findByText(/aún no están vinculados a un producto del POS/)
+    ).toBeTruthy();
+    expect(screen.queryByText(/Todos tus platos tienen receta/)).toBeNull();
+  });
+
+  it("renders as before with no estimates", () => {
+    mountList(dishesWorkspace({}), []);
+    expect(screen.queryByTestId("dish-estimate")).toBeNull();
+  });
+});
+
+describe("Resumen · separate estimates line", () => {
+  const data: ResumenData = {
+    currency: "USD",
+    first_day: "2026-07-01",
+    last_day: "2026-07-31",
+    dishes: [
+      {
+        id: "d1",
+        name: "Poke de salmón",
+        variants: [
+          {
+            key: "1",
+            product_id: 1,
+            locations: null,
+            unit_cost: null,
+            covered: false,
+            status: "sin_receta",
+          },
+        ],
+      },
+    ],
+    days: [{ d: "2026-07-31", l: null, p: 1, n: 100, u: 10 }],
+  };
+  const view = computeResumen(data, resumenRange("month", "2026-07-31"));
+  const draw = (extra: number) =>
+    renderToString(
+      createElement(ResumenCockpit, {
+        view,
+        currency: "USD",
+        period: "month",
+        onPeriod: () => undefined,
+        monthText: "Julio",
+        missingPriceIngredients: 0,
+        latestUpload: null,
+        now: 0,
+        extraEstimated: extra,
+      })
+    );
+
+  it("says how many dishes more have an approximate margin, only when N > 0", () => {
+    expect(draw(3)).toContain(
+      "Con estimados de Milton: 3 platos más con margen aproximado"
+    );
+    expect(draw(0)).not.toContain("Con estimados de Milton");
+  });
+
+  it("leaves the real numbers untouched", () => {
+    const strip = (h: string) =>
+      h.replace(/<p[^>]*resumen-estimates-line[^>]*>.*?<\/p>/, "");
+    expect(strip(draw(3))).toBe(draw(0));
+  });
+
+  it("counts only dishes with an estimate cost and no real cost", () => {
+    const rows = [
+      { product_id: 1, cost_status: "sin_receta", coverage: 0 },
+      { product_id: 2, cost_status: "aprobado", coverage: 1 },
+      { product_id: 3, cost_status: "falta_precio", coverage: 0 },
+      { product_id: 4, cost_status: "sin_receta", coverage: 0 },
+    ];
+    const est = [
+      estimate({ odoo_product_id: 1 }),
+      estimate({ odoo_product_id: 2 }),
+      estimate({ odoo_product_id: 3, est_cost: null }),
+    ];
+    expect(extraEstimatedDishes(est, rows)).toBe(1);
+    expect(extraEstimatedDishes([], rows)).toBe(0);
+    expect(extraEstimatedLabel(1)).toBe(
+      "Con estimados de Milton: 1 plato más con margen aproximado"
+    );
+  });
+});
+
+describe("pure helpers", () => {
+  it("formats the estimate and never invents a margin", () => {
+    expect(estimateText({ est_cost: 4.2 }, "USD", 11).text).toBe(
+      "≈ $4.20 costo estimado · ≈ 62% margen estimado"
+    );
+    expect(estimateText({ est_cost: 4.2 }, "USD", null).text).toBe(
+      "≈ $4.20 costo estimado"
+    );
+    expect(estimateText({ est_cost: null }, "USD", 11).text).toBe(
+      "≈ Sin precio"
+    );
+  });
+  it("hides the overlay with any real source", () => {
+    const e = estimate();
+    expect(overlayAllowed(e, { real_cost: null })).toBe(true);
+    expect(overlayAllowed(e, { real_cost: 0 })).toBe(false);
+    expect(
+      overlayAllowed(e, { real_cost: null, has_approved_version: true })
+    ).toBe(false);
+  });
+  it("a Confirmado link alone no longer hides the overlay", () => {
+    expect(
+      overlayAllowed(estimate(), { real_cost: null, link_confirmed: true })
+    ).toBe(true);
+  });
+  it("hides «Usar como borrador» when the estimate has no lines or was used", () => {
+    expect(canUseEstimateAsDraft(estimate())).toBe(true);
+    expect(canUseEstimateAsDraft(estimate({ lines: [] }))).toBe(false);
+    expect(
+      canUseEstimateAsDraft(estimate({ used_as_draft_at: "2026-07-01" }))
+    ).toBe(false);
+    expect(canUseEstimateAsDraft(null)).toBe(false);
+    expect(ESTIMATE_USE_SUCCESS(1)).toBe(
+      "Listo: 1 ingrediente estimado en el borrador. Revísalos y aprueba."
+    );
+    expect(ESTIMATE_USE_SUCCESS(3)).toBe(
+      "Listo: 3 ingredientes estimados en el borrador. Revísalos y aprueba."
+    );
+  });
+});
+
+describe("RecipeLinesEditor · estimate badge and price message", () => {
+  const src = read(
+    "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
+  );
+  it("badges flagged lines and keeps the estimate out of the line cost", () => {
+    expect(src).toContain("FLAG_MILTON_ESTIMATE");
+    expect(src).toContain("Estimado por Milton");
+    expect(src).toContain("milton_price_estimate");
+    expect(src).toMatch(/"Sin precio"/);
+  });
+  it("words the estimated price in the company currency", () => {
+    expect(
+      estimatedPriceMessage({ unit_price: 3.5, unit: "unidad" }, "USD")
+    ).toBe(
+      "Precio estimado ≈ $3.50 / unidad. Registra el precio real (factura o Costos) para aprobar."
+    );
+    expect(
+      estimatedPriceMessage({ unit_price: 0.02, unit: "g" }, "USD")
+    ).toContain("≈ $0.0200 / gramo");
+  });
+});
+
+describe("no orange", () => {
+  it.each([
+    "components/restaurant/menu/EstimateWithMilton.tsx",
+    "components/restaurant/menu/estimate-overlay.ts",
+    "components/restaurant/recipes-costing/EstimatePanel.tsx",
+  ])("%s has no orange / amber / yellow", (file) => {
+    expect(read(file)).not.toMatch(/orange|amber|yellow/i);
+  });
+});

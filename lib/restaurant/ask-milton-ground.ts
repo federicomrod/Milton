@@ -94,6 +94,12 @@ export function groundAskMiltonAnswer(
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
 ): { answer: AskMiltonAnswer; replaced: boolean } {
+  if (intent === "dish_food_cost" || intent === "least_profitable_dishes") {
+    return {
+      answer: buildDeterministicAnswer(ctx, message, intent, resolved),
+      replaced: true,
+    };
+  }
   if (intent === "expensive_ingredients") {
     // R1-16c: when real prices exist the answer must be built on them. A
     // model answer that names none of the top ingredients (e.g. "no tengo

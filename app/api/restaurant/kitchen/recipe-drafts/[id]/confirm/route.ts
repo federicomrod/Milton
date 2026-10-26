@@ -25,15 +25,9 @@ import {
   confirmKitchenDraftAsVersion,
   isStaleClaim,
 } from "@/lib/restaurant/telegram/kitchen-draft-confirm";
-import {
-  isUsableLineUnit,
-  convertToSubRecipeUnit,
-} from "@/lib/restaurant/units";
-import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import { isUsableLineUnit } from "@/lib/restaurant/units";
 import { archivedIngredientMessage } from "@/lib/restaurant/ingredient-active";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
-import { latestCostEntry } from "@/lib/restaurant/costing";
-import type { IngredientCostEntry } from "@/types/restaurant-costing";
 
 export const dynamic = "force-dynamic";
 
@@ -132,7 +126,7 @@ export async function POST(
 
   const dishName =
     typeof body.dish_name === "string" ? body.dish_name.trim() : "";
-  if (!dishName) return fail("Escribe el nombre del platillo.", 400);
+  if (!dishName) return fail("Escribe el nombre del plato.", 400);
 
   if (
     !body.portions ||
@@ -154,7 +148,7 @@ export async function POST(
       .eq("company_id", auth.companyId)
       .maybeSingle();
     if (!menuItem) {
-      return fail("Ese platillo no existe en tu empresa.", 400);
+      return fail("Ese plato no existe en tu empresa.", 400);
     }
   }
 
@@ -238,47 +232,9 @@ export async function POST(
     }
   }
 
-  // Current price of each ingredient (paged; the shared "latest entry" rule).
-  // A line WITHOUT a price is saved normally and stays «Sin precio»; only a
-  // unit that cannot be read in the price's unit is refused.
-  const costEntries = await fetchAllRows<IngredientCostEntry>(() =>
-    admin
-      .from("ingredient_cost_entries")
-      .select(
-        "id, ingredient_id, source_type, cost_date, effective_date, date_source, normalized_unit_cost, normalized_unit, unit_cost, created_at"
-      )
-      .eq("company_id", auth.companyId)
-      .in("ingredient_id", ingredientIds)
-  );
-  // Fail closed: if the prices cannot be read, every line would look unpriced
-  // and the unit check would be skipped. Nothing has been written yet.
-  if (costEntries.error) {
-    return fail("No pude leer los precios. Inténtalo de nuevo.", 500);
-  }
-  const entriesByIngredient = new Map<string, IngredientCostEntry[]>();
-  for (const entry of costEntries.rows) {
-    const list = entriesByIngredient.get(entry.ingredient_id) ?? [];
-    list.push(entry);
-    entriesByIngredient.set(entry.ingredient_id, list);
-  }
-
-  for (const line of body.lines) {
-    const latest = latestCostEntry(
-      entriesByIngredient.get(line.ingredient_id) ?? []
-    );
-    if (!latest?.normalized_unit) continue; // no price yet: any recognized unit
-    const conversion = convertToSubRecipeUnit(
-      line.total_quantity,
-      line.unit,
-      latest.normalized_unit
-    );
-    if (!conversion.ok) {
-      return fail(
-        `No puedo convertir "${line.unit}" a la unidad del precio de ${nameOf(line.ingredient_id)} (${latest.normalized_unit}).`,
-        400
-      );
-    }
-  }
+  // A unit that cannot be read in the ingredient's price unit does NOT block
+  // confirming: the line is saved exactly as written and stays uncosted
+  // («Falta conversión», like «Sin precio») until a conversion is defined.
 
   const result = await confirmKitchenDraftAsVersion(admin, {
     companyId: auth.companyId,

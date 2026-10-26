@@ -14,6 +14,7 @@ import {
   type MenuTab,
 } from "@/lib/restaurant/recetas-redirect";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
   markApproved,
@@ -87,9 +88,12 @@ const DISH_PAYLOAD_FRESH_MS = 30_000;
 export function RecipesCostingWorkspace({
   initial,
   view: routeView,
+  estimates = [],
 }: {
   initial: RecipeCostingWorkspace;
   view: WorkspaceTab;
+  /** «Estimado por Milton»: read apart from the economics, shown muted. */
+  estimates?: DishEstimateRow[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -110,6 +114,11 @@ export function RecipesCostingWorkspace({
   const dishEpoch = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** After an estimate run / «Usar como borrador»: re-read the page's estimates. */
+  const refreshEstimates = useCallback(() => {
+    markTabsStale();
+    router.refresh();
+  }, [router]);
   const [howOpen, setHowOpen] = useState(false);
   // Tab and dish switches re-render on the server; mark them as a
   // transition so the screen shows it is loading right away.
@@ -707,6 +716,8 @@ export function RecipesCostingWorkspace({
           // R1-10: Platos is the menu dishes; a dish opens its recipe.
           <MenuDishesScreen
             data={data}
+            estimates={estimates}
+            onEstimated={refreshEstimates}
             onOpenDish={selectDish}
             statusFilter={(searchParams.get("estado") ?? "")
               .split(",")
@@ -744,6 +755,8 @@ export function RecipesCostingWorkspace({
             ) : null}
             <PlatoScreen
               data={data}
+              estimates={estimates}
+              onEstimateChanged={refreshEstimates}
               locationId={searchParams.get("location")}
               busy={busy}
               onSelect={selectDish}
@@ -791,6 +804,7 @@ export function RecipesCostingWorkspace({
         ) : (
           <ResumenScreen
             data={data}
+            estimates={estimates}
             locationId={searchParams.get("location")}
           />
         )}

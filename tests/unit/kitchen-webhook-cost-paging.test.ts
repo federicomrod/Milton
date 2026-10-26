@@ -30,13 +30,20 @@ describe("paged reads", () => {
     expect(res.rows).toHaveLength(2500);
   });
 
-  it("the webhook and the confirm route use it", () => {
+  it("the webhook uses it; the confirm route no longer reads prices at all", () => {
     const webhook = readFileSync(
       join(process.cwd(), "app/api/telegram/webhook/route.ts"),
       "utf8"
     );
-    expect(webhook).toMatch(/fetchAllRows<CostEntryRow>/);
+    // The webhook reads the catalog through the shared helper, which pages.
+    expect(webhook).toMatch(/loadDraftMatchingCatalog/);
     expect(webhook).not.toMatch(/\.in\("ingredient_id", ingredientIds\)/);
+    const catalog = readFileSync(
+      join(process.cwd(), "lib/restaurant/kitchen-draft-catalog.ts"),
+      "utf8"
+    );
+    expect(catalog).toMatch(/fetchAllRows<IngredientCostEntry>/);
+    expect(catalog).not.toMatch(/\.in\("ingredient_id", ingredientIds\)/);
     const confirm = readFileSync(
       join(
         process.cwd(),
@@ -44,6 +51,7 @@ describe("paged reads", () => {
       ),
       "utf8"
     );
-    expect(confirm).toContain("fetchAllRows<IngredientCostEntry>");
+    // A unit mismatch no longer blocks confirming, so there is nothing to price.
+    expect(confirm).not.toContain("ingredient_cost_entries");
   });
 });

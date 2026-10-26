@@ -57,8 +57,8 @@ describe("webhook dispatch", () => {
     expect(src).not.toContain("REPORT_ACK_RUNNING_OUT");
     expect(src).not.toContain("REPORT_ACK_WASTE");
   });
-  it("only handles private chats for joins and reports", () => {
-    expect(src.match(/chat\?\.type !== "private"/g)).toHaveLength(2);
+  it("only handles private chats for joins, reports and the restaurant commands", () => {
+    expect(src.match(/chat\?\.type !== "private"/g)).toHaveLength(3);
   });
 });
 

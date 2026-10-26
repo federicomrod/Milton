@@ -38,9 +38,11 @@ describe("two separate steps in the «Último archivo» card", () => {
     expect(preview).toContain("primary ? PrimaryBtn : GhostBtn");
     const ui = read("components/restaurant/recipes-costing/ui.tsx");
     expect(ui).toMatch(
-      /bg-\[#1B40C8\][^"]*text-white[^"]*hover:bg-\[#1535a6\]/
+      /bg-\[var\(--brand-blue\)\][^"]*text-white[^"]*hover:bg-\[var\(--brand-blue-hover\)\]/
     );
-    expect(ui).toMatch(/border-\[#1B40C8\] bg-white[^"]*text-\[#1B40C8\]/);
+    expect(ui).toMatch(
+      /border-\[var\(--brand-blue\)\] bg-white[^"]*text-\[var\(--brand-blue\)\]/
+    );
   });
 });
 

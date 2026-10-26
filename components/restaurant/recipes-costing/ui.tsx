@@ -47,7 +47,7 @@ export function GhostBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg border border-[var(--brand-blue)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-blue)] hover:bg-[var(--brand-blue-light)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:opacity-40",
         className
       )}
       {...props}
@@ -66,7 +66,7 @@ export function PrimaryBtn({
     <button
       type="button"
       className={cn(
-        "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--brand-blue-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40",
         className
       )}
       {...props}

@@ -39,6 +39,20 @@ describe("classifyKitchenReport", () => {
   it("'tiramisú' alone is not waste", () => {
     expect(classifyKitchenReport("tiramisú listo")).toBe("unclassified");
   });
+
+  it("«último precio» is price talk, not running_out; «últimos tomates» still is", () => {
+    expect(
+      classifyKitchenReport(
+        "El último precio del aguacate es 3.50 dólares la libra"
+      )
+    ).toBe("unclassified");
+    expect(classifyKitchenReport("quedan los últimos tomates")).toBe(
+      "running_out"
+    );
+    expect(classifyKitchenReport("queda el último tomate")).toBe("running_out");
+    // not a whole word
+    expect(classifyKitchenReport("ultimatum")).toBe("unclassified");
+  });
 });
 
 describe("extractReportFromMessage", () => {

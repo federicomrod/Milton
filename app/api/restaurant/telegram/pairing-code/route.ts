@@ -36,8 +36,7 @@ export async function POST() {
     if (!result.ok) {
       return NextResponse.json(
         {
-          error:
-            "This company already has a Telegram chat connected. Disconnecting and re-pairing isn't supported yet.",
+          error: "Este restaurante ya tiene un chat de Telegram conectado.",
         },
         { status: 409 }
       );

@@ -64,6 +64,8 @@ export interface EnrichedInvoiceLine extends ExtractedInvoiceLine {
   derived_unit_cost: boolean;
   /** Server filled line_total from quantity * unit_cost. */
   derived_line_total: boolean;
+  /** Server filled quantity from line_total / unit_cost (both were read). */
+  derived_quantity?: boolean;
   /** Either confidence === 'low' or the line lacks values required to post. */
   low_confidence: boolean;
 }
@@ -183,6 +185,35 @@ export function normalizeExtraction(raw: ExtractedInvoice): ExtractedInvoice {
 // ---------------------------------------------------------------------------
 
 /**
+ * Quantity that can be CALCULATED from a read unit price and a read line total.
+ * Exact-to-the-cent rule: q = round(total / unit_cost, 2) is accepted only when
+ * round(q * unit_cost, 2) reproduces line_total to the cent (so 28.50 / 1.90 ->
+ * 15, but 28.47 / 1.90 -> 14.98 -> 28.46 != 28.47 -> null). Never guesses.
+ */
+export function deriveQuantityFromTotal(
+  unitCost: number | null | undefined,
+  lineTotal: number | null | undefined
+): number | null {
+  if (
+    unitCost === null ||
+    unitCost === undefined ||
+    lineTotal === null ||
+    lineTotal === undefined ||
+    !Number.isFinite(unitCost) ||
+    !Number.isFinite(lineTotal) ||
+    !(unitCost > 0) ||
+    !(lineTotal > 0)
+  ) {
+    return null;
+  }
+  const q = Math.round((lineTotal / unitCost) * 100) / 100;
+  if (!(q > 0)) return null;
+  return Math.round(q * unitCost * 100) === Math.round(lineTotal * 100)
+    ? q
+    : null;
+}
+
+/**
  * Augments a normalized extraction with per-line flags and (cheap)
  * unit_cost / line_total derivations when one side is known. Never mutates
  * the input.
@@ -192,6 +223,9 @@ export function normalizeExtraction(raw: ExtractedInvoice): ExtractedInvoice {
  *                          AND line_total != null. Fills unit_cost.
  *   * derived_line_total:  set when line_total was null AND quantity != null
  *                          AND unit_cost != null. Fills line_total.
+ *   * derived_quantity:  set when quantity was null AND unit_cost > 0 AND
+ *                          line_total were both read and the quotient is exact
+ *                          to the cent (see deriveQuantityFromTotal).
  *   * missing_*:           reflect the FINAL value after derivation.
  *   * low_confidence:      true if model returned confidence === 'low' OR
  *                          any required field (description/qty/unit/total)
@@ -206,7 +240,17 @@ export function enrichExtraction(
     let derivedUnitCost = false;
     let derivedLineTotal = false;
 
-    const qty = line.quantity;
+    let qty = line.quantity;
+    let derivedQuantity = false;
+
+    // Both price and total were READ; the quantity is arithmetic, not a guess.
+    if (qty === null && unitCost !== null && lineTotal !== null) {
+      const q = deriveQuantityFromTotal(unitCost, lineTotal);
+      if (q !== null) {
+        qty = q;
+        derivedQuantity = true;
+      }
+    }
 
     if (
       unitCost === null &&
@@ -242,6 +286,7 @@ export function enrichExtraction(
 
     return {
       ...line,
+      quantity: qty,
       unit_cost: unitCost,
       line_total: lineTotal,
       missing_description: missingDescription,
@@ -250,6 +295,7 @@ export function enrichExtraction(
       missing_line_total: missingLineTotal,
       derived_unit_cost: derivedUnitCost,
       derived_line_total: derivedLineTotal,
+      ...(derivedQuantity ? { derived_quantity: true } : {}),
       low_confidence: lowConfidence,
     };
   });
@@ -294,6 +340,10 @@ export const EXTRACTION_SYSTEM_PROMPT = [
   "    '$1.220,64'    → 1220.64        (Latin-American decimal comma)",
   "    'MXN 92.50'    → 92.5",
   "    '2 kg'         (in a quantity cell)  → 2     (and unit='kg')",
+  "- Count words are units: manojo, unidad, pieza, docena, bolsa, caja,",
+  "  atado. '1 manojo cilantro' → quantity 1, unit 'manojo'. A bare count",
+  "  with no unit word ('3 aguacate') → quantity 3, unit 'unidad'. Never",
+  "  leave the unit null when the line has a clear count.",
   "- Keep the sign on credits/discounts (negative line totals).",
   "- Normalize dates to YYYY-MM-DD. If ambiguous (e.g. 04/05/2025), use",
   "  null rather than guessing.",

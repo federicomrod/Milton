@@ -28,11 +28,13 @@ interface Report {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  running_out: "Se acaba",
+  running_out: "Se agota",
   "86": "86",
   waste: "Merma",
   unclassified: "Sin clasificar",
 };
+
+export const KITCHEN_LOW_STOCK_TYPES = ["running_out", "86"] as const;
 
 const selectClass =
   "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
@@ -40,13 +42,18 @@ const selectClass =
 export function KitchenReportsCard({
   canManage,
   locations,
+  initialType = "",
+  includeTypes,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
+  initialType?: string;
+  /** When set and the type filter is empty, fetch each type (API caps at 50) and merge. */
+  includeTypes?: readonly string[];
 }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [locationId, setLocationId] = useState("");
-  const [type, setType] = useState("");
+  const [type, setType] = useState(initialType);
   const [error, setError] = useState<string | null>(null);
 
   const [reloadKey, setReloadKey] = useState(0);
@@ -54,24 +61,38 @@ export function KitchenReportsCard({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const params = new URLSearchParams();
-      if (locationId) params.set("location_id", locationId);
-      if (type) params.set("type", type);
-      const res = await fetch(`/api/restaurant/kitchen/reports?${params}`);
+      const typesToFetch =
+        type !== "" ? [type] : includeTypes?.length ? [...includeTypes] : [""];
+      const pages = await Promise.all(
+        typesToFetch.map(async (reportType) => {
+          const params = new URLSearchParams();
+          if (locationId) params.set("location_id", locationId);
+          if (reportType) params.set("type", reportType);
+          const res = await fetch(`/api/restaurant/kitchen/reports?${params}`);
+          if (!res.ok) return null;
+          const data = (await res.json()) as { reports?: Report[] };
+          return data.reports ?? [];
+        })
+      );
       if (cancelled) return;
-      if (!res.ok) {
+      if (pages.some((page) => page === null)) {
         setError("No se pudieron cargar los reportes.");
         return;
       }
-      const data = await res.json();
-      if (cancelled) return;
+      const byId = new Map<string, Report>();
+      for (const page of pages) {
+        for (const row of page ?? []) byId.set(row.id, row);
+      }
+      const merged = [...byId.values()].sort((a, b) =>
+        b.created_at.localeCompare(a.created_at)
+      );
       setError(null);
-      setReports(data.reports ?? []);
+      setReports(merged);
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, type, reloadKey]);
+  }, [locationId, type, reloadKey, includeTypes]);
 
   const reclassify = async (id: string, report_type: string) => {
     const res = await fetch(`/api/restaurant/kitchen/reports/${id}`, {
@@ -88,7 +109,7 @@ export function KitchenReportsCard({
       <CardHeader>
         <CardTitle>Reportes</CardTitle>
         <CardDescription>
-          Platillos que se acaban, 86 y merma que reportan tus cocineros.
+          Platos que se acaban, 86 y merma que reportan tus cocineros.
         </CardDescription>
         <div className="flex flex-wrap gap-2 pt-2">
           <select

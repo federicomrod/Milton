@@ -6,10 +6,15 @@ export type Row = Record<string, unknown>;
 export type FakeStore = Record<string, Row[]>;
 
 type Op =
-  | { type: "eq" | "is" | "gte" | "lt" | "in"; col: string; val: unknown }
+  | {
+      type: "eq" | "neq" | "is" | "gte" | "gt" | "lt" | "in";
+      col: string;
+      val: unknown;
+    }
   | { type: "or"; expr: string }
   | { type: "not"; col: string; op: string; val: unknown }
-  | { type: "contains"; col: string; val: unknown[] };
+  | { type: "contains"; col: string; val: unknown[] }
+  | { type: "ilike"; col: string; val: string };
 
 /** A PostgREST filter list: "a.eq.1,and(b.is.null,c.lt.2)" (comma = OR). */
 function splitTop(expr: string): string[] {
@@ -46,8 +51,26 @@ function matchesFilter(row: Row, filter: string): boolean {
   return false;
 }
 
+/** Plain column, or a PostgREST json path like "metadata->>key". */
+function cellOf(row: Row, col: string): unknown {
+  const at = col.indexOf("->>");
+  if (at < 0) return row[col];
+  const json = row[col.slice(0, at)];
+  if (json && typeof json === "object") {
+    const v = (json as Row)[col.slice(at + 3)];
+    return v == null ? null : String(v);
+  }
+  return null;
+}
+
 function matches(row: Row, ops: Op[]) {
   return ops.every((op) => {
+    if (op.type === "ilike") {
+      const pattern = op.val
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/%/g, ".*");
+      return new RegExp(`^${pattern}$`, "i").test(String(row[op.col] ?? ""));
+    }
     if (op.type === "contains") {
       const cell = row[op.col];
       return Array.isArray(cell) && op.val.every((v) => cell.includes(v));
@@ -62,20 +85,27 @@ function matches(row: Row, ops: Op[]) {
     if (op.type === "lt") {
       return row[op.col] != null && String(row[op.col]) < String(op.val);
     }
-    if (op.type === "eq") return row[op.col] === op.val;
+    if (op.type === "eq") return cellOf(row, op.col) === op.val;
+    if (op.type === "neq") return cellOf(row, op.col) !== op.val;
     if (op.type === "is") return (row[op.col] ?? null) === op.val;
     if (op.type === "gte") return String(row[op.col] ?? "") >= String(op.val);
+    if (op.type === "gt") {
+      return row[op.col] != null && String(row[op.col]) > String(op.val);
+    }
     return (op.val as unknown[]).includes(row[op.col]);
   });
 }
 
 export interface FakeDbOptions {
-  /** Make a write fail: return true to answer with a database error. */
+  /**
+   * Make a call fail: return true to answer with a database error, or an
+   * error object (for example `{ code: "42P01", message }` for a missing table).
+   */
   fail?: (
     table: string,
     mode: "select" | "insert" | "update" | "delete",
     payload: unknown
-  ) => boolean;
+  ) => boolean | { code?: string; message: string };
 }
 
 export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
@@ -86,14 +116,23 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
     let conflictCols: string[] = [];
     let payload: unknown = null;
     let orderCol: string | null = null;
+    let orderDesc = false;
     let cap: number | null = null;
     let offset = 0;
     const rows = () => (store[table] ??= []);
     const run = () => {
-      if (options.fail?.(table, mode === "upsert" ? "insert" : mode, payload)) {
+      const failure = options.fail?.(
+        table,
+        mode === "upsert" ? "insert" : mode,
+        payload
+      );
+      if (failure) {
         return {
           data: null as unknown as Row[],
-          error: { message: "forced failure" },
+          error:
+            typeof failure === "object"
+              ? failure
+              : { message: "forced failure" },
         };
       }
       if (mode === "update") {
@@ -147,6 +186,7 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
             : Number(a[col] ?? 0) - Number(b[col] ?? 0)
         );
       }
+      if (orderCol && orderDesc) data.reverse();
       data = data.slice(offset, cap === null ? undefined : offset + cap);
       return { data, error: null };
     };
@@ -154,6 +194,10 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       select: () => self,
       eq: (col: string, val: unknown) => (
         ops.push({ type: "eq", col, val }),
+        self
+      ),
+      neq: (col: string, val: unknown) => (
+        ops.push({ type: "neq", col, val }),
         self
       ),
       is: (col: string, val: unknown) => (
@@ -164,8 +208,16 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         ops.push({ type: "gte", col, val }),
         self
       ),
+      gt: (col: string, val: unknown) => (
+        ops.push({ type: "gt", col, val }),
+        self
+      ),
       lt: (col: string, val: unknown) => (
         ops.push({ type: "lt", col, val }),
+        self
+      ),
+      ilike: (col: string, val: string) => (
+        ops.push({ type: "ilike", col, val }),
         self
       ),
       contains: (col: string, val: unknown[]) => (
@@ -181,7 +233,11 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
         ops.push({ type: "in", col, val }),
         self
       ),
-      order: (col: string) => ((orderCol = col), self),
+      order: (col: string, opts?: { ascending?: boolean }) => (
+        (orderCol = col),
+        (orderDesc = opts?.ascending === false),
+        self
+      ),
       limit: (n: number) => ((cap = n), self),
       range: (from: number, to: number) => (
         (offset = from),
@@ -203,11 +259,11 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       ),
       maybeSingle: async () => {
         const { data, error } = run();
-        return { data: data[0] ?? null, error };
+        return { data: data?.[0] ?? null, error };
       },
       single: async () => {
         const { data, error } = run();
-        return { data: data[0] ?? null, error };
+        return { data: data?.[0] ?? null, error };
       },
       then: (
         resolve: (v: unknown) => unknown,

@@ -122,6 +122,8 @@ export interface MenuDish {
   variant_count?: number;
   /** The variant whose recipe is the dish's (opens the recipe editor). */
   base_odoo_product_id: number | null;
+  /** The plato (menu item) of that variant; null = no plato yet, nothing to estimate. */
+  base_menu_item_id?: string | null;
   base_portion_qty: number | null;
   excel_total: number | null;
   excel_diff_flag: boolean;
@@ -610,6 +612,10 @@ export function buildMenuDishes(input: {
       base_odoo_product_id:
         (baseSells ? base?.dish.odoo_product_id : null) ??
         top?.dish.odoo_product_id ??
+        null,
+      base_menu_item_id:
+        (baseSells ? base?.dish.menu_item_id : null) ??
+        top?.dish.menu_item_id ??
         null,
       base_portion_qty: basePortion,
       excel_total: base?.dish.excel_total ?? null,

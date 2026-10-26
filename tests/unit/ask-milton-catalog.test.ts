@@ -78,15 +78,23 @@ describe("ingredient prices", () => {
 });
 
 describe("menu dishes and groups", () => {
-  const dish = (name: string, category: string, net: number, pid: number) =>
+  const dish = (
+    name: string,
+    category: string,
+    net: number,
+    pid: number,
+    food_cost_pct: number | null = null,
+    cost_status?: "aprobado" | "estimado" | "falta_precio" | "sin_receta"
+  ) =>
     ({
       name,
       category,
       net_sales: net,
       units: 2,
-      food_cost_pct: null,
-      margin_pct: null,
-      cost_status: "falta_precio",
+      food_cost_pct,
+      margin_pct: food_cost_pct === null ? null : 100 - food_cost_pct,
+      cost_status:
+        cost_status ?? (food_cost_pct === null ? "falta_precio" : "aprobado"),
       variants: [{ odoo_product_id: pid, net_sales: net, units: 2 }],
     }) as never;
   const econ = {
@@ -127,9 +135,41 @@ describe("menu dishes and groups", () => {
       dishes: 2,
     });
     expect(m.top_by_sales[0].food_cost_pct).toBeNull();
+    expect(m.uncosted_count).toBe(3);
+    expect(m.top_by_food_cost).toEqual([]);
     expect(buildItemGroups(econ)).toEqual([
       { name: "Carnes", products: 2, net_sales: 170, units: 4 },
     ]);
+  });
+  it("ranks costed platos by food cost % and never ranks a missing cost as 0%", () => {
+    const mixed = {
+      currency: "USD",
+      period: { from: "2026-07-01", to: "2026-07-31" },
+      menu_dishes: [
+        dish("A", "Churrascos", 100, 1, 40),
+        dish("B", "Churrascos", 50, 2, 55),
+        dish("C", "Bebidas", 70, 3, null),
+      ],
+    } as never;
+    const m = buildMenuDishes(mixed);
+    expect(m.top_by_food_cost.map((d) => d.name)).toEqual(["B", "A"]);
+    expect(m.top_by_food_cost.every((d) => d.food_cost_pct !== 0)).toBe(true);
+    expect(m.uncosted_count).toBe(1);
+    expect(m.top_by_food_cost.map((d) => d.name)).not.toContain("C");
+  });
+  it("does not rank estimado or falta_precio even when they have a food_cost_pct", () => {
+    const mixed = {
+      currency: "USD",
+      period: { from: "2026-07-01", to: "2026-07-31" },
+      menu_dishes: [
+        dish("Aprobado", "Carnes", 100, 1, 40),
+        dish("Estimado", "Carnes", 80, 2, 90, "estimado"),
+        dish("Parcial", "Carnes", 70, 3, 70, "falta_precio"),
+      ],
+    } as never;
+    const m = buildMenuDishes(mixed);
+    expect(m.top_by_food_cost.map((d) => d.name)).toEqual(["Aprobado"]);
+    expect(m.uncosted_count).toBe(2);
   });
 });
 

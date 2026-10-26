@@ -15,6 +15,12 @@ export function menuResumenHref(): string {
   return MENU;
 }
 
+/** The «Lee tu menú y estima costos» card on Menú › Resumen. */
+export const MENU_READER_ANCHOR = "leer-menu";
+export function menuReaderHref(): string {
+  return `${MENU}#${MENU_READER_ANCHOR}`;
+}
+
 /** Platos, optionally filtered by the loader's statuses. */
 export function platosHref(statuses?: readonly DishStatus[]): string {
   if (!statuses || statuses.length === 0) return `${MENU}/platos`;

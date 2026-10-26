@@ -23,8 +23,10 @@ import { dailyFromRollup, dailyFromRows } from "@/lib/restaurant/cockpit-daily";
 import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import {
+  addDaysToKey,
   computeBriefingSalesPeriods,
   formatDayLabel,
+  localDateKey,
   type BriefingSalesPeriods,
   type DailySalesPoint,
 } from "@/lib/restaurant/briefing-periods";
@@ -71,6 +73,15 @@ export interface BriefingCostingBlocker {
   name: string;
   status: string;
   message: string;
+}
+
+/** Result of the Odoo sync that runs right before the automatic briefing. */
+export interface BriefingSyncStatus {
+  ok: boolean;
+  /** No Odoo connection: nothing to sync, nothing to say. */
+  skipped?: boolean;
+  /** A fixed error kind (never a secret or a message from Odoo). */
+  error_kind?: string;
 }
 
 export interface BriefingPriceTrend {
@@ -160,6 +171,8 @@ export interface BriefingContext {
   costing_blockers: BriefingCostingBlocker[];
   supplier_price_increases: BriefingPriceTrend[];
   price_review_items?: BriefingPriceReview[];
+  /** Pre-send Odoo sync outcome (cron only). Absent for in-app sends. */
+  sync_status?: BriefingSyncStatus;
   /** The company has Telegram connected (a row in restaurant_telegram_connections). */
   telegram_connected?: boolean;
   top_suppliers: BriefingSupplierSpend[];
@@ -222,29 +235,51 @@ async function resolveBriefingTimezone(
   return resolvePosTimezone(supabase, companyId);
 }
 
+/**
+ * How many local days back the trusted (cron) read goes: yesterday and the
+ * two 7-day windows need 15; 16 days plus one day of buffer for the
+ * timezone / business-day cutoff.
+ */
+export const BRIEFING_TRUSTED_READ_DAYS = 17;
+
 /** Net sales + tickets per local day, or null when POS could not be read. */
-async function loadDailySales(
+export async function loadDailySales(
   supabase: SupabaseClient,
   companyId: string,
   selected: ProfitabilitySelection | null,
   timezone: string,
-  currency: string
+  currency: string,
+  opts: { serverTrusted?: boolean; now: Date }
 ): Promise<DailySalesPoint[] | null> {
-  try {
-    const { rollup } = await fetchCockpitPosRollup(supabase, companyId, {
-      locationId: selected?.locationId ?? null,
-      timezone,
-      currency,
-    });
-    if (rollup) return dailyFromRollup(rollup);
-  } catch (err) {
-    console.error("[briefing-context] rollup:", err);
+  // The membership-gated rollup RPC answers an EMPTY payload (not an error)
+  // to a session-less caller, so the trusted job never asks it.
+  if (!opts.serverTrusted) {
+    try {
+      const { rollup } = await fetchCockpitPosRollup(supabase, companyId, {
+        locationId: selected?.locationId ?? null,
+        timezone,
+        currency,
+      });
+      // A rollup with no rows is not final: walk the rows (a real member with
+      // no sales gets nothing from the walk either).
+      if (rollup && rollup.row_count > 0) return dailyFromRollup(rollup);
+    } catch (err) {
+      console.error("[briefing-context] rollup:", err);
+    }
   }
   try {
     const walked = await fetchCompanyPosSalesRows(
       supabase as never,
       companyId,
-      selected?.locationId ?? null
+      selected?.locationId ?? null,
+      opts.serverTrusted
+        ? {
+            sinceDate: addDaysToKey(
+              localDateKey(opts.now, timezone),
+              -BRIEFING_TRUSTED_READ_DAYS
+            ),
+          }
+        : undefined
     );
     if (walked.error) return null;
     return dailyFromRows(walked.rows, timezone, currency);
@@ -258,6 +293,23 @@ async function loadDailySales(
 // Builder
 // ---------------------------------------------------------------------------
 
+/** True when the company has an active Telegram connection. Unknown => false. */
+export async function isTelegramConnected(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<boolean> {
+  try {
+    const { count } = await supabase
+      .from("restaurant_telegram_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("is_active", true);
+    return (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * @param selected Multi-Restaurant UX v1: when set, scopes the briefing to
  *   a single restaurant (consolidated otherwise). Must already be
@@ -268,7 +320,13 @@ export async function buildBriefingContext(
   supabase: SupabaseClient,
   companyId: string,
   selected?: ProfitabilitySelection | null,
-  options?: { now?: Date }
+  options?: {
+    now?: Date;
+    /** Trusted server job (cron, service role): read rows, never the member-gated RPCs. */
+    serverTrusted?: boolean;
+    /** Outcome of the pre-send Odoo sync, shown as one plain line when it failed. */
+    syncStatus?: BriefingSyncStatus;
+  }
 ): Promise<BriefingContext> {
   // Same resolver as the restaurant cockpit so Ask Milton / briefing
   // prose match the shell (R1 Spanish). Emails/Telegram formatters that
@@ -334,7 +392,9 @@ export async function buildBriefingContext(
   }
 
   // ---- Profitability snapshot (single round-trip aggregator) ----
-  const data = await fetchProfitabilityData(supabase, companyId, selected);
+  const data = await fetchProfitabilityData(supabase, companyId, selected, {
+    serverTrusted: options?.serverTrusted,
+  });
   const currency = data.kpis.currency;
 
   // ---- Dated sales periods (company briefing timezone) ----
@@ -344,18 +404,13 @@ export async function buildBriefingContext(
     companyId,
     selected ?? null,
     briefingTimezone,
-    currency
+    currency,
+    {
+      serverTrusted: options?.serverTrusted,
+      now: options?.now ?? new Date(),
+    }
   );
-  let telegramConnected = false;
-  try {
-    const { count } = await supabase
-      .from("restaurant_telegram_connections")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId);
-    telegramConnected = (count ?? 0) > 0;
-  } catch {
-    telegramConnected = false; // unknown: the line is simply left out
-  }
+  const telegramConnected = await isTelegramConnected(supabase, companyId);
   const salesPeriods = daily
     ? computeBriefingSalesPeriods({
         daily,
@@ -367,17 +422,31 @@ export async function buildBriefingContext(
     : undefined;
   const firstDay = daily?.length ? daily[0].date : null;
   const lastDay = daily?.length ? daily[daily.length - 1].date : null;
-  const periodLabel = firstDay
-    ? t(
-        preferredLanguage,
-        `all loaded POS data (${formatDayLabel(firstDay, "en")} to ${formatDayLabel(lastDay ?? firstDay, "en")})`,
-        `todos los datos de POS cargados (${formatDayLabel(firstDay, "es")} a ${formatDayLabel(lastDay ?? firstDay, "es")})`
-      )
-    : t(
-        preferredLanguage,
-        "all loaded POS data",
-        "todos los datos de POS cargados"
-      );
+  // The trusted (cron) daily read is bounded to ~17 days, so its first day is
+  // NOT the start of the data the margin covers: say "through <last day>".
+  const periodLabel = options?.serverTrusted
+    ? lastDay
+      ? t(
+          preferredLanguage,
+          `all loaded POS data (through ${formatDayLabel(lastDay, "en")})`,
+          `todos los datos de POS cargados (hasta ${formatDayLabel(lastDay, "es")})`
+        )
+      : t(
+          preferredLanguage,
+          "all loaded POS data",
+          "todos los datos de POS cargados"
+        )
+    : firstDay
+      ? t(
+          preferredLanguage,
+          `all loaded POS data (${formatDayLabel(firstDay, "en")} to ${formatDayLabel(lastDay ?? firstDay, "en")})`,
+          `todos los datos de POS cargados (${formatDayLabel(firstDay, "es")} a ${formatDayLabel(lastDay ?? firstDay, "es")})`
+        )
+      : t(
+          preferredLanguage,
+          "all loaded POS data",
+          "todos los datos de POS cargados"
+        );
 
   // Distinct checks come from the profitability POS read — do not page
   // pos_sales_items a second time just for check_id.
@@ -628,6 +697,7 @@ export async function buildBriefingContext(
     supplier_price_increases: priceIncreases,
     price_review_items: priceReview,
     telegram_connected: telegramConnected,
+    sync_status: options?.syncStatus,
     top_suppliers: topSuppliers,
     open_recommendations: {
       total: totalOpen,

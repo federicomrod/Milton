@@ -10,13 +10,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -38,6 +31,8 @@ import {
   type CreateOutcome,
 } from "./IngredientCombobox";
 import { PricePopover } from "./PricePopover";
+import { UnitConversionForm } from "@/components/restaurant/recipes-costing/UnitConversionForm";
+import type { UnitConversion } from "@/lib/restaurant/units";
 import {
   computeDraftCost,
   type CostLineInput,
@@ -45,12 +40,20 @@ import {
   type PriceInfo,
 } from "@/lib/restaurant/kitchen-draft-costing";
 import {
-  normalizeKitchenName,
   suggestIngredient,
+  suggestPreparation,
+  stripParenthetical,
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
+import {
+  isPreparationName,
+  stripPreparationMarker,
+  withPreparationMarker,
+} from "@/lib/restaurant/recipe-upload/marker";
+import { draftSourceLabel } from "@/lib/restaurant/kitchen-draft-source";
+import { KITCHEN_RECIPES_PREVIEW } from "@/lib/restaurant/kitchen-explore";
 
 interface DraftLine {
   id: string;
@@ -78,6 +81,10 @@ interface Draft {
   created_at: string;
   staff_name: string;
   location_name: string;
+  /** An approved dish already has this name (computed by the list API). */
+  approved_exists?: boolean;
+  /** A sub-recipe from a file: the name carries a marker the UI never shows. */
+  is_preparation?: boolean;
   lines: DraftLine[];
 }
 
@@ -94,18 +101,6 @@ interface MenuItem {
   name: string;
   selling_price: number | null;
 }
-
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: "Alta",
-  medium: "Media",
-  low: "Baja",
-};
-
-const CONFIDENCE_COLORS: Record<string, string> = {
-  high: "bg-green-100 text-green-800",
-  medium: "bg-gray-100 text-gray-700",
-  low: "bg-red-100 text-red-800",
-};
 
 /** numeric columns can arrive as strings ("240.000"): always a number or null. */
 function toNumber(value: unknown): number | null {
@@ -143,6 +138,22 @@ function withDropdownUnits(lines: DraftLine[]): DraftLine[] {
       raw_unit: mapped ? null : original || null,
     };
   });
+}
+
+/** The copy the editor works on: the name never shows the preparation marker. */
+function editableCopy(draft: Draft): Draft {
+  const copy = JSON.parse(JSON.stringify(draft)) as Draft;
+  copy.is_preparation =
+    copy.is_preparation === true || isPreparationName(copy.dish_name);
+  copy.dish_name = stripPreparationMarker(copy.dish_name);
+  return copy;
+}
+
+/** What goes to the server: a preparation keeps its marker on the name. */
+function nameForSave(draft: Draft, isPreparation: boolean): string {
+  return isPreparation
+    ? withPreparationMarker(draft.dish_name)
+    : draft.dish_name;
 }
 
 /** What the editor shows, as one string: used to know if there are unsaved changes. */
@@ -191,15 +202,25 @@ export function KitchenRecipeDraftsCard({
   canManage,
   locations,
   focusDraftId,
+  onFocusConsumed,
+  reloadSignal = 0,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
   focusDraftId?: string | null;
+  /** Called once the deep link has opened its draft: clear it upstream. */
+  onFocusConsumed?: () => void;
+  /** Changes when something outside (a file upload) added drafts: reload. */
+  reloadSignal?: number;
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   // The active list is known (an empty list is a real answer, not "loading").
   const [ingredientsLoaded, setIngredientsLoaded] = useState(false);
+  // «1 unidad de Tomate = 5 oz» bridges (migration 056), by ingredient.
+  const [conversionRows, setConversionRows] = useState<
+    Array<UnitConversion & { ingredient_id: string }>
+  >([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [locationId, setLocationId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +243,16 @@ export function KitchenRecipeDraftsCard({
     text: string;
   } | null>(null);
   const botPicks = useRef(new Map<string, string | null>());
+  // The deep link (focusDraftId) opens its draft AT MOST ONCE; reloads after
+  // save / confirm / reject / upload never re-apply it.
+  const consumedFocus = useRef<string | null>(null);
+  // Drafts created by the last upload get a «Nuevo» mark until the next reload.
+  const knownIds = useRef<Set<string> | null>(null);
+  const lastSignal = useRef(reloadSignal);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [listExpanded, setListExpanded] = useState(false);
+  // Existing preparations of the company (names only, for the hint).
+  const [preparationNames, setPreparationNames] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -241,34 +272,70 @@ export function KitchenRecipeDraftsCard({
       setError(null);
       const next = ((data.drafts ?? []) as Draft[]).map(normalizeDraft);
       setDrafts(next);
-      if (focusDraftId) {
-        const hit = next.find((d) => d.id === focusDraftId);
-        if (hit) {
-          const lines = withDropdownUnits(hit.lines);
-          const menuId = hit.menu_item_id ?? "";
-          const price = readSavedPrice(hit.id);
-          setSelectedDraft(hit);
-          setEditedDraft(JSON.parse(JSON.stringify(hit)));
-          setEditedLines(lines);
-          setSelectedMenuItem(menuId);
-          setNewSellingPrice(price);
-          setBaseline(editorSnapshot(hit, lines, menuId, price));
-          botPicks.current = new Map(
-            hit.lines.map((l) => [l.id, l.ingredient_id])
-          );
-        }
+      const fromUpload = lastSignal.current !== reloadSignal;
+      lastSignal.current = reloadSignal;
+      const before = knownIds.current;
+      knownIds.current = new Set(next.map((d) => d.id));
+      setNewIds(
+        fromUpload && before
+          ? new Set(next.filter((d) => !before.has(d.id)).map((d) => d.id))
+          : new Set()
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locationId, reloadKey, reloadSignal]);
+
+  // Open the focused draft once it is in the list; never again for that id.
+  useEffect(() => {
+    if (!focusDraftId) {
+      consumedFocus.current = null;
+      return;
+    }
+    if (consumedFocus.current === focusDraftId) return;
+    const hit = drafts.find((d) => d.id === focusDraftId);
+    if (!hit) return;
+    consumedFocus.current = focusDraftId;
+    const lines = withDropdownUnits(hit.lines);
+    const menuId = hit.menu_item_id ?? "";
+    const price = readSavedPrice(hit.id);
+    setSelectedDraft(hit);
+    setEditedDraft(editableCopy(hit));
+    setEditedLines(lines);
+    setSelectedMenuItem(menuId);
+    setNewSellingPrice(price);
+    setBaseline(editorSnapshot(hit, lines, menuId, price));
+    botPicks.current = new Map(hit.lines.map((l) => [l.id, l.ingredient_id]));
+    onFocusConsumed?.();
+  }, [focusDraftId, drafts, onFocusConsumed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/restaurant/prepared-components");
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        const names = ((data.components ?? []) as { name?: unknown }[])
+          .map((c) => (typeof c.name === "string" ? c.name : ""))
+          .filter(Boolean);
+        if (!cancelled) setPreparationNames(names);
+      } catch {
+        // the hint is optional
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [locationId, reloadKey, focusDraftId]);
+  }, []);
 
   const loadIngredients = useCallback(async () => {
     const res = await fetch("/api/restaurant/kitchen/ingredients");
     if (res.ok) {
       const data = await res.json();
       setIngredients(data.ingredients ?? []);
+      setConversionRows(data.conversions ?? []);
       setIngredientsLoaded(true);
     }
   }, []);
@@ -281,6 +348,7 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json();
       if (!cancelled) {
         setIngredients(data.ingredients ?? []);
+        setConversionRows(data.conversions ?? []);
         setIngredientsLoaded(true);
       }
     })();
@@ -304,12 +372,24 @@ export function KitchenRecipeDraftsCard({
     };
   }, []);
 
+  // Preparations to compare against: the company's own plus the preparation
+  // drafts already on the list (for example from the same upload).
+  const preparationCandidates = useMemo(() => {
+    const out: { name: string }[] = preparationNames.map((name) => ({ name }));
+    for (const d of drafts) {
+      if (d.is_preparation || isPreparationName(d.dish_name)) {
+        out.push({ name: stripPreparationMarker(d.dish_name) });
+      }
+    }
+    return out;
+  }, [preparationNames, drafts]);
+
   const openEditor = (draft: Draft) => {
     const lines = withDropdownUnits(draft.lines);
     const menuId = draft.menu_item_id ?? "";
     const price = readSavedPrice(draft.id);
     setSelectedDraft(draft);
-    setEditedDraft(JSON.parse(JSON.stringify(draft)));
+    setEditedDraft(editableCopy(draft));
     setEditedLines(lines);
     setSelectedMenuItem(menuId);
     setNewSellingPrice(price);
@@ -368,7 +448,7 @@ export function KitchenRecipeDraftsCard({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            dish_name: editedDraft.dish_name,
+            dish_name: nameForSave(editedDraft, editingPreparation),
             portions: editedDraft.portions,
             menu_item_id: menuItemId,
             lines: cleanLines.map((l) => ({
@@ -452,7 +532,7 @@ export function KitchenRecipeDraftsCard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dish_name: editedDraft.dish_name,
+          dish_name: nameForSave(editedDraft, editingPreparation),
           portions: editedDraft.portions,
           menu_item_id: menuItemId,
           selling_price: sellingPrice,
@@ -629,9 +709,24 @@ export function KitchenRecipeDraftsCard({
 
   const priceMap = useMemo(() => {
     const map = new Map<string, PriceInfo | null>();
-    for (const ing of ingredients) map.set(ing.id, ing.price ?? null);
+    for (const ing of ingredients) {
+      map.set(ing.id, ing.price && ing.price.unit_cost > 0 ? ing.price : null);
+    }
     return map;
   }, [ingredients]);
+  const conversionMap = useMemo(() => {
+    const map = new Map<string, UnitConversion[]>();
+    for (const c of conversionRows) {
+      const list = map.get(c.ingredient_id) ?? [];
+      list.push({
+        from_unit: c.from_unit,
+        to_unit: c.to_unit,
+        factor: Number(c.factor),
+      });
+      map.set(c.ingredient_id, list);
+    }
+    return map;
+  }, [conversionRows]);
   const ingredientById = useMemo(
     () => new Map(ingredients.map((i) => [i.id, i])),
     [ingredients]
@@ -677,11 +772,19 @@ export function KitchenRecipeDraftsCard({
         costInputs(cleanLines),
         priceMap,
         editedDraft.portions,
-        sellingPrice
+        sellingPrice,
+        conversionMap
       )
     : null;
 
+  const editingPreparation =
+    !!selectedDraft &&
+    (selectedDraft.is_preparation === true ||
+      isPreparationName(selectedDraft.dish_name));
+  const editingApprovedExists = selectedDraft?.approved_exists === true;
+
   const canConfirm =
+    !editingPreparation &&
     !!editedDraft?.portions &&
     Number.isInteger(editedDraft.portions) &&
     editedDraft.portions > 0 &&
@@ -694,26 +797,32 @@ export function KitchenRecipeDraftsCard({
         l.unit
     );
 
+  const visibleDrafts = listExpanded
+    ? drafts
+    : drafts.slice(0, KITCHEN_RECIPES_PREVIEW);
   const selectClass =
     "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>Recetas para revisar</CardTitle>
-          <CardDescription>
-            Recetas que envían tus cocineros por foto, voz o texto. Revísalas y
-            confírmalas: pasan a Menú como borrador y no cuentan en los costos
-            hasta que alguien las apruebe.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex gap-2">
+      <div data-testid="kitchen-recipes-list">
+        <div className="mb-2 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-[#0D1117]">
+            Recetas para revisar
+          </h3>
+          <span
+            data-testid="kitchen-recipes-count"
+            className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#1B40C8] px-1.5 text-[11px] font-semibold text-white"
+          >
+            {drafts.length}
+          </span>
+          {locations.length > 1 ? (
             <select
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              className={selectClass}
+              className={`${selectClass} ml-auto`}
+              aria-label="Filtrar por ubicación"
+              data-testid="kitchen-recipes-location"
             >
               <option value="">Todas las ubicaciones</option>
               {locations.map((loc) => (
@@ -722,59 +831,79 @@ export function KitchenRecipeDraftsCard({
                 </option>
               ))}
             </select>
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {drafts.length === 0 && !error && (
-            <p className="text-sm text-muted-foreground">
-              No hay recetas pendientes.
-            </p>
-          )}
-          <div className="space-y-3">
-            {drafts.map((draft) => (
+          ) : null}
+        </div>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {drafts.length === 0 && !error ? (
+          <p
+            className="text-sm text-muted-foreground py-2"
+            data-testid="kitchen-recipes-empty"
+          >
+            No tienes recetas por revisar. Sube tus recetas o pide a tu equipo
+            que te las mande por nota de voz.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {visibleDrafts.map((draft) => (
               <div
                 key={draft.id}
-                className="rounded-lg border p-3 hover:bg-muted/50"
+                data-testid="kitchen-draft-row"
+                data-new={newIds.has(draft.id) ? "true" : undefined}
+                className="flex items-center justify-between gap-3 border-t border-border py-2.5 first:border-t-0 first:pt-0"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium">{draft.dish_name}</h3>
-                      <Badge
-                        className={CONFIDENCE_COLORS[draft.confidence] || ""}
-                      >
-                        {CONFIDENCE_LABELS[draft.confidence] ||
-                          draft.confidence}
-                      </Badge>
-                      {draft.status === "awaiting_portions" && (
-                        <Badge variant="outline">Faltan porciones</Badge>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {draft.staff_name} • {draft.location_name} •{" "}
-                      {new Date(draft.created_at).toLocaleDateString()}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="font-medium text-[13px] truncate">
+                      {stripPreparationMarker(draft.dish_name)}
                     </p>
-                    <DraftListCost
-                      draft={draft}
-                      cost={computeDraftCost(
-                        costInputs(draft.lines),
-                        priceMap,
-                        draft.portions,
-                        null
-                      )}
-                      currency={currencyOf(draft)}
-                      canManage={canManage}
-                      ingredientById={ingredientById}
-                      open={pricesOpenFor === draft.id}
-                      onToggle={() =>
-                        setPricesOpenFor(
-                          pricesOpenFor === draft.id ? null : draft.id
-                        )
-                      }
-                      onPriceSaved={() => void loadIngredients()}
-                    />
+                    {draft.is_preparation ||
+                    isPreparationName(draft.dish_name) ? (
+                      <Badge variant="outline">Preparación</Badge>
+                    ) : null}
+                    {draft.approved_exists ? (
+                      <Badge variant="outline">
+                        Ya existe una receta aprobada
+                      </Badge>
+                    ) : null}
+                    {draft.status === "awaiting_portions" ? (
+                      <Badge variant="outline">Faltan porciones</Badge>
+                    ) : null}
+                    {newIds.has(draft.id) ? (
+                      <Badge variant="outline" className="text-[#1B40C8]">
+                        Nuevo
+                      </Badge>
+                    ) : null}
                   </div>
-                  {canManage && (
-                    <div className="flex gap-2">
+                  <p className="text-xs text-muted-foreground truncate">
+                    {draftSourceLabel(draft.staff_name)}
+                  </p>
+                  <DraftListCost
+                    draft={draft}
+                    cost={computeDraftCost(
+                      costInputs(draft.lines),
+                      priceMap,
+                      draft.portions,
+                      null,
+                      conversionMap
+                    )}
+                    currency={currencyOf(draft)}
+                    canManage={canManage}
+                    ingredientById={ingredientById}
+                    open={pricesOpenFor === draft.id}
+                    onToggle={() =>
+                      setPricesOpenFor(
+                        pricesOpenFor === draft.id ? null : draft.id
+                      )
+                    }
+                    onPriceSaved={() => void loadIngredients()}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-[#D8D0F8] px-2 py-0.5 text-[11px] font-semibold text-[#0D1117]">
+                    Borrador de Milton
+                  </span>
+                  {canManage ? (
+                    <>
                       <Button
                         size="sm"
                         variant="outline"
@@ -784,19 +913,29 @@ export function KitchenRecipeDraftsCard({
                       </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="outline"
                         onClick={() => handleReject(draft.id)}
                       >
                         Rechazar
                       </Button>
-                    </div>
-                  )}
+                    </>
+                  ) : null}
                 </div>
               </div>
             ))}
           </div>
-        </CardContent>
-      </Card>
+        )}
+        {!listExpanded && drafts.length > KITCHEN_RECIPES_PREVIEW ? (
+          <button
+            type="button"
+            data-testid="kitchen-recipes-see-all"
+            className="mt-2 text-sm font-semibold text-[#1B40C8] hover:text-[#1533A3]"
+            onClick={() => setListExpanded(true)}
+          >
+            Ver las {drafts.length}
+          </button>
+        ) : null}
+      </div>
 
       {editedDraft && (
         <Dialog
@@ -813,12 +952,31 @@ export function KitchenRecipeDraftsCard({
               </DialogDescription>
             </DialogHeader>
 
+            {editingPreparation ? (
+              <p
+                role="note"
+                className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
+              >
+                Esta es una preparación (sub-receta). Por ahora créala en Menú ›
+                Preparaciones; aquí se confirmaría como plato.
+              </p>
+            ) : null}
+            {editingApprovedExists ? (
+              <p
+                role="note"
+                className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
+              >
+                Ya hay una receta aprobada con este nombre. Confirmar NO la
+                cambia: crea una versión nueva para revisar.
+              </p>
+            ) : null}
+
             {/* Top fields: one row on desktop. */}
             <div className="grid grid-cols-1 gap-3 px-5 pb-3 md:grid-cols-[2fr_1fr_2fr_1fr]">
               <div>
-                <Label>Nombre del platillo</Label>
+                <Label>Nombre del plato</Label>
                 <Input
-                  aria-label="Nombre del platillo"
+                  aria-label="Nombre del plato"
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
@@ -844,7 +1002,7 @@ export function KitchenRecipeDraftsCard({
                 ) : null}
               </div>
               <div>
-                <Label>Platillo del menú</Label>
+                <Label>Plato del menú</Label>
                 <Select
                   value={selectedMenuItem}
                   onValueChange={setSelectedMenuItem}
@@ -853,7 +1011,7 @@ export function KitchenRecipeDraftsCard({
                     <SelectValue placeholder="Crear uno nuevo o elegir uno" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Crear platillo nuevo</SelectItem>
+                    <SelectItem value="new">Crear plato nuevo</SelectItem>
                     {menuItems.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -917,6 +1075,13 @@ export function KitchenRecipeDraftsCard({
                           ? (suggestIngredient(line.raw_name, ingredients)
                               ?.ingredient ?? null)
                           : null;
+                      const preparation =
+                        !line.ingredient_id && line.raw_name && !suggestion
+                          ? suggestPreparation(
+                              line.raw_name,
+                              preparationCandidates
+                            )
+                          : null;
                       return (
                         <tr key={line.id} className="align-top">
                           <td className="py-1 pr-2">
@@ -943,6 +1108,20 @@ export function KitchenRecipeDraftsCard({
                                 </button>
                               </p>
                             ) : null}
+                            {preparation ? (
+                              <p
+                                data-testid="preparation-hint"
+                                className="mt-0.5 text-[12px] text-[#6b7280]"
+                              >
+                                Parece la preparación «
+                                {sentenceCase(
+                                  stripParenthetical(preparation.name)
+                                )}
+                                ». Por ahora créala en Menú › Preparaciones y
+                                agrégala a la receta allí; aquí elige un
+                                ingrediente.
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-1 pr-2">
                             <Input
@@ -960,6 +1139,12 @@ export function KitchenRecipeDraftsCard({
                                 )
                               }
                             />
+                            {line.total_quantity === null ||
+                            line.total_quantity <= 0 ? (
+                              <p className="mt-0.5 text-[12px] text-[#6b7280]">
+                                falta cantidad
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-1 pr-2">
                             <select
@@ -989,6 +1174,7 @@ export function KitchenRecipeDraftsCard({
                               unit={line.unit}
                               draftId={editedDraft.id}
                               onSaved={() => void loadIngredients()}
+                              onConversionSaved={() => void loadIngredients()}
                             />
                           </td>
                           <td className="py-1 text-right">
@@ -1037,7 +1223,7 @@ export function KitchenRecipeDraftsCard({
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                  className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD]"
                   disabled={saving}
                   onClick={() => void handleSaveDraft()}
                 >
@@ -1064,7 +1250,7 @@ export function KitchenRecipeDraftsCard({
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       variant="outline"
-                      className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                      className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD]"
                       onClick={() => {
                         setConfirmClose(false);
                         closeEditor();
@@ -1102,6 +1288,7 @@ function LineCost({
   unit,
   draftId,
   onSaved,
+  onConversionSaved,
 }: {
   ingredient: Ingredient | null;
   costLine: DraftCost["lines"][number] | null;
@@ -1110,10 +1297,46 @@ function LineCost({
   unit: string | null;
   draftId: string;
   onSaved: () => void;
+  onConversionSaved: () => void;
 }) {
+  const [defining, setDefining] = useState(false);
   if (!ingredient) return <span className="text-[#aeb4c2]">—</span>;
-  const price = ingredient.price ?? null;
-  const lineCost = costLine?.line_cost ?? null;
+  // A stored price of 0 or null is «Sin precio», never $0.00.
+  const rawPrice = ingredient.price ?? null;
+  const price = rawPrice && rawPrice.unit_cost > 0 ? rawPrice : null;
+  const lineCost = price ? (costLine?.line_cost ?? null) : null;
+  // A priced ingredient whose unit has no conversion to the price's unit:
+  // «Falta conversión» (like «Sin precio»), with an optional «Definir».
+  if (price && costLine?.reason === "conversion" && unit) {
+    return (
+      <div className="text-right">
+        <span className="text-[12px] text-[#6b7385]">Falta conversión</span>{" "}
+        <button
+          type="button"
+          className="text-[12px] font-semibold text-[#1B40C8] underline"
+          aria-label={`Definir conversión de ${sentenceCase(ingredient.name)}`}
+          onClick={() => setDefining((open) => !open)}
+        >
+          Definir
+        </button>
+        {defining ? (
+          <div className="text-left">
+            <UnitConversionForm
+              ingredientId={ingredient.id}
+              ingredientName={sentenceCase(ingredient.name)}
+              unitA={unit}
+              unitB={price.unit}
+              onSaved={() => {
+                setDefining(false);
+                onConversionSaved();
+              }}
+              onCancel={() => setDefining(false)}
+            />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <PricePopover
       ingredient={{
@@ -1167,10 +1390,18 @@ export function CostFooter({
         : "Indica las porciones para ver el costo por porción"
     );
   } else {
-    const missing = cost.lines.filter((l) => l.line_cost === null).length;
-    parts.push(
-      `Costo parcial · ${missing === 1 ? "falta 1 precio" : `faltan ${missing} precios`}`
-    );
+    const prices = cost.lines.filter(
+      (l) => l.line_cost === null && l.reason !== "conversion"
+    ).length;
+    const conversions = cost.unconverted_count;
+    const bits: string[] = [];
+    if (prices > 0) bits.push(prices === 1 ? "1 precio" : `${prices} precios`);
+    if (conversions > 0)
+      bits.push(
+        conversions === 1 ? "1 conversión" : `${conversions} conversiones`
+      );
+    const verb = prices + conversions === 1 ? "falta" : "faltan";
+    parts.push(`Costo parcial · ${verb} ${bits.join(" y ")}`);
   }
   if (cost.margin_pct !== null) {
     parts.push(`Margen: ${Math.round(cost.margin_pct * 10) / 10}%`);
@@ -1237,7 +1468,8 @@ function DraftListCost({
         </p>
       ) : cost.missing.length > 0 ? (
         <p className="text-[#6b7385]">
-          Costo parcial · faltan precios de{" "}
+          Costo parcial · faltan{" "}
+          {cost.unconverted_count > 0 ? "precios o conversiones" : "precios"} de{" "}
           {cost.missing.map(sentenceCase).join(", ")}
         </p>
       ) : null}

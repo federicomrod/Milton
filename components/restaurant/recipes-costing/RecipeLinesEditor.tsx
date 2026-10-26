@@ -8,6 +8,7 @@ import type {
   EditorState,
 } from "@/lib/restaurant/recipe-costing/editor-service";
 import {
+  FLAG_MILTON_ESTIMATE,
   FLAG_NEW_SUGGESTED,
   FLAG_PENDING_UNIT,
   SAVING_LINE_PREFIX,
@@ -40,6 +41,7 @@ import {
 } from "@/lib/restaurant/recipe-costing/editor-cache";
 import {
   UNIT_MISMATCH_LABEL,
+  formatMoneyEs,
   unitMismatchHint,
 } from "@/lib/restaurant/recipe-costing/format";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
@@ -123,6 +125,15 @@ function money(value: number): string {
   return `$${Number(text)}`;
 }
 
+/** «Precio estimado ≈ $X / unidad…»: Milton's estimate, never the line's cost. */
+export function estimatedPriceMessage(
+  estimate: { unit_price: number; unit: string },
+  currency: string
+): string {
+  const decimals = estimate.unit_price >= 1 ? 2 : 4;
+  return `Precio estimado ≈ ${formatMoneyEs(estimate.unit_price, currency, { decimals })} / ${UNIT_LABEL[estimate.unit] ?? estimate.unit}. Registra el precio real (factura o Costos) para aprobar.`;
+}
+
 function monthLabel(date: string | null): string | null {
   if (!date) return null;
   const d = new Date(`${date}T00:00:00`);
@@ -201,7 +212,10 @@ export function RecipeLinesEditor({
   onOpenPreparation,
   forceLocked = false,
   focusRequest = null,
+  currency = "USD",
 }: {
+  /** The company currency (for «Precio estimado ≈ …»). */
+  currency?: string;
   /** Another screen asks to open a line's price editor or unit question. */
   focusRequest?: EditorFocusRequest | null;
   /** A dish, by POS product… */
@@ -618,6 +632,7 @@ export function RecipeLinesEditor({
             <Row
               key={line.key}
               line={line}
+              currency={currency}
               editable={editable && !line.key.startsWith(SAVING_LINE_PREFIX)}
               saveNote={
                 line.key.startsWith(SAVING_LINE_PREFIX)
@@ -809,6 +824,7 @@ function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
 
 function Row({
   line,
+  currency = "USD",
   editable,
   saveNote,
   onResolve,
@@ -831,6 +847,7 @@ function Row({
   focus = null,
 }: {
   line: EditorLine;
+  currency?: string;
   editable: boolean;
   /** "guardando…" while a just-added line saves, then "✓ guardado". */
   saveNote?: string | null;
@@ -1219,6 +1236,26 @@ function Row({
             className="inline-block min-w-11 rounded-md border border-[#d5dae3] bg-white px-1.5 py-0.5 text-right"
           />
         )}
+        {line.flags.includes(FLAG_MILTON_ESTIMATE) ? (
+          <div className="mt-1" data-testid="milton-estimate-badge">
+            <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[var(--brand-ink)]">
+              <svg
+                className="h-3 w-3 text-[var(--brand-blue)]"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
+                />
+              </svg>
+              Estimado por Milton
+            </span>
+          </div>
+        ) : null}
       </td>
       <td className="py-1.5 pr-2 align-top">
         {fromMenu ? (
@@ -1439,9 +1476,22 @@ function Row({
             className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
             data-testid="pending-reason"
           >
-            {pendingReasonOf(line, prepUnitProblem)}
+            {line.milton_price_estimate &&
+            pendingReasonOf(line, prepUnitProblem) === "Falta precio"
+              ? "Sin precio"
+              : pendingReasonOf(line, prepUnitProblem)}
           </span>
         )}
+        {line.amount === null &&
+        line.unit_cost === null &&
+        line.milton_price_estimate ? (
+          <div
+            className="text-left text-[12px] font-normal text-[#6b7280]"
+            data-testid="milton-price-estimate"
+          >
+            {estimatedPriceMessage(line.milton_price_estimate, currency)}
+          </div>
+        ) : null}
         {line.amount !== null && line.unit_question ? (
           <div>
             <span

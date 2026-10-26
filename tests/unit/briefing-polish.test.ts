@@ -195,7 +195,7 @@ describe("«Revisar precio» section", () => {
 
 describe("«Abrir Milton» and the Telegram line", () => {
   const LINE =
-    "Para preguntas rápidas desde el teléfono, escríbele a Milton por Telegram.";
+    "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton.";
 
   it("keeps the label «Abrir Milton»; the Telegram line shows only when connected", () => {
     const on = render(ctx({ telegram_connected: true }));
@@ -214,9 +214,9 @@ describe("«Abrir Milton» and the Telegram line", () => {
   it("the line sits right under the button, in small gray text", () => {
     const { html } = render(ctx({ telegram_connected: true }));
     const at = html.indexOf("Abrir Milton");
-    expect(html.indexOf("Para preguntas rápidas")).toBeGreaterThan(at);
+    expect(html.indexOf("Desde Telegram, tu equipo")).toBeGreaterThan(at);
     expect(html).toMatch(
-      /font-size:12px;color:#6b7280[^>]*>Para preguntas rápidas/
+      /font-size:12px;color:#6b7280[^>]*>Desde Telegram, tu equipo/
     );
   });
 });
@@ -276,5 +276,42 @@ describe("when the dated periods fail to build", () => {
     }
     const b = buildDeterministicBriefing(c);
     expect(b.summary).toContain("Sin datos para comparar");
+  });
+});
+
+describe("isTelegramConnected", () => {
+  function fake(rows: { is_active: boolean }[]) {
+    const eqs: [string, unknown][] = [];
+    const q = {
+      select: () => q,
+      eq: (c: string, v: unknown) => {
+        eqs.push([c, v]);
+        return q;
+      },
+      then: (res: (v: unknown) => unknown) =>
+        res({
+          count: rows.filter((r) =>
+            eqs.every(([c, v]) => c !== "is_active" || r.is_active === v)
+          ).length,
+        }),
+    };
+    return { client: { from: () => q } as never, eqs };
+  }
+
+  it("filters on is_active=true: disconnected gives false, active gives true", async () => {
+    const { isTelegramConnected } =
+      await import("@/lib/restaurant/briefing-context");
+    const off = fake([{ is_active: false }]);
+    expect(await isTelegramConnected(off.client, "c1")).toBe(false);
+    expect(off.eqs).toContainEqual(["is_active", true]);
+    const on = fake([{ is_active: true }]);
+    expect(await isTelegramConnected(on.client, "c1")).toBe(true);
+  });
+
+  it("the note text appears only for the active case", () => {
+    const NOTE =
+      "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton.";
+    expect(render(ctx({ telegram_connected: true })).text).toContain(NOTE);
+    expect(render(ctx({ telegram_connected: false })).text).not.toContain(NOTE);
   });
 });

@@ -21,6 +21,8 @@ export interface MenuDish {
   variants: MenuDishVariant[];
   /** What the description puts on the plate, as written. */
   components: string[];
+  /** The dish photo from the menu page (https), or null. Old readings: absent. */
+  image_url?: string | null;
 }
 
 /** One AI call: menu text in, raw JSON out. Injected in tests. */
@@ -28,7 +30,7 @@ export type MenuAi = (chunk: string) => Promise<unknown>;
 
 const SYSTEM_PROMPT = [
   "Lees el menú de un restaurante y devuelves sus platos en JSON.",
-  'Responde solo JSON: {"dishes":[{"name","section","price","description","variants":[{"label","price"}],"components":[]}]}.',
+  'Responde solo JSON: {"dishes":[{"name","section","price","description","variants":[{"label","price"}],"components":[],"image_url"}]}.',
   "name: el nombre del plato tal como aparece.",
   "section: la sección del menú (Entradas, Platos fuertes…) o null.",
   "price: el precio como número, o null si hay varios tamaños o no aparece.",
@@ -39,6 +41,7 @@ const SYSTEM_PROMPT = [
   "Si la descripción nombra el corte o el producto principal, ese es un component (por ejemplo: 'Corte Ribeye prime' -> ribeye; 'corte de lomito de aguja, tocino y salsa de hongos' -> lomito de aguja, tocino, salsa de hongos).",
   "No inventes componentes que la descripción no menciona. Si no hay descripción, components es [].",
   "Nunca pongas cantidades, pesos ni costos dentro de components.",
+  "image_url: en el texto puede haber líneas [imagen: URL | alt]; pon la URL de la imagen que pertenece al plato si aparece junto a él; si no, null. Nunca inventes una URL.",
   "Ignora bebidas sin descripción, horarios, direcciones y textos que no son platos.",
 ].join(" ");
 
@@ -73,6 +76,18 @@ function price(value: unknown): number | null {
         ? Number(value.replace(/[^0-9.]/g, ""))
         : NaN;
   return Number.isFinite(n) && n > 0 && n < 100_000 ? n : null;
+}
+
+/** Only an https link of at most 500 characters is kept. */
+export function imageUrl(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || text.length > 500 || /\s/.test(text)) return null;
+  try {
+    return new URL(text).protocol === "https:" ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Keep only well-formed dishes from the AI answer. */
@@ -125,6 +140,7 @@ export function parseMenuDishes(raw: unknown): MenuDish[] {
       description: str(r.description, 600),
       variants,
       components,
+      image_url: imageUrl(r.image_url),
     });
   }
   return dishes;

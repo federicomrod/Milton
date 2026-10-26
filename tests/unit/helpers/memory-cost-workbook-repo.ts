@@ -932,6 +932,12 @@ export function createMemoryCostWorkbookRepo(
       store.companyByEntityId[created.id!] = companyId;
       return { id: created.id!, created: true, before: null };
     },
+    async updatePosProductLinkEvidence(companyId, id, evidence) {
+      const row = store.posProductLinks.find(
+        (item) => item.company_id === companyId && item.id === id
+      );
+      if (row) row.evidence = evidence;
+    },
     async deletePosProductLinks(companyId, ids) {
       const remove = new Set(ids);
       const before = store.posProductLinks.length;

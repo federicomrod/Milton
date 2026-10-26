@@ -19,6 +19,9 @@
 // conditionally revealed.
 
 import { useEffect, useState } from "react";
+
+export const PAIRING_POLL_INTERVAL_MS = 3000;
+export const PAIRING_POLL_MAX_MS = 3 * 60 * 1000;
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -36,6 +39,7 @@ import { Send, MessageCircle, RefreshCw, CheckCircle2 } from "lucide-react";
 interface ConnectionStatus {
   connected: boolean;
   connected_at: string | null;
+  company_name?: string | null;
   preferred_language: "en" | "es";
 }
 
@@ -86,16 +90,20 @@ export function TelegramConnectionCard() {
   const [sendLoading, setSendLoading] = useState(false);
   const [sendFeedback, setSendFeedback] = useState<SendFeedback | null>(null);
 
-  async function loadStatus() {
-    setStatusLoading(true);
-    setStatusError(null);
+  async function loadStatus(silent = false) {
+    if (!silent) {
+      setStatusLoading(true);
+      setStatusError(null);
+    }
     try {
       const res = await fetch("/api/restaurant/telegram/connection");
       const json = await parseJsonSafely(res);
       if (!res.ok) {
-        setStatusError(
-          (json.error as string) || "No se pudo cargar el estado de Telegram."
-        );
+        if (!silent) {
+          setStatusError(
+            (json.error as string) || "No se pudo cargar el estado de Telegram."
+          );
+        }
         return;
       }
       setStatus(json as unknown as ConnectionStatus);
@@ -104,15 +112,33 @@ export function TelegramConnectionCard() {
         setPairing(null);
       }
     } catch {
-      setStatusError("No se pudo cargar el estado de Telegram.");
+      if (!silent) setStatusError("No se pudo cargar el estado de Telegram.");
     } finally {
-      setStatusLoading(false);
+      if (!silent) setStatusLoading(false);
     }
   }
 
   useEffect(() => {
     loadStatus();
   }, []);
+
+  // While the pairing box is shown, check the status every 3 s for up to 3
+  // minutes so «Conectado» appears without pressing anything. Stops when
+  // connected (the box disappears), on expiry and on unmount.
+  const pairingCode = pairing?.code ?? null;
+  useEffect(() => {
+    if (!pairingCode) return;
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      if (Date.now() - startedAt >= PAIRING_POLL_MAX_MS) {
+        clearInterval(id);
+        return;
+      }
+      void loadStatus(true);
+    }, PAIRING_POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairingCode]);
 
   async function handleConnect() {
     setPairingLoading(true);
@@ -211,7 +237,7 @@ export function TelegramConnectionCard() {
                 variant="outline"
                 size="sm"
                 className="mt-2 w-fit gap-1.5"
-                onClick={loadStatus}
+                onClick={() => loadStatus()}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Reintentar
@@ -223,12 +249,18 @@ export function TelegramConnectionCard() {
             <div className="flex items-center gap-2">
               <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
                 <CheckCircle2 className="h-3 w-3" />
-                Conectado
+                {status.company_name
+                  ? `Conectado a ${status.company_name}`
+                  : "Conectado"}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
               Los briefings se envían en {languageLabel}, según el idioma de
               Milton.
+            </p>
+            <p className="text-sm text-[#6b7280]">
+              Para mandar facturas y recetas por Telegram, escanea el QR de
+              cocina (Cocina › Equipo de cocina).
             </p>
             <Button
               onClick={handleSendTest}
@@ -296,15 +328,19 @@ export function TelegramConnectionCard() {
             )}
 
             {pairing && (
-              <Alert className="space-y-2">
-                <AlertTitle>Termina de conectar en Telegram</AlertTitle>
-                <AlertDescription className="space-y-2">
-                  <p>
+              <Alert className="min-w-0 max-w-full space-y-2 overflow-hidden">
+                <AlertTitle className="line-clamp-none whitespace-normal">
+                  Termina de conectar en Telegram
+                </AlertTitle>
+                <AlertDescription className="min-w-0 grid-cols-[minmax(0,1fr)] space-y-2">
+                  <p className="break-words">
                     {pairing.deepLink
-                      ? `Abrimos Telegram. Si no se abrió, envía este código a ${botMention}:`
-                      : `Abre Telegram, escribe a ${botMention} y envía este código:`}
+                      ? "Abrimos Telegram. Si no se abrió, envía este código a "
+                      : "Abre Telegram, escribe a "}
+                    <span className="break-all max-w-full">{botMention}</span>
+                    {pairing.deepLink ? ":" : " y envía este código:"}
                   </p>
-                  <code className="block w-fit rounded bg-muted px-2 py-1 text-sm font-mono">
+                  <code className="block w-fit max-w-full break-all rounded bg-muted px-2 py-1 text-sm font-mono">
                     /start {pairing.code}
                   </code>
                   <p className="text-xs text-muted-foreground">
@@ -313,8 +349,8 @@ export function TelegramConnectionCard() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-1.5"
-                    onClick={loadStatus}
+                    className="h-auto w-full max-w-full gap-1.5 whitespace-normal text-left sm:w-auto"
+                    onClick={() => loadStatus()}
                     disabled={statusLoading}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />

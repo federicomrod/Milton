@@ -21,6 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildBriefingContext,
   type BriefingContext,
+  type BriefingSyncStatus,
 } from "@/lib/restaurant/briefing-context";
 import type { ProfitabilitySelection } from "@/lib/restaurant/profitability-server";
 import {
@@ -123,9 +124,20 @@ async function callOpenAI(
 export async function generateBriefing(
   supabase: SupabaseClient,
   companyId: string,
-  selected?: ProfitabilitySelection | null
+  selected?: ProfitabilitySelection | null,
+  options?: {
+    /**
+     * ONLY for the cron (service role, no user session): read rows directly
+     * instead of the member-gated RPCs. Never pass it from a user-facing route.
+     */
+    serverTrusted?: boolean;
+    syncStatus?: BriefingSyncStatus;
+  }
 ): Promise<GeneratedBriefing> {
-  const ctx = await buildBriefingContext(supabase, companyId, selected);
+  const ctx = await buildBriefingContext(supabase, companyId, selected, {
+    serverTrusted: options?.serverTrusted,
+    syncStatus: options?.syncStatus,
+  });
   const aiBriefing = await callOpenAI(ctx);
   const briefing = aiBriefing ?? buildDeterministicBriefing(ctx);
   const source: "openai" | "deterministic" = aiBriefing

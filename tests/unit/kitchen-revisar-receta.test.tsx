@@ -3,6 +3,7 @@
 // popover, sentence-case names, one-line footer. Synthetic data only.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -26,6 +27,7 @@ import { PricePopover } from "@/components/restaurant/kitchen/PricePopover";
 
 type Json = Record<string, unknown>;
 let ingredients: Json[] = [];
+let conversions: Json[] = [];
 let drafts: Json[] = [];
 let calls: Array<{ url: string; method: string; body: Json | null }> = [];
 let createStatus: "ok" | "similar" = "ok";
@@ -54,6 +56,7 @@ beforeEach(() => {
   usageDishes = 3;
   confirmFails = false;
   calls = [];
+  conversions = [];
   ingredients = [
     {
       id: "i-mozz",
@@ -77,7 +80,11 @@ beforeEach(() => {
       location_name: "Centro",
       lines: [
         line({ id: "l-1", raw_name: "bacon", total_quantity: 0.4 }),
-        line({ id: "l-2", raw_name: "queso fresco", total_quantity: 0.2 }),
+        line({
+          id: "l-2",
+          raw_name: "queso mozzarella rallado",
+          total_quantity: 0.2,
+        }),
         line({
           id: "l-3",
           raw_name: "pan",
@@ -121,8 +128,17 @@ beforeEach(() => {
       if (url.startsWith("/api/restaurant/kitchen/recipe-drafts")) {
         return method === "GET" ? respond({ drafts }) : respond({ ok: true });
       }
+      if (url === "/api/restaurant/ingredients/unit-conversions") {
+        conversions.push({
+          ingredient_id: body?.ingredient_id,
+          from_unit: body?.from_unit,
+          to_unit: body?.to_unit,
+          factor: body?.factor,
+        });
+        return respond({ ok: true });
+      }
       if (url === "/api/restaurant/kitchen/ingredients" && method === "GET")
-        return respond({ ingredients });
+        return respond({ ingredients, conversions });
       if (url === "/api/restaurant/menu-items")
         return respond({
           menu_items: [{ id: "m-1", name: "Hamburguesa", selling_price: 10 }],
@@ -207,9 +223,9 @@ describe("the layout", () => {
     ]);
     expect(within(dialog).getAllByRole("row")).toHaveLength(1 + 3);
     for (const label of [
-      "Nombre del platillo",
+      "Nombre del plato",
       "Porciones",
-      "Platillo del menú",
+      "Plato del menú",
       "Precio de venta",
     ])
       expect(within(dialog).getByText(label)).toBeTruthy();
@@ -232,9 +248,9 @@ describe("matching only suggests", () => {
     expect(confirmButton(dialog).disabled).toBe(true);
   });
 
-  it("«queso fresco» with only «Queso mozzarella»: «¿Es Queso mozzarella?», NOT selected; accepting it selects it and teaches nothing yet", async () => {
+  it("«queso mozzarella rallado» with only «Queso mozzarella»: «¿Es Queso mozzarella?», NOT selected; accepting it selects it and teaches nothing yet", async () => {
     const dialog = await openModal();
-    expect(combo(dialog, 2).value).toBe("queso fresco");
+    expect(combo(dialog, 2).value).toBe("queso mozzarella rallado");
     expect(within(dialog).getByText("Queso mozzarella")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Sí, usarlo" }));
     await waitFor(() =>
@@ -245,10 +261,10 @@ describe("matching only suggests", () => {
 
   it("the pure rules: exact is picked, a shared word is only suggested", () => {
     const list = [{ id: "i-mozz", name: "Queso mozzarella" }];
-    expect(findExactIngredient("queso fresco", list)).toBeNull();
-    expect(suggestIngredient("queso fresco", list)?.ingredient.id).toBe(
-      "i-mozz"
-    );
+    expect(findExactIngredient("queso mozzarella rallado", list)).toBeNull();
+    expect(
+      suggestIngredient("queso mozzarella rallado", list)?.ingredient.id
+    ).toBe("i-mozz");
     expect(findExactIngredient("QUESO MOZZARELLA", list)?.id).toBe("i-mozz");
   });
 });
@@ -509,6 +525,46 @@ describe("the price popover", () => {
   });
 });
 
+describe("a stored price of 0 or null is «Sin precio», never $0.00", () => {
+  it("computeDraftCost treats 0, null and NaN as missing", () => {
+    const prices = new Map([
+      ["a", { unit_cost: 0, unit: "kg" }],
+      ["b", null],
+      ["c", { unit_cost: 4, unit: "kg" }],
+    ]);
+    const mk = (id: string) => ({
+      key: id,
+      ingredient_id: id,
+      name: id,
+      total_quantity: 1,
+      unit: "kg",
+    });
+    const cost = computeDraftCost([mk("a"), mk("b"), mk("c")], prices, 2, 10);
+    expect(cost.lines.map((l) => l.reason)).toEqual([
+      "no_price",
+      "no_price",
+      "ok",
+    ]);
+    expect(cost.complete).toBe(false);
+    expect(cost.total).toBeNull();
+    expect(cost.unpriced_count).toBe(2);
+  });
+
+  it("the modal shows «Sin precio» for an ingredient priced 0", async () => {
+    ingredients = [
+      {
+        id: "i-pan",
+        name: "Pan",
+        default_unit: "pza",
+        price: { unit_cost: 0, unit: "pza" },
+      },
+    ];
+    const dialog = await openModal();
+    expect(dialog.textContent).not.toContain("$0.00");
+    expect(within(dialog).getAllByText("Sin precio").length).toBeGreaterThan(0);
+  });
+});
+
 describe("the footer is one honest line", () => {
   const priced = new Map([
     ["a", { unit_cost: 4, unit: "kg" }],
@@ -615,7 +671,11 @@ describe("the footer is one honest line", () => {
 describe("names are taught only after a successful Confirmar", () => {
   beforeEach(() => {
     drafts[0].lines = [
-      line({ id: "l-2", raw_name: "queso fresco", total_quantity: 0.2 }),
+      line({
+        id: "l-2",
+        raw_name: "queso mozzarella rallado",
+        total_quantity: 0.2,
+      }),
       line({
         id: "l-3",
         raw_name: "pan",
@@ -637,7 +697,7 @@ describe("names are taught only after a successful Confirmar", () => {
     fireEvent.click(confirmButton(dialog));
     await waitFor(() => expect(aliasCalls()).toHaveLength(1));
     expect(aliasCalls()[0].body).toEqual({
-      raw_name: "queso fresco",
+      raw_name: "queso mozzarella rallado",
       ingredient_id: "i-mozz",
       draft_id: "d-1",
     });
@@ -671,7 +731,7 @@ describe("the Cocina card computes the cost live (not the frozen snapshot)", () 
       />
     );
     const item = await screen.findByText("Devil Bacon Cheeseburger");
-    const card = item.closest("div.rounded-lg") as HTMLElement;
+    const card = item.closest("[data-testid=kitchen-draft-row]") as HTMLElement;
     await waitFor(() =>
       expect(card.textContent).toContain("Costo parcial · faltan precios de")
     );
@@ -1026,5 +1086,87 @@ describe("Guardar borrador", () => {
       ).toBeNull()
     );
     expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+});
+
+describe("a unit with no conversion (6 unidad of an ingredient priced per oz)", () => {
+  beforeEach(() => {
+    ingredients.push({
+      id: "i-tomate",
+      name: "Tomate",
+      default_unit: "oz",
+      price: { unit_cost: 0.1, unit: "oz" },
+    });
+    drafts[0].lines = [
+      line({
+        id: "l-9",
+        raw_name: "tomate",
+        ingredient_id: "i-tomate",
+        ingredient_name: "Tomate",
+        total_quantity: 6,
+        unit: "unit",
+      }),
+    ];
+  });
+
+  it("shows «Falta conversión» (not «=»), keeps Confirmar enabled and the footer counts it", async () => {
+    const dialog = await openModal();
+    await within(dialog).findByText("Falta conversión");
+    expect(dialog.textContent).not.toContain("=");
+    expect(confirmButton(dialog).disabled).toBe(false);
+    expect(within(dialog).getByTestId("cost-footer").textContent).toContain(
+      "Costo parcial · falta 1 conversión"
+    );
+    // not a red error
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+
+  it("«Definir» saves «1 unidad = 5 oz» on the ingredient, closes the form and re-reads the ingredients", async () => {
+    const dialog = await openModal();
+    await within(dialog).findByText("Falta conversión");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /Definir conversión/ })
+    );
+    fireEvent.change(within(dialog).getByLabelText("Cuántos oz"), {
+      target: { value: "5" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar" }));
+    await waitFor(() =>
+      expect(
+        calls.filter(
+          (c) =>
+            c.url === "/api/restaurant/kitchen/ingredients" &&
+            c.method === "GET"
+        )
+      ).toHaveLength(2)
+    );
+    expect(
+      calls.find(
+        (c) => c.url === "/api/restaurant/ingredients/unit-conversions"
+      )?.body
+    ).toMatchObject({
+      ingredient_id: "i-tomate",
+      from_unit: "unidad",
+      to_unit: "oz",
+      factor: 5,
+    });
+    expect(screen.queryByTestId("unit-conversion-form")).toBeNull();
+  });
+
+  it("with «1 unidad = 5 oz» defined the line is costed: 6 × 5 oz × $0.10 = $3.00, the recipe is complete", async () => {
+    conversions = [
+      {
+        ingredient_id: "i-tomate",
+        from_unit: "unidad",
+        to_unit: "oz",
+        factor: 5,
+      },
+    ];
+    const dialog = await openModal();
+    await within(dialog).findByText("$3.00");
+    expect(within(dialog).queryByText("Falta conversión")).toBeNull();
+    expect(within(dialog).getByTestId("cost-footer").textContent).not.toContain(
+      "Costo parcial"
+    );
   });
 });

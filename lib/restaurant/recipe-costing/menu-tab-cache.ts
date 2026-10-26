@@ -22,9 +22,22 @@ interface Entry {
 
 const entries = new Map<string, Entry>();
 const inflight = new Map<string, Promise<RecipeCostingWorkspace | null>>();
+/** Forced refreshes (after a save), one per key. Separate from `inflight`: a
+ *  read that started BEFORE the save must never answer a refresh. */
+const refreshing = new Map<string, Promise<RecipeCostingWorkspace | null>>();
 let generation = 0;
 /** Bumped by every invalidation; a read that started before it is stale. */
 let epoch = 0;
+
+const invalidationListeners = new Set<() => void>();
+/** Runs when any save marks the tabs stale or the cache is cleared. */
+export function onTabsInvalidated(fn: () => void): () => void {
+  invalidationListeners.add(fn);
+  return () => invalidationListeners.delete(fn);
+}
+function notifyInvalidated(): void {
+  for (const fn of invalidationListeners) fn();
+}
 
 export function tabEpoch(): number {
   return epoch;
@@ -68,6 +81,7 @@ export function putTab(
 /** Any save that other tabs show (approval, price, link): re-read them. */
 export function markTabsStale(now: number = Date.now()): void {
   epoch++;
+  notifyInvalidated();
   // Still shown at once, but no longer "fresh": the next visit re-reads.
   for (const entry of entries.values()) {
     entry.at = Math.min(entry.at, now - TAB_FRESH_MS - 1);
@@ -77,7 +91,9 @@ export function markTabsStale(now: number = Date.now()): void {
 export function clearTabs(): void {
   entries.clear();
   inflight.clear();
+  refreshing.clear();
   generation++;
+  notifyInvalidated();
 }
 
 /**
@@ -90,8 +106,29 @@ export function loadTab(
   key: string,
   load: () => Promise<RecipeCostingWorkspace | null>
 ): Promise<RecipeCostingWorkspace | null> {
-  const running = inflight.get(key);
-  if (running) return running;
+  return runShared(inflight, key, load);
+}
+
+/**
+ * A read that IGNORES freshness (after a save, an import, a reset): always goes
+ * to the network, but concurrent callers for the same key share ONE request
+ * (four hosts listening to the same event, plus the screen that caused it, are
+ * one GET). Same stale-answer protection as `loadTab`.
+ */
+export function refreshTab(
+  key: string,
+  load: () => Promise<RecipeCostingWorkspace | null>
+): Promise<RecipeCostingWorkspace | null> {
+  return runShared(refreshing, key, load);
+}
+
+function runShared(
+  running: Map<string, Promise<RecipeCostingWorkspace | null>>,
+  key: string,
+  load: () => Promise<RecipeCostingWorkspace | null>
+): Promise<RecipeCostingWorkspace | null> {
+  const shared = running.get(key);
+  if (shared) return shared;
   const started = generation;
   const attempt = async (
     triesLeft: number
@@ -107,8 +144,8 @@ export function loadTab(
   const run = attempt(2)
     .catch(() => null)
     .finally(() => {
-      if (inflight.get(key) === run) inflight.delete(key);
+      if (running.get(key) === run) running.delete(key);
     });
-  inflight.set(key, run);
+  running.set(key, run);
   return run;
 }

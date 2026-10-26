@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -39,7 +39,18 @@ import {
 } from "lucide-react";
 
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
-import { INVOICE_UPLOAD_ANCHOR } from "@/lib/restaurant/costs-tabs";
+import {
+  isPriceUpdateNote,
+  isTelegramInvoice,
+} from "@/lib/restaurant/price-update-note";
+import {
+  INVOICE_REVIEW_PARAM,
+  INVOICE_UPLOAD_ANCHOR,
+} from "@/lib/restaurant/costs-tabs";
+import {
+  formatPreviewQuantity,
+  type InvoiceLinePreview,
+} from "@/lib/restaurant/invoice-list-preview";
 import type {
   SupplierInvoiceLine,
   InvoiceEvent,
@@ -61,6 +72,32 @@ const SELECT_SM_CLS =
 const LABEL_CLS = "text-xs font-semibold text-[#6b7385]";
 const BADGE_CLS =
   "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold";
+
+/** Disclosure title: dark, 13px semibold, one chevron (no doubled marker). */
+const SUMMARY_CLS =
+  "flex cursor-pointer list-none items-center gap-1.5 text-[13px] font-semibold text-[#151c2c] [&::-webkit-details-marker]:hidden";
+
+function Chevron() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-block text-[#4b5466] transition-transform group-open:rotate-90"
+    >
+      ▸
+    </span>
+  );
+}
+
+function PriceUpdateLabel() {
+  return (
+    <span
+      data-testid="price-update-label"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#4b5466]"
+    >
+      Actualización de precio
+    </span>
+  );
+}
 
 function Card({
   className = "",
@@ -117,7 +154,7 @@ function Button({
       ? "bg-[#1B40C8] text-white hover:bg-[#1535a6] disabled:bg-[#b9c7f0] disabled:text-white"
       : variant === "danger"
         ? "border border-red-500 bg-white text-red-600 hover:bg-red-50 disabled:border-red-200 disabled:text-red-200"
-        : "border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe] disabled:border-[#b9c7f0] disabled:text-[#b9c7f0]";
+        : "border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] disabled:border-[#b9c7f0] disabled:text-[#b9c7f0]";
   const sz =
     size === "icon"
       ? "h-8 w-8 p-0"
@@ -135,6 +172,82 @@ function Button({
 
 // ---------------------------------------------------------------------------
 // Shared types (server page → here)
+function TelegramLabel() {
+  return (
+    <span
+      data-testid="telegram-label"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+    >
+      Telegram
+    </span>
+  );
+}
+
+function MissingBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      data-testid="missing-badge"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#4b5466]"
+    >
+      {children}
+    </span>
+  );
+}
+
+/** «Líneas sin precio …: a, b» sections of the notes, shown as small lists. */
+export function parseMissingSections(notes: string | null | undefined): {
+  label: string;
+  items: string[];
+}[] {
+  const out: { label: string; items: string[] }[] = [];
+  for (const raw of (notes ?? "").split("\n")) {
+    const m = raw
+      .trim()
+      .match(/^(Líneas sin (precio|cantidad)[^:]*):\s*(.*)$/i);
+    if (!m) continue;
+    const items = m[3]
+      .split(",")
+      .map((x) => x.trim().replace(/\.$/, ""))
+      .filter(Boolean);
+    out.push({
+      label: m[2].toLowerCase() === "precio" ? "Sin precio" : "Sin cantidad",
+      items,
+    });
+  }
+  return out;
+}
+
+/** A price that can be shown: a finite number above 0 (0 is never a price). */
+function isShownPrice(n: number | null | undefined): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n > 0;
+}
+
+/** Line total, or null when the price is missing (never a made-up 0). */
+function lineTotalOrNull(l: {
+  unit_cost: number | null;
+  line_total: number | null;
+}): number | null {
+  return isShownPrice(l.line_total) ? l.line_total : null;
+}
+
+/** Text for an invoice total; a missing price is never counted as 0. */
+function totalText(
+  total: number | null | undefined,
+  currency: string,
+  lines?: { unit_cost: number | null; line_total: number | null }[]
+): string {
+  const missing = lines?.some((l) => lineTotalOrNull(l) === null) ?? false;
+  if (typeof total === "number" && Number.isFinite(total)) {
+    if (total <= 0) return missing ? "Incompleto" : "Sin precio";
+    return fmtMoney(total, currency);
+  }
+  if (lines && lines.length > 0 && !missing) {
+    const sum = lines.reduce((a, l) => a + (lineTotalOrNull(l) ?? 0), 0);
+    return sum > 0 ? fmtMoney(sum, currency) : "Sin precio";
+  }
+  return lines && lines.length > 0 ? "Incompleto" : "Sin precio";
+}
+
 // ---------------------------------------------------------------------------
 
 export interface InvoiceListItem {
@@ -148,6 +261,9 @@ export interface InvoiceListItem {
   total_amount: number | null;
   status: string;
   source_type: string;
+  /** Only used to recognise price updates sent by Telegram. */
+  notes?: string | null;
+  original_file_name?: string | null;
   created_at: string;
   line_counts: {
     total: number;
@@ -156,6 +272,8 @@ export interface InvoiceListItem {
     unmatched: number;
     pending: number;
   };
+  /** First 2 lines (stable order) for the «Productos» column. */
+  line_preview?: InvoiceLinePreview[];
 }
 
 interface IngredientLite {
@@ -182,17 +300,75 @@ const SOURCE_LABEL: Record<string, string> = {
   image: "Foto",
   pdf: "PDF",
 };
+/** One mapping of where an invoice came from: «Origen» (panel) and the list's
+ *  small source text both derive from it. */
+type SourceKind = "telegram" | "photo" | "csv" | "manual" | "other";
+function sourceKind(inv: InvoiceListItem): SourceKind {
+  if (isTelegramInvoice(inv)) return "telegram";
+  switch (inv.source_type) {
+    case "image":
+    case "pdf":
+      return "photo";
+    case "csv":
+    case "xlsx":
+      return "csv";
+    case "manual":
+      return "manual";
+    default:
+      return "other";
+  }
+}
+const ORIGIN_LABEL: Record<SourceKind, string> = {
+  telegram: "Telegram",
+  photo: "Foto",
+  csv: "CSV / Excel",
+  manual: "Manual",
+  other: "",
+};
+function originLabel(inv: InvoiceListItem): string {
+  const k = sourceKind(inv);
+  return k === "other"
+    ? (SOURCE_LABEL[inv.source_type] ?? inv.source_type)
+    : ORIGIN_LABEL[k];
+}
 const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
 
+const STATUS_TITLE: Record<string, string> = {
+  needs_review: "El precio no se aplica hasta que alguien lo apruebe.",
+  posted: "Los precios ya están aplicados a tus costos y platos.",
+};
+
+/** Small secondary text under the status chip: where the invoice came from. */
+function sourceText(inv: InvoiceListItem): string {
+  switch (sourceKind(inv)) {
+    case "telegram":
+      return "por Telegram";
+    case "photo":
+      return "por foto";
+    case "csv":
+      return "por CSV / Excel";
+    case "manual":
+      return "a mano";
+    default:
+      return "";
+  }
+}
+
+const REVIEW_EXPLANATION =
+  "Por revisar: el precio aún no se aplica a tus costos. Ábrela con Revisar, asigna el ingrediente y apruébala.";
+
 const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600",
-  needs_review: "bg-gray-100 text-gray-700",
+  draft: "bg-gray-100 text-[#4b5466]",
+  needs_review: "bg-[#eef2fd] text-[#1B40C8]",
   approved: "bg-[#eef2fd] text-[#1B40C8]",
   rejected: "bg-red-100 text-red-700",
   posted: "bg-green-100 text-green-800",
 };
 
-function fmtMoney(n: number | null | undefined, currency: string): string {
+export function fmtMoney(
+  n: number | null | undefined,
+  currency: string
+): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
   const locale = "es-MX";
@@ -242,6 +418,50 @@ export function InvoicesPage({
     useState<IngredientLite[]>(initialIngredients);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // «Agregar factura» (CSV, foto, a mano) folds below the list; open it when
+  // there is nothing yet or a «Subir factura» link points at its anchor.
+  const [addOpen, setAddOpen] = useState(initialInvoices.length === 0);
+
+  // ?factura=<id> (from «Revisar» on Costos): open that invoice's review once,
+  // then take the param out of the URL (other params stay) so a reload does not reopen it.
+  const consumedReview = useRef(false);
+  useEffect(() => {
+    if (consumedReview.current) return;
+    consumedReview.current = true;
+    try {
+      const url = new URL(window.location.href);
+      const id = url.searchParams.get(INVOICE_REVIEW_PARAM);
+      if (!id) return;
+      setReviewingId(id);
+      url.searchParams.delete(INVOICE_REVIEW_PARAM);
+      const query = url.searchParams.toString();
+      // history.replaceState is synced by the Next router (no navigation).
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${query ? `?${query}` : ""}${url.hash}`
+      );
+    } catch {
+      // no URL to read (tests / odd embeds): nothing to open
+    }
+  }, []);
+
+  useEffect(() => {
+    const openIfAnchored = () => {
+      if (window.location.hash !== `#${INVOICE_UPLOAD_ANCHOR}`) return;
+      setAddOpen(true);
+      setTimeout(
+        () =>
+          document
+            .getElementById(INVOICE_UPLOAD_ANCHOR)
+            ?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+        50
+      );
+    };
+    openIfAnchored();
+    window.addEventListener("hashchange", openIfAnchored);
+    return () => window.removeEventListener("hashchange", openIfAnchored);
+  }, []);
 
   // Lift the AI extraction draft into the parent so we can collapse the
   // three entry cards into a focused, full-width review when a draft exists.
@@ -279,6 +499,28 @@ export function InvoicesPage({
     }
   }, []);
 
+  const reviewInList =
+    !!reviewingId && invoices.some((i) => i.id === reviewingId);
+
+  const renderReview = (id: string) => (
+    <ReviewDetail
+      invoiceId={id}
+      ingredients={ingredients}
+      onIngredientCreated={upsertIngredient}
+      onClose={() => setReviewingId(null)}
+      onChanged={refreshList}
+      canEdit={canEditPrices}
+    />
+  );
+
+  // When a review opens (button, ?factura=, new invoice) bring it into view.
+  useEffect(() => {
+    if (!reviewingId) return;
+    document
+      .getElementById(reviewPanelId(reviewingId))
+      ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [reviewingId, reviewInList]);
+
   // Rendered inside Costos › Compras (R1-09b): no page header here.
   return (
     <div className="w-full">
@@ -297,12 +539,14 @@ export function InvoicesPage({
           </Button>
         </div>
 
-        {/* Entry options OR focused AI extraction review */}
         {!canEditPrices ? (
           <p data-testid="prices-readonly" className="text-xs text-[#6b7280]">
             {CAPABILITY_MESSAGES["prices.edit"]}
           </p>
-        ) : aiDraft ? (
+        ) : null}
+
+        {/* Focused AI extraction review (a photo was just read) */}
+        {canEditPrices && aiDraft ? (
           <ExtractedDraftReview
             draft={aiDraft}
             setDraft={setAiDraft}
@@ -318,47 +562,67 @@ export function InvoicesPage({
               setReviewingId(id);
             }}
           />
-        ) : (
-          <div
-            id={INVOICE_UPLOAD_ANCHOR}
-            className="grid grid-cols-1 lg:grid-cols-3 gap-4 scroll-mt-4"
-          >
-            <UploadCard onUploaded={refreshList} />
-            <AIExtractCard
-              onExtracted={(draft, meta) => {
-                setAiDraft(draft);
-                setAiDraftMeta(meta);
-              }}
-            />
-            <ManualCreateCard
-              suppliers={suppliers}
-              companyCurrency={companyCurrency}
-              onCreated={async (id) => {
-                await refreshList();
-                setReviewingId(id);
-              }}
-            />
-          </div>
-        )}
+        ) : null}
 
-        {/* Invoice list */}
+        {/* Fallback: an id outside the loaded list is shown above the table */}
+        {reviewingId && !reviewInList ? (
+          <div
+            id={reviewPanelId(reviewingId)}
+            data-testid="invoice-review-fallback"
+          >
+            {renderReview(reviewingId)}
+          </div>
+        ) : null}
+
+        {/* Invoice list (the review opens inline under the clicked row) */}
         <InvoiceListCard
           invoices={invoices}
           reviewingId={reviewingId}
           onReview={setReviewingId}
+          renderReview={renderReview}
         />
 
-        {/* Review detail */}
-        {reviewingId && (
-          <ReviewDetail
-            invoiceId={reviewingId}
-            ingredients={ingredients}
-            onIngredientCreated={upsertIngredient}
-            onClose={() => setReviewingId(null)}
-            onChanged={refreshList}
-            canEdit={canEditPrices}
-          />
-        )}
+        {/* One compact «Agregar factura» action: CSV, photo or by hand */}
+        {canEditPrices && !aiDraft ? (
+          <details
+            id={INVOICE_UPLOAD_ANCHOR}
+            open={addOpen}
+            onToggle={(e) =>
+              setAddOpen((e.currentTarget as HTMLDetailsElement).open)
+            }
+            className="group scroll-mt-4"
+          >
+            <summary className="flex cursor-pointer list-none items-center gap-2 text-[13px] font-semibold text-[#151c2c] [&::-webkit-details-marker]:hidden">
+              <span
+                aria-hidden="true"
+                className="inline-block text-[#4b5466] transition-transform group-open:rotate-90"
+              >
+                ▸
+              </span>
+              Agregar factura
+              <span className="font-normal text-[#4b5466]">
+                · CSV / Excel, foto o a mano
+              </span>
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <UploadCard onUploaded={refreshList} />
+              <AIExtractCard
+                onExtracted={(draft, meta) => {
+                  setAiDraft(draft);
+                  setAiDraftMeta(meta);
+                }}
+              />
+              <ManualCreateCard
+                suppliers={suppliers}
+                companyCurrency={companyCurrency}
+                onCreated={async (id) => {
+                  await refreshList();
+                  setReviewingId(id);
+                }}
+              />
+            </div>
+          </details>
+        ) : null}
       </div>
     </div>
   );
@@ -440,8 +704,9 @@ function UploadCard({
             {busy ? "Subiendo…" : "Subir facturas"}
           </Button>
         </form>
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[#6b7385]">
+        <details className="group text-xs">
+          <summary className={SUMMARY_CLS}>
+            <Chevron />
             Columnas esperadas
           </summary>
           <div className="mt-2 space-y-1 text-[#6b7385]">
@@ -502,8 +767,9 @@ function UploadCard({
               <p className="text-[#6b7385]">{summary.warning}</p>
             )}
             {summary.failed_rows && summary.failed_rows.length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-gray-500">
+              <details className="group mt-2">
+                <summary className={SUMMARY_CLS}>
+                  <Chevron />
                   {summary.failed_rows.length}{" "}
                   {summary.failed_rows.length === 1
                     ? "fila con error"
@@ -697,6 +963,59 @@ function ManualCreateCard({
 // Invoice list card
 // ---------------------------------------------------------------------------
 
+const reviewPanelId = (id: string) => `invoice-review-${id}`;
+
+/** «Harina de trigo · 1 kg · USD 1.95», one line of the «Productos» cell. */
+function ProductItem({
+  item,
+  currency,
+}: {
+  item: InvoiceLinePreview;
+  currency: string;
+}) {
+  const qty =
+    item.quantity !== null
+      ? `${formatPreviewQuantity(item.quantity)}${item.unit ? ` ${item.unit}` : ""}`
+      : "";
+  return (
+    <div data-testid="invoice-product-item" className="text-[#151c2c]">
+      {item.name}
+      {!item.matched && (
+        <span className="ml-1 text-xs font-semibold text-[#1B40C8]">
+          sin asignar
+        </span>
+      )}
+      {qty ? ` · ${qty}` : ""}
+      {" · "}
+      {item.unit_cost === null ||
+      !Number.isFinite(item.unit_cost) ||
+      item.unit_cost <= 0 ? (
+        <MissingBadge>Sin precio</MissingBadge>
+      ) : (
+        fmtMoney(item.unit_cost, currency)
+      )}
+    </div>
+  );
+}
+
+function ProductsCell({ inv }: { inv: InvoiceListItem }) {
+  const preview = inv.line_preview ?? [];
+  if (inv.line_counts.total === 0 || preview.length === 0) {
+    return <span className="italic text-[#4b5466]">Sin productos</span>;
+  }
+  const more = inv.line_counts.total - preview.length;
+  return (
+    <div className="space-y-0.5">
+      {preview.map((item, i) => (
+        <ProductItem key={i} item={item} currency={inv.currency} />
+      ))}
+      {more > 0 && (
+        <div className="text-xs font-semibold text-[#1B40C8]">+{more} más</div>
+      )}
+    </div>
+  );
+}
+
 function invoiceValue(inv: InvoiceListItem, key: string): SortValue {
   switch (key) {
     case "supplier":
@@ -720,10 +1039,12 @@ function InvoiceListCard({
   invoices,
   reviewingId,
   onReview,
+  renderReview,
 }: {
   invoices: InvoiceListItem[];
   reviewingId: string | null;
-  onReview: (id: string) => void;
+  onReview: (id: string | null) => void;
+  renderReview: (id: string) => React.ReactNode;
 }) {
   const { sort, toggle } = useTableSort("compras-facturas");
   const sorted = sortRows(invoices, sort, invoiceValue);
@@ -744,8 +1065,19 @@ function InvoiceListCard({
     );
   }
 
+  const anyNeedsReview = invoices.some((i) => i.status === "needs_review");
+  const COLS = 8;
+
   return (
     <Card flush>
+      {anyNeedsReview && (
+        <p
+          data-testid="review-explanation"
+          className="border-b border-[#eef0f4] px-4 py-2.5 text-xs text-[#151c2c]"
+        >
+          {REVIEW_EXPLANATION}
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead className="border-b border-[#eef0f4] bg-[#f9fafc]">
@@ -758,6 +1090,7 @@ function InvoiceListCard({
               >
                 Proveedor
               </SortTh>
+              <th className="px-4 py-3 font-medium">Productos</th>
               <SortTh
                 sortKey="number"
                 sort={sort}
@@ -797,64 +1130,101 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Líneas (asignadas / total){" "}
+                Asignadas{" "}
               </SortTh>
               <th className="px-4 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
-            {sorted.map((inv, i) => (
-              <tr
-                key={inv.id}
-                className={
-                  (i % 2 === 1 ? "bg-[#f9fafc]" : "bg-white") +
-                  " border-b border-[#eef0f4] last:border-0"
-                }
-              >
-                <td className="px-4 py-3">
-                  {inv.supplier_name ?? (
-                    <span className="text-[#6b7385] italic">
-                      (sin proveedor)
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">
-                  {inv.invoice_number ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-[#6b7385] whitespace-nowrap">
-                  {fmtDate(inv.invoice_date)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums">
-                  {fmtMoney(inv.total_amount, inv.currency)}
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
-                  >
-                    {statusLabel(inv.status)}{" "}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs">
-                  {inv.line_counts.matched} / {inv.line_counts.total}
-                  {inv.line_counts.unmatched > 0 && (
-                    <span className="ml-1 text-gray-500">
-                      · {inv.line_counts.unmatched} sin asignar
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      onReview(reviewingId === inv.id ? "" : inv.id)
+            {sorted.map((inv, i) => {
+              const open = reviewingId === inv.id;
+              return (
+                <Fragment key={inv.id}>
+                  <tr
+                    className={
+                      (open
+                        ? "bg-[#eef2fd]"
+                        : i % 2 === 1
+                          ? "bg-[#f9fafc]"
+                          : "bg-white") +
+                      " border-b border-[#eef0f4] last:border-0"
                     }
                   >
-                    {reviewingId === inv.id ? "Ocultar" : "Revisar"}
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                    <td className="px-4 py-3 align-top text-[#151c2c]">
+                      {inv.supplier_name ?? (
+                        <span className="italic text-[#4b5466]">
+                          (sin proveedor)
+                        </span>
+                      )}
+                      {isPriceUpdateNote(inv.notes) && (
+                        <span className="ml-2">
+                          <PriceUpdateLabel />
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <ProductsCell inv={inv} />
+                    </td>
+                    <td className="px-4 py-3 align-top font-mono text-xs text-[#151c2c]">
+                      {inv.invoice_number ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 align-top text-[#4b5466]">
+                      {fmtDate(inv.invoice_date)}
+                    </td>
+                    <td className="px-4 py-3 text-right align-top tabular-nums text-[#151c2c]">
+                      {totalText(inv.total_amount, inv.currency)}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <span
+                        data-testid="invoice-status-chip"
+                        title={STATUS_TITLE[inv.status]}
+                        className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
+                      >
+                        {statusLabel(inv.status)}
+                      </span>
+                      {sourceText(inv) && (
+                        <div
+                          data-testid="invoice-source"
+                          className="mt-0.5 text-xs text-[#4b5466]"
+                        >
+                          {sourceText(inv)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs text-[#151c2c]">
+                      {inv.line_counts.matched} de {inv.line_counts.total}
+                      {inv.line_counts.unmatched > 0 && (
+                        <span className="ml-1 text-[#1B40C8]">
+                          · {inv.line_counts.unmatched} sin asignar
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right align-top">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-expanded={open}
+                        aria-controls={reviewPanelId(inv.id)}
+                        onClick={() => onReview(open ? null : inv.id)}
+                      >
+                        {open ? "Ocultar" : "Revisar"}
+                      </Button>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr
+                      data-testid="invoice-review-row"
+                      id={reviewPanelId(inv.id)}
+                      className="border-b border-[#eef0f4] bg-[#eef2fd]"
+                    >
+                      <td colSpan={COLS} className="px-3 py-3">
+                        {renderReview(inv.id)}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>{" "}
       </div>{" "}
@@ -1054,6 +1424,8 @@ function ReviewDetail({
             <span className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}>
               {statusLabel(inv.status)}{" "}
             </span>
+            {isTelegramInvoice(inv) && <TelegramLabel />}
+            {isPriceUpdateNote(inv.notes) && <PriceUpdateLabel />}
           </CardTitle>
           <div className="flex items-center gap-2">
             <Button
@@ -1088,14 +1460,35 @@ function ReviewDetail({
           <div>
             <div className="text-[#6b7385]">Total</div>
             <div className="font-mono">
-              {fmtMoney(inv.total_amount, inv.currency)}
+              {totalText(inv.total_amount, inv.currency, lines)}
             </div>
           </div>
           <div>
             <div className="text-[#6b7385]">Origen</div>{" "}
-            <div>{SOURCE_LABEL[inv.source_type] ?? inv.source_type}</div>
+            <div data-testid="invoice-origin">{originLabel(inv)}</div>
           </div>
         </div>
+        {inv.notes && inv.notes.trim() && (
+          <div
+            data-testid="milton-notes"
+            className="rounded-lg border border-[#e3e7ee] bg-[#f9fafc] p-3 text-xs text-[#6b7280]"
+          >
+            <div className="mb-1 font-semibold text-[#151c2c]">
+              Notas de Milton
+            </div>
+            <p className="whitespace-pre-wrap break-words">{inv.notes}</p>
+            {parseMissingSections(inv.notes).map((sec, i) => (
+              <ul key={i} className="mt-2 space-y-1">
+                {sec.items.map((it, j) => (
+                  <li key={j} className="flex items-center gap-2">
+                    <span className="text-[#151c2c]">{it}</span>
+                    <MissingBadge>{sec.label}</MissingBadge>
+                  </li>
+                ))}
+              </ul>
+            ))}
+          </div>
+        )}
         {/* Add-line + lines table */}
         <AddLineForm
           invoiceId={invoiceId}
@@ -1249,7 +1642,7 @@ function ReviewDetail({
 // ---------------------------------------------------------------------------
 
 const REVIEW_STYLE: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-600",
+  pending: "bg-[#E7EDFD] text-[#1B40C8]",
   approved: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-700",
 };
@@ -1459,10 +1852,18 @@ function LineRow({
       <td className="px-2 py-2 text-right tabular-nums">{line.quantity}</td>
       <td className="px-2 py-2">{line.unit}</td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {line.unit_cost !== null ? fmtMoney(line.unit_cost, currency) : "—"}
+        {isShownPrice(line.unit_cost) ? (
+          fmtMoney(line.unit_cost, currency)
+        ) : (
+          <MissingBadge>Sin precio</MissingBadge>
+        )}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {fmtMoney(line.line_total, currency)}
+        {lineTotalOrNull(line) !== null ? (
+          fmtMoney(line.line_total as number, currency)
+        ) : (
+          <MissingBadge>Sin precio</MissingBadge>
+        )}
       </td>
       <td className="px-2 py-2">
         <span
@@ -1565,6 +1966,7 @@ function AddLineForm({
   // UX
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const isCreatingNew = pick === INGREDIENT_PICK_NEW;
   const isExistingPick =
@@ -1674,6 +2076,21 @@ function AddLineForm({
   };
 
   if (disabled) return null;
+
+  if (!open) {
+    return (
+      <div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          onClick={() => setOpen(true)}
+        >
+          + Agregar línea
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <form
@@ -1887,6 +2304,8 @@ interface ExtractedLineDraft {
   missing_unit?: boolean;
   missing_line_total?: boolean;
   derived_unit_cost?: boolean;
+  /** The quantity was calculated as total ÷ unit price (it was not readable). */
+  derived_quantity?: boolean;
   derived_line_total?: boolean;
   low_confidence?: boolean;
 }
@@ -2377,9 +2796,19 @@ function ExtractedDraftBody({
                           className="h-7 text-xs text-right"
                           value={line.quantity ?? ""}
                           onChange={(e) =>
-                            setLine(i, { quantity: numOrNull(e.target.value) })
+                            setLine(i, {
+                              quantity: numOrNull(e.target.value),
+                              derived_quantity: false,
+                            })
                           }
                         />
+                        {line.derived_quantity && (
+                          <span
+                            className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
+                          >
+                            Calculado
+                          </span>
+                        )}
                       </td>
                       <td className="px-2 py-1.5">
                         <Input
@@ -2467,8 +2896,9 @@ function ExtractedDraftBody({
 
       {/* Confidence notes from the model */}
       {draft.confidence_notes.length > 0 && (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-[#6b7385]">
+        <details className="group text-xs">
+          <summary className={SUMMARY_CLS}>
+            <Chevron />
             Notas de confianza de la IA ({draft.confidence_notes.length})
           </summary>
           <ul className="mt-1 space-y-0.5">

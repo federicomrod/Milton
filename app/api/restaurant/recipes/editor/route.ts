@@ -16,6 +16,7 @@ import {
   loadEditor,
 } from "@/lib/restaurant/recipe-costing/editor-service";
 import { parseEditorAction } from "@/lib/restaurant/recipe-costing/editor-actions";
+import { loadPriceEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -52,6 +53,11 @@ export async function GET(req: NextRequest) {
       locationId: str(req.nextUrl.searchParams.get("location_id")),
       userId: auth.userId,
       omitOptions: req.nextUrl.searchParams.get("omit_options") === "1",
+      // «Precio estimado» hint on lines with no real price (never a price).
+      priceEstimates: async () => {
+        const read = await loadPriceEstimates(auth.supabase, auth.companyId);
+        return read.ok ? read.rows : [];
+      },
     });
     if (!result.ok) {
       return NextResponse.json(

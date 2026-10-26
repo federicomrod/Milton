@@ -52,7 +52,7 @@ export function isStaleClaim(
 
 /** A dish whose recipe lives only in the old lines (no versions at all). */
 export const LEGACY_RECIPE_MESSAGE =
-  "Este platillo ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como platillo nuevo o edita la receta desde Menú.";
+  "Este plato ya tiene una receta guardada. Para no cambiar sus costos, confirma esta receta como plato nuevo o edita la receta desde Menú.";
 
 /**
  * menu_items.selling_price is NOT NULL (default 0) and a migration is out of

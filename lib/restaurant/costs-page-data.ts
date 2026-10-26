@@ -17,6 +17,12 @@ import {
 } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
+  INVOICE_LINE_PREVIEW_SELECT,
+  buildInvoiceLineSummaries,
+  emptyLineCounts,
+  type InvoiceLinePreviewRow,
+} from "@/lib/restaurant/invoice-list-preview";
+import {
   purchaseWindowStart,
   summarizePurchaseWindows,
   type PurchaseWindows,
@@ -112,6 +118,113 @@ export async function loadCostsKpiExtras(
 }
 
 // ---------------------------------------------------------------------------
+// «Últimas facturas» (top of Costos): the latest rows + how many are pending
+// ---------------------------------------------------------------------------
+
+export interface LatestInvoiceRow {
+  id: string;
+  supplier_name: string | null;
+  invoice_date: string;
+  total_amount: number | null;
+  currency: string;
+  status: string;
+  source_type: string;
+  notes: string | null;
+  original_file_name: string | null;
+}
+
+export interface LatestInvoices {
+  rows: LatestInvoiceRow[];
+  /** Pending rows (PENDING_INVOICE_STATUSES) from a real count; null if the count failed. */
+  pendingCount: number | null;
+  /** First pending invoice in list order (what «Revisar» opens), or null. */
+  firstPendingId: string | null;
+}
+
+export const LATEST_INVOICES_LIMIT = 5;
+
+/**
+ * Light, company-scoped read for the box at the top of Costos: the latest
+ * invoices (same order as Compras) and the real pending count. null = not
+ * signed in or the read failed (the box is then simply not drawn).
+ */
+export async function loadLatestInvoices(
+  limit: number = LATEST_INVOICES_LIMIT
+): Promise<LatestInvoices | null> {
+  try {
+    const scope = await companyScope();
+    if (!scope) return null;
+    const { supabase, companyId } = scope;
+    const columns =
+      "id, supplier_id, invoice_date, total_amount, currency, status, source_type, notes, original_file_name";
+    const [latestRes, pendingCountRes, firstPendingRes] = await Promise.all([
+      supabase
+        .from("supplier_invoices")
+        .select(columns)
+        .eq("company_id", companyId)
+        .order("invoice_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(limit),
+      supabase
+        .from("supplier_invoices")
+        .select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .in("status", [...PENDING_INVOICE_STATUSES]),
+      supabase
+        .from("supplier_invoices")
+        .select("id")
+        .eq("company_id", companyId)
+        .in("status", [...PENDING_INVOICE_STATUSES])
+        .order("invoice_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1),
+    ]);
+    if (latestRes.error) {
+      console.error("[costs/latest-invoices]", latestRes.error.message);
+      return null;
+    }
+    type Raw = Omit<LatestInvoiceRow, "supplier_name"> & {
+      supplier_id: string | null;
+    };
+    const raw = (latestRes.data ?? []) as Raw[];
+    const supplierIds = [
+      ...new Set(raw.map((r) => r.supplier_id).filter(Boolean)),
+    ] as string[];
+    const names = new Map<string, string>();
+    if (supplierIds.length > 0) {
+      const { data } = await supabase
+        .from("suppliers")
+        .select("id, name")
+        .eq("company_id", companyId)
+        .in("id", supplierIds);
+      for (const s of (data ?? []) as { id: string; name: string }[])
+        names.set(s.id, s.name);
+    }
+    const first = (firstPendingRes.data ?? []) as { id: string }[];
+    return {
+      rows: raw.map((r) => ({
+        id: r.id,
+        supplier_name: r.supplier_id
+          ? (names.get(r.supplier_id) ?? null)
+          : null,
+        invoice_date: r.invoice_date,
+        total_amount: r.total_amount,
+        currency: r.currency,
+        status: r.status,
+        source_type: r.source_type,
+        notes: r.notes ?? null,
+        original_file_name: r.original_file_name ?? null,
+      })),
+      pendingCount: pendingCountRes.error ? null : (pendingCountRes.count ?? 0),
+      firstPendingId: firstPendingRes.error ? null : (first[0]?.id ?? null),
+    };
+  } catch (err) {
+    console.error("[loadLatestInvoices] failed:", err);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Compras tab (was /dashboard/restaurant/invoices)
 // ---------------------------------------------------------------------------
 
@@ -145,45 +258,50 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
 
   // Invoice list + line counts (for "matched/total" pills without another
   // round-trip). Suppliers feed the manual create form's select.
-  const [invRes, lineRes, supplierRes, ingRes, companyCurrency] =
-    await Promise.all([
+  const [invRes, supplierRes, ingRes, companyCurrency] = await Promise.all([
+    supabase
+      .from("supplier_invoices")
+      .select(
+        "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
+      )
+      .eq("company_id", companyId)
+      .order("invoice_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(200),
+    fetchAllRows<{ id: string; name: string }>(() =>
+      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
+    ),
+    fetchAllRows<{
+      id: string;
+      name: string;
+      default_unit: string | null;
+    }>(() =>
       supabase
-        .from("supplier_invoices")
-        .select(
-          "id, company_id, supplier_id, invoice_number, invoice_date, due_date, currency, subtotal, tax_amount, total_amount, status, source_type, original_file_name, notes, created_at, updated_at"
-        )
+        .from("ingredients")
+        .select("id, name, default_unit")
         .eq("company_id", companyId)
-        .order("invoice_date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(200),
-      fetchAllRows<{
-        invoice_id: string;
-        match_status: string;
-        review_status: string;
-      }>(() =>
-        supabase
-          .from("supplier_invoice_lines")
-          .select("invoice_id, match_status, review_status")
-          .eq("company_id", companyId)
-      ),
-      fetchAllRows<{ id: string; name: string }>(() =>
-        supabase
-          .from("suppliers")
-          .select("id, name")
-          .eq("company_id", companyId)
-      ),
-      fetchAllRows<{
-        id: string;
-        name: string;
-        default_unit: string | null;
-      }>(() =>
-        supabase
-          .from("ingredients")
-          .select("id, name, default_unit")
-          .eq("company_id", companyId)
-      ),
-      resolveCompanyCurrency(supabase, companyId),
-    ]);
+    ),
+    resolveCompanyCurrency(supabase, companyId),
+  ]);
+
+  // Lines only for the (<= 200) loaded invoices, like GET /api/restaurant/invoices.
+  const invoiceIds = ((invRes.data ?? []) as { id: string }[]).map((r) => r.id);
+  const lineRes =
+    invoiceIds.length === 0
+      ? {
+          rows: [] as InvoiceLinePreviewRow[],
+          truncated: false,
+          error: null,
+          pages: 0,
+          elapsedMs: 0,
+        }
+      : await fetchAllRows<InvoiceLinePreviewRow>(() =>
+          supabase
+            .from("supplier_invoice_lines")
+            .select(INVOICE_LINE_PREVIEW_SELECT)
+            .eq("company_id", companyId)
+            .in("invoice_id", invoiceIds)
+        );
 
   if (invRes.error)
     console.error("[costs/compras] supplier_invoices:", invRes.error.message);
@@ -203,29 +321,12 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
   );
   const supplierNameById = new Map(suppliers.map((s) => [s.id, s.name]));
 
-  type LineCount = InvoiceListItem["line_counts"];
-  const emptyCount = (): LineCount => ({
-    total: 0,
-    matched: 0,
-    approved: 0,
-    unmatched: 0,
-    pending: 0,
-  });
-  const lineCounts = new Map<string, LineCount>();
-  for (const row of (invRes.data ?? []) as { id: string }[]) {
-    lineCounts.set(row.id, emptyCount());
-  }
-  for (const l of succeededRows(lineRes)) {
-    const bucket = lineCounts.get(l.invoice_id);
-    if (!bucket) continue;
-    bucket.total++;
-    if (l.match_status === "matched" || l.match_status === "auto_matched") {
-      bucket.matched++;
-    }
-    if (l.match_status === "unmatched") bucket.unmatched++;
-    if (l.review_status === "approved") bucket.approved++;
-    if (l.review_status === "pending") bucket.pending++;
-  }
+  const ingredientRows = [...succeededRows(ingRes)];
+  const summaries = buildInvoiceLineSummaries(
+    ((invRes.data ?? []) as { id: string }[]).map((r) => r.id),
+    succeededRows(lineRes),
+    new Map(ingredientRows.map((i) => [i.id, i.name]))
+  );
 
   const invoices: InvoiceListItem[] = (
     (invRes.data ?? []) as Array<{
@@ -238,6 +339,8 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
       total_amount: number | null;
       status: string;
       source_type: string;
+      notes?: string | null;
+      original_file_name?: string | null;
       created_at: string;
     }>
   ).map((r) => ({
@@ -253,16 +356,17 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
     total_amount: r.total_amount,
     status: r.status,
     source_type: r.source_type,
+    notes: r.notes ?? null,
+    original_file_name: r.original_file_name ?? null,
     created_at: r.created_at,
-    line_counts: lineCounts.get(r.id) ?? emptyCount(),
+    line_counts: summaries.get(r.id)?.counts ?? emptyLineCounts(),
+    line_preview: summaries.get(r.id)?.preview ?? [],
   }));
 
   return {
     invoices,
     suppliers,
-    ingredients: [...succeededRows(ingRes)].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    ),
+    ingredients: ingredientRows.sort((a, b) => a.name.localeCompare(b.name)),
     companyCurrency,
   };
 }
@@ -284,6 +388,7 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
   const scope = await companyScope();
   if (!scope) return null;
   const { supabase, companyId } = scope;
+  const currency = await resolveCompanyCurrency(supabase, companyId);
 
   // Full column set first; if migration 007 is missing the extended
   // columns error the whole select, so fall back to the always-present
@@ -393,6 +498,7 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
       ingredient_count: ingredientCount.get(id) ?? 0,
       latest_cost_date: latestCostDate.get(id) ?? null,
       total_spend: totalSpend.get(id) ?? null,
+      currency,
     };
   });
 }

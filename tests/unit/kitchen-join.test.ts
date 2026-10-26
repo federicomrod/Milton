@@ -50,6 +50,7 @@ describe("decideJoin", () => {
   const base = {
     token: live,
     existingStaff: null,
+    otherActiveLinks: 0,
     targetLocationId: "A",
     recentJoinsCount: 0,
   };
@@ -96,18 +97,15 @@ describe("decideJoin", () => {
       decideJoin({
         ...base,
         recentJoinsCount: 21,
-        existingStaff: { location_id: "B", is_active: true },
+        otherActiveLinks: 1,
       })
     ).toEqual({ kind: "rate_limited" });
   });
 
-  it("moved when an active cook scans another location's QR", () => {
-    expect(
-      decideJoin({
-        ...base,
-        existingStaff: { location_id: "B", is_active: true },
-      })
-    ).toEqual({ kind: "moved", previousLocationId: "B" });
+  it("added when the account already has an active link elsewhere", () => {
+    expect(decideJoin({ ...base, otherActiveLinks: 1 })).toEqual({
+      kind: "added",
+    });
   });
 
   it("a removed cook rejoins (at the same or another location)", () => {
@@ -120,7 +118,7 @@ describe("decideJoin", () => {
     expect(
       decideJoin({
         ...base,
-        existingStaff: { location_id: "B", is_active: false },
+        otherActiveLinks: 0,
       })
     ).toEqual({ kind: "joined" });
   });

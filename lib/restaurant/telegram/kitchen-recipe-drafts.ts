@@ -7,7 +7,12 @@
 // SECURITY: never logs message text, file ids, transcripts, bot tokens,
 // Bot API URLs or OpenAI keys. Follows the same rules as files.ts.
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  createOpenAIClient,
+  openAiModel,
+} from "@/lib/restaurant/openai-client";
 import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import {
   findExactIngredient,
@@ -107,6 +112,28 @@ function parseNumberToken(token: string): number | null {
   return SPANISH_NUMBERS[token] ?? null;
 }
 
+const MULTIPLIER_MEASURE =
+  "(?:g|gr|grs|gramos?|kg|kgs|kilos?|kilogramos?|ml|mililitros?|l|lt|lts|litros?|oz|onzas?|lb|lbs|libras?)";
+/** «3x», «3 x», «3×» (not followed by another number or a measure). */
+const MULTIPLIER_SUFFIX_RE = new RegExp(
+  `(?<![\\w.,/])(\\d{1,3})\\s*x(?![a-z0-9])(?!\\s*\\d)(?!\\s*${MULTIPLIER_MEASURE}\\b)`
+);
+/** «x3», «x 3», «×3» (not after a number, not before a measure). */
+const MULTIPLIER_PREFIX_RE = new RegExp(
+  `(?<![a-z0-9])(?<!\\d\\s)x\\s*(\\d{1,3})(?![a-z0-9])(?![.,]\\d)(?!\\s*${MULTIPLIER_MEASURE}\\b)(?!\\s*x)`
+);
+
+/** Portions written as a multiplier: «3x», «x3», «×3». 1–100, else null. */
+function parseMultiplierPortions(text: string): number | null {
+  const normalized = normalize(text).replace(/\u00d7/g, "x");
+  const m =
+    normalized.match(MULTIPLIER_SUFFIX_RE) ??
+    normalized.match(MULTIPLIER_PREFIX_RE);
+  if (!m) return null;
+  const value = parseInt(m[1], 10);
+  return value >= 1 && value <= 100 ? value : null;
+}
+
 export function parsePortions(text: string): number | null {
   const normalized = normalize(text);
 
@@ -126,7 +153,7 @@ export function parsePortions(text: string): number | null {
     if (token) return parseNumberToken(token);
   }
 
-  return null;
+  return parseMultiplierPortions(text);
 }
 
 export function parseDishName(text: string | null | undefined): string | null {
@@ -188,6 +215,13 @@ export function parsePortionsFromFollowUp(text: string): number | null {
   if (MEASURE_RE.test(normalized) || MEASURE_WORD_RE.test(normalized)) {
     return null;
   }
+  const mult = normalized
+    .replace(/\u00d7/g, "x")
+    .match(/^(?:x\s*(\d{1,3})|(\d{1,3})\s*x)\s*[.!]*$/);
+  if (mult) {
+    const v = parseInt(mult[1] ?? mult[2], 10);
+    return v >= 1 && v <= 100 ? v : null;
+  }
   const match = normalized.match(FOLLOW_UP_RE);
   if (!match) return null;
   const value = match[1]
@@ -243,30 +277,10 @@ async function callOpenAIVision(
   imageDataUrl: string,
   caption: string | null
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(30000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
+  const model = openAiModel();
 
   try {
     const completion = await client.chat.completions.create({
@@ -281,7 +295,7 @@ async function callOpenAIVision(
             { type: "text", text: buildExtractionUserPrompt(caption, true) },
             {
               type: "image_url",
-              image_url: { url: imageDataUrl, detail: "low" },
+              image_url: { url: imageDataUrl, detail: "high" },
             },
           ],
         },
@@ -305,29 +319,9 @@ async function callOpenAIVision(
 async function transcribeVoice(
   audioBytes: Buffer
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(20000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
 
   try {
     const uint8Array = new Uint8Array(audioBytes);
@@ -348,30 +342,10 @@ async function transcribeVoice(
 async function extractFromText(
   text: string
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
-  if (!process.env.OPENAI_API_KEY) {
-    return { ok: false, error: "OpenAI not configured" };
-  }
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[recipe-drafts] openai sdk import failed");
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-  if (!OpenAIctor) {
-    return { ok: false, error: "OpenAI SDK unavailable" };
-  }
-
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: 20000,
-    maxRetries: 0,
-  });
+  const made = await createOpenAIClient(20000);
+  if (!made.ok) return { ok: false, error: made.error };
+  const client = made.client;
+  const model = openAiModel();
 
   try {
     const completion = await client.chat.completions.create({
@@ -509,7 +483,13 @@ export function matchIngredients(
       };
 
       const cost = getLatestIngredientCost(bestMatch.id, costData);
-      if (cost.status === "complete" && cost.unit_cost !== null && cost.unit) {
+      // A price of 0 is a missing price, never a free ingredient.
+      if (
+        cost.status === "complete" &&
+        cost.unit_cost !== null &&
+        Number(cost.unit_cost) > 0 &&
+        cost.unit
+      ) {
         unitCost = cost.unit_cost;
         unitCostUnit = cost.unit;
         if (
@@ -569,20 +549,30 @@ export interface CreateDraftInput {
   lines: MatchedIngredientLine[];
   overallConfidence: "high" | "medium" | "low";
   currency: string;
+  /** Only the file upload sets it: the approved dish this draft re-reads. */
+  menuItemId?: string | null;
 }
 
 export async function createRecipeDraft(
-  input: CreateDraftInput
+  input: CreateDraftInput,
+  /** The file upload passes its own admin client; Telegram uses the default. */
+  client?: SupabaseClient
 ): Promise<{ ok: true; draftId: string } | { ok: false; error: string }> {
   try {
-    const admin = createAdminClient();
+    const admin = client ?? createAdminClient();
 
-    const totalCost = input.lines.reduce(
-      (sum, l) => sum + (l.line_cost ?? 0),
-      0
-    );
+    // A total exists only when EVERY line has a cost (> 0); a partial sum is
+    // never stored as a total.
+    const allCosted =
+      input.lines.length > 0 &&
+      input.lines.every((l) => l.line_cost !== null && l.line_cost > 0);
+    const totalCost = allCosted
+      ? input.lines.reduce((sum, l) => sum + (l.line_cost ?? 0), 0)
+      : null;
     const perPortionCost =
-      input.portions && input.portions > 0 ? totalCost / input.portions : null;
+      totalCost !== null && input.portions && input.portions > 0
+        ? totalCost / input.portions
+        : null;
 
     const status = input.portions === null ? "awaiting_portions" : "draft";
 
@@ -602,6 +592,7 @@ export async function createRecipeDraft(
         total_cost: totalCost,
         per_portion_cost: perPortionCost,
         currency: input.currency,
+        ...(input.menuItemId ? { menu_item_id: input.menuItemId } : {}),
       })
       .select("id")
       .single();
@@ -626,7 +617,7 @@ export async function createRecipeDraft(
       confidence: l.confidence,
       unit_cost_snapshot: l.unit_cost_snapshot,
       unit_cost_unit: l.unit_cost_unit,
-      line_cost: l.line_cost,
+      line_cost: l.line_cost !== null && l.line_cost > 0 ? l.line_cost : null,
     }));
 
     if (lineRows.length > 0) {

@@ -25,6 +25,7 @@ import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/edito
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
 import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 
 export const dynamic = "force-dynamic";
@@ -51,19 +52,31 @@ export async function GET() {
     if (!archivedRes.error) {
       for (const row of archivedRes.data ?? []) archived.add(String(row.id));
     }
+    // Per-ingredient bridges (migration 056) so the review can cost
+    // «6 unidad» of an ingredient priced per oz. Tolerant: none on any error.
+    const conversionMap = await loadUnitConversions(
+      auth.supabase,
+      auth.companyId
+    );
+    const conversions = [...conversionMap.entries()].flatMap(([id, list]) =>
+      list.map((c) => ({ ingredient_id: id, ...c }))
+    );
     return NextResponse.json({
+      conversions,
       ingredients: rows
         .filter((row) => !archived.has(row.id))
         .map((row) => ({
           id: row.id,
           name: row.name,
           default_unit: row.default_unit,
-          price: row.latest
-            ? {
-                unit_cost: Number(row.latest.normalized_unit_cost),
-                unit: row.latest.normalized_unit,
-              }
-            : null,
+          // A price of 0 (or no number) is «Sin precio», never $0.
+          price:
+            row.latest && Number(row.latest.normalized_unit_cost) > 0
+              ? {
+                  unit_cost: Number(row.latest.normalized_unit_cost),
+                  unit: row.latest.normalized_unit,
+                }
+              : null,
         })),
     });
   } catch (err) {

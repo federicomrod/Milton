@@ -4,6 +4,10 @@
 // Waste money is never estimated — "Pendiente de recetas" until #113.
 // Recipe drafts are listed and marked as not counting in costs.
 
+import {
+  findExactIngredient,
+  findSynonymIngredient,
+} from "@/lib/restaurant/kitchen-ingredient-match";
 import { shiftDateKey } from "@/lib/restaurant/cockpit-aggregates";
 import { polishCockpitCopy } from "@/lib/restaurant/cockpit-executive";
 import type { CockpitInsightFact } from "@/lib/restaurant/cockpit-insights";
@@ -65,6 +69,8 @@ export interface KitchenEventBundle {
   reports: KitchenReportEvent[];
   drafts: KitchenDraftEvent[];
   staff: KitchenStaffRow[];
+  /** The company's ACTIVE ingredients: a report about one shows ITS name. */
+  ingredients?: Array<{ id: string; name: string }>;
 }
 
 export interface KitchenFeedItem {
@@ -156,7 +162,12 @@ const WEEKDAY_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const ITEM_PREFIX_RE =
   /^(?:se est[aá] (?:agotando|acabando)|queda(?:n)? poco(?:s)?(?: de)?|casi no (?:hay|queda)|merma(?: alta)?(?: de|:)?|86|se acab[oó](?:ron)?(?: el| la| los| las)?|no hay|nos quedamos sin|sin|agotad[oa]s?(?: de|:)?)\s+/i;
 const ITEM_SUFFIX_RE =
-  /\s+(?:queda(?:n)? poco(?:s)?|se est[aá] (?:agotando|acabando)|tiramos|tirado|se quem[oó]|se pas[oó]).*$/i;
+  /\s+(?:queda(?:n)? poco(?:s)?|se est[aá] (?:agotando|acabando)|tiramos|tirado|se quem[oó]|se pas[oó]|(?:y\s+)?(?:ahora|ya)\b|(?:y\s+)?(?:est[aá]|cuesta|sale|vale)\s+(?:a|en)\b|a\s+(?:un|una|\$|\d)).*$/i;
+
+/** «1 producto», «2 productos», «0 productos». */
+export function countText(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 export function foldKitchenText(text: string): string {
   return text
@@ -281,13 +292,36 @@ function groupBy<T>(rows: T[], keyOf: (row: T) => string): Map<string, T[]> {
   return map;
 }
 
-function displayNameFromReports(rows: KitchenReportEvent[]): string {
-  const named = rows
-    .map((row) => extractKitchenItemName(row.text))
-    .find((name) => name.length > 0);
-  if (named) return named;
-  const text = rows.find((row) => row.text?.trim())?.text?.trim();
-  return text ? text.slice(0, 48) : "";
+/**
+ * What a report is ABOUT, for the lists: the matched ingredient's name when the
+ * product is one of the company's ingredients; else the product name pulled
+ * from the sentence; only when neither exists, the raw text (truncated).
+ */
+export function resolveKitchenItemLabel(
+  text: string | null | undefined,
+  ingredients?: ReadonlyArray<{ id: string; name: string }>
+): string {
+  const raw = (text ?? "").trim();
+  if (!raw) return "";
+  const name = extractKitchenItemName(raw);
+  if (name && ingredients && ingredients.length > 0) {
+    const hit =
+      findExactIngredient(name, ingredients) ??
+      findSynonymIngredient(name, ingredients);
+    if (hit) return hit.name;
+  }
+  return name || raw.slice(0, 48);
+}
+
+function displayNameFromReports(
+  rows: KitchenReportEvent[],
+  ingredients?: ReadonlyArray<{ id: string; name: string }>
+): string {
+  for (const row of rows) {
+    const label = resolveKitchenItemLabel(row.text, ingredients);
+    if (label) return label;
+  }
+  return "";
 }
 
 function staffPhrase(
@@ -300,17 +334,23 @@ function staffPhrase(
   if (rows.length === 1 && names[0]) {
     return t(lang, `reported by ${names[0]}`, `reportado por ${names[0]}`);
   }
-  return t(lang, `${rows.length} reports`, `${rows.length} reportes`);
+  return t(
+    lang,
+    countText(rows.length, "report", "reports"),
+    countText(rows.length, "reporte", "reportes")
+  );
 }
 
 function buildFeed(input: {
+  ingredients?: KitchenEventBundle["ingredients"];
   openLowStock: KitchenReportEvent[];
   periodWaste: KitchenReportEvent[];
   drafts: KitchenDraftEvent[];
   todayKey: string;
   lang: PreferredLanguage;
 }): KitchenFeedItem[] {
-  const { openLowStock, periodWaste, drafts, todayKey, lang } = input;
+  const { openLowStock, periodWaste, drafts, todayKey, lang, ingredients } =
+    input;
   const items: KitchenFeedItem[] = [];
 
   for (const [key, rows] of groupBy(openLowStock, (row) =>
@@ -318,7 +358,8 @@ function buildFeed(input: {
   )) {
     const latest = latestOf(rows);
     if (!latest) continue;
-    const title = displayNameFromReports(rows) || t(lang, "Item", "Producto");
+    const title =
+      displayNameFromReports(rows, ingredients) || t(lang, "Item", "Producto");
     items.push({
       id: `running_out:${key}`,
       kind: "running_out",
@@ -345,7 +386,8 @@ function buildFeed(input: {
   )) {
     const latest = latestOf(rows);
     if (!latest) continue;
-    const title = displayNameFromReports(rows) || t(lang, "Waste", "Merma");
+    const title =
+      displayNameFromReports(rows, ingredients) || t(lang, "Waste", "Merma");
     const weekish = rows.length >= 2;
     items.push({
       id: `waste:${key}`,
@@ -406,14 +448,17 @@ function rankedFromGroups(
   groups: Map<string, KitchenReportEvent[]>,
   todayKey: string,
   lang: PreferredLanguage,
-  pendingLabel: string
+  pendingLabel: string,
+  ingredients?: KitchenEventBundle["ingredients"]
 ): KitchenExploreRow[] {
   const rows = Array.from(groups.entries())
     .map(([key, list]) => {
       const latest = latestOf(list);
       return {
         key,
-        label: displayNameFromReports(list) || t(lang, "Item", "Producto"),
+        label:
+          displayNameFromReports(list, ingredients) ||
+          t(lang, "Item", "Producto"),
         count: list.length,
         last_label: latest ? kitchenRelativeTime(latest, todayKey, lang) : "",
         latest_at: latest?.created_at ?? "",
@@ -478,13 +523,13 @@ function buildHighlights(input: {
       waste > 0 && waste === topRows.length
         ? t(
             lang,
-            `${name} · ${topRows.length} waste reports`,
-            `${name} · ${topRows.length} reportes de merma`
+            `${name} · ${countText(topRows.length, "waste report", "waste reports")}`,
+            `${name} · ${countText(topRows.length, "reporte de merma", "reportes de merma")}`
           )
         : t(
             lang,
-            `${name} · ${topRows.length} reports`,
-            `${name} · ${topRows.length} reportes`
+            `${name} · ${countText(topRows.length, "report", "reports")}`,
+            `${name} · ${countText(topRows.length, "reporte", "reportes")}`
           );
     const title = t(lang, "Most reported", "Más reportado");
     const hint = t(
@@ -546,8 +591,8 @@ function buildHighlights(input: {
     const value = `${range}, ${meal}`;
     const hint = t(
       lang,
-      `${peakCount} of ${todayReports.length} reports today arrived in that hour`,
-      `${peakCount} de ${todayReports.length} reportes de hoy llegaron en esa hora`
+      `${peakCount} of ${countText(todayReports.length, "report", "reports")} today arrived in that hour`,
+      `${peakCount} de ${countText(todayReports.length, "reporte", "reportes")} de hoy ${peakCount === 1 ? "llegó" : "llegaron"} en esa hora`
     );
     highlights.push({
       id: "peak_hour",
@@ -581,13 +626,13 @@ function buildHighlights(input: {
     const title = t(lang, "Active team", "Equipo activo");
     const value = t(
       lang,
-      `${reporters} of ${active.length} cooks reported`,
-      `${reporters} de ${active.length} cocineros reportaron`
+      `${reporters} of ${countText(active.length, "cook", "cooks")} reported`,
+      `${reporters} de ${countText(active.length, "cocinero", "cocineros")} ${reporters === 1 ? "reportó" : "reportaron"}`
     );
     const hint = t(
       lang,
-      `This week · ${classified.length} reports in total`,
-      `Esta semana · ${classified.length} reportes en total`
+      `This week · ${countText(classified.length, "report", "reports")} in total`,
+      `Esta semana · ${countText(classified.length, "reporte", "reportes")} en total`
     );
     highlights.push({
       id: "staff_active",
@@ -653,6 +698,7 @@ export function buildKitchenInsights(
   );
 
   const feed = buildFeed({
+    ingredients: bundle.ingredients,
     openLowStock,
     periodWaste,
     drafts,
@@ -685,10 +731,15 @@ export function buildKitchenInsights(
   });
 
   const runningOutNames = Array.from(runningOutProducts.values()).map((rows) =>
-    displayNameFromReports(rows)
+    displayNameFromReports(rows, bundle.ingredients)
   );
-  const topWasteName = rankedFromGroups(wasteGroups, todayKey, lang, pending)[0]
-    ?.label;
+  const topWasteName = rankedFromGroups(
+    wasteGroups,
+    todayKey,
+    lang,
+    pending,
+    bundle.ingredients
+  )[0]?.label;
 
   const summaries: KitchenSummary[] = [
     {
@@ -696,8 +747,8 @@ export function buildKitchenInsights(
       label: t(lang, "Running low", "Se agota"),
       value: t(
         lang,
-        `${todayRunningOut} items`,
-        `${todayRunningOut} productos`
+        countText(todayRunningOut, "item", "items"),
+        countText(todayRunningOut, "producto", "productos")
       ),
       hint: namesHint(runningOutNames, lang),
       extra: null,
@@ -712,8 +763,8 @@ export function buildKitchenInsights(
       label: t(lang, "Waste", "Merma"),
       value: t(
         lang,
-        `${todayWaste.length} reports today`,
-        `${todayWaste.length} reportes hoy`
+        `${countText(todayWaste.length, "report", "reports")} today`,
+        `${countText(todayWaste.length, "reporte", "reportes")} hoy`
       ),
       hint: polishCockpitCopy(
         lang,
@@ -732,7 +783,10 @@ export function buildKitchenInsights(
       extra: t(lang, "Waste value:", "Valor de la merma:"),
       pending_value: true,
       explore_tab: "waste",
-      segments: periodWaste.length > 0 ? [55, 45] : [],
+      segments:
+        periodWaste.length > 0
+          ? [Math.round((todayWaste.length / periodWaste.length) * 100)]
+          : [],
     },
     {
       id: "drafts",
@@ -758,9 +812,16 @@ export function buildKitchenInsights(
     runningOutProducts,
     todayKey,
     lang,
-    pending
+    pending,
+    bundle.ingredients
   ).map((row) => ({ ...row, pending_value: false, estimated_value: null }));
-  const exploreWaste = rankedFromGroups(wasteGroups, todayKey, lang, pending);
+  const exploreWaste = rankedFromGroups(
+    wasteGroups,
+    todayKey,
+    lang,
+    pending,
+    bundle.ingredients
+  );
   const exploreDrafts: KitchenExploreRow[] = sortLatest(drafts).map(
     (draft, i) => ({
       key: draft.id,
@@ -796,7 +857,7 @@ export function buildKitchenInsights(
     key: row.id,
     rank: i + 1,
     label:
-      displayNameFromReports([row]) ||
+      displayNameFromReports([row], bundle.ingredients) ||
       row.text?.trim().slice(0, 48) ||
       t(lang, "Report", "Reporte"),
     count: 1,
@@ -871,27 +932,35 @@ export function kitchenExploreCaption(
     );
     return t(
       lang,
-      `Top ${shown} of ${insights.explore.waste_total_products} items with waste · this period`,
-      `Top ${shown} de ${insights.explore.waste_total_products} productos con merma · este periodo`
+      `Top ${shown} of ${countText(insights.explore.waste_total_products, "item", "items")} with waste · this period`,
+      `Top ${shown} de ${countText(insights.explore.waste_total_products, "producto", "productos")} con merma · este periodo`
     );
   }
   if (tab === "running_out") {
     return t(
       lang,
-      `${insights.today_running_out} items running low`,
-      `${insights.today_running_out} productos por agotarse`
+      `${countText(insights.today_running_out, "item", "items")} running low`,
+      countText(
+        insights.today_running_out,
+        "producto por agotarse",
+        "productos por agotarse"
+      )
     );
   }
   if (tab === "drafts") {
     return t(
       lang,
-      `${insights.pending_drafts} drafts waiting for confirmation · they do not count in costs yet`,
-      `${insights.pending_drafts} borradores por confirmar · aún no cuentan en costos`
+      `${countText(insights.pending_drafts, "draft", "drafts")} waiting for confirmation · they do not count in costs yet`,
+      `${countText(insights.pending_drafts, "borrador", "borradores")} por confirmar · ${insights.pending_drafts === 1 ? "aún no cuenta" : "aún no cuentan"} en costos`
     );
   }
   if (tab === "staff") {
     const active = insights.explore.staff.filter((row) => row.is_active).length;
-    return t(lang, `${active} active cooks`, `${active} cocineros activos`);
+    return t(
+      lang,
+      countText(active, "active cook", "active cooks"),
+      countText(active, "cocinero activo", "cocineros activos")
+    );
   }
   return t(lang, "Reports in this period", "Reportes de este periodo");
 }

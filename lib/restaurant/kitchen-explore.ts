@@ -13,7 +13,19 @@ export const KITCHEN_EXPLORE_TABS = [
 
 export type KitchenExploreTab = (typeof KITCHEN_EXPLORE_TABS)[number];
 
+/** Historial y análisis only — drafts and staff live outside the switcher. */
+export const KITCHEN_ANALYSIS_TABS = [
+  "running_out",
+  "waste",
+  "history",
+] as const;
+
+export type KitchenAnalysisTab = (typeof KITCHEN_ANALYSIS_TABS)[number];
+
 export const DEFAULT_KITCHEN_EXPLORE_TAB: KitchenExploreTab = "waste";
+export const DEFAULT_KITCHEN_ANALYSIS_TAB: KitchenAnalysisTab = "waste";
+
+export const KITCHEN_RECIPES_PREVIEW = 5;
 
 export const KITCHEN_FEED_FILTERS = [
   "all",

@@ -162,12 +162,29 @@ export function priceReviewLine(
   );
 }
 
+/**
+ * One plain line when the pre-send Odoo sync failed. Nothing when it worked
+ * or was skipped (no Odoo connection) or when the send is not the automatic one.
+ */
+export function syncWarningText(
+  ctx: BriefingContext,
+  lang: PreferredLanguage
+): string | null {
+  const s = ctx.sync_status;
+  if (!s || s.ok || s.skipped) return null;
+  return t(
+    lang,
+    "We couldn't update the Odoo sales before this email; the figures may be incomplete.",
+    "No pudimos actualizar las ventas de Odoo antes de este correo; las cifras pueden estar incompletas."
+  );
+}
+
 /** Under the button, only for companies with Telegram connected. */
 export function telegramNote(lang: PreferredLanguage): string {
   return t(
     lang,
-    "For quick questions from your phone, message Milton on Telegram.",
-    "Para preguntas rápidas desde el teléfono, escríbele a Milton por Telegram."
+    "From Telegram, your team can send recipes, invoices and price updates for you to review in Milton.",
+    "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton."
   );
 }
 
@@ -351,8 +368,16 @@ export function renderBriefingEmail(
         )
       : "";
 
+  // The Odoo sync that runs right before the automatic send failed: say so in
+  // one plain line (never invent or zero-fill numbers; missing stays «—»).
+  const syncWarning = syncWarningText(ctx, lang);
+  const syncWarningHtml = syncWarning
+    ? `<p style="margin:12px 0 0 0;font-size:12px;line-height:1.4;color:${COLORS.muted};">${esc(syncWarning)}</p>`
+    : "";
+
   const bodyHtml = [
     kpiGrid(cards),
+    syncWarningHtml,
     salesSection,
     visualSection,
     reviewSection,
@@ -381,6 +406,7 @@ export function renderBriefingEmail(
     ...(sp
       ? [
           ...sp.facts,
+          ...(syncWarning ? [syncWarning] : []),
           `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, `based on ${k.cost_coverage_pct}% of sales with cost`, `basado en ${k.cost_coverage_pct}% de las ventas con costo`)})`,
         ]
       : [`${t(lang, "Sales", "Ventas")}: ${noComparisonText(lang)}`]),

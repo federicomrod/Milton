@@ -4,6 +4,7 @@
 // (one scoped JSON payload). Falls back to RLS SELECTs when the
 // function is not on the database yet. Never returns Telegram ids.
 
+import { UPLOAD_AUTHOR_NAME } from "@/lib/restaurant/recipe-upload/constants";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTimezone } from "@/lib/restaurant/email/preferences";
 import { getLocalMoment } from "@/lib/restaurant/email/scheduler";
@@ -149,6 +150,11 @@ function parseDraft(
   };
 }
 
+/** The «Archivo subido» author row of file uploads is not a cook. */
+function isUploadAuthor(row: { display_name: string }): boolean {
+  return row.display_name === UPLOAD_AUTHOR_NAME;
+}
+
 function parseStaff(row: Record<string, unknown>): KitchenStaffRow | null {
   const id = str(row.id);
   if (!id) return null;
@@ -183,7 +189,7 @@ export function parseKitchenAttentionPayload(
     ? row.staff.flatMap((item) => {
         if (!item || typeof item !== "object") return [];
         const parsed = parseStaff(item as Record<string, unknown>);
-        return parsed ? [parsed] : [];
+        return parsed && !isUploadAuthor(parsed) ? [parsed] : [];
       })
     : [];
   return { reports, drafts, staff };
@@ -201,7 +207,51 @@ function isMissingResolvedColumn(message: string | undefined): boolean {
   return /resolved_at|column/i.test(message);
 }
 
+/**
+ * The company's ACTIVE ingredients (id, name), so a report about «harina»
+ * can show «Harina de trigo». Best effort: any failure means no names.
+ */
+async function loadActiveIngredients(
+  supabase: SupabaseClient,
+  companyId: string
+): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const { data, error } = await supabase
+      .from("ingredients")
+      .select("id, name")
+      .eq("company_id", companyId)
+      .is("archived_at", null)
+      .limit(5000);
+    if (error) return [];
+    return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? ""),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchKitchenAttentionBundle(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string;
+    locationId: string | null;
+    period: InclusiveDateRange;
+    timezone: string;
+  }
+): Promise<{ bundle: KitchenEventBundle; source: "rpc" | "rows" | "denied" }> {
+  const out = await fetchKitchenAttentionBase(supabase, input);
+  if (out.source !== "denied" && out.bundle.reports.length > 0) {
+    out.bundle.ingredients = await loadActiveIngredients(
+      supabase,
+      input.companyId
+    );
+  }
+  return out;
+}
+
+async function fetchKitchenAttentionBase(
   supabase: SupabaseClient,
   input: {
     companyId: string;
@@ -379,5 +429,9 @@ async function fetchKitchenAttentionViaRls(
     return parsed ? [parsed] : [];
   });
 
-  return { reports: inWindowOrOpen, drafts, staff: staffRows };
+  return {
+    reports: inWindowOrOpen,
+    drafts,
+    staff: staffRows.filter((row) => !isUploadAuthor(row)),
+  };
 }

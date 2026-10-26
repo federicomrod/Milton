@@ -38,7 +38,7 @@ export async function GET() {
         .maybeSingle(),
       supabase
         .from("companies")
-        .select("preferred_language")
+        .select("name, preferred_language")
         .eq("id", companyId)
         .maybeSingle(),
     ]);
@@ -58,6 +58,9 @@ export async function GET() {
   return NextResponse.json({
     connected,
     connected_at: connected ? (connection?.connected_at ?? null) : null,
+    company_name: connected
+      ? ((company as { name?: string | null } | null)?.name ?? null)
+      : null,
     preferred_language: resolvePreferredLanguage(company?.preferred_language),
   });
 }

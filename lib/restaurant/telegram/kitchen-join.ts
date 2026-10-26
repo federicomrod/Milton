@@ -100,18 +100,23 @@ export type JoinDecision =
   | { kind: "invalid" }
   | { kind: "rate_limited" }
   | { kind: "already_joined" }
-  | { kind: "moved"; previousLocationId: string }
+  | { kind: "added" }
   | { kind: "joined" };
 
 /**
- * Join rules: unknown/revoked token -> invalid. Same active cook at the
- * same location -> already_joined (no write, not counted toward the rate
- * limit). 20+ joins on this QR in the last hour -> rate_limited. An active
- * cook elsewhere is moved; a new or removed cook (re)joins.
+ * Join rules: unknown/revoked token -> invalid. The account's row at THIS
+ * location, active -> already_joined (no write, not counted toward the rate
+ * limit). 20+ joins on this QR in the last hour -> rate_limited. Otherwise
+ * the cook is linked here: «added» when they already have an active link
+ * elsewhere (those links stay untouched), «joined» for their first link.
+ * An inactive row at this location is reactivated (same row).
  */
 export function decideJoin(input: {
   token: { revoked_at: string | null } | null;
+  /** The account's row at the target location (any state), if any. */
   existingStaff: ExistingStaff | null;
+  /** Active links the account has at OTHER locations. */
+  otherActiveLinks: number;
   targetLocationId: string;
   recentJoinsCount: number;
 }): JoinDecision {
@@ -124,9 +129,7 @@ export function decideJoin(input: {
     return { kind: "already_joined" };
   }
   if (recentJoinsCount >= RATE_LIMIT_PER_HOUR) return { kind: "rate_limited" };
-  if (existingStaff?.is_active) {
-    return { kind: "moved", previousLocationId: existingStaff.location_id };
-  }
+  if (input.otherActiveLinks > 0) return { kind: "added" };
   return { kind: "joined" };
 }
 
@@ -175,9 +178,9 @@ export async function rotateLocationToken(
 export type ConsumeKitchenJoinResult =
   | { kind: "invalid" }
   | { kind: "rate_limited" }
-  | { kind: "already_joined"; locationName: string }
-  | { kind: "joined"; locationName: string }
-  | { kind: "moved"; locationName: string; previousLocationName: string };
+  | { kind: "already_joined"; companyName: string; locationName: string }
+  | { kind: "joined"; companyName: string; locationName: string }
+  | { kind: "added"; companyName: string; locationName: string };
 
 /** Handles a /start kq1_... join from a private chat. Throws on DB errors. */
 export async function consumeKitchenJoin(input: {
@@ -207,12 +210,27 @@ export async function consumeKitchenJoin(input: {
   if (locError) throw new Error("location lookup failed");
   if (!location) return { kind: "invalid" };
 
-  const { data: existing, error: staffError } = await admin
+  const { data: company } = await admin
+    .from("companies")
+    .select("name")
+    .eq("id", token.company_id)
+    .maybeSingle();
+  const companyName: string = company?.name ?? "";
+
+  const { data: mine, error: staffError } = await admin
     .from("kitchen_staff")
     .select("id, location_id, is_active")
-    .eq("telegram_user_id", input.telegramUserId)
-    .maybeSingle();
+    .eq("telegram_user_id", input.telegramUserId);
   if (staffError) throw new Error("staff lookup failed");
+  const rows = (mine ?? []) as Array<{
+    id: string;
+    location_id: string;
+    is_active: boolean;
+  }>;
+  const existing = rows.find((r) => r.location_id === token.location_id);
+  const otherActiveLinks = rows.filter(
+    (r) => r.is_active && r.location_id !== token.location_id
+  ).length;
 
   const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
   const { count, error: countError } = await admin
@@ -227,6 +245,7 @@ export async function consumeKitchenJoin(input: {
     existingStaff: existing
       ? { location_id: existing.location_id, is_active: existing.is_active }
       : null,
+    otherActiveLinks,
     targetLocationId: token.location_id,
     recentJoinsCount: count ?? 0,
   });
@@ -234,17 +253,7 @@ export async function consumeKitchenJoin(input: {
   if (decision.kind === "invalid") return { kind: "invalid" };
   if (decision.kind === "rate_limited") return { kind: "rate_limited" };
   if (decision.kind === "already_joined") {
-    return { kind: "already_joined", locationName: location.name };
-  }
-
-  let previousLocationName = "";
-  if (decision.kind === "moved") {
-    const { data: prev } = await admin
-      .from("restaurant_locations")
-      .select("name")
-      .eq("id", decision.previousLocationId)
-      .maybeSingle();
-    previousLocationName = prev?.name ?? "";
+    return { kind: "already_joined", companyName, locationName: location.name };
   }
 
   const now = new Date().toISOString();
@@ -262,17 +271,15 @@ export async function consumeKitchenJoin(input: {
       removed_by: null,
       updated_at: now,
     },
-    { onConflict: "telegram_user_id" }
+    { onConflict: "telegram_user_id,location_id" }
   );
   if (upsertError) throw new Error("staff upsert failed");
 
-  return decision.kind === "moved"
-    ? {
-        kind: "moved",
-        locationName: location.name,
-        previousLocationName,
-      }
-    : { kind: "joined", locationName: location.name };
+  return {
+    kind: decision.kind === "added" ? "added" : "joined",
+    companyName,
+    locationName: location.name,
+  };
 }
 
 // ---------------------------------------------------------------------------

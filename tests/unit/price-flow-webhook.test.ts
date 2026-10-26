@@ -1,0 +1,1043 @@
+// One price pipeline for text and voice: rules -> AI fallback -> ask the unit
+// -> save. The AI is mocked; nothing touches the network. Synthetic data only.
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeFakeDb, type Row } from "./helpers/fake-db";
+
+const {
+  store,
+  afterJobs,
+  sent,
+  answers,
+  edits,
+  extractInvoice,
+  extractRecipe,
+  classify,
+  ai,
+  intentAi,
+} = vi.hoisted(() => ({
+  store: {} as Record<string, Row[]>,
+  afterJobs: [] as Promise<unknown>[],
+  sent: [] as Array<{
+    chatId: number;
+    text: string;
+    markup?: {
+      inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  }>,
+  answers: [] as Array<{ id: string; text?: string }>,
+  edits: [] as Array<{
+    messageId: number;
+    text: string;
+    markup?: {
+      inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+    };
+  }>,
+  extractInvoice: vi.fn(),
+  extractRecipe: vi.fn(),
+  classify: vi.fn(),
+  ai: vi.fn(),
+  intentAi: vi.fn(),
+}));
+let transcript = "";
+let whisperFails = false;
+let questionId = 1000;
+
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return {
+    ...actual,
+    after: (fn: () => unknown) => {
+      afterJobs.push(Promise.resolve().then(() => fn()));
+    },
+  };
+});
+vi.mock("@/lib/restaurant/telegram/send", () => ({
+  sendTelegramMessage: async (
+    chatId: number,
+    text: string,
+    options?: { replyMarkup?: (typeof sent)[number]["markup"] }
+  ) => {
+    sent.push({ chatId, text, markup: options?.replyMarkup });
+    return { ok: true, messageId: ++questionId };
+  },
+  answerCallbackQuery: async (id: string, text?: string) => {
+    answers.push({ id, text });
+    return { ok: true };
+  },
+  editMessageText: async (
+    _chatId: number,
+    messageId: number,
+    text: string,
+    options?: { replyMarkup?: (typeof sent)[number]["markup"] }
+  ) => {
+    edits.push({ messageId, text, markup: options?.replyMarkup });
+    return { ok: true };
+  },
+  TelegramConfigError: class extends Error {},
+}));
+vi.mock("@/lib/supabase/admin", () => {
+  const db = makeFakeDb(store);
+  return { createAdminClient: () => db };
+});
+vi.mock("@/lib/restaurant/telegram/files", () => ({
+  openTelegramFile: async () => ({
+    ok: true,
+    contentLength: "4",
+    body: new Response(new Uint8Array([1, 2, 3, 4])).body,
+  }),
+}));
+vi.mock("@/lib/restaurant/telegram/photo-classify", () => ({
+  classifyKitchenPhoto: (...a: unknown[]) => classify(...a),
+}));
+vi.mock("@/lib/restaurant/invoice-draft", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/restaurant/invoice-draft")>();
+  return {
+    ...actual,
+    extractInvoiceFromImage: (...a: unknown[]) => extractInvoice(...a),
+  };
+});
+vi.mock("@/lib/restaurant/telegram/kitchen-recipe-drafts", async (orig) => {
+  const actual =
+    await orig<
+      typeof import("@/lib/restaurant/telegram/kitchen-recipe-drafts")
+    >();
+  return {
+    ...actual,
+    extractAndCreateRecipeDraft: (...a: unknown[]) => extractRecipe(...a),
+  };
+});
+vi.mock("@/lib/restaurant/telegram/price-update-ai", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@/lib/restaurant/telegram/price-update-ai")
+    >();
+  return { ...actual, askPriceAi: (...a: unknown[]) => ai(...a) };
+});
+// The AI interpreter (kitchen-intent-ai) is mocked: no network. Default = down (null).
+vi.mock(
+  "@/lib/restaurant/telegram/kitchen-intent-ai",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/lib/restaurant/telegram/kitchen-intent-ai")
+      >();
+    return {
+      ...actual,
+      interpretKitchenMessage: (...a: unknown[]) => intentAi(...a),
+    };
+  }
+);
+vi.mock("openai", () => {
+  class FakeOpenAI {
+    audio = {
+      transcriptions: {
+        create: async () => {
+          if (whisperFails) throw new Error("whisper down");
+          return { text: transcript };
+        },
+      },
+    };
+  }
+  return { default: FakeOpenAI, OpenAI: FakeOpenAI };
+});
+vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@/lib/restaurant/telegram/kitchen-reports")
+    >();
+  return {
+    ...actual,
+    // Same contract as the real one: false on a duplicate delivery.
+    recordKitchenReport: async (input: {
+      companyId: string;
+      locationId: string;
+      staffId: string;
+      chatId: number;
+      report: Record<string, unknown>;
+    }) => {
+      const rows = (store.kitchen_reports ??= []);
+      if (
+        rows.some(
+          (r) =>
+            r.telegram_chat_id === input.chatId &&
+            r.telegram_message_id === input.report.telegram_message_id
+        )
+      ) {
+        return false;
+      }
+      rows.push({
+        id: `kr-${rows.length + 1}`,
+        company_id: input.companyId,
+        location_id: input.locationId,
+        staff_id: input.staffId,
+        telegram_chat_id: input.chatId,
+        created_at: new Date().toISOString(),
+        ...input.report,
+      });
+      return true;
+    },
+  };
+});
+
+import { POST } from "@/app/api/telegram/webhook/route";
+import { resetOwnerChatGuidance } from "@/lib/restaurant/telegram/owner-chat-guidance";
+import { resetRoutingState } from "@/lib/restaurant/telegram/kitchen-routing";
+import {
+  generateKitchenToken,
+  hashKitchenToken,
+} from "@/lib/restaurant/telegram/kitchen-join";
+import { KITCHEN_COPY } from "@/lib/restaurant/telegram/kitchen-copy";
+
+const CHAT = 4242;
+const COOK = 9;
+const MIN = 60 * 1000;
+const qrNorte = generateKitchenToken();
+
+let nextId = 100;
+const consoleCalls: string[] = [];
+
+function seed(restaurants: 1 | 2 = 1) {
+  for (const k of Object.keys(store)) delete store[k];
+  store.companies = [
+    { id: "co-demo", name: "Demo Resto" },
+    { id: "co-stage", name: "Stage Test 1" },
+  ];
+  store.restaurant_locations = [
+    {
+      id: "loc-centro",
+      company_id: "co-demo",
+      name: "Local Centro",
+      status: "active",
+      archived_at: null,
+    },
+    {
+      id: "loc-norte",
+      company_id: "co-stage",
+      name: "Local Norte",
+      status: "active",
+      archived_at: null,
+    },
+  ];
+  store.kitchen_staff = [
+    {
+      id: "st-demo",
+      company_id: "co-demo",
+      location_id: "loc-centro",
+      telegram_user_id: COOK,
+      is_active: true,
+    },
+    {
+      id: "st-stage",
+      company_id: "co-stage",
+      location_id: "loc-norte",
+      telegram_user_id: COOK,
+      is_active: true,
+    },
+  ];
+  store.kitchen_join_tokens = [
+    {
+      id: "t2",
+      company_id: "co-stage",
+      location_id: "loc-norte",
+      token_hash: hashKitchenToken(qrNorte.secret),
+      revoked_at: null,
+    },
+  ];
+  if (restaurants === 1) {
+    store.kitchen_staff = store.kitchen_staff.slice(0, 1);
+  }
+  store.kitchen_pending_items = [];
+  store.kitchen_routing_defaults = [];
+}
+
+async function post(body: unknown, secret = "s3cret") {
+  const res = await POST(
+    new NextRequest("http://localhost/api/telegram/webhook", {
+      method: "POST",
+      headers: { "x-telegram-bot-api-secret-token": secret },
+      body: JSON.stringify(body),
+    })
+  );
+  await Promise.all(afterJobs.splice(0));
+  return res;
+}
+
+function msg(extra: Record<string, unknown>, id = ++nextId, from = COOK) {
+  return post({
+    message: {
+      message_id: id,
+      date: Math.floor(Date.now() / 1000),
+      from: { id: from, first_name: "Ana" },
+      chat: { id: CHAT, type: "private" },
+      ...extra,
+    },
+  });
+}
+
+let cbn = 0;
+function tap(
+  data: string,
+  o: { from?: number; chat?: number; qid?: number } = {}
+) {
+  return post({
+    callback_query: {
+      id: `cb-${++cbn}`,
+      from: { id: o.from ?? COOK },
+      message: {
+        message_id: o.qid ?? 77,
+        chat: { id: o.chat ?? CHAT, type: "private" },
+      },
+      data,
+    },
+  });
+}
+
+const photo = (fileId = "FILE-SECRET-1", caption = "factura") => ({
+  photo: [{ file_id: fileId, width: 100, height: 100 }],
+  caption,
+});
+const lastSent = () => sent[sent.length - 1];
+const buttons = (m = lastSent()) =>
+  (m.markup?.inline_keyboard ?? []).map((row) => row[0]);
+const optionData = (i: number, m = lastSent()) => buttons(m)[i].callback_data;
+const invoices = () => store.supplier_invoices ?? [];
+const pendingRows = () => store.kitchen_pending_items ?? [];
+const logged = () => consoleCalls.join("\n");
+
+function goodExtraction() {
+  return {
+    ok: true,
+    extraction: {
+      supplier_name: "Proveedor Demo",
+      invoice_number: "A-1",
+      invoice_date: "2026-03-01",
+      due_date: null,
+      currency: null,
+      subtotal: null,
+      tax_amount: null,
+      total_amount: null,
+      confidence_notes: [],
+      lines: [
+        {
+          description: "Aguacate",
+          supplier_item_name: null,
+          supplier_sku: null,
+          quantity: 10,
+          unit: "lb",
+          unit_cost: 1.5,
+          line_total: 15,
+          tax_amount: null,
+        },
+      ],
+    },
+  };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.now());
+  seed();
+  afterJobs.length = 0;
+  sent.length = 0;
+  answers.length = 0;
+  edits.length = 0;
+  consoleCalls.length = 0;
+  transcript = "";
+  whisperFails = false;
+  resetOwnerChatGuidance();
+  resetRoutingState();
+  process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
+  process.env.OPENAI_API_KEY = "test-key";
+  ai.mockReset().mockResolvedValue(null);
+  intentAi.mockReset().mockResolvedValue(null);
+  extractInvoice.mockReset().mockResolvedValue(goodExtraction());
+  classify.mockReset().mockResolvedValue({
+    ok: true,
+    kind: "other",
+    confidence: "high",
+  });
+  extractRecipe.mockReset().mockResolvedValue({ ok: true, draftId: "d-1" });
+  for (const m of ["log", "info", "warn", "error"] as const) {
+    vi.spyOn(console, m).mockImplementation((...args: unknown[]) => {
+      consoleCalls.push(args.map(String).join(" "));
+    });
+  }
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+const unitAsk = (p: string) =>
+  `¿El precio de ${p} es por libra, onza o unidad?`;
+const questionRows = () =>
+  pendingRows().filter((r) => Number(r.telegram_message_id) <= -10_000_000_000);
+const NO_ACK = (m: { text: string }) => !m.text.includes("Recibido, gracias");
+const drafts = () => invoices().filter((i) => i.status === "needs_review");
+const lineUnits = () => (store.supplier_invoice_lines ?? []).map((l) => l.unit);
+
+describe("rules: typos, comma decimals, dollars", () => {
+  it("«Aguacate 1,50 la onzs» is a price update per onza", async () => {
+    await msg({ text: "Aguacate 1,50 la onzs" });
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain("aguacate $1.50 la onza");
+    expect(lastSent().text).not.toContain("Recibido, gracias");
+    expect(ai).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["aguacate a 1.50 la libra", "aguacate $1.50 la libra"],
+    ["el tomate subió a $0,80 la lb", "tomate $0.80 la libra"],
+    ["cebolla 2 dólares el kilo", "cebolla $2.00 el kilo"],
+  ])("%s", async (text, shown) => {
+    await msg({ text });
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain(shown);
+  });
+});
+
+describe("unit missing: ask once, save after the answer", () => {
+  it("«queso 3.25» asks, saves nothing; «libra» completes it with lb", async () => {
+    await msg({ text: "queso 3.25" });
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    expect(drafts()).toHaveLength(0);
+    expect(questionRows()).toHaveLength(1);
+    expect(questionRows()[0].option_staff_ids).toEqual(["st-demo"]);
+
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(1);
+    expect(lineUnits()).toEqual(["lb"]);
+    expect(lastSent().text).toContain("queso $3.25 la libra");
+    expect(sent.every(NO_ACK)).toBe(true);
+    expect(questionRows()[0].resolved_at).toBeTruthy();
+    expect(questionRows()[0].payload).toEqual({});
+  });
+
+  it("an unrelated message closes the question (PRICE_QUESTION_CLOSED) and is then answered normally", async () => {
+    await msg({ text: "queso 3.25" });
+    const before = sent.length;
+    await msg({ text: "gracias por todo" });
+    // The cook is told once that the price was left unsaved, then the
+    // message itself gets its own answer (AI down: the greeting copy).
+    expect(sent.length).toBe(before + 2);
+    expect(sent[before].text).toContain("Dejé sin guardar el precio de queso");
+    expect(lastSent().text).toContain("Estoy aquí para anotar");
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(0);
+  });
+
+  it("an answer after 15 minutes does nothing", async () => {
+    await msg({ text: "queso 3.25" });
+    vi.setSystemTime(Date.now() + 16 * MIN);
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(0);
+    expect(sent.filter((s) => s.text.includes("Anoté"))).toHaveLength(0);
+  });
+
+  it("an expired question never says «no guardé lo que mandaste»", async () => {
+    await msg({ text: "queso 3.25" });
+    vi.setSystemTime(Date.now() + 16 * MIN);
+    await msg({ text: "gracias" });
+    expect(sent.some((s) => s.text === KITCHEN_COPY.ROUTING_EXPIRED)).toBe(
+      false
+    );
+  });
+
+  it("a webhook retry asks once and answers once", async () => {
+    await msg({ text: "queso 3.25" }, 500);
+    await msg({ text: "queso 3.25" }, 500);
+    expect(sent.filter((s) => s.text === unitAsk("queso"))).toHaveLength(1);
+    expect(questionRows()).toHaveLength(1);
+    await msg({ text: "libra" }, 501);
+    await msg({ text: "libra" }, 501);
+    expect(drafts()).toHaveLength(1);
+    expect(sent.every(NO_ACK)).toBe(true);
+  });
+
+  it("two prices without unit are asked together and share the answer", async () => {
+    await msg({ text: "queso 3.25 y jamón 4.10" });
+    expect(lastSent().text).toBe(unitAsk("queso y jamón"));
+    await msg({ text: "por kilo" });
+    expect(lineUnits()).toEqual(["kg", "kg"]);
+  });
+});
+
+describe("voice goes through the same pipeline", () => {
+  it("«un dólar cincuenta la libra» is 1.50 per lb and only the length is logged", async () => {
+    transcript = "el aguacate ahora está a un dólar cincuenta la libra";
+    await msg({ voice: { file_id: "VOICE-SECRET", duration: 3 } });
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain("aguacate $1.50 la libra");
+    expect(logged()).toContain(`transcript_len=${transcript.length}`);
+    expect(logged()).not.toContain("aguacate");
+    expect(logged()).not.toContain("VOICE-SECRET");
+  });
+
+  it("a voice price without unit asks the unit too", async () => {
+    transcript = "el queso a 3.25";
+    await msg({ voice: { file_id: "V", duration: 3 } });
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    expect(drafts()).toHaveLength(0);
+  });
+});
+
+describe("AI fallback", () => {
+  const text = "el aguacate (1,5) la libra";
+
+  it("accepted when the price is in the text", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: "libra",
+          currency: null,
+          said: "(1,5) la libra",
+        },
+      ],
+    });
+    await msg({ text });
+    expect(ai).toHaveBeenCalledTimes(1);
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain("aguacate $1.50 la libra");
+  });
+
+  it("a price that is not in the text is dropped", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "aguacate",
+          price: 9.99,
+          unit: "libra",
+          currency: null,
+          said: "(1,5) la libra",
+        },
+      ],
+    });
+    await msg({ text });
+    expect(drafts()).toHaveLength(0);
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+  });
+
+  it("unit null asks the unit question", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: null,
+          currency: null,
+          said: "(1,5)",
+        },
+      ],
+    });
+    await msg({ text: "el aguacate (1,5)" });
+    expect(lastSent().text).toBe(unitAsk("aguacate"));
+    expect(drafts()).toHaveLength(0);
+    await msg({ text: "onza" });
+    expect(lineUnits()).toEqual(["oz"]);
+  });
+
+  it("an invented unit asks instead of saving", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "aguacate",
+          price: 1.5,
+          unit: "libra",
+          currency: null,
+          said: "(1,5)",
+        },
+      ],
+    });
+    await msg({ text: "el aguacate (1,5)" });
+    expect(lastSent().text).toBe(unitAsk("aguacate"));
+  });
+
+  it("an AI error sends PRICE_UPDATE_FAILED, never a thank-you", async () => {
+    ai.mockRejectedValue(new Error("boom"));
+    await msg({ text });
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    expect(lastSent().text).toContain("No pude leer los precios ahora");
+    expect(drafts()).toHaveLength(0);
+  });
+
+  it("a timeout (null) is the same", async () => {
+    ai.mockResolvedValue(null);
+    await msg({ text });
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+  });
+});
+
+describe("«Recibido, gracias» only for messages that are not a price", () => {
+  it("no number: the AI interpreter answers it, never a bare «Recibido»", async () => {
+    intentAi.mockResolvedValue({
+      intent: "greeting_or_smalltalk",
+      items: [],
+      clarify_question: null,
+    });
+    await msg({ text: "gracias por todo" });
+    expect(intentAi).toHaveBeenCalledTimes(1);
+    expect(lastSent().text).toContain("Estoy aquí para anotar");
+    expect(lastSent().text).not.toContain("Recibido, gracias");
+    expect(ai).not.toHaveBeenCalled();
+  });
+
+  it("reports with numbers stay reports", async () => {
+    for (const t of [
+      "quedan 3 porciones",
+      "llegaron 5 cajas de tomate",
+      "86 el aguacate",
+      "1 hamburguesa",
+      "nos vemos a las 3:30",
+    ]) {
+      sent.length = 0;
+      await msg({ text: t });
+      expect(sent.length).toBe(1);
+      expect(sent[0].text).not.toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    }
+    expect(drafts()).toHaveLength(0);
+  });
+
+  it.each([
+    "Aguacate 1,50 la onzs!!",
+    "aguacate 1.5 x lbra",
+    "tomate a 0,80 la libr",
+    "el aguacate cuesta 1,5 la libra pero no se cuanto",
+    "cebolla $1.2 el kilgramo",
+    "pollo 2,5 la libbra",
+  ])("%s is never a thank-you", async (t) => {
+    await msg({ text: t });
+    expect(sent.every(NO_ACK)).toBe(true);
+  });
+});
+
+describe("two restaurants", () => {
+  beforeEach(() => seed(2));
+
+  it("parks first (nothing parsed or written), then the replay uses the new parser", async () => {
+    await msg({ text: "Aguacate 1,50 la onzs" });
+    expect(lastSent().text).toBe(KITCHEN_COPY.ROUTING_ASK);
+    expect(drafts()).toHaveLength(0);
+    expect(ai).not.toHaveBeenCalled();
+    await tap(optionData(1));
+    expect(drafts()).toHaveLength(1);
+    expect(drafts()[0].company_id).toBe("co-stage");
+    expect(lastSent().text).toContain("aguacate $1.50 la onza");
+  });
+
+  it("the unit question belongs to the chosen restaurant and its answer saves there", async () => {
+    await msg({ text: "queso 3.25" });
+    await tap(optionData(1));
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    expect(drafts()).toHaveLength(0);
+    expect(questionRows()[0].option_staff_ids).toEqual(["st-stage"]);
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(1);
+    expect(drafts()[0].company_id).toBe("co-stage");
+  });
+
+  it("an expired unit question is closed silently, no expiry notice", async () => {
+    await msg({ text: "queso 3.25" });
+    await tap(optionData(0));
+    vi.setSystemTime(Date.now() + 16 * MIN);
+    sent.length = 0;
+    await msg({ text: "se acabó el aguacate" });
+    expect(sent.some((s) => s.text === KITCHEN_COPY.ROUTING_EXPIRED)).toBe(
+      false
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Item by item: spoken numbers, partial success, one combined reply
+// ---------------------------------------------------------------------------
+
+const voice = (t: string, id?: number) => {
+  transcript = t;
+  return msg({ voice: { file_id: "VOICE-SECRET", duration: 5 } }, id);
+};
+const lines = () => store.supplier_invoice_lines ?? [];
+const lineSummary = () =>
+  lines().map((l) => `${l.description}|${l.unit_cost}|${l.unit}`);
+const NOTHING_LOST = (m: { text: string }) =>
+  !m.text.includes("Recibido, gracias");
+
+describe("voice: spoken prices become drafts", () => {
+  it("«Aguacate a uno cincuenta la onza.» is aguacate $1.50 per oz, not «Recibido»", async () => {
+    await voice("Aguacate a uno cincuenta la onza.");
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|1.5|oz"]);
+    expect(lastSent().text).toContain("aguacate $1.50 la onza");
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+    expect(ai).not.toHaveBeenCalled();
+  });
+
+  it("«Aguacate a uno cincuenta.» asks the unit of aguacate", async () => {
+    await voice("Aguacate a uno cincuenta.");
+    expect(lastSent().text).toBe(unitAsk("aguacate"));
+    expect(drafts()).toHaveLength(0);
+    await msg({ text: "onza" });
+    expect(lineSummary()).toEqual(["aguacate|1.5|oz"]);
+  });
+
+  it.each([
+    ["Aguacate, uno con cincuenta la libra.", "lb"],
+    ["el aguacate a un dólar con cincuenta la onza", "oz"],
+    ["Aguacate a 1 con 50 la onza.", "oz"],
+    ["aguacate 1,50 la onza", "oz"],
+    ["Aguacate a uno cincuenta (la onza)", "oz"],
+  ])("%s -> $1.50 draft", async (t, unit) => {
+    await voice(t);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([`aguacate|1.5|${unit}`]);
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+  });
+
+  it("«Aguacate a 150 la onza.» never saves 150 by itself: it asks «¿$1.50 o $150?» and keeps the question open", async () => {
+    await voice("Aguacate a 150 la onza.");
+    expect(drafts()).toHaveLength(0);
+    expect(lines()).toHaveLength(0);
+    expect(lastSent().text).toBe(
+      "¿El aguacate está a $1.50 o a $150? Responde 1.50 o 150."
+    );
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+    expect(questionRows()).toHaveLength(1);
+  });
+
+  it("quantity talk with numbers is never a price and never a bare «Recibido» (AI interpreter, not the price AI)", async () => {
+    for (const t of [
+      "quedan tres porciones",
+      "llegaron 5 cajas de tomate",
+      "Se usan 2 libras de masa para las pupusas.",
+      "1 hamburguesa",
+    ]) {
+      sent.length = 0;
+      await voice(t);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].text).not.toContain("Recibido, gracias");
+    }
+    expect(drafts()).toHaveLength(0);
+    expect(ai).not.toHaveBeenCalled();
+    expect(intentAi).toHaveBeenCalled();
+  });
+
+  it("a long note: ten ingredients, one without a price, all the others saved", async () => {
+    await voice(
+      "Precios de hoy. Harina, uno veinticinco la libra. Chicharrón, tres cincuenta la libra. Quesillo, cuatro dólares la libra. Aguacate a uno con cincuenta la onza. Tomate, 80 centavos la libra. Cebolla a 75 centavos la libra. Aceite a dos cincuenta el litro. Sal a cinco centavos la onza. Queso a 4.25 la libra. El agua tibia no tiene precio."
+    );
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([
+      "harina|1.25|lb",
+      "chicharrón|3.5|lb",
+      "quesillo|4|lb",
+      "aguacate|1.5|oz",
+      "tomate|0.8|lb",
+      "cebolla|0.75|lb",
+      "aceite|2.5|litro",
+      "sal|0.05|oz",
+      "queso|4.25|lb",
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).not.toContain("tibia");
+    expect(lastSent().text).not.toContain("No entendí");
+    expect(ai).not.toHaveBeenCalled();
+  });
+});
+
+describe("one message, several prices: partial success, ONE reply", () => {
+  const list =
+    "Precios para las pupusas revueltas. Masa de maíz a 75 centavos la libra, chicharrón a tres cincuenta la libra, quesillo a 4.25 la libra, frijoles a 1.20, aceite a 2.50 el litro. El agua tibia no tiene precio.";
+
+  const check = async () => {
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual([
+      "masa de maíz|0.75|lb",
+      "chicharrón|3.5|lb",
+      "quesillo|4.25|lb",
+      "aceite|2.5|litro",
+    ]);
+    expect(lines().some((l) => Number(l.unit_cost) === 0)).toBe(false);
+    expect(sent).toHaveLength(1);
+    const reply = lastSent().text;
+    expect(reply).toContain("Anoté en Demo Resto:");
+    expect(reply).toContain("masa de maíz $0.75 la libra");
+    expect(reply).toContain("aceite $2.50 el litro");
+    expect(reply).toContain(unitAsk("frijoles"));
+    expect(reply).not.toContain("tibia");
+    expect(reply).not.toContain("$0.00");
+    expect(questionRows()).toHaveLength(1);
+    // The answer saves only the item that was asked about.
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(2);
+    expect(lineSummary().slice(4)).toEqual(["frijoles|1.2|lb"]);
+    expect(ai).not.toHaveBeenCalled();
+  };
+
+  it("voice, with commas", async () => {
+    await voice(list);
+    await check();
+  });
+
+  it("text, with commas", async () => {
+    await msg({ text: list });
+    await check();
+  });
+
+  it("same text split by periods only", async () => {
+    await msg({ text: list.replace(/, /g, ". ") });
+    await check();
+  });
+
+  it("twelve items in one note: all twelve saved", async () => {
+    const names =
+      "ajo apio arroz azúcar café canela chile harina leche maíz nuez orégano".split(
+        " "
+      );
+    await msg({ text: names.map((n) => `${n} a 1.10 la libra`).join(", ") });
+    expect(drafts()).toHaveLength(1);
+    expect(lines()).toHaveLength(12);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("over the limit: 25 saved and the rest is named, never silently dropped", async () => {
+    const names = Array.from(
+      { length: 28 },
+      (_, i) =>
+        `prod${"abcdefghijklmnopqrstuvwxyz"[i % 26]}${i > 25 ? "z" : ""}`
+    );
+    await msg({ text: names.map((n) => `${n} a 1.10 la libra`).join(", ") });
+    expect(lines()).toHaveLength(25);
+    expect(lastSent().text).toContain("Procesé los primeros 25 precios");
+    expect(lastSent().text).toContain(names[27]);
+  });
+
+  it("mixed unit / no unit: the ones with a unit are saved, only the others are asked", async () => {
+    await msg({ text: "tomate 0.80 la libra y cebolla $0.45" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("tomate $0.80 la libra");
+    expect(lastSent().text).toContain(unitAsk("cebolla"));
+    await msg({ text: "kilo" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+  });
+
+  it("an unreadable item is named, the rest is saved", async () => {
+    await msg({
+      text: "tomate 0.80 la libra, sal (1,5) la libr, cebolla 0.45 el kilo",
+    });
+    // AI mocked to null: «sal» stays unread.
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("No entendí: sal");
+  });
+});
+
+describe("AI fallback is per item and strict", () => {
+  const text =
+    "masa (0,75) la libra, tomate a 0.80 la libra, sal (0,10) la libra";
+
+  it("a price that cannot be traced to the text: only that item is not understood", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "(0,75) la libra",
+        },
+        {
+          product: "sal",
+          price: 9.99,
+          unit: "libra",
+          currency: null,
+          said: "(0,10) la libra",
+        },
+      ],
+    });
+    await msg({ text });
+    expect(ai).toHaveBeenCalledTimes(1);
+    expect(
+      lines()
+        .map((l) => l.description)
+        .sort()
+    ).toEqual(["masa", "tomate"]);
+    expect(lines()).toHaveLength(2);
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toContain("No entendí: sal");
+    expect(lastSent().text).not.toContain("masa,");
+  });
+
+  it("«masa de maíz» from the AI is saved with the transcript's word: «masa»", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa de maíz",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "(0,75) la libra",
+        },
+      ],
+    });
+    await msg({ text: "masa (0,75) la libra, tomate a 0.80 la libra" });
+    expect(
+      lines()
+        .map((l) => l.description)
+        .sort()
+    ).toEqual(["masa", "tomate"]);
+  });
+
+  it("a `said` that is not in the transcript drops the item", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 0.75,
+          unit: "libra",
+          currency: null,
+          said: "a setenta y cinco la libra",
+        },
+      ],
+    });
+    await msg({ text: "masa (0,75) la libra, tomate a 0.80 la libra" });
+    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
+    expect(lastSent().text).toContain("No entendí: masa");
+  });
+
+  it("the AI cannot turn a quantity into a price", async () => {
+    ai.mockResolvedValue({
+      items: [
+        {
+          product: "masa",
+          price: 2,
+          unit: "libra",
+          currency: null,
+          said: "2 libras",
+        },
+      ],
+    });
+    await msg({
+      text: "tomate a 0.80 la libra, usé 2 libras de masa (0,75) la libra",
+    });
+    expect(lines().map((l) => l.description)).not.toContain("masa");
+  });
+
+  it("the AI is not called when the rules read everything", async () => {
+    await msg({ text: "tomate 0.80 la libra, cebolla 0.45 el kilo" });
+    expect(ai).not.toHaveBeenCalled();
+  });
+});
+
+describe("voice that could not be heard", () => {
+  it("Whisper failure: «No pude escuchar el audio», never «Recibido»", async () => {
+    whisperFails = true;
+    await voice("lo que sea");
+    expect(sent).toHaveLength(1);
+    expect(lastSent().text).toBe(KITCHEN_COPY.VOICE_UNREADABLE);
+    expect(lastSent().text).toBe(
+      "No pude escuchar el audio. Mándalo otra vez o escríbelo."
+    );
+    expect(logged()).toContain("route=transcribe_failed");
+  });
+
+  it("an empty transcript is the same", async () => {
+    await voice("   ");
+    expect(lastSent().text).toBe(KITCHEN_COPY.VOICE_UNREADABLE);
+  });
+});
+
+describe("logs: ids and counts only", () => {
+  it("voice logs transcript_len, route and counts, never the words", async () => {
+    const t = "Aguacate a uno cincuenta la onza. Frijoles a 1.20.";
+    await voice(t);
+    const log = logged();
+    expect(log).toContain(`transcript_len=${t.length}`);
+    expect(log).toContain("route=price_partial");
+    expect(log).toContain("items_saved=1");
+    expect(log).toContain("items_unit_asked=1");
+    expect(log).toContain("items_unclear=0");
+    expect(log).toContain("items_skipped_no_price=0");
+    expect(log).toContain("ai_called=false");
+    expect(log).not.toMatch(/aguacate|frijoles|cincuenta|VOICE-SECRET/i);
+  });
+
+  it("text logs text_len and route", async () => {
+    const t = "tomate 0.80 la libra, sal (1,5) la libr";
+    await msg({ text: t });
+    const log = logged();
+    expect(log).toContain(`text_len=${t.length}`);
+    expect(log).toContain("route=price_partial");
+    expect(log).toContain("items_unclear=1");
+    expect(log).toContain("ai_called=true");
+    expect(log).not.toMatch(/tomate|sal \(/i);
+  });
+
+  it("a message the AI interpreter answers is logged as route=ai_handled", async () => {
+    await msg({ text: "gracias por todo" });
+    expect(logged()).toContain("route=ai_handled");
+    expect(logged()).not.toContain("gracias por todo");
+  });
+});
+
+describe("AI price fallback error handling (S1)", () => {
+  it("sends PRICE_UPDATE_FAILED when AI throws, never silence", async () => {
+    // Mock AI to throw
+    ai.mockRejectedValue(new Error("timeout"));
+    // Use a message format that rules can't parse (parentheses) so AI is called
+    const t = "el aguacate (1,5) la libra";
+    await msg({ text: t });
+    // Flush after jobs to ensure async error handling completes
+    await Promise.all(afterJobs.splice(0));
+    // The fallback message should be sent when AI fails
+    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    expect(lastSent().text).toContain("No pude leer los precios ahora");
+  });
+
+  it("fallback message never sent for non-price messages", async () => {
+    ai.mockRejectedValue(new Error("timeout"));
+    await msg({ text: "gracias" }); // no price intent
+    await Promise.all(afterJobs.splice(0));
+    expect(
+      sent.every((s) => !s.text.includes("No pude leer los precios"))
+    ).toBe(true);
+  });
+});
+
+describe("unit answer confirmation with markup (M1)", () => {
+  it("keeps «Cambiar restaurante» button after unit answer for multi-restaurant cooks", async () => {
+    seed(2); // Two restaurants for multi-restaurant scenario
+    await msg({ text: "queso 3.25" });
+    // Select a restaurant first (tap button 0)
+    await tap(optionData(0));
+    // Now the unit question should be asked
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    // Answer the unit question
+    await msg({ text: "libra" });
+    // Check that the confirmation has markup (Cambiar restaurante button)
+    const confirmations = sent.filter((s) => s.text.includes("queso"));
+    expect(confirmations.length).toBeGreaterThan(0);
+    const confirmation = confirmations[confirmations.length - 1];
+    expect(confirmation.markup).toBeDefined();
+    expect(confirmation.markup?.inline_keyboard).toBeDefined();
+    expect(confirmation.markup?.inline_keyboard.length).toBeGreaterThan(0);
+  });
+
+  it("no markup for single-restaurant cooks", async () => {
+    seed(1); // Single restaurant
+    await msg({ text: "queso 3.25" });
+    // Should ask unit question directly (no routing for single restaurant)
+    expect(lastSent().text).toBe(unitAsk("queso"));
+    // Answer the unit question
+    await msg({ text: "libra" });
+    // Check that the confirmation has no markup
+    const confirmations = sent.filter((s) => s.text.includes("queso"));
+    expect(confirmations.length).toBeGreaterThan(0);
+    const confirmation = confirmations[confirmations.length - 1];
+    expect(confirmation.markup).toBeUndefined();
+  });
+});

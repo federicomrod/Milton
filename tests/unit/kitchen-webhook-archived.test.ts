@@ -27,6 +27,19 @@ vi.mock("@/lib/restaurant/telegram/send", () => ({
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => makeFakeDb(store),
 }));
+vi.mock("@/lib/restaurant/telegram/kitchen-links", () => ({
+  listActiveLinks: async () => [
+    {
+      staffId: "st-1",
+      companyId: "co-1",
+      companyName: "Demo Resto",
+      locationId: "loc-1",
+      locationName: "Local",
+      telegramUserId: 9,
+    },
+  ],
+  validateLink: async () => null,
+}));
 vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -34,12 +47,6 @@ vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
     >();
   return {
     ...actual,
-    findActiveKitchenStaff: async () => ({
-      id: "st-1",
-      company_id: "co-1",
-      location_id: "loc-1",
-      location_name: "Local",
-    }),
     recordKitchenReport: async () => true,
   };
 });

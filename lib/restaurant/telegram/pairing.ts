@@ -105,7 +105,7 @@ export async function createPairingCode(
 
   const { data: existing, error: lookupError } = await admin
     .from("restaurant_telegram_connections")
-    .select("id")
+    .select("id, is_active")
     .eq("company_id", companyId)
     .maybeSingle();
   if (lookupError) {
@@ -113,7 +113,9 @@ export async function createPairingCode(
       `Could not check existing Telegram connection: ${lookupError.message}`
     );
   }
-  if (existing?.id) {
+  // Only an ACTIVE connection blocks a new code; an inactive row is
+  // reactivated by consumePairingCode().
+  if (existing?.id && existing.is_active === true) {
     return { ok: false, reason: "already_connected" };
   }
 
@@ -176,7 +178,7 @@ export async function consumePairingCode(
 
   const { data: companyConn, error: companyLookupError } = await admin
     .from("restaurant_telegram_connections")
-    .select("id")
+    .select("id, is_active")
     .eq("company_id", companyId)
     .maybeSingle();
   if (companyLookupError) {
@@ -188,8 +190,11 @@ export async function consumePairingCode(
   // Only fetch the chat-side row when the company side is still free —
   // evaluateConnectionConflict() checks company first either way, so a
   // company conflict never needs the chat query at all.
+  const companyActive = !!companyConn?.id && companyConn.is_active === true;
+  const inactiveOwnRowId =
+    companyConn?.id && !companyActive ? (companyConn.id as string) : null;
   let chatConn: { id: string } | null = null;
-  if (!companyConn?.id) {
+  if (!companyActive) {
     const { data, error: chatLookupError } = await admin
       .from("restaurant_telegram_connections")
       .select("id")
@@ -200,21 +205,42 @@ export async function consumePairingCode(
         `Could not check chat connection: ${chatLookupError.message}`
       );
     }
-    chatConn = data;
+    // The company's own inactive row holding this same chat is not a conflict.
+    chatConn = data && data.id === inactiveOwnRowId ? null : data;
   }
 
-  const conflict = evaluateConnectionConflict(companyConn, chatConn);
+  const conflict = evaluateConnectionConflict(
+    companyActive && companyConn ? { id: companyConn.id as string } : null,
+    chatConn
+  );
   if (conflict) {
     return { ok: false, reason: conflict };
   }
 
-  const { error: insertError } = await admin
-    .from("restaurant_telegram_connections")
-    .insert({ company_id: companyId, chat_id: chatId });
-  if (insertError) {
-    throw new Error(
-      `Could not create Telegram connection: ${insertError.message}`
-    );
+  if (inactiveOwnRowId) {
+    // Reconnect: reuse the company's own (inactive) row.
+    const { error: updateError } = await admin
+      .from("restaurant_telegram_connections")
+      .update({
+        chat_id: chatId,
+        is_active: true,
+        connected_at: new Date().toISOString(),
+      })
+      .eq("id", inactiveOwnRowId);
+    if (updateError) {
+      throw new Error(
+        `Could not reactivate Telegram connection: ${updateError.message}`
+      );
+    }
+  } else {
+    const { error: insertError } = await admin
+      .from("restaurant_telegram_connections")
+      .insert({ company_id: companyId, chat_id: chatId });
+    if (insertError) {
+      throw new Error(
+        `Could not create Telegram connection: ${insertError.message}`
+      );
+    }
   }
 
   const { error: consumeError } = await admin

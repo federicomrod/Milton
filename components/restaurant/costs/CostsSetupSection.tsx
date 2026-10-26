@@ -4,7 +4,7 @@
 // Menú › Resumen's setup block; the components are the SAME ones, only their
 // route changed: the checklist, the cost file (PriceCatalogPanel: chips,
 // «Recetas de tu archivo» with Deshacer lote, «Costos por decidir»), the menu
-// reader (folded) and «Empezar de nuevo». Their endpoints and handlers are
+// reader (now a card on Menú › Resumen, linked from here) and «Empezar de nuevo». Their endpoints and handlers are
 // unchanged (upload → prepare the dishes, undo a batch, reset). Layout: the page
 // shows the KPIs and the tabs first; while setup is incomplete this block is ONE
 // compact row («Configura tus costos · 1 de 4 · Siguiente: …» + the next-step
@@ -33,48 +33,26 @@ import {
   loadTab,
   markTabsStale,
   menuTabKey,
-  putTab,
+  refreshTab,
 } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
+import { ageLabel, fetchSetup } from "@/lib/restaurant/costs-setup-client";
 import {
   PrepareError,
   prepareDishesFromUpload,
   prepareFailure,
   prepareNotice,
 } from "@/lib/restaurant/recipe-costing/prepare-from-upload";
-import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
 import {
   PriceCatalogPanel,
   type PriceCatalogPanelHandle,
 } from "@/components/restaurant/recipes-costing/PriceCatalogPanel";
 import {
   COSTS_FILE_ANCHOR,
+  COSTS_SETUP_REFRESH_EVENT,
   OPEN_COSTS_PICKER_EVENT,
 } from "@/lib/restaurant/costs-picker";
+import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
-
-async function fetchSetup(
-  locationId: string | null
-): Promise<RecipeCostingWorkspace | null> {
-  const q = new URLSearchParams({ vista: "resumen" });
-  if (locationId) q.set("location_id", locationId);
-  const res = await fetch(`/api/restaurant/recipes/costing?${q.toString()}`);
-  return res.ok ? ((await res.json()) as RecipeCostingWorkspace) : null;
-}
-
-export function ageLabel(
-  createdAt: string | null | undefined,
-  now: number
-): string | null {
-  if (!createdAt) return null;
-  const t = Date.parse(createdAt);
-  if (Number.isNaN(t)) return null;
-  const days = Math.max(0, Math.floor((now - t) / 86_400_000));
-  return days === 0
-    ? "de hoy"
-    : days === 1
-      ? "de hace 1 día"
-      : `de hace ${days} días`;
-}
 
 /** localStorage key: the detail is open or closed, per company. */
 export function setupOpenKey(companyId: string | null | undefined): string {
@@ -96,21 +74,53 @@ function readOpen(
   }
 }
 
+/** localStorage key: the person hid the setup line («Ocultar»), per company. */
+export function setupDismissedKey(
+  companyId: string | null | undefined
+): string {
+  return `milton:costos:configuracion-oculta:${companyId ?? "sin-empresa"}`;
+}
+
+function readDismissed(companyId: string | null | undefined): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(setupDismissedKey(companyId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Menú › Resumen, at the «Lee tu menú y estima costos» card. */
+export const READ_MENU_HREF = `${menuResumenHref()}#leer-menu`;
+
 /** The banner text for the next step: «completar 42 precios» → «Completar 42 precios». */
 export function nextStepText(action: string): string {
   const text = action.replace(/^Continuar:\s*/i, "").trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
+function notifySetupRefresh() {
+  window.dispatchEvent(new CustomEvent(COSTS_SETUP_REFRESH_EVENT));
+}
+
 export function CostsSetupSection({
   locationId,
   companyId = null,
   startOpen = false,
+  embeddedInWorkspace = false,
+  onWorkInProgress,
+  onBusyChange,
 }: {
   locationId: string | null;
   companyId?: string | null;
   /** An account with no data yet: the setup IS the next step, so it starts open (unless the person closed it). */
   startOpen?: boolean;
+  /** Mounted inside CostsFileWorkspace: always show the file card, never hide it. */
+  embeddedInWorkspace?: boolean;
+  /** Callback when work is in progress (file uploaded, import pending, reset open). */
+  onWorkInProgress?: (inProgress: boolean) => void;
+  /** Callback when busy state changes. */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const key = menuTabKey("resumen", { location: locationId });
@@ -134,6 +144,19 @@ export function CostsSetupSection({
       // private mode: it simply is not remembered
     }
   };
+  // «Ocultar»: the incomplete setup folds to the one-line summary (per company).
+  const [dismissed, setDismissedState] = useState(() =>
+    readDismissed(companyId)
+  );
+  const setDismissed = (next: boolean) => {
+    setDismissedState(next);
+    try {
+      if (next) window.localStorage.setItem(setupDismissedKey(companyId), "1");
+      else window.localStorage.removeItem(setupDismissedKey(companyId));
+    } catch {
+      // private mode: it simply is not remembered
+    }
+  };
   const panelRef = useRef<PriceCatalogPanelHandle>(null);
   // Dishes waiting for «2. Importar recetas» (set by the file card once prices are saved).
   const [importPending, setImportPending] = useState<number | null>(null);
@@ -147,11 +170,10 @@ export function CostsSetupSection({
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    const json = await fetchSetup(locationId);
-    if (json) {
-      setData(json);
-      putTab(key, json);
-    }
+    // One shared request with the other Costos hosts that hear the refresh
+    // event; the answer is cached by refreshTab.
+    const json = await refreshTab(key, () => fetchSetup(locationId));
+    if (json) setData(json);
     return json;
   }, [locationId, key]);
 
@@ -199,6 +221,27 @@ export function CostsSetupSection({
     return () => clearTimeout(id);
   }, [data !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Notify parent about work in progress
+  useEffect(() => {
+    const hasWork =
+      importPending !== null ||
+      busy ||
+      resetOpen ||
+      !!data?.upload_draft_pending;
+    onWorkInProgress?.(hasWork);
+  }, [
+    importPending,
+    busy,
+    resetOpen,
+    data?.upload_draft_pending,
+    onWorkInProgress,
+  ]);
+
+  // Notify parent about busy state
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
+
   if (!data) {
     return failed ? (
       <div
@@ -243,7 +286,9 @@ export function CostsSetupSection({
       );
     } finally {
       markTabsStale();
-      await reload().catch(() => undefined);
+      const reloading = reload().catch(() => undefined);
+      notifySetupRefresh();
+      await reloading;
       setBusy(false);
       setProgress(null);
       router.refresh();
@@ -254,6 +299,7 @@ export function CostsSetupSection({
   const onPricesSaved = () => {
     markTabsStale();
     void reload().catch(() => undefined);
+    notifySetupRefresh();
     router.refresh();
   };
   const goToImport = () => {
@@ -270,6 +316,7 @@ export function CostsSetupSection({
     markTabsStale();
     setEpoch((n) => n + 1);
     void reload().catch(() => undefined);
+    notifySetupRefresh();
     router.refresh();
   };
   const onUndoBatch = async (batchIds: string[]) => {
@@ -309,10 +356,14 @@ export function CostsSetupSection({
     : setup.next;
   const goToFile = () => {
     // The file card lives in the detail: open it, scroll to it and open the
-    // picker in this same click (the panel stays mounted, hidden, for that).
-    if (!setup.complete) setDetail(true);
-    else if (!expanded) setExpanded(true);
-    panelRef.current?.openPicker();
+    // picker in this same click (the panel stays mounted for that).
+    if (!embeddedInWorkspace) {
+      if (!setup.complete) setDetail(true);
+      else if (!expanded) setExpanded(true);
+    }
+    const open = () => panelRef.current?.openPicker();
+    if (panelRef.current) open();
+    else requestAnimationFrame(open);
     setTimeout(
       () =>
         document
@@ -333,31 +384,151 @@ export function CostsSetupSection({
       onReset={() => setResetOpen(true)}
     />
   );
+  const filePanel = (
+    <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
+      <div className="mb-1 flex items-baseline">
+        <h2 className="text-[13px] font-semibold text-[#151c2c]">
+          Último archivo
+        </h2>
+        {more}
+        {data.latest_upload ? (
+          <span className="ml-auto truncate text-[12px] text-[#6b7280]">
+            {data.latest_upload.filename}
+          </span>
+        ) : (
+          <span className="ml-auto text-[12px] text-[#6b7280]">
+            Aún no subes uno
+          </span>
+        )}
+      </div>
+      <PriceCatalogPanel
+        ref={panelRef}
+        key={`upload-${epoch}`}
+        embedded
+        onUploaded={() => void onUploaded()}
+        onRecipesImported={onResetDone}
+        onPricesSaved={onPricesSaved}
+        onImportPending={setImportPending}
+        locationId={locationId}
+        busyExternal={busy}
+        canEditPrices={canEditPrices}
+      />
+      <p className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
+        <Link
+          href={READ_MENU_HREF}
+          className="font-semibold text-[#1b40c8] hover:underline"
+        >
+          Leer tu menú →
+        </Link>
+      </p>
+    </section>
+  );
+  const resetBlock =
+    resetOpen && data.reset ? (
+      <ResetPanel
+        key={`reset-${epoch}`}
+        reset={data.reset}
+        locationId={locationId}
+        initiallyOpen
+        onCancel={() => setResetOpen(false)}
+        onDone={() => {
+          setResetOpen(false);
+          onResetDone();
+        }}
+      />
+    ) : null;
+  if (embeddedInWorkspace) {
+    return (
+      <div className="space-y-3" data-testid="costs-setup">
+        {error ? (
+          <div
+            role="alert"
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        ) : null}
+        {progress ? (
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+            Preparando tus platos desde el archivo…{" "}
+            {progress.total
+              ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
+              : "empezando por los platos que más venden"}
+          </div>
+        ) : notice ? (
+          <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
+            {notice}
+          </div>
+        ) : null}
+        {filePanel}
+        {resetBlock}
+      </div>
+    );
+  }
   const age = ageLabel(data.latest_upload?.created_at, Date.now());
 
-  if (setup.complete && !expanded && !resetOpen) {
+  const foldedLine =
+    (setup.complete && !expanded) ||
+    (!setup.complete && dismissed && !detailOpen);
+  if (foldedLine && !resetOpen) {
     return (
       <section
-        className="flex flex-wrap items-center gap-2 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-2.5 text-[13px]"
+        className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-2.5 text-[13px]"
         data-testid="costs-setup-folded"
       >
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e7f6ee] text-[12px] font-bold text-[#1f9d55]">
-          ✓
-        </span>
-        <b>Costos configurados</b>
+        {setup.complete ? (
+          <>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e7f6ee] text-[12px] font-bold text-[#1f7a45]">
+              ✓
+            </span>
+            <b className="text-[#151c2c]">Costos configurados</b>
+          </>
+        ) : (
+          <b className="text-[#151c2c]">
+            Costos · {setup.done} de {setup.total} configurados
+          </b>
+        )}
         {data.latest_upload ? (
-          <span className="text-[#6b7385]">
+          <span className="text-[#4b5466]">
             · archivo {age ?? data.latest_upload.filename}
           </span>
         ) : null}
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="ml-auto font-semibold text-[#1b40c8] hover:underline"
-        >
-          Subir nuevo
-        </button>
-        {more}
+        <span className="ml-auto flex items-center gap-3">
+          <Link
+            href={READ_MENU_HREF}
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Leer tu menú →
+          </Link>
+          <button
+            type="button"
+            onClick={() =>
+              setup.complete ? setExpanded(true) : setDetail(true)
+            }
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Subir nuevo
+          </button>
+          {!setup.complete ? (
+            <button
+              type="button"
+              onClick={() => setDismissed(false)}
+              className="font-semibold text-[#1b40c8] hover:underline"
+            >
+              Mostrar
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() =>
+              setup.complete ? setExpanded(true) : setDetail(true)
+            }
+            className="font-semibold text-[#1b40c8] hover:underline"
+          >
+            Ver detalle ▸
+          </button>
+          {more}
+        </span>
       </section>
     );
   }
@@ -385,7 +556,7 @@ export function CostsSetupSection({
         </div>
       ) : null}
 
-      {!setup.complete ? (
+      {!setup.complete && !dismissed ? (
         <section
           className="flex min-h-[48px] max-h-[56px] flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden rounded-[14px] border border-[#dbe3f7] bg-[#f6f8fe] px-4 py-2 text-[13px]"
           data-testid="costs-setup-banner"
@@ -398,7 +569,13 @@ export function CostsSetupSection({
               · Siguiente: {nextStepText(next.action)}
             </span>
           ) : null}
-          <span className="ml-auto flex items-center gap-2">
+          <span className="ml-auto flex items-center gap-3">
+            <Link
+              href={READ_MENU_HREF}
+              className="whitespace-nowrap font-semibold text-[#1b40c8] hover:underline"
+            >
+              Leer tu menú →
+            </Link>
             {next ? (
               <NextStepButton step={next} onFile={onNext} compact />
             ) : null}
@@ -409,6 +586,13 @@ export function CostsSetupSection({
               className="font-semibold text-[#1b40c8] hover:underline"
             >
               Ver detalle {detailOpen ? "▾" : "▸"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissed(true)}
+              className="text-[13px] text-[#4b5466] hover:underline"
+            >
+              Ocultar
             </button>
             {more}
           </span>
@@ -429,14 +613,16 @@ export function CostsSetupSection({
         >
           <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
             <div className="flex items-center gap-2">
-              <h2 className="text-[13px] font-bold">
+              <h2 className="text-[13px] font-semibold text-[#151c2c]">
                 Configura tus costos · {setup.done} de {setup.total}
               </h2>
               {setup.complete ? more : null}
-              {setup.complete ? (
+              {setup.complete || dismissed ? (
                 <button
                   type="button"
-                  onClick={() => setExpanded(false)}
+                  onClick={() =>
+                    setup.complete ? setExpanded(false) : setDetail(false)
+                  }
                   className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
                 >
                   Plegar
@@ -458,66 +644,11 @@ export function CostsSetupSection({
             ) : null}
           </section>
 
-          <section
-            id={COSTS_FILE_ANCHOR}
-            className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5"
-          >
-            <div className="mb-1 flex items-baseline">
-              <h2 className="text-[13px] font-bold">Último archivo</h2>
-              {data.latest_upload ? (
-                <span className="ml-auto truncate text-[12px] text-[#8a92a3]">
-                  {data.latest_upload.filename}
-                </span>
-              ) : (
-                <span className="ml-auto text-[12px] text-[#8a92a3]">
-                  Aún no subes uno
-                </span>
-              )}
-            </div>
-            <PriceCatalogPanel
-              ref={panelRef}
-              key={`upload-${epoch}`}
-              embedded
-              onUploaded={() => void onUploaded()}
-              onRecipesImported={onResetDone}
-              onPricesSaved={onPricesSaved}
-              onImportPending={setImportPending}
-              locationId={locationId}
-              busyExternal={busy}
-              canEditPrices={canEditPrices}
-            />
-            <details className="mt-2 border-t border-[#f2f3f6] pt-2 text-[13px]">
-              <summary className="cursor-pointer text-[#4b5466]">
-                ▸ Leer tu menú web (opcional)
-              </summary>
-              <div className="mt-2">
-                <MenuReaderPanel
-                  key={`menu-${epoch}`}
-                  embedded
-                  canEdit={data.actor.can_submit}
-                  busyExternal={busy}
-                  locationId={locationId}
-                  onDone={onResetDone}
-                />
-              </div>
-            </details>
-          </section>
+          {filePanel}
         </div>
       }
 
-      {resetOpen && data.reset ? (
-        <ResetPanel
-          key={`reset-${epoch}`}
-          reset={data.reset}
-          locationId={locationId}
-          initiallyOpen
-          onCancel={() => setResetOpen(false)}
-          onDone={() => {
-            setResetOpen(false);
-            onResetDone();
-          }}
-        />
-      ) : null}
+      {resetBlock}
     </div>
   );
 }
@@ -566,7 +697,7 @@ function SetupRow({
           "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold " +
           (step.done
             ? "bg-[#e7f6ee] text-[#1f9d55]"
-            : "bg-[#eef0f4] text-[#6b7385]")
+            : "bg-[#eef0f4] text-[#4b5466]")
         }
       >
         {step.done ? "✓" : index + 1}
@@ -636,7 +767,7 @@ function MoreMenu({
               >
                 <span className="flex-1 truncate">{batch.filename}</span>
                 {batch.uploads > 1 ? (
-                  <span className="text-[12px] text-[#8a92a3]">
+                  <span className="text-[12px] text-[#6b7280]">
                     {batch.uploads} cargas
                   </span>
                 ) : null}

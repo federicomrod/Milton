@@ -6,7 +6,7 @@
 // (RecipeLinesEditor) and one primary button, "Aprobar".
 
 import { useCallback, useMemo, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +36,14 @@ import { primaryAction } from "@/lib/restaurant/recipe-costing/plato";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import type { EditorLine } from "@/lib/restaurant/recipe-costing/editor";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
+import {
+  ESTIMATE_BADGE,
+  estimateForProduct,
+  estimateText,
+  overlayAllowed,
+} from "@/components/restaurant/menu/estimate-overlay";
+import { EstimatePanel } from "./EstimatePanel";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
@@ -75,7 +83,13 @@ export function PlatoScreen({
   statusFilter = [],
   onFilter,
   onEditorState,
+  estimates = [],
+  onEstimateChanged,
 }: {
+  /** «Estimado por Milton»: muted overlay, only for a dish with no real cost. */
+  estimates?: DishEstimateRow[];
+  /** After «Usar como borrador»: re-read the estimates. */
+  onEstimateChanged?: () => void;
   data: RecipeCostingWorkspace;
   locationId: string | null;
   busy: boolean;
@@ -218,6 +232,8 @@ export function PlatoScreen({
           onConfirm={onConfirm}
           onOpenPreparation={onOpenPreparation}
           onEditorState={onEditorState}
+          estimates={estimates}
+          onEstimateChanged={onEstimateChanged}
         />
       ) : (
         <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] text-[13px] text-[#5b6476]">
@@ -239,7 +255,11 @@ function Dish({
   onConfirm,
   onOpenPreparation,
   onEditorState,
+  estimates,
+  onEstimateChanged,
 }: {
+  estimates: DishEstimateRow[];
+  onEstimateChanged?: () => void;
   data: RecipeCostingWorkspace;
   product: VincularProductRow;
   /** Null while the dish's editor view loads (the lines load meanwhile). */
@@ -339,6 +359,27 @@ function Dish({
         Traer receta del último archivo
       </button>
     ) : null;
+  // «Estimado por Milton»: shown apart, and only while the dish has no real
+  // cost, no approved / confirmed / Excel recipe.
+  const canEditRecipes =
+    data.actor.capabilities?.["recipes.edit"] ?? data.actor.can_submit;
+  const rawEstimate = estimateForProduct(estimates, product);
+  const estimate =
+    rawEstimate &&
+    takesRecipe &&
+    !product.confirmed &&
+    !(editor && editor.recipe_status !== "borrador" && hasRecipe) &&
+    overlayAllowed(rawEstimate, {
+      real_cost: dish?.unit_cost ?? null,
+      has_approved_version: dish?.has_approved_version,
+      link_confirmed: dish?.link_confirmed,
+      excel_total: dish?.excel_total ?? null,
+    })
+      ? rawEstimate
+      : null;
+  const estimateLine = estimate
+    ? estimateText(estimate, data.currency, dish?.avg_net_price ?? null)
+    : null;
   const missing = dish?.lines_missing_price ?? 0;
   const costTip = [editor?.variance_note, editor?.yield_note]
     .filter(Boolean)
@@ -363,6 +404,33 @@ function Dish({
               .filter(Boolean)
               .join(" · ")}
           </div>
+          {estimateLine ? (
+            <div
+              data-testid="header-estimate"
+              className="mt-1 inline-flex flex-wrap items-center gap-1.5 rounded-lg bg-[#D8D0F8]/40 px-2.5 py-1.5 text-[12px]"
+            >
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
+                <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
+                {ESTIMATE_BADGE}
+              </span>
+              <span>
+                {estimateLine.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
+                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                    <span
+                      key={i}
+                      className="font-semibold text-[var(--brand-blue)]"
+                    >
+                      {part}
+                    </span>
+                  ) : (
+                    <span key={i} className="text-[var(--brand-ink)]">
+                      {part}
+                    </span>
+                  )
+                )}
+              </span>
+            </div>
+          ) : null}
         </div>
         <TreatmentControl
           product={product}
@@ -540,6 +608,19 @@ function Dish({
               value={dish?.unit_margin != null ? money(dish.unit_margin) : "—"}
             />
           </div>
+          {estimate ? (
+            <EstimatePanel
+              estimate={estimate}
+              currency={data.currency}
+              canEdit={canEditRecipes}
+              busy={busy}
+              onUsed={() => {
+                setEditorKey((n) => n + 1);
+                onEdited();
+                onEstimateChanged?.();
+              }}
+            />
+          ) : null}
           {hasRecipe && bringButton ? (
             <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
               <span>
@@ -561,6 +642,7 @@ function Dish({
               key={editorKey}
               odooProductId={product.odoo_product_id}
               locationId={locationId}
+              currency={data.currency}
               portionCostLabel={editor?.portion_cost_label ?? null}
               onEdited={onEdited}
               onState={handleEditorState}

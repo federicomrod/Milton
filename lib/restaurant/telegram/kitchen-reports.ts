@@ -12,6 +12,7 @@
 // SECURITY: never logs message text, file ids or tokens.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { listActiveLinks } from "./kitchen-links";
 
 export type KitchenReportType = "running_out" | "86" | "waste" | "unclassified";
 
@@ -31,7 +32,9 @@ const WASTE_RE =
 const EIGHTY_SIX_RE =
   /\b86\b|se acab(?:o|aron)|(?<!casi )no (?:hay|queda)|agotad|nos quedamos sin|^\s*sin\s+\S+/;
 const RUNNING_OUT_RE =
-  /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|ultim[oa]s?/;
+  /queda(?:n)? poco|se esta acabando|casi no (?:hay|queda)|quedan para|\bultim[oa]s?\b(?!\s+(?:precios?|costos?|valor(?:es)?|pedidos?|facturas?|compras?|dias?|mes(?:es)?|semanas?|veces|vez|actualizacion(?:es)?|cambios?))/;
+// «último/a(s)» is running_out only as a whole word and not in «el último
+// precio / pedido / día…» (a price talk, not stock).
 
 function normalize(text: string): string {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -65,8 +68,38 @@ export interface TelegramVoice {
   file_size?: number;
 }
 
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id?: string;
+  mime_type?: string;
+  file_name?: string;
+  file_size?: number;
+}
+
+/** Image types sent «as a file» that are read like photos. PDFs are not. */
+export const IMAGE_DOCUMENT_MIMES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+] as const;
+
+export function isImageDocument(
+  doc: TelegramDocument | undefined | null
+): doc is TelegramDocument {
+  return (
+    !!doc &&
+    typeof doc.file_id === "string" &&
+    (IMAGE_DOCUMENT_MIMES as readonly string[]).includes(
+      (doc.mime_type ?? "").toLowerCase()
+    )
+  );
+}
+
 export interface TelegramIncomingMessage {
   message_id?: number;
+  /** Unix seconds when Telegram received the message. */
+  date?: number;
+  document?: TelegramDocument;
   text?: string;
   caption?: string;
   photo?: TelegramPhotoSize[];
@@ -97,7 +130,7 @@ function photoArea(p: TelegramPhotoSize): number {
 /**
  * Maps a Telegram message to a report. Photo -> largest PhotoSize, text =
  * caption. Voice -> file details, text = caption. Plain text -> text.
- * Anything else (sticker, document, video, location, empty) -> null.
+ * Image documents (jpeg/png/webp) count as photos. Anything else (sticker, PDF, video, location, empty) -> null.
  */
 export function extractReportFromMessage(
   message: TelegramIncomingMessage
@@ -133,6 +166,21 @@ export function extractReportFromMessage(
       telegram_file_unique_id: largest.file_unique_id ?? null,
       media_mime: "image/jpeg", // Telegram re-encodes photos as JPEG
       media_size_bytes: largest.file_size ?? null,
+    };
+  }
+
+  if (isImageDocument(message.document)) {
+    const d = message.document;
+    const text = cap(message.caption);
+    return {
+      ...base,
+      report_type: classifyKitchenReport(text),
+      text,
+      media_kind: "photo",
+      telegram_file_id: d.file_id,
+      telegram_file_unique_id: d.file_unique_id ?? null,
+      media_mime: (d.mime_type ?? "image/jpeg").toLowerCase(),
+      media_size_bytes: d.file_size ?? null,
     };
   }
 
@@ -202,35 +250,30 @@ export async function recordKitchenReport(input: {
 export interface ActiveKitchenStaff {
   id: string;
   company_id: string;
+  company_name: string;
   location_id: string;
   location_name: string;
 }
 
 /**
- * The cook's active kitchen_staff row (and their location's name), or null
- * for unknown or removed cooks. Service role; throws on DB errors.
+ * COMPATIBILITY WRAPPER. A Telegram account can now have several active
+ * links (kitchen-links.ts). This returns the single link when EXACTLY ONE
+ * is active, and null when there are none AND ALSO when there are several:
+ * callers that must handle several restaurants have to switch to
+ * listActiveLinks(telegramUserId) (then ask the cook, or use validateLink).
+ * Service role; throws on DB errors.
  */
 export async function findActiveKitchenStaff(
   telegramUserId: number
 ): Promise<ActiveKitchenStaff | null> {
-  const admin = createAdminClient();
-  const { data: staff, error } = await admin
-    .from("kitchen_staff")
-    .select("id, company_id, location_id")
-    .eq("telegram_user_id", telegramUserId)
-    .eq("is_active", true)
-    .maybeSingle();
-  if (error) throw new Error("staff lookup failed");
-  if (!staff) return null;
-  const { data: location } = await admin
-    .from("restaurant_locations")
-    .select("name")
-    .eq("id", staff.location_id)
-    .maybeSingle();
+  const links = await listActiveLinks(telegramUserId);
+  if (links.length !== 1) return null;
+  const l = links[0];
   return {
-    id: staff.id,
-    company_id: staff.company_id,
-    location_id: staff.location_id,
-    location_name: location?.name ?? "",
+    id: l.staffId,
+    company_id: l.companyId,
+    company_name: l.companyName,
+    location_id: l.locationId,
+    location_name: l.locationName,
   };
 }

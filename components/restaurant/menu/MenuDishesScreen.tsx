@@ -7,12 +7,15 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
+import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
   GROUP_COVERAGE_TIP,
   groupStatusDisplay,
 } from "@/lib/restaurant/costing/rollup";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Sparkles } from "lucide-react";
+import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
 import {
   useEventCallback,
@@ -34,8 +37,24 @@ import {
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { platosHref } from "@/lib/restaurant/menu-links";
+import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
+import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
+import {
+  ESTIMATE_BADGE,
+  ESTIMATE_BUTTON,
+  ESTIMATE_ROW_NEEDS_LINK,
+  ESTIMATE_USE_BUTTON,
+  ESTIMATE_USE_SUCCESS,
+  canUseEstimateAsDraft,
+  estimateSkipMessage,
+  estimateForProducts,
+  estimateText,
+  overlayAllowed,
+  canEditRecipes,
+} from "@/components/restaurant/menu/estimate-overlay";
+import { useToast } from "@/components/ui/use-toast";
+import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
 import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -131,7 +150,13 @@ export function MenuDishesScreen({
   data,
   onOpenDish,
   statusFilter = [],
+  estimates = [],
+  onEstimated,
 }: {
+  /** «Estimado por Milton»: muted overlay for dishes with no real cost. */
+  estimates?: DishEstimateRow[];
+  /** After a «Estimar con Milton» run: re-read the estimates. */
+  onEstimated?: () => void;
   data: RecipeCostingWorkspace;
   /** Open the dish's recipe (its base variant) in the editor. */
   onOpenDish: (odooProductId: number) => void;
@@ -248,6 +273,49 @@ export function MenuDishesScreen({
     // Variants stay under their dish: only the dishes are ordered.
     return sortRows(filtered, sort, dishValue);
   }, [dishes, excluded, showExcluded, statusFilter, sort]);
+
+  const canEstimateRows = canEditRecipes(data.actor);
+
+  // The estimate of each dish with NO real cost (never in the real columns).
+  const estimateOf = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        text: string;
+        menu_item_id: string;
+        usable: boolean;
+        line_count: number;
+      }
+    >();
+    if (estimates.length === 0) return map;
+    for (const dish of [...dishes, ...excluded]) {
+      if (dish.status === "excluded") continue;
+      const est = estimateForProducts(estimates, [
+        dish.base_odoo_product_id,
+        ...dish.variants.map((v) => v.odoo_product_id),
+      ]);
+      if (!est) continue;
+      if (
+        !overlayAllowed(est, {
+          real_cost: dish.cost_total,
+          has_approved_version: (dish.approved_count ?? 0) > 0,
+          excel_total: dish.excel_total,
+        }) ||
+        dish.source === "excel" ||
+        dish.cost_status === "aprobado" ||
+        dish.cost_status === "estimado"
+      )
+        continue;
+      const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
+      map.set(dish.id, {
+        text: estimateText(est, data.currency, avg).text,
+        menu_item_id: est.menu_item_id,
+        usable: canUseEstimateAsDraft(est),
+        line_count: est.lines.length,
+      });
+    }
+    return map;
+  }, [estimates, dishes, excluded, data.currency]);
 
   const openDrill = (
     target:
@@ -576,6 +644,17 @@ export function MenuDishesScreen({
                 : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
             </button>
           ) : null}
+          <EstimateWithMilton
+            variant="link"
+            canEdit={canEditRecipes(data.actor)}
+            companyId={data.company_id}
+            locationId={data.view_location_id ?? null}
+            onDone={() => onEstimated?.()}
+          />
+          <UploadRecipesLink
+            actor={data.actor}
+            locationId={data.view_location_id ?? null}
+          />
           {statusFilter.length > 0 ? (
             <Link href={platosHref()} className="font-semibold text-[#3557c9]">
               Ver todos
@@ -696,6 +775,10 @@ export function MenuDishesScreen({
                     open={expanded.has(dish.id)}
                     money={money}
                     canEdit={data.actor.can_submit}
+                    estimate={estimateOf.get(dish.id) ?? null}
+                    canEstimate={canEstimateRows}
+                    locationId={data.view_location_id ?? null}
+                    onEstimated={onEstimated}
                     onToggle={onToggleRow}
                     onDrill={onDrillRow}
                     onOpen={onOpenRow}
@@ -771,6 +854,152 @@ function bySize(variants: readonly MenuDishVariant[]) {
     .sort((a, b) => b.sums.net_sales - a.sums.net_sales);
 }
 
+/**
+ * «Estimar con Milton» on one «Sin receta» plato: the same POST as the
+ * controls-row link, for this plato only. Disabled with its reason when the
+ * person cannot edit recipes or the product has no plato yet.
+ */
+function RowEstimate({
+  menuItemId,
+  canEdit,
+  locationId,
+  onEstimated,
+}: {
+  menuItemId: string | null;
+  canEdit: boolean;
+  locationId: string | null;
+  onEstimated?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const reason = !canEdit
+    ? CAPABILITY_MESSAGES["recipes.edit"]
+    : !menuItemId
+      ? ESTIMATE_ROW_NEEDS_LINK
+      : null;
+
+  async function run() {
+    if (busy || !menuItemId) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/restaurant/recipes/menu/estimate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          menu_item_ids: [menuItemId],
+          location_id: locationId ?? undefined,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        results?: Array<{ skipped_reason?: string | null }>;
+      };
+      if (!res.ok) {
+        setNote(json.error ?? estimateSkipMessage(null));
+        return;
+      }
+      const skipped = json.results?.[0]?.skipped_reason;
+      if (skipped) {
+        setNote(estimateSkipMessage(skipped));
+        return;
+      }
+      invalidateEstimateProbe();
+      onEstimated?.();
+    } catch {
+      setNote(estimateSkipMessage(null));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-1 ml-5 flex flex-wrap items-center gap-2 text-[12px]">
+      <button
+        type="button"
+        data-testid="dish-estimate-action"
+        disabled={busy || reason !== null}
+        onClick={() => void run()}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-blue)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-blue)] hover:bg-[var(--ai-lavender)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        {busy ? "Estimando…" : ESTIMATE_BUTTON}
+      </button>
+      {reason ? (
+        <span className="text-[var(--brand-ink)]">{reason}</span>
+      ) : null}
+      {note ? (
+        <span role="status" className="text-[var(--brand-ink)]">
+          {note}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** «Usar como borrador» for an estimate shown on a row (the existing route). */
+function RowEstimateUse({
+  menuItemId,
+  lineCount,
+  onUsed,
+}: {
+  menuItemId: string;
+  lineCount: number;
+  onUsed?: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const { toast } = useToast();
+  async function use() {
+    if (busy) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch("/api/restaurant/recipes/menu/estimate/use", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ menu_item_id: menuItemId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        applied?: number;
+      };
+      if (!res.ok) {
+        setNote(json.error ?? "No pude usar el estimado como borrador.");
+        return;
+      }
+      invalidateEstimateProbe();
+      toast({
+        title: ESTIMATE_USE_SUCCESS(
+          typeof json.applied === "number" ? json.applied : lineCount
+        ),
+      });
+      onUsed?.();
+    } catch {
+      setNote("No pude usar el estimado como borrador.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void use()}
+        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--brand-blue-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {ESTIMATE_USE_BUTTON}
+      </button>
+      {note ? (
+        <span role="status" className="text-[var(--brand-muted)]">
+          {note}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 /** ⋯ built only when first used: 100+ rows do not each carry a menu. */
 function RowMenu({
   isExcluded,
@@ -814,6 +1043,10 @@ const DishRows = memo(function DishRows({
   open,
   money,
   canEdit,
+  estimate = null,
+  canEstimate = false,
+  locationId = null,
+  onEstimated,
   onToggle,
   onDrill,
   onOpen,
@@ -821,6 +1054,17 @@ const DishRows = memo(function DishRows({
   onExclude,
 }: {
   dish: MenuDish;
+  /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
+  estimate?: {
+    text: string;
+    menu_item_id: string;
+    usable?: boolean;
+    line_count?: number;
+  } | null;
+  /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
+  canEstimate?: boolean;
+  locationId?: string | null;
+  onEstimated?: () => void;
   open: boolean;
   money: (n: number) => string;
   canEdit: boolean;
@@ -875,6 +1119,62 @@ const DishRows = memo(function DishRows({
               />
             </span>
           </div>
+          {estimate ? (
+            <div
+              data-testid="dish-estimate"
+              className="mt-1 ml-5 inline-flex flex-wrap items-center gap-2 rounded-lg bg-[#D8D0F8]/40 px-2.5 py-1.5 text-[12px]"
+            >
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
+                <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
+                {ESTIMATE_BADGE}
+              </span>
+              <span>
+                {estimate.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
+                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                    <span
+                      key={i}
+                      className="font-semibold text-[var(--brand-blue)]"
+                    >
+                      {part}
+                    </span>
+                  ) : (
+                    <span key={i} className="text-[var(--brand-ink)]">
+                      {part}
+                    </span>
+                  )
+                )}
+              </span>
+              <span className="text-[var(--brand-ink)]">·</span>
+              <Link
+                href={
+                  dish.base_odoo_product_id
+                    ? dishHref(dish.base_odoo_product_id)
+                    : platosHref()
+                }
+                className="font-semibold text-[var(--brand-blue)] hover:underline"
+              >
+                Ver estimado
+              </Link>
+              {canEstimate && estimate.usable !== false ? (
+                <>
+                  <span className="text-[var(--brand-ink)]">·</span>
+                  <RowEstimateUse
+                    menuItemId={estimate.menu_item_id}
+                    lineCount={estimate.line_count ?? 0}
+                    onUsed={onEstimated}
+                  />
+                </>
+              ) : null}
+            </div>
+          ) : null}
+          {!estimate && !isExcluded && dish.cost_status === "sin_receta" ? (
+            <RowEstimate
+              menuItemId={dish.base_menu_item_id ?? null}
+              canEdit={canEstimate}
+              locationId={locationId}
+              onEstimated={onEstimated}
+            />
+          ) : null}
         </td>
         <td className="px-2 py-2 text-right tabular-nums">
           {money(dish.net_sales)}

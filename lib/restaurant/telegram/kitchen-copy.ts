@@ -66,7 +66,7 @@ export const KITCHEN_COPY = {
     "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
   /** Price update stored as a draft. {items} = «aguacate $1.50 la libra». */
   PRICE_UPDATE_RECEIVED:
-    "✅ Anoté en {empresa}: {items}. El dueño o un admin lo revisa en Costos › Compras antes de cambiar el precio.",
+    "✅ Anoté en {empresa}: {items}. Lo ves en Costos › Compras.",
   /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
     "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
@@ -86,8 +86,44 @@ export const KITCHEN_COPY = {
   /** The price was understood but could not be saved to the database. */
   PRICE_SAVE_FAILED:
     "No pude guardar el precio. Vuelve a mandarlo en un momento.",
+  /** The price amount is ambiguous (150 could be 1.50 or 150). {producto} = «aguacate», {moneda} = «$», {opciones} = «1.50 o 150». */
+  PRICE_AMOUNT_ASK:
+    "¿El {producto} está a {moneda}{opcion1} o a {moneda}{opcion2}? Responde {opcion1} o {opcion2}.",
+  /** The currency mentioned doesn't match the company's currency. */
+  PRICE_CURRENCY_MISMATCH:
+    "Dijiste {moneda_dicha}, pero {empresa} trabaja en {moneda_empresa}. Mándame el precio en {moneda_empresa}.",
+  /** A pending price question was left unanswered and is now closed. */
+  PRICE_QUESTION_CLOSED:
+    "Dejé sin guardar el precio de {producto}. Si quieres, mándalo otra vez con la unidad, por ejemplo «{producto} $1.50 la libra».",
+  /** The ingredient mentioned was not found in the catalog. {parecidos} = optional «Parecidos: X, Y.» */
+  PRICE_INGREDIENT_NOT_FOUND:
+    "No encontré el ingrediente '{ingrediente}'. ¿Lo creo? {parecidos}Lo dejé en Compras para revisar.",
   /** Recipe photo/text could not be saved as a draft. */
   RECIPE_SAVE_FAILED: "No pude guardar la receta. Manda otra foto o escríbela.",
+  /** Stock report saved (se agota, 86, merma). {tipo} = tipo de reporte, {producto} = optional product name */
+  STOCK_REPORT_SAVED:
+    "✅ Anotado en {empresa} › {local}. Lo ves en Cocina › {seccion}. El encargado lo revisa.",
+  /** Photo is neither invoice nor recipe - explain what photos can do */
+  PHOTO_NOT_RECOGNIZED:
+    "Puedo leer facturas de proveedor y recetas en papel. Si es una factura, mandámela con buena luz y completa. Si es una receta, que se vean los ingredientes y las cantidades.",
+  /** Answer to a question - brief reply */
+  QUESTION_RESPONSE:
+    "Las preguntas están llegando pronto. Por ahora puedo anotar precios, facturas, recetas, se agota y merma. Mándame lo que necesites guardar.",
+  /** Greeting or smalltalk response */
+  GREETING_RESPONSE:
+    "👋 ¡Hola! Estoy aquí para anotar precios, facturas, recetas, se agota y merma de {empresa} › {local}.",
+  /** Complaint or problem response */
+  COMPLAINT_RESPONSE:
+    "Entiendo que hay un problema. Por favor avísale al encargado de {empresa} › {local}. Puedo ayudarte anotando precios, facturas, recetas, se agota y merma.",
+  /** Unclear message */
+  UNCLEAR_MESSAGE:
+    "No entendí bien el mensaje. Puedo anotar: precios (por ejemplo «aguacate $1.50 la libra»), facturas (manda foto), recetas (manda foto o ingredientes), se agota, 86, o merma.",
+  /** Unsupported media type */
+  UNSUPPORTED_MEDIA:
+    "No puedo procesar ese tipo de archivo. Puedo leer: fotos (facturas y recetas), notas de voz, y mensajes de texto.",
+  /** Hard failure fallback */
+  PROCESSING_FAILED:
+    "No pude procesarlo ahora. Inténtalo en un momento o avísale al encargado de {empresa} › {local}.",
   /** Unexpected error while processing a photo. */
   PHOTO_PROCESS_FAILED: "No pude procesar la foto. Intenta de nuevo.",
   /** The sender's chat receives the briefing (owner pairing) but is not a cook. */

@@ -9,7 +9,9 @@
 export const PRICE_UPDATE_MAX_ITEMS = 25;
 const MAX_PRICE = 100000;
 
-export type PriceUpdateItem = { name: string; price: number; unit: string };
+export type Currency = "USD" | "MXN" | "CRC" | "GTQ" | "HNL" | "PEN" | "EUR" | "NIO";
+
+export type PriceUpdateItem = { name: string; price: number; unit: string; currency?: Currency | null };
 
 export type PriceUpdateParse =
   | { kind: "price_update"; items: PriceUpdateItem[] }
@@ -59,8 +61,20 @@ const REPORT_WORD =
 
 const UNIT =
   "(libras?|lbs?|kilogramos?|kilos?|kgs?|unidad(?:es)?|piezas?|pzas?|pzs?|pz|cajas?|docenas?|litros?|lts?|ltrs?|galon(?:es)?|botellas?|bolsas?|paquetes?|sacos?|atados?|manojos?|latas?|quintal(?:es)?|arrobas?|bandejas?|frascos?|gramos?|grs?|onzas?|onz[as]?|oz|g)(?![a-zñ])";
-// Currency written after the number.
-const CURRENCY_AFTER = /^\s*(?:usd|dolar(?:es)?|dlls?|dls|\$)/;
+
+// Currency map: regex pattern to ISO code
+const CURRENCY_PATTERNS: Array<[RegExp, Currency]> = [
+  [/^\s*(?:usd|dolar(?:es)?|dlls?|dls|\$)(?![a-zñ])/, "USD"],
+  [/^\s*(?:pesos?|mxn|mx\$)(?![a-zñ])/, "MXN"],
+  [/^\s*(?:colones?|₡|crc)(?![a-zñ])/, "CRC"],
+  [/^\s*(?:quetzales?|gtq)(?![a-zñ])/, "GTQ"],
+  [/^\s*(?:lempiras?|hnl)(?![a-zñ])/, "HNL"],
+  [/^\s*(?:soles?|pen)(?![a-zñ])/, "PEN"],
+  [/^\s*(?:euros?|eur|€)(?![a-zñ])/, "EUR"],
+  [/^\s*(?:cordobas?|nio)(?![a-zñ])/, "NIO"],
+];
+// Q prefix only right before number (no space)
+const Q_PREFIX = /^q(?=\d)/;
 const NUMBER_RE =
   /(\$\s*)?(?<![\d:/.,-])(\d+(?:[.,]\d+)*)(?!\d|[:/-]\d|[.,]\d)/g;
 
@@ -78,6 +92,21 @@ function canonicalUnit(foldedUnit: string, written: string): string {
   return written.length > 3 && written.endsWith("s")
     ? written.slice(0, -1)
     : written;
+}
+
+/** Detects currency from text after a number. Returns null if no currency found. */
+function detectCurrency(foldedRest: string): Currency | null {
+  for (const [pattern, code] of CURRENCY_PATTERNS) {
+    if (pattern.test(foldedRest)) return code;
+  }
+  return null;
+}
+
+/** Checks if the text starts with Q followed immediately by a digit (Q150). */
+function hasQPrefix(original: string, start: number): boolean {
+  if (start === 0) return false;
+  const before = original.slice(Math.max(0, start - 1), start + 1).toLowerCase();
+  return Q_PREFIX.test(before);
 }
 
 // ---------------------------------------------------------------------------
@@ -131,14 +160,33 @@ const WORD_VALUES: Record<string, number> = {
   setenta: 70,
   ochenta: 80,
   noventa: 90,
+  cien: 100,
+  ciento: 100,
+  doscientos: 200,
+  doscientas: 200,
+  trescientos: 300,
+  trescientas: 300,
+  cuatrocientos: 400,
+  cuatrocientas: 400,
+  quinientos: 500,
+  quinientas: 500,
+  seiscientos: 600,
+  seiscientas: 600,
+  setecientos: 700,
+  setecientas: 700,
+  ochocientos: 800,
+  ochocientas: 800,
+  novecientos: 900,
+  novecientas: 900,
 };
 const ONES_W = "uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve";
 const TENS_W = "treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa";
+const HUNDREDS_W = "(?:cien(?:to)?|doscientos?|doscientas?|trescientos?|trescientas?|cuatrocientos?|cuatrocientas?|quinientos?|quinientas?|seiscientos?|seiscientas?|setecientos?|setecientas?|ochocientos?|ochocientas?|novecientos?|novecientas?)";
 const UP_TO_29 = Object.keys(WORD_VALUES)
   .filter((w) => WORD_VALUES[w] < 30)
   .sort((a, b) => b.length - a.length)
   .join("|");
-const NUM_WORD = `(?:(?:${TENS_W})(?:\\s+y\\s+(?:${ONES_W}))?|${UP_TO_29})`;
+const NUM_WORD = `(?:(?:${HUNDREDS_W})(?:\\s+(?:${TENS_W})(?:\\s+y\\s+(?:${ONES_W}))?|\\s+(?:${UP_TO_29}))?|(?:${TENS_W})(?:\\s+y\\s+(?:${ONES_W}))?|${UP_TO_29})`;
 // Dollars: a number word or up to 4 digits (never the «1» of «1.50»).
 const NUM_ANY = `(?:${NUM_WORD}|\\d{1,4}(?![.,]\\d))`;
 const CENT_ANY = `(?:${NUM_WORD}|\\d{1,2})`;
@@ -189,7 +237,29 @@ function wordsToNumber(words: string): number | null {
     const u = WORD_VALUES[parts[2]];
     return t !== undefined && u !== undefined ? t + u : null;
   }
-  return null;
+  // Handle hundreds: "ciento cincuenta" = 150, "doscientos treinta y cinco" = 235
+  let total = 0;
+  let i = 0;
+  const h = WORD_VALUES[parts[i]];
+  if (h !== undefined && h >= 100) {
+    total = h;
+    i++;
+  }
+  if (i < parts.length) {
+    const t = WORD_VALUES[parts[i]];
+    if (t !== undefined && t >= 10 && t < 100) {
+      total += t;
+      i++;
+    }
+  }
+  if (i + 1 < parts.length && parts[i] === "y") {
+    const u = WORD_VALUES[parts[i + 1]];
+    if (u !== undefined && u < 10) {
+      total += u;
+      i += 2;
+    }
+  }
+  return i > 0 && i === parts.length ? total : null;
 }
 
 function tokenValue(token: string): number | null {

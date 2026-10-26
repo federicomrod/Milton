@@ -1,16 +1,21 @@
 // Decide, per POS dish, what the menu adds. Pure, so the rules live here
 // and not in React or in the route:
+// - every POS product is matched to the menu FIRST (so every menu dish can
+//   be reported), then decided;
 // - a dish that already HAS a recipe (see recipe-costing/has-recipe.ts: an
 //   approved or newest version with lines, or an Excel suggestion) is left
 //   alone: the Excel wins and the menu adds nothing. A Confirmado link only
 //   says «this POS product is this plato»; it does not block the draft;
 // - a dish matches a menu dish only when the match is clear, otherwise it
 //   is "No encontrado en el menú";
+// - the report is per MENU dish (`buildMenuOutcomes`): one entry for every
+//   dish the menu lists, so the outcomes always add up to the dishes read.
 // - each component suggests an existing ingredient or preparation, or is
 //   "Nuevo, sugerido". Nothing is created and every quantity stays
 //   Pendiente (never 0, never a guess).
 
 import type { MenuDish } from "./extract";
+import type { MenuDish as PlatoDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import {
   matchMenuComponent,
   matchPosDishToMenu,
@@ -68,6 +73,8 @@ export type MenuDraftDecision =
       product: MenuDraftProduct;
       reason: string;
       code: OmittedCode;
+      /** The menu dish this product matched (always set: matching is first). */
+      match?: DishMatch;
     };
 
 export type OmittedCode = "has_recipe" | "no_ingredients" | "draft_exists";
@@ -147,12 +154,18 @@ export function planMenuDrafts(input: {
   menuUrl: string | null;
 }): MenuDraftDecision[] {
   return input.products.map((product): MenuDraftDecision => {
+    const match = matchPosDishToMenu(
+      { name: product.odoo_name, price: product.pos_price },
+      input.dishes
+    );
+    if (!match) return { kind: "no_encontrado", product };
     if (product.has_recipe) {
       return {
         kind: "omitido",
         product,
         reason: HAS_RECIPE_REASON,
         code: "has_recipe",
+        match,
       };
     }
     if (product.menu_draft) {
@@ -161,19 +174,16 @@ export function planMenuDrafts(input: {
         product,
         reason: MENU_DRAFT_EXISTS_REASON,
         code: "draft_exists",
+        match,
       };
     }
-    const match = matchPosDishToMenu(
-      { name: product.odoo_name, price: product.pos_price },
-      input.dishes
-    );
-    if (!match) return { kind: "no_encontrado", product };
     if (match.dish.components.length === 0) {
       return {
         kind: "omitido",
         product,
         reason: NO_COMPONENTS_REASON,
         code: "no_ingredients",
+        match,
       };
     }
     const lines = menuDraftLines(match.dish.components, input.catalog);
@@ -208,6 +218,12 @@ function outcomeRank(decision: MenuDraftDecision): number {
   ];
 }
 
+/** The winning decision of a plato, plus its other POS products. */
+export type MenuPlatoDecision = MenuDraftDecision & {
+  /** Other POS products of the same plato (same recipe): they follow it. */
+  siblings: MenuDraftProduct[];
+};
+
 /**
  * One decision per PLATO. Several POS products of the same plato (sizes, the
  * same menu item) count once: the best outcome wins, and only one of them
@@ -215,15 +231,187 @@ function outcomeRank(decision: MenuDraftDecision): number {
  */
 export function decisionsByPlato(
   decisions: readonly MenuDraftDecision[]
-): MenuDraftDecision[] {
-  const best = new Map<string, MenuDraftDecision>();
+): MenuPlatoDecision[] {
+  const best = new Map<string, MenuPlatoDecision>();
   for (const decision of decisions) {
     const key =
       decision.product.plato_key ?? `pos:${decision.product.odoo_product_id}`;
     const had = best.get(key);
-    if (!had || outcomeRank(decision) < outcomeRank(had)) {
-      best.set(key, decision);
+    if (!had) {
+      best.set(key, { ...decision, siblings: [] });
+    } else if (outcomeRank(decision) < outcomeRank(had)) {
+      best.set(key, {
+        ...decision,
+        siblings: [...had.siblings, had.product],
+      });
+    } else {
+      had.siblings.push(decision.product);
     }
   }
   return [...best.values()];
+}
+
+// ---------------------------------------------------------------------------
+// The report per MENU dish.
+// ---------------------------------------------------------------------------
+
+export type MenuOutcomeCode =
+  | "drafted"
+  | "has_recipe"
+  | "draft_exists"
+  | "no_ingredients"
+  | "no_pos_match"
+  | "failed";
+
+export interface MenuOutcome {
+  /** The dish as the menu names it. */
+  menu_dish: string;
+  outcome: MenuOutcomeCode;
+  /** The Odoo products behind the outcome (empty for «sin producto»). */
+  products: Array<{ odoo_product_id: number; odoo_name: string }>;
+}
+
+const MENU_OUTCOME_RANK: Record<MenuOutcomeCode, number> = {
+  drafted: 0,
+  failed: 1,
+  draft_exists: 2,
+  has_recipe: 3,
+  no_ingredients: 4,
+  no_pos_match: 5,
+};
+
+function outcomeOf(
+  decision: MenuPlatoDecision,
+  failed: ReadonlySet<number>
+): MenuOutcomeCode | null {
+  if (decision.kind === "no_encontrado") return null;
+  if (decision.kind === "draft") {
+    return failed.has(decision.product.odoo_product_id) ? "failed" : "drafted";
+  }
+  return decision.code;
+}
+
+/**
+ * Exactly one entry per dish the menu lists, in the menu's order, so the
+ * outcomes always add up to `dishes.length`. A dish no POS product matched is
+ * «no_pos_match». When several products match one dish the best outcome wins
+ * and lists the products behind it.
+ */
+export function buildMenuOutcomes(
+  dishes: readonly MenuDish[],
+  decisions: readonly MenuPlatoDecision[],
+  failedProductIds: ReadonlySet<number> = new Set()
+): MenuOutcome[] {
+  const byDish = new Map<
+    MenuDish,
+    Array<{ outcome: MenuOutcomeCode; products: MenuDraftProduct[] }>
+  >();
+  for (const decision of decisions) {
+    const outcome = outcomeOf(decision, failedProductIds);
+    const dish =
+      decision.kind === "no_encontrado" ? null : decision.match?.dish;
+    if (!outcome || !dish) continue;
+    const list = byDish.get(dish) ?? [];
+    list.push({ outcome, products: [decision.product, ...decision.siblings] });
+    byDish.set(dish, list);
+  }
+  return dishes.map((dish): MenuOutcome => {
+    const entries = byDish.get(dish) ?? [];
+    if (entries.length === 0) {
+      return { menu_dish: dish.name, outcome: "no_pos_match", products: [] };
+    }
+    const best = entries.reduce((a, b) =>
+      MENU_OUTCOME_RANK[b.outcome] < MENU_OUTCOME_RANK[a.outcome] ? b : a
+    );
+    const seen = new Set<number>();
+    const products: MenuOutcome["products"] = [];
+    for (const entry of entries) {
+      if (entry.outcome !== best.outcome) continue;
+      for (const p of entry.products) {
+        if (seen.has(p.odoo_product_id)) continue;
+        seen.add(p.odoo_product_id);
+        products.push({
+          odoo_product_id: p.odoo_product_id,
+          odoo_name: p.odoo_name,
+        });
+      }
+    }
+    return { menu_dish: dish.name, outcome: best.outcome, products };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Platos with sales this month that the menu does not list.
+// ---------------------------------------------------------------------------
+
+/** One Platos group (a menu dish of Menú › Platos) and its POS products. */
+export interface MenuPlatoGroup {
+  id: string;
+  name: string;
+  /** No product of it has a recipe (same bucket as Resumen's «sin receta»). */
+  sin_receta: boolean;
+  products: Array<{
+    odoo_product_id: number;
+    odoo_name: string;
+    pos_price: number | null;
+  }>;
+}
+
+// Worst first, as in costing/rollup.ts. `borrador` is a status of the
+// costing core; compared as text so this module does not depend on its type.
+const PENDING_ORDER = ["falta_precio", "estimado", "borrador", "sin_receta"];
+
+/**
+ * The bucket a Platos group counts in: the worst status among its variants
+ * that are not covered (an approved size never makes the dish «sin receta»).
+ */
+function pendingStatusOf(
+  variants: ReadonlyArray<{ status: string; covered: boolean }>
+): string | null {
+  const pending = new Set(
+    variants.filter((v) => !v.covered).map((v) => v.status)
+  );
+  return PENDING_ORDER.find((status) => pending.has(status)) ?? null;
+}
+
+/** Platos groups of the period (already grouped by Platos, not by name). */
+export function platoGroupsFromMenuDishes(
+  platos: readonly PlatoDish[],
+  productOf: (
+    odooProductId: number
+  ) => { odoo_name: string; pos_price: number | null } | undefined
+): MenuPlatoGroup[] {
+  return platos.map((plato) => ({
+    id: plato.id,
+    name: plato.name,
+    sin_receta: pendingStatusOf(plato.variants) === "sin_receta",
+    products: plato.variants.map((variant) => ({
+      odoo_product_id: variant.odoo_product_id,
+      odoo_name: productOf(variant.odoo_product_id)?.odoo_name ?? variant.name,
+      pos_price: productOf(variant.odoo_product_id)?.pos_price ?? null,
+    })),
+  }));
+}
+
+/**
+ * Names of the Platos groups with sales in the period, sin receta, that no
+ * menu dish matches (any of their products). Never option combinations: the
+ * groups are the Platos, not the raw POS names.
+ */
+export function platosNotOnMenu(
+  groups: readonly MenuPlatoGroup[],
+  dishes: readonly MenuDish[]
+): string[] {
+  return groups
+    .filter(
+      (group) =>
+        group.sin_receta &&
+        !group.products.some((product) =>
+          matchPosDishToMenu(
+            { name: product.odoo_name, price: product.pos_price },
+            dishes
+          )
+        )
+    )
+    .map((group) => group.name);
 }

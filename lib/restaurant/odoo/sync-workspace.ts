@@ -31,19 +31,20 @@ export function syncWorkspaceCopy(input: {
   ownCompanyName: string | null;
   selectedCompanyName: string | null;
 }): { targetLine: string; blockedReason: string | null } {
-  const own = input.ownCompanyName?.trim() || "your signed-in workspace";
-  const selected = input.selectedCompanyName?.trim() || "the selected company";
+  const own = input.ownCompanyName?.trim() || "tu espacio actual";
+  const selected =
+    input.selectedCompanyName?.trim() || "la empresa seleccionada";
 
   if (input.canSync) {
     return {
-      targetLine: `This will sync ${own} — the workspace you are signed into.`,
+      targetLine: `Se sincronizará ${own}, el espacio en el que iniciaste sesión.`,
       blockedReason: null,
     };
   }
 
   return {
-    targetLine: `Sync now always updates ${own}, not ${selected}.`,
-    blockedReason: `Select ${own} above to enable Sync now.`,
+    targetLine: `«Sincronizar ahora» siempre actualiza ${own}, no ${selected}.`,
+    blockedReason: `Elige ${own} arriba para activar «Sincronizar ahora».`,
   };
 }
 
@@ -52,12 +53,12 @@ export function formatWorkspaceLastSyncLine(
   workspaceName: string | null,
   canSync: boolean
 ): string {
-  const name = workspaceName?.trim() || "this company";
+  const name = workspaceName?.trim() || "esta empresa";
   if (!last) {
     return canSync
-      ? `Not synced yet for ${name}. Pick a date range and click Sync now.`
-      : `No last-sync record for ${name}. Sync now only updates your signed-in workspace.`;
+      ? `Aún no se ha sincronizado ${name}. Elige un rango de fechas y toca «Sincronizar ahora».`
+      : `No hay registro de sincronización de ${name}. «Sincronizar ahora» solo actualiza tu espacio actual.`;
   }
-  const rest = formatLastSyncLine(last).replace(/^Last synced /, "");
-  return `Last synced for ${name} · ${rest}`;
+  const rest = formatLastSyncLine(last).replace(/^Última sincronización /, "");
+  return `Última sincronización de ${name} · ${rest}`;
 }

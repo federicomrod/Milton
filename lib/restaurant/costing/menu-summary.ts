@@ -8,6 +8,7 @@
 import type { DishEconomicsResult, DishStatus } from "./dish-economics";
 import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { countDishCoverage } from "./dish-coverage";
+import { problemCounts, type ProblemCounts } from "./problem-counts";
 import { ingredientesHref, platosHref } from "@/lib/restaurant/menu-links";
 
 /** Food cost above this share of the price = "margen bajo" (< 60 %). */
@@ -66,7 +67,7 @@ export interface MenuSummary {
     next: SetupStep | null;
     complete: boolean;
   };
-  /** The loader's problem count (Falta precio + Sin receta). */
+  /** The loader's problem count (Falta precio + Borrador + Sin receta). */
   problem_count: number;
   /** Ingredients used by sold dishes with no price ("Resolver N precios"). */
   missing_price_ingredients: number;
@@ -98,6 +99,7 @@ const STATUS_TONE: Record<DishStatus, MenuSummaryRow["tone"]> = {
   aprobado: "ok",
   estimado: "pur",
   falta_precio: "warn",
+  borrador: "grey",
   sin_receta: "grey",
 };
 
@@ -217,7 +219,9 @@ export function buildMenuSummary(
           : "Confirmar platos",
       done: dishTotal > 0 && toReview.length === 0,
       href: platosHref(
-        estimated > 0 ? ["estimado"] : ["falta_precio", "sin_receta"]
+        estimated > 0
+          ? ["estimado"]
+          : ["falta_precio", "borrador", "sin_receta"]
       ),
       action: `Continuar: revisar ${batch} ${batch === 1 ? "plato" : "platos"}`,
     },
@@ -285,7 +289,12 @@ export interface MenuDishKpis {
   dish_count: number;
   problem_count: number;
   missing_price_dishes: number;
+  /** Dishes counted once in «Sin receta» (problemCounts). */
   no_recipe_dishes: number;
+  /** Dishes counted once in «Borrador» (problemCounts). */
+  draft_dishes: number;
+  /** The buckets above with their shares, from the ONE helper. */
+  counts: ProblemCounts;
 }
 
 export function menuDishKpis(
@@ -293,6 +302,10 @@ export function menuDishKpis(
 ): MenuDishKpis {
   const dishes = result.menu_dishes;
   const cov = countDishCoverage(dishes);
+  const counts = problemCounts(
+    dishes,
+    dishes.reduce((s, d) => s + d.net_sales, 0)
+  );
   return {
     food_cost_pct: result.totals.food_cost_pct,
     gross_margin: result.totals.gross_margin,
@@ -300,11 +313,11 @@ export function menuDishKpis(
     covered_dishes: cov.covered,
     partial_dishes: cov.partial,
     dish_count: dishes.length,
-    problem_count: result.totals.problem_count,
-    missing_price_dishes: dishes.filter((d) => d.cost_status === "falta_precio")
-      .length,
-    no_recipe_dishes: dishes.filter((d) => d.cost_status === "sin_receta")
-      .length,
+    problem_count: counts.problem_count,
+    missing_price_dishes: counts.falta_precio.dishes,
+    no_recipe_dishes: counts.sin_receta.dishes,
+    draft_dishes: counts.borrador.dishes,
+    counts,
   };
 }
 
@@ -344,35 +357,37 @@ export interface ToResolveRow {
   href: string;
 }
 
-/** "Por resolver": problems counted per dish, weighted by % of sales. */
+/**
+ * "Por resolver": problems counted per dish (once, in its worst non-approved
+ * status), weighted by the % of sales of its non-approved variants — the same
+ * problemCounts the Resumen and the Platos KPIs use. Borradores are counted in
+ * «Platos con problema» but have no entry of their own.
+ */
 export function toResolve(dishes: readonly MenuDish[]): ToResolveRow[] {
-  const of = (status: DishStatus) =>
-    dishes.filter((d) => d.cost_status === status);
-  const share = (list: readonly MenuDish[]) =>
-    list.reduce((s, d) => s + d.share_of_food_sales, 0);
-  const missing = of("falta_precio");
-  const noRecipe = of("sin_receta");
-  const estimated = of("estimado");
+  const counts = problemCounts(
+    dishes,
+    dishes.reduce((s, d) => s + d.net_sales, 0)
+  );
   const lowMargin = dishes.filter(
     (d) => d.margin_pct !== null && d.margin_pct < LOW_MARGIN_PCT
   );
   return [
     {
       kind: "falta_precio" as const,
-      count: missing.length,
-      share: share(missing),
+      count: counts.falta_precio.dishes,
+      share: counts.falta_precio.share,
       href: platosHref(["falta_precio"]),
     },
     {
       kind: "sin_receta" as const,
-      count: noRecipe.length,
-      share: share(noRecipe),
+      count: counts.sin_receta.dishes,
+      share: counts.sin_receta.share,
       href: platosHref(["sin_receta"]),
     },
     {
       kind: "estimado" as const,
-      count: estimated.length,
-      share: share(estimated),
+      count: counts.estimado.dishes,
+      share: counts.estimado.share,
       href: platosHref(["estimado"]),
     },
     {

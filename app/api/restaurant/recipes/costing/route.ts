@@ -71,7 +71,12 @@ export async function GET(req: NextRequest) {
           startDate: startParam,
           endDate: endParam,
           selectedOdooProductId: null,
-          economics,
+          // Platos with no period opens on Resumen's month: it reads its own
+          // economics for that range instead of the shared all-history one.
+          economics:
+            view === "plato" && !startParam && !endParam
+              ? undefined
+              : economics,
         })
       )
     );

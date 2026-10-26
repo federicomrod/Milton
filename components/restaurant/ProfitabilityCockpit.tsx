@@ -177,7 +177,7 @@ export function ProfitabilityKpisSection({
         />
         <Kpi
           label={t(lang, "Items w/ Issues", "Platillos con problemas")}
-          href={platosHref(["falta_precio", "sin_receta"])}
+          href={platosHref(["falta_precio", "borrador", "sin_receta"])}
           value={`${
             kpis.menu_items_with_issues + kpis.menu_items_without_recipe
           }`}

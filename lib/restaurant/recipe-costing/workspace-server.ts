@@ -22,6 +22,7 @@ import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
 import { loadPreparationsOverview } from "./preparations-server";
 import type { DishEconomicsLoad } from "@/lib/restaurant/costing/dish-economics-server";
 import { ttlCached } from "@/lib/restaurant/ttl-cache";
+import { monthLabel, resumenRange } from "@/lib/restaurant/menu-resumen";
 import {
   classificationFromStored,
   isPosProductLinkState,
@@ -160,6 +161,36 @@ export type WorkspaceLoad =
   | { ok: false; error: string };
 
 /**
+ * The period Menú › Platos opens on when the URL names none: the SAME month
+ * Resumen shows by default (`resumenRange("month", lastDay)`: the first day of
+ * the month of the last sales day → the last sales day), so the Platos KPIs
+ * equal Resumen's. No sales at all = null (all history, nothing to default).
+ */
+export async function defaultPlatosPeriod(
+  supabase: SupabaseClient,
+  companyId: string,
+  locationId?: string | null
+): Promise<{ from: string; to: string; label: string } | null> {
+  let q = supabase
+    .from("pos_sales_items")
+    .select("sale_date")
+    .eq("company_id", companyId)
+    .eq("pos_source", "odoo");
+  if (locationId) q = q.eq("location_id", locationId);
+  const { data, error } = await q
+    .order("sale_date", { ascending: false })
+    .limit(1);
+  if (error) {
+    console.error("[recipe-costing] last sales day:", error.message);
+    return null;
+  }
+  const last = (data?.[0] as { sale_date?: string } | undefined)?.sale_date;
+  if (typeof last !== "string" || last.length < 10) return null;
+  const lastDay = last.slice(0, 10);
+  return { ...resumenRange("month", lastDay), label: monthLabel(lastDay) };
+}
+
+/**
  * Never throws: a failed read (a table that is not there, a database error,
  * a brand-new empty company hitting an unexpected shape) is an `ok: false`
  * the screen can show, not a server exception that takes the page down.
@@ -190,6 +221,25 @@ async function loadRecipeCostingWorkspaceUnsafe(
 > {
   const started = Date.now();
   const view = input.view ?? "resumen";
+  // Platos with no period in the URL opens on Resumen's month (see above),
+  // unless a shared economics read (several tabs asked together) was passed.
+  let defaulted: { label: string } | null = null;
+  if (
+    view === "plato" &&
+    !input.startDate &&
+    !input.endDate &&
+    !input.economics
+  ) {
+    const period = await defaultPlatosPeriod(
+      supabase,
+      input.companyId,
+      input.locationId
+    );
+    if (period) {
+      input = { ...input, startDate: period.from, endDate: period.to };
+      defaulted = { label: period.label };
+    }
+  }
   const editorOnly =
     view === "plato" &&
     input.editorOnly === true &&
@@ -472,8 +522,9 @@ async function loadRecipeCostingWorkspaceUnsafe(
     }
   }
 
-  const periodLabel =
-    input.startDate && input.endDate
+  const periodLabel = defaulted
+    ? defaulted.label
+    : input.startDate && input.endDate
       ? formatPageDateRangeLabel(
           { from: input.startDate, to: input.endDate },
           "es-MX"

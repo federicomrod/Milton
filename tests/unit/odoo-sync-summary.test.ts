@@ -31,16 +31,18 @@ describe("summarizeOdooSync + syncSummaryCopy", () => {
     const copy = syncSummaryCopy(view);
 
     expect(copy.headline).toBe(
-      "Fetched 3,815 orders and saved 20,089 sales rows for 1 Jul 2026 – 31 Jul 2026."
+      "Traje 3,815 pedidos y guardé 20,089 filas de ventas de 1 jul 2026 – 31 jul 2026."
     );
-    expect(copy.skipped).toBe("3 rows were skipped.");
+    expect(copy.skipped).toBe("3 filas se omitieron.");
     expect(copy.unmatchedItems).toBe(
-      "3 menu items did not match Milton’s menu."
+      "3 combinaciones de opciones del POS se guardan como ventas del producto; no afectan tus costos."
     );
-    expect(copy.unmatchedTills).toBe("1 till name is not a Milton location.");
-    expect(copy.unmatchedTillsNote).toMatch(/informational/i);
-    expect(copy.unmatchedTillsNote).toMatch(/company-to-location mapping/i);
-    expect(copy.outsideRange).toMatch(/1,357 extra rows/);
+    expect(copy.unmatchedTills).toBe(
+      "1 nombre de caja no es una ubicación de Milton."
+    );
+    expect(copy.unmatchedTillsNote).toMatch(/informativo/i);
+    expect(copy.unmatchedTillsNote).toMatch(/empresa a ubicación/i);
+    expect(copy.outsideRange).toMatch(/1,357 filas extra/);
     expect(view.warnings).toEqual([
       "pos.payment fields_get skipped optional field",
     ]);
@@ -55,8 +57,8 @@ describe("summarizeOdooSync + syncSummaryCopy", () => {
   it("groups skip reasons into plain-language buckets", () => {
     const view = summarizeOdooSync(julyBody);
     expect(view.skippedGroups).toEqual([
-      { reason: "Line was missing an order", count: 1 },
-      { reason: "Order was not completed", count: 2 },
+      { reason: "A la línea le faltaba el pedido", count: 1 },
+      { reason: "El pedido no estaba completado", count: 2 },
     ]);
   });
 
@@ -71,32 +73,44 @@ describe("summarizeOdooSync + syncSummaryCopy", () => {
     });
     const copy = syncSummaryCopy(view);
     expect(copy.headline).toBe(
-      "Fetched 1 order and saved 1 sales row for 9 Oct 2026."
+      "Traje 1 pedido y guardé 1 fila de ventas de 9 oct 2026."
     );
-    expect(copy.skipped).toBe("No rows were skipped.");
+    expect(copy.skipped).toBe("No se omitió ninguna fila.");
     expect(copy.unmatchedItems).toBe(
-      "Every synced item matched a Milton menu item."
+      "Todo lo que se sincronizó coincide con tu menú."
     );
     expect(copy.unmatchedTills).toBe(
-      "Every till name matched a Milton location."
+      "Todos los nombres de caja coinciden con una ubicación de Milton."
     );
     expect(copy.outsideRange).toBeNull();
   });
 
   it("maps known skip reasons and falls back without exposing raw ids", () => {
     expect(friendlySkipReason("Line has no order_id")).toBe(
-      "Line was missing an order"
+      "A la línea le faltaba el pedido"
     );
     expect(
       friendlySkipReason(
         "Till-name location (abc) conflicts with mapped location (xyz) for Odoo company 7"
       )
     ).toBe(
-      "Till name pointed at a different location than the company mapping"
+      "El nombre de la caja apuntaba a una ubicación distinta a la del mapeo de la empresa"
     );
     expect(friendlySkipReason("something unexpected from Odoo")).toBe(
-      "Row could not be saved"
+      "No se pudo guardar la fila"
     );
+  });
+});
+
+describe("unmatched items info line", () => {
+  it("uses the singular for one combination and stays neutral", () => {
+    const copy = syncSummaryCopy(
+      summarizeOdooSync({ ...julyBody, unmatched_menu_items: ["Flan"] })
+    );
+    expect(copy.unmatchedItems).toBe(
+      "1 combinación de opciones del POS se guarda como ventas del producto; no afecta tus costos."
+    );
+    expect(copy.unmatchedItems).not.toMatch(/did not match|no coincid/i);
   });
 });
 
@@ -119,9 +133,9 @@ describe("compactLastSync", () => {
     });
     expect(JSON.stringify(last)).not.toContain("Taco pastor");
     expect(JSON.stringify(last)).not.toContain("unmatched_menu_items");
-    expect(formatLastSyncLine(last)).toContain("3,815 orders");
-    expect(formatLastSyncLine(last)).toContain("20,089 rows saved");
-    expect(formatLastSyncLine(last)).toContain("1 Jul 2026 – 31 Jul 2026");
+    expect(formatLastSyncLine(last)).toContain("3,815 pedidos");
+    expect(formatLastSyncLine(last)).toContain("20,089 filas guardadas");
+    expect(formatLastSyncLine(last)).toContain("1 jul 2026 – 31 jul 2026");
   });
 });
 

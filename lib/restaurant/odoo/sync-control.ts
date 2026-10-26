@@ -14,10 +14,10 @@ export const SYNC_DATE_PRESETS: Array<{
   id: SyncDatePreset;
   label: string;
 }> = [
-  { id: "yesterday", label: "Yesterday" },
-  { id: "last_7_days", label: "Last 7 days" },
-  { id: "this_month", label: "This month" },
-  { id: "last_month", label: "Last month" },
+  { id: "yesterday", label: "Ayer" },
+  { id: "last_7_days", label: "Últimos 7 días" },
+  { id: "this_month", label: "Este mes" },
+  { id: "last_month", label: "Mes pasado" },
 ];
 
 export const DEFAULT_SYNC_PRESET: SyncDatePreset = "last_7_days";

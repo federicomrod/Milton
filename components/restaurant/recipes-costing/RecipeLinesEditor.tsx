@@ -213,7 +213,13 @@ export function RecipeLinesEditor({
   forceLocked = false,
   focusRequest = null,
   currency = "USD",
+  sourceButtons = null,
+  sourceHelper = null,
 }: {
+  /** «Usar la receta de otro plato» + «Copiar receta de…», next to «+ Agregar ingrediente». */
+  sourceButtons?: React.ReactNode;
+  /** The one helper line that explains both buttons. */
+  sourceHelper?: React.ReactNode;
   /** The company currency (for «Precio estimado ≈ …»). */
   currency?: string;
   /** Another screen asks to open a line's price editor or unit question. */
@@ -478,14 +484,18 @@ export function RecipeLinesEditor({
               ? "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
               : (state.locked_reason ?? "")}
         </span>
-        {state.editable ? (
-          <GhostBtn
-            className="ml-auto"
-            disabled={busy}
-            onClick={() => setPicking({ mode: "add" })}
-          >
-            + Agregar ingrediente
-          </GhostBtn>
+        {state.editable || sourceButtons ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {sourceButtons}
+            {state.editable ? (
+              <GhostBtn
+                disabled={busy}
+                onClick={() => setPicking({ mode: "add" })}
+              >
+                + Agregar ingrediente
+              </GhostBtn>
+            ) : null}
+          </div>
         ) : null}
         {!state.editable && state.version_id && !forceLocked ? (
           <DropdownMenu>
@@ -493,7 +503,7 @@ export function RecipeLinesEditor({
               <button
                 type="button"
                 aria-label="Más acciones de la receta"
-                className="ml-auto rounded-md p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
+                className={`${sourceButtons ? "" : "ml-auto "}rounded-md p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]`}
               >
                 <MoreHorizontal className="h-4 w-4" />
               </button>
@@ -510,6 +520,7 @@ export function RecipeLinesEditor({
         ) : null}
       </div>
 
+      {sourceHelper ? <div className="mb-2">{sourceHelper}</div> : null}
       {state.version_note ? (
         <p
           className="mb-2 text-[12px] text-[#6b7385]"

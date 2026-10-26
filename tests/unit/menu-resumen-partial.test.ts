@@ -130,6 +130,6 @@ describe("dish-coverage", () => {
     ].map((l) => rollupLeaves(l));
     const c = countDishCoverage(nodes);
     expect(c).toEqual({ covered: 2, partial: 1, total: 3 });
-    expect(dishCoverageLabel(c)).toBe("2 de 3 platos costeados · 1 parcial");
+    expect(dishCoverageLabel(c)).toBe("2 de 3 platos costeados");
   });
 });

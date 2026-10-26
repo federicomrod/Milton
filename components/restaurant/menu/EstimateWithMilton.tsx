@@ -17,7 +17,6 @@ import {
   ESTIMATE_BUTTON,
   ESTIMATE_HELP,
   ESTIMATE_MISSING_TABLE,
-  ESTIMATE_NEEDS_LINK,
   ESTIMATE_NOTHING_TO_DO,
   ESTIMATE_NO_ROLE_HINT,
   ESTIMATE_PROBE_FAILED,
@@ -165,7 +164,7 @@ export function NoRecipeEditNotice({ className = "" }: { className?: string }) {
 type Probe =
   | { status: "loading" }
   | { status: "failed" }
-  | { status: "ok"; available: boolean; eligible: number; needs_link: number };
+  | { status: "ok"; available: boolean; eligible: number };
 
 /**
  * The button (or a small link) with its progress and summary. It always
@@ -218,7 +217,6 @@ export function EstimateWithMilton({
             return (await res.json()) as {
               available?: boolean;
               eligible?: number;
-              needs_link?: number;
             };
           }
         );
@@ -227,7 +225,6 @@ export function EstimateWithMilton({
             status: "ok",
             available: json.available === true,
             eligible: Number(json.eligible ?? 0),
-            needs_link: Number(json.needs_link ?? 0),
           });
       } catch {
         if (!cancelled) setProbe({ status: "failed" });
@@ -279,7 +276,7 @@ export function EstimateWithMilton({
     } else if (probe.status === "ok") {
       reason = (
         <p className="text-[12px] text-[var(--brand-muted)]">
-          {probe.needs_link > 0 ? ESTIMATE_NEEDS_LINK : ESTIMATE_NOTHING_TO_DO}
+          {ESTIMATE_NOTHING_TO_DO}
         </p>
       );
     }

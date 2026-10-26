@@ -26,6 +26,7 @@ const TONE: Record<DishStatus, PlatoQueueRow["status_tone"]> = {
   aprobado: "ok",
   estimado: "pur",
   falta_precio: "warn",
+  borrador: "grey",
   sin_receta: "grey",
 };
 
@@ -70,6 +71,9 @@ export function summaryFromEditorState(
     combo_covered: false,
     in_food_sales: true,
     avg_net_price: summary.avg_net_price,
+    // An editable draft with no lines is a «Borrador» (dish-state.ts).
+    in_review: !hasApprovedInForce,
+    from_menu: summary.state_reason === "desde_el_menu",
   });
   const unitCost = next.unit_cost;
   const price = summary.avg_net_price;
@@ -137,8 +141,12 @@ export function markApproved(
   // a line without price stays «Falta precio». Nothing is hand-set here.
   const resolved = summary
     ? dishStateFrom({
-        has_version: summary.status !== "sin_receta",
-        line_count: summary.status === "sin_receta" ? 0 : 1,
+        has_version:
+          summary.status !== "sin_receta" && summary.status !== "borrador",
+        line_count:
+          summary.status === "sin_receta" || summary.status === "borrador"
+            ? 0
+            : 1,
         missing: summary.lines_missing_price,
         total:
           summary.lines_missing_price > 0 || summary.unit_cost === null

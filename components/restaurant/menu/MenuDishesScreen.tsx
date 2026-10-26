@@ -13,7 +13,15 @@ import {
   GROUP_COVERAGE_TIP,
   groupStatusDisplay,
 } from "@/lib/restaurant/costing/rollup";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { MoreHorizontal, Sparkles } from "lucide-react";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
@@ -35,7 +43,11 @@ import {
   type MenuDish,
   type MenuDishVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
-import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
+import {
+  DISH_STATUS_LABELS,
+  type DishStatus,
+} from "@/lib/restaurant/costing/dish-status";
+import { FROM_MENU_LABEL } from "@/lib/restaurant/costing/dish-state";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
@@ -43,7 +55,6 @@ import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
   ESTIMATE_BADGE,
   ESTIMATE_BUTTON,
-  ESTIMATE_ROW_NEEDS_LINK,
   ESTIMATE_USE_BUTTON,
   ESTIMATE_USE_SUCCESS,
   canUseEstimateAsDraft,
@@ -56,6 +67,8 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
+import { SizeProductRows } from "@/components/restaurant/menu/SizeProductRows";
+import { missingProductsTip } from "@/lib/restaurant/menu-dishes/size-products";
 import { StickyPanel, STICKY_TH } from "@/components/restaurant/ui/StickyPanel";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
@@ -69,6 +82,7 @@ const TONE: Record<DishStatus, "ok" | "pur" | "warn" | "grey"> = {
   aprobado: "ok",
   estimado: "pur",
   falta_precio: "warn",
+  borrador: "grey",
   sin_receta: "grey",
 };
 
@@ -118,9 +132,10 @@ function uniqueProducts(variants: readonly MenuDishVariant[]) {
 
 const STATUS_RANK: Record<DishStatus, number> = {
   sin_receta: 0,
-  falta_precio: 1,
-  estimado: 2,
-  aprobado: 3,
+  borrador: 1,
+  falta_precio: 2,
+  estimado: 3,
+  aprobado: 4,
 };
 
 /** What each Platos column sorts by; a missing price is null (last both ways). */
@@ -583,6 +598,12 @@ export function MenuDishesScreen({
           }
           aria-hidden={kpiHidden}
         >
+          <p
+            className="mb-1.5 text-[12px] text-[#8a92a3]"
+            data-testid="platos-kpi-period"
+          >
+            {data.period_label ?? "Todo el historial"}
+          </p>
           <div className="grid grid-cols-4 gap-3">
             <Kpi
               label="Costo de comida"
@@ -595,24 +616,26 @@ export function MenuDishesScreen({
             <Kpi
               label="Margen bruto"
               value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
-              sub={data.period_label ?? "ventas con costo"}
+              sub="solo ventas con costo"
               href={platosHref(["aprobado"])}
             />
             <Kpi
               label="Ventas con costo"
               value={`${Math.round(k.coverage_pct)}%`}
-              sub={
-                k.partial_dishes > 0
-                  ? `${k.covered_dishes} de ${k.dish_count} platos · ${k.partial_dishes} ${k.partial_dishes === 1 ? "parcial" : "parciales"}`
-                  : `${k.covered_dishes} de ${k.dish_count} platos`
-              }
+              sub={`${k.covered_dishes} de ${k.dish_count} platos`}
               href={platosHref()}
             />
             <Kpi
               label="Platos con problema"
               value={String(k.problem_count)}
-              sub={`${k.missing_price_dishes} sin precio · ${k.no_recipe_dishes} sin receta`}
-              href={platosHref(["falta_precio", "sin_receta"])}
+              sub={[
+                `${k.missing_price_dishes} sin precio`,
+                ...((k.draft_dishes ?? 0) > 0
+                  ? [`${k.draft_dishes} borrador`]
+                  : []),
+                `${k.no_recipe_dishes} sin receta`,
+              ].join(" · ")}
+              href={platosHref(["falta_precio", "borrador", "sin_receta"])}
               alert={k.problem_count > 0}
             />
           </div>
@@ -777,6 +800,9 @@ export function MenuDishesScreen({
                     canEdit={data.actor.can_submit}
                     estimate={estimateOf.get(dish.id) ?? null}
                     canEstimate={canEstimateRows}
+                    canLink={
+                      data.actor.capabilities?.["links.confirm"] === true
+                    }
                     locationId={data.view_location_id ?? null}
                     onEstimated={onEstimated}
                     onToggle={onToggleRow}
@@ -856,30 +882,30 @@ function bySize(variants: readonly MenuDishVariant[]) {
 
 /**
  * «Estimar con Milton» on one «Sin receta» plato: the same POST as the
- * controls-row link, for this plato only. Disabled with its reason when the
- * person cannot edit recipes or the product has no plato yet.
+ * controls-row link, for this plato only. A product with no plato yet is sent
+ * as `products`: the server gives it its empty recipe + link first. Disabled
+ * with its reason only when the person cannot edit recipes.
  */
 function RowEstimate({
   menuItemId,
+  product,
   canEdit,
   locationId,
   onEstimated,
 }: {
   menuItemId: string | null;
+  /** The POS product, used when it has no plato yet. */
+  product: { odoo_product_id: number; odoo_name: string } | null;
   canEdit: boolean;
   locationId: string | null;
   onEstimated?: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const reason = !canEdit
-    ? CAPABILITY_MESSAGES["recipes.edit"]
-    : !menuItemId
-      ? ESTIMATE_ROW_NEEDS_LINK
-      : null;
+  const reason = !canEdit ? CAPABILITY_MESSAGES["recipes.edit"] : null;
 
   async function run() {
-    if (busy || !menuItemId) return;
+    if (busy || (!menuItemId && !product)) return;
     setBusy(true);
     setNote(null);
     try {
@@ -887,7 +913,9 @@ function RowEstimate({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          menu_item_ids: [menuItemId],
+          ...(menuItemId
+            ? { menu_item_ids: [menuItemId] }
+            : { products: [product] }),
           location_id: locationId ?? undefined,
         }),
       });
@@ -1045,6 +1073,7 @@ const DishRows = memo(function DishRows({
   canEdit,
   estimate = null,
   canEstimate = false,
+  canLink = false,
   locationId = null,
   onEstimated,
   onToggle,
@@ -1063,6 +1092,8 @@ const DishRows = memo(function DishRows({
   } | null;
   /** From capabilities["recipes.edit"] (canEditRecipes), the API's own gate. */
   canEstimate?: boolean;
+  /** From capabilities["links.confirm"]: may share a sibling's recipe. */
+  canLink?: boolean;
   locationId?: string | null;
   onEstimated?: () => void;
   open: boolean;
@@ -1077,6 +1108,30 @@ const DishRows = memo(function DishRows({
   const isExcluded = dish.status === "excluded";
   const coverage = Math.round(dish.coverage * 100);
   const groupChip = groupStatusDisplay(dish);
+  // «Borrador» prepared by the menu reader says where it came from.
+  const fromMenuTip =
+    dish.cost_status === "borrador" &&
+    dish.variants.some((v) => v.state_reason === "desde_el_menu")
+      ? `${DISH_STATUS_LABELS.borrador} · ${FROM_MENU_LABEL}`
+      : undefined;
+  const [openSizes, setOpenSizes] = useState<ReadonlySet<string>>(new Set());
+  const toggleSize = (label: string) =>
+    setOpenSizes((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(label)) next.add(label);
+      return next;
+    });
+  const baseVariant = dish.variants.find(
+    (v) => v.odoo_product_id === dish.base_odoo_product_id
+  );
+  const rowProduct =
+    dish.base_odoo_product_id != null
+      ? {
+          odoo_product_id: dish.base_odoo_product_id,
+          odoo_name: baseVariant?.name ?? dish.name,
+        }
+      : null;
+  const missingTip = groupChip.mixed ? missingProductsTip(dish.variants) : null;
   return (
     <>
       <tr
@@ -1170,6 +1225,7 @@ const DishRows = memo(function DishRows({
           {!estimate && !isExcluded && dish.cost_status === "sin_receta" ? (
             <RowEstimate
               menuItemId={dish.base_menu_item_id ?? null}
+              product={rowProduct}
               canEdit={canEstimate}
               locationId={locationId}
               onEstimated={onEstimated}
@@ -1206,7 +1262,13 @@ const DishRows = memo(function DishRows({
               {EXCLUDED_LABELS[dish.excluded_reason ?? ""] ?? "Excluido"}
             </Chip>
           ) : (
-            <span title={groupChip.mixed ? GROUP_COVERAGE_TIP : undefined}>
+            <span
+              title={
+                groupChip.mixed
+                  ? [GROUP_COVERAGE_TIP, missingTip].filter(Boolean).join("\n")
+                  : fromMenuTip
+              }
+            >
               <Chip tone={groupChip.mixed ? "warn" : TONE[dish.cost_status]}>
                 {groupChip.label}
               </Chip>
@@ -1225,28 +1287,48 @@ const DishRows = memo(function DishRows({
       </tr>
       {open
         ? bySize(dish.variants).map((group) => (
-            <tr
-              key={`${dish.id}:${group.label}`}
-              className="border-b border-[#f2f3f6] bg-[#fafbfc] text-[#4a5263]"
-            >
-              <td
-                className="py-2 pl-[34px] pr-2"
-                title={group.list.map(variantTitle).join("\n")}
-              >
-                {group.label} · {group.list.length}{" "}
-                {group.list.length === 1 ? "variante" : "variantes"}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {money(group.sums.net_sales)}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {pct(group.sums.margin_pct)}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {pct(group.sums.food_cost_pct)}
-              </td>
-              <td colSpan={3} />
-            </tr>
+            <Fragment key={`${dish.id}:${group.label}`}>
+              <tr className="border-b border-[#f2f3f6] bg-[#fafbfc] text-[#4a5263]">
+                <td
+                  className="py-2 pl-[34px] pr-2"
+                  title={group.list.map(variantTitle).join("\n")}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSize(group.label)}
+                    className="mr-2 text-[#1b40c8]"
+                    aria-label={
+                      openSizes.has(group.label)
+                        ? "Ocultar productos"
+                        : "Ver productos"
+                    }
+                  >
+                    {openSizes.has(group.label) ? "▾" : "▸"}
+                  </button>
+                  {group.label} · {group.list.length}{" "}
+                  {group.list.length === 1 ? "variante" : "variantes"}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {money(group.sums.net_sales)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {pct(group.sums.margin_pct)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {pct(group.sums.food_cost_pct)}
+                </td>
+                <td colSpan={3} />
+              </tr>
+              {openSizes.has(group.label) ? (
+                <SizeProductRows
+                  variants={group.list}
+                  dishVariants={dish.variants}
+                  canLink={canLink}
+                  money={money}
+                  onLinked={onEstimated}
+                />
+              ) : null}
+            </Fragment>
           ))
         : null}
     </>

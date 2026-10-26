@@ -360,6 +360,32 @@ async function handleKitchenReport(
 ): Promise<void> {
   const fromId = message.from?.id;
   if (message.chat?.type !== "private" || !fromId) return;
+
+  // Handle unsupported media types (sticker, video, non-PDF document, location, etc.)
+  if (
+    message.sticker ||
+    message.video ||
+    message.video_note ||
+    message.location ||
+    message.contact ||
+    message.animation ||
+    (message.document &&
+      !message.document.mime_type?.startsWith("image/") &&
+      message.document.mime_type !== "application/pdf")
+  ) {
+    try {
+      const links = await listActiveLinks(fromId);
+      if (links.length > 0) {
+        const { handleUnsupportedMedia } = await import(
+          "@/lib/restaurant/telegram/kitchen-ai-handler"
+        );
+        await handleUnsupportedMedia(chatId, linkToActor(links[0]));
+      }
+    } catch {
+      // Silently fail unsupported media handling
+    }
+    return;
+  }
   try {
     const links = await listActiveLinks(fromId);
     if (links.length === 0) {
@@ -1176,7 +1202,7 @@ async function processRecipeDraftAsync(
     }
 
     if (!opts.forceRecipe) {
-      // Order: report words -> price update -> recipe -> plain acknowledgement.
+      // Order: report words -> price update -> recipe -> AI interpretation -> plain acknowledgement.
       const ack = () =>
         say(
           chatId,
@@ -1185,6 +1211,7 @@ async function processRecipeDraftAsync(
           }),
           opts.markup
         );
+      // Stock reports (se acabó, merma, 86) use existing flow
       if (classifyKitchenReport(finalTextContent) !== "unclassified") {
         logPriceRoute(logCtx, "report", undefined, false);
         await ack();
@@ -1225,6 +1252,23 @@ async function processRecipeDraftAsync(
         return;
       }
       if (!detectRecipeIntent(finalTextContent).isRecipe) {
+        // Try AI interpretation for greeting/question/unclear messages
+        const { handleWithAi } = await import(
+          "@/lib/restaurant/telegram/kitchen-ai-handler"
+        );
+        const handled = await handleWithAi({
+          admin,
+          staff,
+          chatId,
+          messageId,
+          text: finalTextContent,
+          markup: opts.markup,
+        });
+        if (handled) {
+          logPriceRoute(logCtx, "ai_handled", undefined, price.aiCalled);
+          return;
+        }
+        // Fallback to generic ack if AI didn't handle it
         logPriceRoute(logCtx, "ack", undefined, price.aiCalled);
         await ack();
         return;
@@ -1322,8 +1366,16 @@ async function processPhotoAsync(
         (verdict.kind === "invoice" || verdict.kind === "recipe")
       ) {
         kind = verdict.kind;
-      } else {
+      } else if (verdict?.ok && verdict.confidence === "low") {
+        // Low confidence: ask for clarification
         await sendTelegramMessage(chatId, KITCHEN_COPY.PHOTO_ASK_KIND);
+        return;
+      } else {
+        // Not recognized at all: explain what photos can be used for
+        const { handleUnrecognizedPhoto } = await import(
+          "@/lib/restaurant/telegram/kitchen-ai-handler"
+        );
+        await handleUnrecognizedPhoto(chatId, staff, markup);
         return;
       }
     }

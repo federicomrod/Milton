@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
@@ -47,6 +47,10 @@ import {
   INVOICE_REVIEW_PARAM,
   INVOICE_UPLOAD_ANCHOR,
 } from "@/lib/restaurant/costs-tabs";
+import {
+  formatPreviewQuantity,
+  type InvoiceLinePreview,
+} from "@/lib/restaurant/invoice-list-preview";
 import type {
   SupplierInvoiceLine,
   InvoiceEvent,
@@ -88,7 +92,7 @@ function PriceUpdateLabel() {
   return (
     <span
       data-testid="price-update-label"
-      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#4b5466]"
     >
       Actualización de precio
     </span>
@@ -150,7 +154,7 @@ function Button({
       ? "bg-[#1B40C8] text-white hover:bg-[#1535a6] disabled:bg-[#b9c7f0] disabled:text-white"
       : variant === "danger"
         ? "border border-red-500 bg-white text-red-600 hover:bg-red-50 disabled:border-red-200 disabled:text-red-200"
-        : "border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe] disabled:border-[#b9c7f0] disabled:text-[#b9c7f0]";
+        : "border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] disabled:border-[#b9c7f0] disabled:text-[#b9c7f0]";
   const sz =
     size === "icon"
       ? "h-8 w-8 p-0"
@@ -268,6 +272,8 @@ export interface InvoiceListItem {
     unmatched: number;
     pending: number;
   };
+  /** First 2 lines (stable order) for the «Productos» column. */
+  line_preview?: InvoiceLinePreview[];
 }
 
 interface IngredientLite {
@@ -296,9 +302,34 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
 
+const STATUS_TITLE: Record<string, string> = {
+  needs_review: "El precio no se aplica hasta que alguien lo apruebe.",
+  posted: "Los precios ya están aplicados a tus costos y platos.",
+};
+
+/** Small secondary text under the status chip: where the invoice came from. */
+function sourceText(inv: InvoiceListItem): string {
+  if (isTelegramInvoice(inv)) return "por Telegram";
+  switch (inv.source_type) {
+    case "image":
+    case "pdf":
+      return "por foto";
+    case "csv":
+    case "xlsx":
+      return "por CSV / Excel";
+    case "manual":
+      return "a mano";
+    default:
+      return "";
+  }
+}
+
+const REVIEW_EXPLANATION =
+  "Por revisar: el precio aún no se aplica a tus costos. Ábrela con Revisar, asigna el ingrediente y apruébala.";
+
 const STATUS_STYLE: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600",
-  needs_review: "bg-gray-100 text-gray-700",
+  draft: "bg-gray-100 text-[#4b5466]",
+  needs_review: "bg-[#eef2fd] text-[#1B40C8]",
   approved: "bg-[#eef2fd] text-[#1B40C8]",
   rejected: "bg-red-100 text-red-700",
   posted: "bg-green-100 text-green-800",
@@ -435,6 +466,28 @@ export function InvoicesPage({
     }
   }, []);
 
+  const reviewInList =
+    !!reviewingId && invoices.some((i) => i.id === reviewingId);
+
+  const renderReview = (id: string) => (
+    <ReviewDetail
+      invoiceId={id}
+      ingredients={ingredients}
+      onIngredientCreated={upsertIngredient}
+      onClose={() => setReviewingId(null)}
+      onChanged={refreshList}
+      canEdit={canEditPrices}
+    />
+  );
+
+  // When a review opens (button, ?factura=, new invoice) bring it into view.
+  useEffect(() => {
+    if (!reviewingId) return;
+    document
+      .getElementById(reviewPanelId(reviewingId))
+      ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [reviewingId, reviewInList]);
+
   // Rendered inside Costos › Compras (R1-09b): no page header here.
   return (
     <div className="w-full">
@@ -478,24 +531,23 @@ export function InvoicesPage({
           />
         ) : null}
 
-        {/* Invoice list */}
+        {/* Fallback: an id outside the loaded list is shown above the table */}
+        {reviewingId && !reviewInList ? (
+          <div
+            id={reviewPanelId(reviewingId)}
+            data-testid="invoice-review-fallback"
+          >
+            {renderReview(reviewingId)}
+          </div>
+        ) : null}
+
+        {/* Invoice list (the review opens inline under the clicked row) */}
         <InvoiceListCard
           invoices={invoices}
           reviewingId={reviewingId}
           onReview={setReviewingId}
+          renderReview={renderReview}
         />
-
-        {/* Review detail */}
-        {reviewingId && (
-          <ReviewDetail
-            invoiceId={reviewingId}
-            ingredients={ingredients}
-            onIngredientCreated={upsertIngredient}
-            onClose={() => setReviewingId(null)}
-            onChanged={refreshList}
-            canEdit={canEditPrices}
-          />
-        )}
 
         {/* One compact «Agregar factura» action: CSV, photo or by hand */}
         {canEditPrices && !aiDraft ? (
@@ -878,6 +930,57 @@ function ManualCreateCard({
 // Invoice list card
 // ---------------------------------------------------------------------------
 
+const reviewPanelId = (id: string) => `invoice-review-${id}`;
+
+/** «Harina de trigo · 1 kg · USD 1.95», one line of the «Productos» cell. */
+function ProductItem({
+  item,
+  currency,
+}: {
+  item: InvoiceLinePreview;
+  currency: string;
+}) {
+  const qty =
+    item.quantity !== null
+      ? `${formatPreviewQuantity(item.quantity)}${item.unit ? ` ${item.unit}` : ""}`
+      : "";
+  return (
+    <div data-testid="invoice-product-item" className="text-[#151c2c]">
+      {item.name}
+      {!item.matched && (
+        <span className="ml-1 text-xs font-semibold text-[#1B40C8]">
+          sin asignar
+        </span>
+      )}
+      {qty ? ` · ${qty}` : ""}
+      {" · "}
+      {item.unit_cost === null ? (
+        <MissingBadge>Sin precio</MissingBadge>
+      ) : (
+        fmtMoney(item.unit_cost, currency)
+      )}
+    </div>
+  );
+}
+
+function ProductsCell({ inv }: { inv: InvoiceListItem }) {
+  const preview = inv.line_preview ?? [];
+  if (inv.line_counts.total === 0 || preview.length === 0) {
+    return <span className="italic text-[#4b5466]">Sin productos</span>;
+  }
+  const more = inv.line_counts.total - preview.length;
+  return (
+    <div className="space-y-0.5">
+      {preview.map((item, i) => (
+        <ProductItem key={i} item={item} currency={inv.currency} />
+      ))}
+      {more > 0 && (
+        <div className="text-xs font-semibold text-[#1B40C8]">+{more} más</div>
+      )}
+    </div>
+  );
+}
+
 function invoiceValue(inv: InvoiceListItem, key: string): SortValue {
   switch (key) {
     case "supplier":
@@ -901,10 +1004,12 @@ function InvoiceListCard({
   invoices,
   reviewingId,
   onReview,
+  renderReview,
 }: {
   invoices: InvoiceListItem[];
   reviewingId: string | null;
-  onReview: (id: string) => void;
+  onReview: (id: string | null) => void;
+  renderReview: (id: string) => React.ReactNode;
 }) {
   const { sort, toggle } = useTableSort("compras-facturas");
   const sorted = sortRows(invoices, sort, invoiceValue);
@@ -925,8 +1030,19 @@ function InvoiceListCard({
     );
   }
 
+  const anyNeedsReview = invoices.some((i) => i.status === "needs_review");
+  const COLS = 8;
+
   return (
     <Card flush>
+      {anyNeedsReview && (
+        <p
+          data-testid="review-explanation"
+          className="border-b border-[#eef0f4] px-4 py-2.5 text-xs text-[#151c2c]"
+        >
+          {REVIEW_EXPLANATION}
+        </p>
+      )}
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead className="border-b border-[#eef0f4] bg-[#f9fafc]">
@@ -939,6 +1055,7 @@ function InvoiceListCard({
               >
                 Proveedor
               </SortTh>
+              <th className="px-4 py-3 font-medium">Productos</th>
               <SortTh
                 sortKey="number"
                 sort={sort}
@@ -978,74 +1095,101 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Líneas (asignadas / total){" "}
+                Asignadas{" "}
               </SortTh>
               <th className="px-4 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
-            {sorted.map((inv, i) => (
-              <tr
-                key={inv.id}
-                className={
-                  (i % 2 === 1 ? "bg-[#f9fafc]" : "bg-white") +
-                  " border-b border-[#eef0f4] last:border-0"
-                }
-              >
-                <td className="px-4 py-3">
-                  {inv.supplier_name ?? (
-                    <span className="text-[#6b7385] italic">
-                      (sin proveedor)
-                    </span>
-                  )}
-                  {isPriceUpdateNote(inv.notes) && (
-                    <span className="ml-2">
-                      <PriceUpdateLabel />
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">
-                  {inv.invoice_number ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-[#6b7385] whitespace-nowrap">
-                  {fmtDate(inv.invoice_date)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums">
-                  {totalText(inv.total_amount, inv.currency)}
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
-                  >
-                    {statusLabel(inv.status)}{" "}
-                  </span>
-                  {isTelegramInvoice(inv) && (
-                    <span className="ml-2">
-                      <TelegramLabel />
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-xs">
-                  {inv.line_counts.matched} / {inv.line_counts.total}
-                  {inv.line_counts.unmatched > 0 && (
-                    <span className="ml-1 text-gray-500">
-                      · {inv.line_counts.unmatched} sin asignar
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      onReview(reviewingId === inv.id ? "" : inv.id)
+            {sorted.map((inv, i) => {
+              const open = reviewingId === inv.id;
+              return (
+                <Fragment key={inv.id}>
+                  <tr
+                    className={
+                      (open
+                        ? "bg-[#eef2fd]"
+                        : i % 2 === 1
+                          ? "bg-[#f9fafc]"
+                          : "bg-white") +
+                      " border-b border-[#eef0f4] last:border-0"
                     }
                   >
-                    {reviewingId === inv.id ? "Ocultar" : "Revisar"}
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                    <td className="px-4 py-3 align-top text-[#151c2c]">
+                      {inv.supplier_name ?? (
+                        <span className="italic text-[#4b5466]">
+                          (sin proveedor)
+                        </span>
+                      )}
+                      {isPriceUpdateNote(inv.notes) && (
+                        <span className="ml-2">
+                          <PriceUpdateLabel />
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <ProductsCell inv={inv} />
+                    </td>
+                    <td className="px-4 py-3 align-top font-mono text-xs text-[#151c2c]">
+                      {inv.invoice_number ?? "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 align-top text-[#4b5466]">
+                      {fmtDate(inv.invoice_date)}
+                    </td>
+                    <td className="px-4 py-3 text-right align-top tabular-nums text-[#151c2c]">
+                      {totalText(inv.total_amount, inv.currency)}
+                    </td>
+                    <td className="px-4 py-3 align-top">
+                      <span
+                        data-testid="invoice-status-chip"
+                        title={STATUS_TITLE[inv.status]}
+                        className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
+                      >
+                        {statusLabel(inv.status)}
+                      </span>
+                      {sourceText(inv) && (
+                        <div
+                          data-testid="invoice-source"
+                          className="mt-0.5 text-xs text-[#4b5466]"
+                        >
+                          {sourceText(inv)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top text-xs text-[#151c2c]">
+                      {inv.line_counts.matched} de {inv.line_counts.total}
+                      {inv.line_counts.unmatched > 0 && (
+                        <span className="ml-1 text-[#1B40C8]">
+                          · {inv.line_counts.unmatched} sin asignar
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right align-top">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        aria-expanded={open}
+                        aria-controls={reviewPanelId(inv.id)}
+                        onClick={() => onReview(open ? null : inv.id)}
+                      >
+                        {open ? "Ocultar" : "Revisar"}
+                      </Button>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr
+                      data-testid="invoice-review-row"
+                      id={reviewPanelId(inv.id)}
+                      className="border-b border-[#eef0f4] bg-[#eef2fd]"
+                    >
+                      <td colSpan={COLS} className="px-3 py-3">
+                        {renderReview(inv.id)}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>{" "}
       </div>{" "}

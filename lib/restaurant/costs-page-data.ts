@@ -17,6 +17,12 @@ import {
 } from "@/lib/restaurant/paginated-read";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
+  INVOICE_LINE_PREVIEW_SELECT,
+  buildInvoiceLineSummaries,
+  emptyLineCounts,
+  type InvoiceLinePreviewRow,
+} from "@/lib/restaurant/invoice-list-preview";
+import {
   purchaseWindowStart,
   summarizePurchaseWindows,
   type PurchaseWindows,
@@ -263,14 +269,10 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
         .order("invoice_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(200),
-      fetchAllRows<{
-        invoice_id: string;
-        match_status: string;
-        review_status: string;
-      }>(() =>
+      fetchAllRows<InvoiceLinePreviewRow>(() =>
         supabase
           .from("supplier_invoice_lines")
-          .select("invoice_id, match_status, review_status")
+          .select(INVOICE_LINE_PREVIEW_SELECT)
           .eq("company_id", companyId)
       ),
       fetchAllRows<{ id: string; name: string }>(() =>
@@ -310,29 +312,12 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
   );
   const supplierNameById = new Map(suppliers.map((s) => [s.id, s.name]));
 
-  type LineCount = InvoiceListItem["line_counts"];
-  const emptyCount = (): LineCount => ({
-    total: 0,
-    matched: 0,
-    approved: 0,
-    unmatched: 0,
-    pending: 0,
-  });
-  const lineCounts = new Map<string, LineCount>();
-  for (const row of (invRes.data ?? []) as { id: string }[]) {
-    lineCounts.set(row.id, emptyCount());
-  }
-  for (const l of succeededRows(lineRes)) {
-    const bucket = lineCounts.get(l.invoice_id);
-    if (!bucket) continue;
-    bucket.total++;
-    if (l.match_status === "matched" || l.match_status === "auto_matched") {
-      bucket.matched++;
-    }
-    if (l.match_status === "unmatched") bucket.unmatched++;
-    if (l.review_status === "approved") bucket.approved++;
-    if (l.review_status === "pending") bucket.pending++;
-  }
+  const ingredientRows = [...succeededRows(ingRes)];
+  const summaries = buildInvoiceLineSummaries(
+    ((invRes.data ?? []) as { id: string }[]).map((r) => r.id),
+    succeededRows(lineRes),
+    new Map(ingredientRows.map((i) => [i.id, i.name]))
+  );
 
   const invoices: InvoiceListItem[] = (
     (invRes.data ?? []) as Array<{
@@ -365,15 +350,14 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
     notes: r.notes ?? null,
     original_file_name: r.original_file_name ?? null,
     created_at: r.created_at,
-    line_counts: lineCounts.get(r.id) ?? emptyCount(),
+    line_counts: summaries.get(r.id)?.counts ?? emptyLineCounts(),
+    line_preview: summaries.get(r.id)?.preview ?? [],
   }));
 
   return {
     invoices,
     suppliers,
-    ingredients: [...succeededRows(ingRes)].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    ),
+    ingredients: ingredientRows.sort((a, b) => a.name.localeCompare(b.name)),
     companyCurrency,
   };
 }

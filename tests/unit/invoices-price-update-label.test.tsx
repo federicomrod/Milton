@@ -59,6 +59,6 @@ describe("price update label", () => {
     const labels = screen.getAllByTestId("price-update-label");
     expect(labels).toHaveLength(1);
     expect(labels[0].textContent).toBe("Actualización de precio");
-    expect(labels[0].className).toContain("text-[#6b7280]");
+    expect(labels[0].className).toContain("text-[#4b5466]");
   });
 });

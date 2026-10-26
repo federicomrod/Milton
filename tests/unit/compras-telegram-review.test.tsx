@@ -111,7 +111,8 @@ describe("Compras: Telegram invoices", () => {
     // total is not computable: never "$0.00"
     expect(screen.getAllByText("Incompleto").length).toBeGreaterThan(0);
     expect(screen.queryByText(/\$0\.00/)).toBeNull();
-    expect(screen.getAllByTestId("telegram-label").length).toBe(2);
+    // the list row now shows «por Telegram» as text; the chip lives in the panel only
+    expect(screen.getAllByTestId("telegram-label").length).toBe(1);
   });
 
   it("Telegram label by file name and by price-update prefix", () => {
@@ -132,7 +133,11 @@ describe("Compras: Telegram invoices", () => {
         companyCurrency="USD"
       />
     );
-    expect(screen.getAllByTestId("telegram-label")).toHaveLength(2);
+    // no grey Telegram chip in the list: the source is secondary text
+    expect(screen.queryAllByTestId("telegram-label")).toHaveLength(0);
+    expect(
+      screen.getAllByTestId("invoice-source").map((e) => e.textContent)
+    ).toEqual(["por Telegram", "por Telegram", "por foto"]);
     expect(screen.getAllByTestId("price-update-label")).toHaveLength(1);
     expect(screen.getAllByText("Sin precio").length).toBe(3);
   });

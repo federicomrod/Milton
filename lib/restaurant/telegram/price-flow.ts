@@ -21,6 +21,7 @@ import {
   looksLikePriceIntent,
   parsePriceItems,
   PRICE_UPDATE_MAX_ITEMS,
+  type AmbiguousPrice,
   type ItemParse,
   type PriceUpdateItem,
   type UnitlessPrice,
@@ -30,9 +31,15 @@ import { KITCHEN_COPY, renderKitchenCopy } from "./kitchen-copy";
 
 export type UnclearItem = { label: string | null; hint?: string };
 
+function ambiguousOf(read: ItemParse): AmbiguousPrice[] {
+  return Array.isArray(read.ambiguous) ? read.ambiguous : [];
+}
+
 export type PriceItemsResult = {
   saved: PriceUpdateItem[];
   needUnit: UnitlessPrice[];
+  /** Ambiguous amounts, in the order said. Only the first one is asked. */
+  ambiguous: AmbiguousPrice[];
   unclear: UnclearItem[];
   skippedNoPrice: string[];
   overLimit: string[];
@@ -47,13 +54,37 @@ export type PriceFlowResult =
       aiFailed?: boolean;
     };
 
-export type PriceRoute = "price" | "price_partial" | "needs_unit" | "unclear";
+export type PriceRoute =
+  | "price"
+  | "price_partial"
+  | "needs_unit"
+  | "needs_amount"
+  | "unclear";
 
 export function routeOf(r: PriceItemsResult): PriceRoute {
-  const rest = r.needUnit.length + r.unclear.length + r.overLimit.length;
+  const rest =
+    r.needUnit.length +
+    r.ambiguous.length +
+    r.unclear.length +
+    r.overLimit.length;
   if (r.saved.length > 0) return rest > 0 ? "price_partial" : "price";
+  if (r.ambiguous.length > 0) return "needs_amount";
   if (r.needUnit.length > 0) return "needs_unit";
   return "unclear";
+}
+
+/**
+ * Did the rules (or the price AI) find something to save or to ask about?
+ * When not, the message is NOT a price yet: it goes to the AI interpreter.
+ */
+export function isActionable(result: PriceFlowResult): boolean {
+  return (
+    result.kind === "items" &&
+    result.r.saved.length +
+      result.r.needUnit.length +
+      result.r.ambiguous.length >
+      0
+  );
 }
 
 export type RulesStage =
@@ -84,9 +115,29 @@ function finalize(
       room--;
     } else overLimit.push(i.name);
   }
-  const unclear = read.unclear.map((u) => ({ label: u.label, hint: u.hint }));
+  const ambiguousAll = ambiguousOf(read);
+  const ambiguous = ambiguousAll.slice(0, 1);
+  // Only ONE question per message: the other ambiguous prices (and the
+  // unitless ones, which would need a second question) are named as not understood.
+  const extraLabels: UnclearItem[] = [];
+  if (ambiguous.length > 0) {
+    for (const a of ambiguousAll.slice(1))
+      extraLabels.push({ label: a.product });
+    for (const u of needUnit.splice(0)) extraLabels.push({ label: u.name });
+  }
+  const unclear = [
+    ...read.unclear
+      // A hinted segment is now an ambiguous price (asked, not dropped).
+      .filter((u) => !(ambiguousAll.length > 0 && u.hint))
+      .map((u) => ({ label: u.label, hint: u.hint })),
+    ...extraLabels,
+  ];
   if (
-    saved.length + needUnit.length + unclear.length + overLimit.length ===
+    saved.length +
+      needUnit.length +
+      ambiguous.length +
+      unclear.length +
+      overLimit.length ===
     0
   ) {
     return { kind: "none", aiCalled, aiFailed };
@@ -98,6 +149,7 @@ function finalize(
     r: {
       saved,
       needUnit,
+      ambiguous,
       unclear,
       skippedNoPrice: read.skippedNoPrice,
       overLimit,
@@ -109,7 +161,7 @@ function finalize(
 export function rulesStage(text: string): RulesStage {
   const p = parsePriceItems(text);
   if (!p) return { done: true, result: NONE };
-  const read = p.items.length + p.unitless.length;
+  const read = p.items.length + p.unitless.length + ambiguousOf(p).length;
   let unclear = p.unclear;
   // Rules saw nothing, yet it reads like a price («aguacate 1.50 por favor»).
   if (
@@ -152,9 +204,14 @@ export async function aiStage(
     raw = null;
   }
   const candidates = raw == null ? [] : validateAiItems(raw, text);
-  const readCount = read.items.length + read.unitless.length;
+  const amb = ambiguousOf(read);
+  const readCount = read.items.length + read.unitless.length + amb.length;
   const known = new Set(
-    [...read.items, ...read.unitless].map((i) => key(i.name))
+    [
+      ...read.items.map((i) => i.name),
+      ...read.unitless.map((i) => i.name),
+      ...amb.map((i) => i.product),
+    ].map(key)
   );
   const items = [...read.items];
   const unitless = [...read.unitless];

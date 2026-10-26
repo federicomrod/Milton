@@ -12,6 +12,11 @@ import type {
 
 // Mock the AI interpreter
 const mockAi = vi.fn();
+const mockPriceSafe = vi.fn();
+const mockOpenAmount = vi.fn();
+const mockOpenUnit = vi.fn();
+const mockFindOpen = vi.fn();
+const mockComplete = vi.fn();
 
 vi.mock(
   "@/lib/restaurant/telegram/kitchen-intent-ai",
@@ -27,6 +32,16 @@ vi.mock(
   }
 );
 
+// The context reads the database: not what these tests are about.
+vi.mock("@/lib/restaurant/telegram/kitchen-context", () => ({
+  buildKitchenContext: async () => ({
+    conversation: [],
+    company_currency: "USD",
+    ingredient_hints: [{ id: "ing-123", name: "Aguacate Hass" }],
+    pending_question: null,
+  }),
+}));
+
 const mockSendMessage = vi.fn();
 const mockRecordReport = vi.fn();
 
@@ -34,13 +49,83 @@ vi.mock("@/lib/restaurant/telegram/send", () => ({
   sendTelegramMessage: mockSendMessage,
 }));
 
-vi.mock("@/lib/restaurant/telegram/kitchen-reports", () => ({
-  recordKitchenReport: mockRecordReport,
+vi.mock("@/lib/restaurant/telegram/kitchen-reports", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@/lib/restaurant/telegram/kitchen-reports")
+    >();
+  return { ...actual, recordKitchenReport: mockRecordReport };
+});
+
+vi.mock("@/lib/restaurant/telegram/kitchen-media", () => ({
+  processPriceUpdateSafe: mockPriceSafe,
 }));
+
+vi.mock(
+  "@/lib/restaurant/telegram/price-unit-question",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/lib/restaurant/telegram/price-unit-question")
+      >();
+    return {
+      ...actual,
+      openAmountQuestion: mockOpenAmount,
+      openUnitQuestion: mockOpenUnit,
+      findOpenUnitQuestion: mockFindOpen,
+    };
+  }
+);
+
+vi.mock(
+  "@/lib/restaurant/telegram/kitchen-pending-answer",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/lib/restaurant/telegram/kitchen-pending-answer")
+      >();
+    return { ...actual, completePendingQuestion: mockComplete };
+  }
+);
+
+const STAFF = {
+  id: "staff-1",
+  company_id: "company-1",
+  location_id: "loc-1",
+  company_name: "Pupusería El Salvador",
+  location_name: "Sucursal Centro",
+};
+const LINK = {
+  telegramUserId: 1,
+  staffId: "staff-1",
+  companyId: "company-1",
+  companyName: "Pupusería El Salvador",
+  locationId: "loc-1",
+  locationName: "Sucursal Centro",
+} as never;
+
+// A Supabase stand-in whose kitchen_reports update always succeeds.
+const updates: Array<Record<string, unknown>> = [];
+const admin = {
+  from: () => {
+    const chain: Record<string, unknown> = {};
+    chain.update = (patch: Record<string, unknown>) => {
+      updates.push(patch);
+      return chain;
+    };
+    chain.eq = () => chain;
+    chain.then = (res: (v: unknown) => unknown) => res({ error: null });
+    return chain;
+  },
+} as never;
 
 describe("AI kitchen handler - realistic messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    updates.length = 0;
+    mockOpenAmount.mockResolvedValue({ ok: true, created: true });
+    mockOpenUnit.mockResolvedValue({ ok: true, created: true });
+    mockFindOpen.mockResolvedValue(null);
   });
 
   const testCases: Array<{
@@ -173,13 +258,13 @@ describe("AI kitchen handler - realistic messages", () => {
       desc: "price question",
       message: "¿cuánto cuesta la pupusa?",
       mockIntent: "question",
-      expectedReply: /preguntas.*pronto/i,
+      expectedReply: /no puedo responder preguntas/i,
     },
     {
       desc: "availability question",
       message: "¿a cuánto está el aguacate?",
       mockIntent: "question",
-      expectedReply: /preguntas.*pronto/i,
+      expectedReply: /no puedo responder preguntas/i,
     },
 
     // Greetings / smalltalk
@@ -352,17 +437,24 @@ describe("AI kitchen handler - realistic messages", () => {
     },
   ];
 
+  const DRAFT = new Set([
+    "simple price with unit",
+    "price from supplier (El Salvador context)",
+    "typo in price",
+    "informal - vos form",
+    "multiple prices",
+    "explicit USD",
+    "stock + price mixed",
+  ]);
+  const STOCK = new Set([
+    "se acabó (86)",
+    "merma/waste",
+    "se está acabando (running out)",
+  ]);
+
   testCases.forEach(
-    ({
-      desc,
-      message,
-      mockIntent,
-      mockItems,
-      expectedReply,
-      shouldCreateDraft,
-    }) => {
+    ({ desc, message, mockIntent, mockItems, expectedReply }) => {
       it(desc, async () => {
-        // Setup mock AI response
         if (desc === "AI timeout - null response") {
           mockAi.mockResolvedValueOnce(null);
         } else {
@@ -377,35 +469,177 @@ describe("AI kitchen handler - realistic messages", () => {
           await import("@/lib/restaurant/telegram/kitchen-ai-handler");
 
         const result = await handleWithAi({
-          admin: {} as any,
-          staff: {
-            id: "staff-1",
-            company_id: "company-1",
-            location_id: "loc-1",
-            company_name: "Pupusería El Salvador",
-            location_name: "Sucursal Centro",
-          },
+          admin,
+          staff: STAFF,
           chatId: 12345,
           messageId: 100,
           text: message,
+          link: LINK,
         });
 
-        // Check if handled based on intent
+        const replies = mockSendMessage.mock.calls.map((c) => String(c[1]));
+        const priceCall = mockPriceSafe.mock.calls[0]?.[0];
+
         if (expectedReply) {
           expect(result).toBe(true);
-          expect(mockSendMessage).toHaveBeenCalled();
-          const sentMessage = mockSendMessage.mock.calls[0][1];
-          expect(sentMessage).toMatch(expectedReply);
-        }
-
-        if (shouldCreateDraft) {
-          // For price_update, stock_report, recipe intents
-          // These should return false to let specialized handlers deal with them
+          expect(replies[0]).toMatch(expectedReply);
+          expect(mockPriceSafe).not.toHaveBeenCalled();
+        } else if (DRAFT.has(desc)) {
+          // price_update (and the price items of a mixed message): a draft
+          // through processPriceUpdate, never auto-approved.
+          expect(result).toBe(true);
+          expect(priceCall).toBeDefined();
+          expect(priceCall.items.length).toBeGreaterThan(0);
+          expect(
+            priceCall.items.every((i: { price: number }) => i.price > 0)
+          ).toBe(true);
+          if (desc === "multiple prices") {
+            // The one without a unit is asked, the others are saved.
+            expect(priceCall.items).toHaveLength(2);
+            expect(priceCall.replySuffix).toContain("por libra, onza o unidad");
+            expect(mockOpenUnit).toHaveBeenCalledTimes(1);
+          }
+          if (desc === "stock + price mixed") {
+            expect(priceCall.replySuffix).toContain("Cocina › Se agota");
+          }
+        } else if (STOCK.has(desc)) {
+          expect(result).toBe(true);
+          expect(mockPriceSafe).not.toHaveBeenCalled();
+          expect(replies[0]).toMatch(/Cocina › (Se agota|Merma)/);
+          expect(replies[0]).toContain(
+            "Pupusería El Salvador › Sucursal Centro"
+          );
+        } else if (desc === "ambiguous 3-digit (AI resolves with context)") {
+          // «aguacate a 150» is never decided alone: the cook is asked.
+          expect(result).toBe(true);
+          expect(mockPriceSafe).not.toHaveBeenCalled();
+          expect(mockOpenAmount).toHaveBeenCalledTimes(1);
+          expect(replies[0]).toBe(
+            "¿El aguacate está a $1.50 o a $150? Responde 1.50 o 150."
+          );
+        } else if (desc === "recipe with ingredients") {
+          // The recipe flow continues in the webhook.
           expect(result).toBe(false);
+        } else if (desc === "voice follow-up after unit question") {
+          // Nothing is open any more: a short explanation, not a crash.
+          expect(result).toBe(true);
+          expect(replies[0]).toContain("No entendí");
         }
       });
     }
   );
+
+  it("clarify_question opens the amount question; the AI's own words are never sent", async () => {
+    mockAi.mockResolvedValueOnce({
+      intent: "price_update",
+      items: [
+        {
+          product: "aguacate",
+          matched_ingredient_id: null,
+          amount: 150,
+          unit: null,
+          currency: "USD",
+        },
+      ],
+      clarify_question: "¿Seguro que son 150 dólares? Dime tú",
+    });
+    const { handleWithAi } =
+      await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+    await handleWithAi({
+      admin,
+      staff: STAFF,
+      chatId: 1,
+      messageId: 7,
+      text: "aguacate a 150",
+      link: LINK,
+    });
+    expect(mockOpenAmount).toHaveBeenCalledTimes(1);
+    const sentText = mockSendMessage.mock.calls.map((c) => String(c[1])).join();
+    expect(sentText).toContain("$1.50 o a $150");
+    expect(sentText).not.toContain("Seguro");
+    expect(mockPriceSafe).not.toHaveBeenCalled();
+  });
+
+  it("answer_to_pending resolves the open question with the validated answer", async () => {
+    mockFindOpen.mockResolvedValue({
+      id: "q1",
+      optionStaffIds: ["staff-1"],
+      payload: {
+        price_unit_question: {
+          items: [{ product: "queso", price: 3.25, currency: null }],
+        },
+      },
+      telegramMessageId: -10_000_000_001,
+    });
+    mockComplete.mockResolvedValue("done");
+    mockAi.mockResolvedValueOnce({
+      intent: "answer_to_pending",
+      items: [],
+      clarify_question: null,
+    });
+    const { handleWithAi } =
+      await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+    const handled = await handleWithAi({
+      admin,
+      staff: STAFF,
+      chatId: 1,
+      messageId: 8,
+      text: "por libra",
+      link: LINK,
+    });
+    expect(handled).toBe(true);
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(mockComplete.mock.calls[0][0].answer).toEqual({
+      kind: "unit",
+      unit: "lb",
+    });
+  });
+
+  it("a stock report on a voice note is stored with its type and transcript", async () => {
+    mockAi.mockResolvedValueOnce({
+      intent: "stock_report",
+      items: [],
+      clarify_question: null,
+    });
+    const { handleWithAi } =
+      await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+    await handleWithAi({
+      admin,
+      staff: STAFF,
+      chatId: 1,
+      messageId: 9,
+      text: "ya no hay tomate",
+      origin: "voice",
+      link: LINK,
+    });
+    expect(updates).toEqual([
+      expect.objectContaining({
+        report_type: "86",
+        transcript: "ya no hay tomate",
+      }),
+    ]);
+    expect(String(mockSendMessage.mock.calls[0][1])).toContain(
+      "Cocina › Se agota"
+    );
+  });
+
+  it("an AI timeout still answers a greeting and a question (never «No pude procesarlo»)", async () => {
+    const { handleWithAi } =
+      await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+    for (const text of ["hola", "¿cuánto cuesta la pupusa?"]) {
+      mockSendMessage.mockClear();
+      mockAi.mockResolvedValueOnce(null);
+      await handleWithAi({
+        admin,
+        staff: STAFF,
+        chatId: 1,
+        messageId: 10,
+        text,
+      });
+      const reply = String(mockSendMessage.mock.calls[0][1]);
+      expect(reply).not.toMatch(/no pude procesarlo/i);
+    }
+  });
 
   it("handles hard failure gracefully with fallback reply", async () => {
     mockAi.mockRejectedValueOnce(new Error("Database connection failed"));
@@ -414,7 +648,7 @@ describe("AI kitchen handler - realistic messages", () => {
       await import("@/lib/restaurant/telegram/kitchen-ai-handler");
 
     const result = await handleWithAi({
-      admin: {} as any,
+      admin,
       staff: {
         id: "staff-1",
         company_id: "company-1",

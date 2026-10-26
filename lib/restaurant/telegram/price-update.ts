@@ -19,6 +19,9 @@ export type Currency =
   | "EUR"
   | "NIO";
 
+/** ISO code of a currency the parser can read (alias of `Currency`). */
+export type PriceCurrency = Currency;
+
 export type PriceUpdateItem = {
   name: string;
   price: number;
@@ -32,18 +35,43 @@ export type PriceUpdateParse =
   | null;
 
 /** A price whose unit was not said («queso 3.25»): the bot asks once. */
-export type UnitlessPrice = { name: string; price: number };
+export type UnitlessPrice = {
+  name: string;
+  price: number;
+  /** ISO code; only present when the message named a currency. */
+  currency?: string | null;
+};
+
+/**
+ * A price whose ONLY problem is the 3-digit number without a currency
+ * («aguacate a 150»: is it 1.50 or 150?). It is never saved by the parser:
+ * the caller asks once. `options` = [amount / 100, amount].
+ */
+export type AmbiguousPrice = {
+  product: string;
+  options: [number, number];
+  unit: string | null;
+  currency: string | null;
+  /** Internal (never shown or logged). */
+  segment: string;
+};
 
 export type PriceMessageParse =
-  | { kind: "price_update"; items: PriceUpdateItem[] }
-  | { kind: "needs_unit"; items: UnitlessPrice[] }
+  | {
+      kind: "price_update";
+      items: PriceUpdateItem[];
+      ambiguous?: AmbiguousPrice[];
+    }
+  | { kind: "needs_unit"; items: UnitlessPrice[]; ambiguous?: AmbiguousPrice[] }
   | {
       kind: "partial";
       items: PriceUpdateItem[];
       unitless: UnitlessPrice[];
+      /** Segments that could not be read at all (ambiguous ones are NOT counted). */
       unclearCount: number;
+      ambiguous?: AmbiguousPrice[];
     }
-  | { kind: "price_intent_unclear" }
+  | { kind: "price_intent_unclear"; ambiguous?: AmbiguousPrice[] }
   | null;
 
 const ACCENTS: Record<string, string> = {
@@ -75,9 +103,13 @@ const REPORT_WORD =
 const UNIT =
   "(libras?|lbs?|kilogramos?|kilos?|kgs?|unidad(?:es)?|piezas?|pzas?|pzs?|pz|cajas?|docenas?|litros?|lts?|ltrs?|galon(?:es)?|botellas?|bolsas?|paquetes?|sacos?|atados?|manojos?|latas?|quintal(?:es)?|arrobas?|bandejas?|frascos?|gramos?|grs?|onzas?|onz[as]?|oz|g)(?![a-zñ])";
 
-// Currency map: regex pattern to ISO code
+// Currency map (text AFTER the number, folded): regex pattern to ISO code.
+// «pesos» means MXN by default (the pesos Milton companies use); a bare «$» is
+// ambiguous (USD, MXN...) so it counts as "a currency was said" but carries no
+// ISO code. «q» is never a word: only glued to the number (Q150), see
+// prefixCurrency.
 const CURRENCY_PATTERNS: Array<[RegExp, Currency]> = [
-  [/^\s*(?:usd|dolar(?:es)?|dlls?|dls|\$)(?![a-zñ])/, "USD"],
+  [/^\s*(?:usd|us\$|dolar(?:es)?|dlls?|dls|\$)(?![a-zñ])/, "USD"],
   [/^\s*(?:pesos?|mxn|mx\$)(?![a-zñ])/, "MXN"],
   [/^\s*(?:colones?|₡|crc)(?![a-zñ])/, "CRC"],
   [/^\s*(?:quetzales?|gtq)(?![a-zñ])/, "GTQ"],
@@ -86,8 +118,6 @@ const CURRENCY_PATTERNS: Array<[RegExp, Currency]> = [
   [/^\s*(?:euros?|eur|€)(?![a-zñ])/, "EUR"],
   [/^\s*(?:cordobas?|nio)(?![a-zñ])/, "NIO"],
 ];
-// Q prefix only right before number (no space)
-const Q_PREFIX = /^q(?=\d)/;
 const NUMBER_RE =
   /(\$\s*)?(?<![\d:/.,-])(\d+(?:[.,]\d+)*)(?!\d|[:/-]\d|[.,]\d)/g;
 
@@ -107,21 +137,99 @@ function canonicalUnit(foldedUnit: string, written: string): string {
     : written;
 }
 
-/** Detects currency from text after a number. Returns null if no currency found. */
-function detectCurrency(foldedRest: string): Currency | null {
+/**
+ * Currency written right after a number. `code` is null for a bare «$» (a
+ * currency was said, but which one is unknown). `len` = characters consumed.
+ */
+function currencySuffix(
+  foldedRest: string
+): { code: Currency | null; len: number } | null {
   for (const [pattern, code] of CURRENCY_PATTERNS) {
-    if (pattern.test(foldedRest)) return code;
+    const m = pattern.exec(foldedRest);
+    if (m)
+      return { code: /^\s*\$$/.test(m[0]) ? null : code, len: m[0].length };
   }
   return null;
 }
 
-/** Checks if the text starts with Q followed immediately by a digit (Q150). */
-function hasQPrefix(original: string, start: number): boolean {
-  if (start === 0) return false;
-  const before = original
-    .slice(Math.max(0, start - 1), start + 1)
-    .toLowerCase();
-  return Q_PREFIX.test(before);
+/**
+ * Currency symbol written right BEFORE a number: «mx$150», «₡150», «€150»,
+ * «Q150» (the Q glued to the number, never a word). `symbol` is true for a
+ * bare «$» too (code null).
+ */
+function prefixCurrency(
+  folded: string,
+  start: number,
+  dollarPrefix: boolean
+): { code: Currency | null; symbol: boolean; len: number } {
+  const pre = folded.slice(0, start);
+  if (dollarPrefix) {
+    if (/\bmx$/.test(pre)) return { code: "MXN", symbol: true, len: 2 };
+    if (/\bus$/.test(pre)) return { code: "USD", symbol: true, len: 2 };
+    return { code: null, symbol: true, len: 0 };
+  }
+  const sym = /[₡€]\s?$/.exec(pre);
+  if (sym) {
+    return {
+      code: sym[0].startsWith("₡") ? "CRC" : "EUR",
+      symbol: true,
+      len: sym[0].length,
+    };
+  }
+  if (/(?<![a-zñ0-9])q$/.test(pre))
+    return { code: "GTQ", symbol: true, len: 1 };
+  return { code: null, symbol: false, len: 0 };
+}
+
+const CURRENCY_WORDS: Array<[RegExp, Currency]> = [
+  [/(?<![a-zñ\d])(?:usd|us\$|dolar(?:es)?|dlls?|dls)(?![a-zñ])/, "USD"],
+  [/(?<![a-zñ\d])(?:pesos?|mxn|mx\$)(?![a-zñ])/, "MXN"],
+  [/(?<![a-zñ\d])(?:colones?|crc)(?![a-zñ])|₡/, "CRC"],
+  [/(?<![a-zñ\d])(?:quetzales?|gtq)(?![a-zñ])|(?<![a-zñ\d])q(?=\d)/, "GTQ"],
+  [/(?<![a-zñ\d])(?:lempiras?|hnl)(?![a-zñ])/, "HNL"],
+  [/(?<![a-zñ\d])(?:soles|pen)(?![a-zñ])/, "PEN"],
+  [/(?<![a-zñ\d])(?:euros?|eur)(?![a-zñ])|€/, "EUR"],
+  [/(?<![a-zñ\d])(?:cordobas?|nio)(?![a-zñ])/, "NIO"],
+];
+
+/**
+ * The first currency NAMED in a text (dólares, pesos, colones, Q150, €...),
+ * as an ISO code. A bare «$» says nothing (null). Accent/case insensitive.
+ * Note: «pesos» maps to MXN.
+ */
+export function currencyCodeFromText(text: string): Currency | null {
+  if (typeof text !== "string") return null;
+  const f = fold(text.toLowerCase());
+  let best: { idx: number; code: Currency } | null = null;
+  for (const [re, code] of CURRENCY_WORDS) {
+    const m = re.exec(f);
+    if (m && (best === null || m.index < best.idx)) {
+      best = { idx: m.index, code };
+    }
+  }
+  return best?.code ?? null;
+}
+
+/** A currency (word or symbol, including a bare «$») appears in the text. */
+export function hasCurrencyMention(text: string): boolean {
+  if (typeof text !== "string") return false;
+  return currencyCodeFromText(text) !== null || /\$/.test(text);
+}
+
+const CURRENCY_NAMES: Record<Currency, string> = {
+  USD: "dólares",
+  MXN: "pesos",
+  CRC: "colones",
+  GTQ: "quetzales",
+  HNL: "lempiras",
+  PEN: "soles",
+  EUR: "euros",
+  NIO: "córdobas",
+};
+
+/** «dólares», «pesos», «colones»…: how a person names the currency. */
+export function currencyNameFor(code: string | null | undefined): string {
+  return (code && CURRENCY_NAMES[code as Currency]) || (code ?? "");
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +335,10 @@ const PRICE_PAIR = new RegExp(
   `${NOT_WORD_BEFORE}(${NUM_WORD}|\\d{1,2})(\\s+(?:con|y)\\s+|\\s+)(${NUM_WORD}|\\d{2})(?![a-zñáéíóúü\\d])(?![.,]\\d)`,
   "g"
 );
+const HUNDREDS_AMOUNT = new RegExp(
+  `${NOT_WORD_BEFORE}(${HUNDREDS_W}(?:\\s+(?:${TENS_W})(?:\\s+y\\s+(?:${ONES_W}))?|\\s+(?:${UP_TO_29}))?)(?![a-zñáéíóúü\\d])`,
+  "g"
+);
 const LONE_AFTER_A = new RegExp(
   `(?<![a-zñáéíóúü])((?:a|en)\\s+)(${NUM_WORD})(?![a-zñáéíóúü])`,
   "g"
@@ -237,7 +349,7 @@ const PAREN_UNIT = new RegExp(
 );
 // After a number: a currency / «centavos» / «c/u», or «la|el|por|x|/ + unit».
 const STRONG_SUFFIX = new RegExp(
-  "^\\s*(?:(?:dolar|dolares|usd|dlls?|dls|centavos?)(?![a-zñ])|\\$|c\\/u|cada\\s+un[oa]\\b|(?:\\/\\s*|(?:por|la|el|x)\\s+)" +
+  "^\\s*(?:(?:dolar|dolares|usd|dlls?|dls|centavos?|pesos?|mxn|colones?|crc|quetzales?|gtq|lempiras?|hnl|soles|pen|euros?|eur|cordobas?|nio)(?![a-zñ])|[$€₡]|c\\/u|cada\\s+un[oa]\\b|(?:\\/\\s*|(?:por|la|el|x)\\s+)" +
     UNIT +
     ")"
 );
@@ -370,6 +482,16 @@ export function normalizeSpokenPrices(lower: string): string {
     if (v === null || v < 1 || v > 99) return null;
     return `${(v / 100).toFixed(2)} dólares`;
   });
+  // «aguacate a ciento cincuenta», «doscientos pesos la libra»: a spoken
+  // hundreds amount in price position -> digits. Before PRICE_PAIR so
+  // «ciento cincuenta» is never read as 100 + 50 cents.
+  s = replaceAll(s, HUNDREDS_AMOUNT, (m, start, end) => {
+    const v = wordsToNumber(m[1]);
+    if (v === null || v < 100) return null;
+    const kind = suffixKind(s.slice(end));
+    if (!kind || !pricePrefixOk(s.slice(0, start), kind)) return null;
+    return String(v);
+  });
   s = replaceAll(s, PRICE_PAIR, (m, start, end) => {
     const [, a, connector, b] = m;
     const digits = /^\d/.test(a) || /^\d/.test(b);
@@ -420,11 +542,13 @@ function cleanName(
   for (let i = 0; i < 3; i++) {
     left(/^(?:hola|oye|ojo|hoy|ahora|ya|que)\b\s*,?\s*/);
   }
-  left(/^(?:el\s+)?precios?\s+de(?:l|\s+(?:el|la|los|las))?\s+/);
+  left(
+    /^(?:el\s+)?(?:(?:ultimo|nuevo|actual)\s+)?precios?\s+de(?:l|\s+(?:el|la|los|las))?\s+/
+  );
   left(/^(?:el|la|los|las|un|una)\s+/);
   for (let i = 0; i < 3; i++) {
     right(
-      /\s*(?:\b(?:ahora|hoy)\s+)?\b(?:subio|bajo|cuesta|esta|quedo|paso|sube|baja|vale|sale|cuestan|estan|subieron|bajaron|ahora)\s*(?:ahora\s*)?(?:(?:a|en|de|por)\s*)?$/
+      /\s*(?:\b(?:ahora|hoy)\s+)?\b(?:subio|bajo|cuesta|esta|quedo|paso|sube|baja|vale|sale|cuestan|estan|subieron|bajaron|ahora|es|son|anda|andan|ya)\s*(?:ahora\s*)?(?:(?:a|en|de|por)\s*)?$/
     );
     right(/\s*\b(?:a|en|de|por|del)\s*:?$/);
     right(/\s*:$/);
@@ -444,12 +568,24 @@ function cleanName(
 type SegmentResult =
   | { state: "item"; item: PriceUpdateItem }
   | { state: "unitless"; item: UnitlessPrice }
-  | { state: "unclear"; label: string | null; hint?: string }
+  | {
+      state: "unclear";
+      label: string | null;
+      hint?: string;
+      /** Unit said next to an ambiguous number («aguacate a 150 la libra»). */
+      unit?: string | null;
+    }
   | { state: "none" };
 
 type Candidate =
-  | { ok: true; price: number; unit: string }
-  | { ok: false; unitless?: number; ambiguous?: string };
+  | { ok: true; price: number; unit: string; currency: Currency | null }
+  | {
+      ok: false;
+      unitless?: number;
+      ambiguous?: string;
+      unit?: string | null;
+      currency?: Currency | null;
+    };
 
 /**
  * «150», «125», «350» without a decimal point or a currency: it may be 1.50,
@@ -462,13 +598,19 @@ export function looksLikeCents(token: string): boolean {
 function parseSegment(folded: string, original: string): SegmentResult {
   const hasVerb = PRICE_VERB.test(folded);
   const matches = [...folded.matchAll(NUMBER_RE)];
-  const hasLoose = LOOSE_PRICE_WORD.test(folded) || /\$|dolar|usd/.test(folded);
+  const hasLoose =
+    LOOSE_PRICE_WORD.test(folded) ||
+    /\$|dolar|usd/.test(folded) ||
+    currencyCodeFromText(folded) !== null;
   if (matches.length === 0) {
     return hasLoose ? { state: "unclear", label: null } : { state: "none" };
   }
 
   const first = matches[0];
-  const nameEnd = first.index ?? 0;
+  // The name stops before a glued currency symbol («aguacate Q150»).
+  const nameEnd =
+    (first.index ?? 0) -
+    prefixCurrency(folded, first.index ?? 0, !!first[1]).len;
   const candidates: Candidate[] = [];
 
   for (const m of matches) {
@@ -478,18 +620,12 @@ function parseSegment(folded: string, original: string): SegmentResult {
     let pos = end;
     const rest = folded.slice(pos);
 
-    const detectedCurrency = detectCurrency(rest);
-    const currency = detectedCurrency !== null;
-    if (currency) {
-      // Find how many chars the currency match consumed
-      for (const [pattern] of CURRENCY_PATTERNS) {
-        const match = pattern.exec(rest);
-        if (match) {
-          pos += match[0].length;
-          break;
-        }
-      }
-    }
+    const suffix = currencySuffix(rest);
+    const prefix = prefixCurrency(folded, start, dollarPrefix);
+    // Explicit = a currency word/symbol was written (even a bare «$»).
+    const currency = suffix !== null || prefix.symbol;
+    const currencyCode: Currency | null = suffix ? suffix.code : prefix.code;
+    if (suffix) pos += suffix.len;
     // Nothing after the price (and its currency): «queso 3.25», «aguacate $1.50».
     const atEnd = /^[\s.!?)]*$/.test(folded.slice(pos));
 
@@ -533,14 +669,18 @@ function parseSegment(folded: string, original: string): SegmentResult {
     if (!relevant) continue;
 
     if (!dollarPrefix && !currency && looksLikeCents(m[2])) {
-      candidates.push({ ok: false, ambiguous: m[2] });
+      candidates.push({ ok: false, ambiguous: m[2], unit });
       continue;
     }
     const price = parseNumber(m[2]);
     if (price === null) candidates.push({ ok: false });
     else if (unit === null) {
-      candidates.push(atEnd ? { ok: false, unitless: price } : { ok: false });
-    } else candidates.push({ ok: true, price, unit });
+      candidates.push(
+        atEnd
+          ? { ok: false, unitless: price, currency: currencyCode }
+          : { ok: false }
+      );
+    } else candidates.push({ ok: true, price, unit, currency: currencyCode });
   }
 
   const label = cleanName(folded, original, 0, nameEnd);
@@ -555,10 +695,17 @@ function parseSegment(folded: string, original: string): SegmentResult {
   if (!pick.ok) {
     if (candidates.length === 1 && pick.unitless !== undefined) {
       if (!label) return { state: "unclear", label };
-      return { state: "unitless", item: { name: label, price: pick.unitless } };
+      const item: UnitlessPrice = { name: label, price: pick.unitless };
+      if (pick.currency) item.currency = pick.currency;
+      return { state: "unitless", item };
     }
     if (candidates.length === 1 && pick.ambiguous !== undefined) {
-      return { state: "unclear", label, hint: pick.ambiguous };
+      return {
+        state: "unclear",
+        label,
+        hint: pick.ambiguous,
+        unit: pick.unit ?? null,
+      };
     }
     return { state: "unclear", label };
   }
@@ -569,7 +716,13 @@ function parseSegment(folded: string, original: string): SegmentResult {
 
   const name = label;
   if (!name) return { state: "unclear", label };
-  return { state: "item", item: { name, price: pick.price, unit: pick.unit } };
+  const item: PriceUpdateItem = {
+    name,
+    price: pick.price,
+    unit: pick.unit,
+  };
+  if (pick.currency) item.currency = pick.currency;
+  return { state: "item", item };
 }
 
 function prepare(text: string): { original: string; folded: string } | null {
@@ -593,6 +746,11 @@ export type ItemParse = {
   items: PriceUpdateItem[];
   unitless: UnitlessPrice[];
   unclear: UnclearSegment[];
+  /**
+   * Prices whose only problem is a 3-digit number without a currency. They
+   * are ALSO listed in `unclear` (with `hint`) for older callers.
+   */
+  ambiguous: AmbiguousPrice[];
   /** Products said to have no price («el agua tibia no tiene precio»). */
   skippedNoPrice: string[];
   /** A price word / currency was there, even if nothing could be read. */
@@ -670,6 +828,7 @@ export function parsePriceItems(text: string): ItemParse | null {
     items: [],
     unitless: [],
     unclear: [],
+    ambiguous: [],
     skippedNoPrice: [],
     priceIntent: false,
   };
@@ -686,6 +845,8 @@ export function parsePriceItems(text: string): ItemParse | null {
 
     if (!/\d/.test(f)) {
       const verb = VERB_ONLY.exec(f);
+      // «¿cuánto cuesta la pupusa?» is a question, not a malformed price.
+      if (verb && /[¿?]/.test(o)) continue;
       if (verb) {
         out.priceIntent = true;
         const label = cleanName(f, o, 0, verb.index);
@@ -711,6 +872,16 @@ export function parsePriceItems(text: string): ItemParse | null {
     else if (r.state === "unitless") out.unitless.push(r.item);
     else {
       out.unclear.push({ label: r.label, hint: r.hint, segment: f });
+      if (r.hint !== undefined && r.label) {
+        const amount = Number(r.hint);
+        out.ambiguous.push({
+          product: r.label,
+          options: [Math.round(amount) / 100, amount],
+          unit: r.unit ?? null,
+          currency: null,
+          segment: f,
+        });
+      }
     }
   }
   if (
@@ -749,27 +920,35 @@ export function parsePriceUpdate(text: string): PriceUpdateParse {
 export function parsePriceMessage(text: string): PriceMessageParse {
   const r = parsePriceItems(text);
   if (!r) return null;
+  const amb = r.ambiguous.length > 0 ? { ambiguous: r.ambiguous } : {};
+  // Ambiguous segments are reported in `ambiguous`, not as unreadable.
+  const unclearCount = r.unclear.length - r.ambiguous.length;
   const read = r.items.length + r.unitless.length;
   if (read === 0) {
-    return r.unclear.length > 0 ? { kind: "price_intent_unclear" } : null;
+    return r.unclear.length > 0
+      ? { kind: "price_intent_unclear", ...amb }
+      : null;
   }
-  if (r.unclear.length > 0 || (r.items.length > 0 && r.unitless.length > 0)) {
+  if (unclearCount > 0 || (r.items.length > 0 && r.unitless.length > 0)) {
     return {
       kind: "partial",
       items: r.items.slice(0, PRICE_UPDATE_MAX_ITEMS),
       unitless: r.unitless.slice(0, PRICE_UPDATE_MAX_ITEMS),
-      unclearCount: r.unclear.length,
+      unclearCount,
+      ...amb,
     };
   }
   if (r.unitless.length > 0) {
     return {
       kind: "needs_unit",
       items: r.unitless.slice(0, PRICE_UPDATE_MAX_ITEMS),
+      ...amb,
     };
   }
   return {
     kind: "price_update",
     items: r.items.slice(0, PRICE_UPDATE_MAX_ITEMS),
+    ...amb,
   };
 }
 
@@ -781,6 +960,7 @@ export function parsePriceMessage(text: string): PriceMessageParse {
 export function hasPriceShape(fragment: string): boolean {
   const f = fold(fragment.toLowerCase());
   if (/\$|\bdolar(?:es)?\b|\busd\b|\bcentavos?\b/.test(f)) return true;
+  if (currencyCodeFromText(f) !== null) return true;
   for (const m of f.matchAll(NUMBER_RE)) {
     if (/[.,]\d{1,2}$/.test(m[2])) return true;
     const after = f.slice((m.index ?? 0) + m[0].length);
@@ -878,6 +1058,84 @@ export function parseUnitAnswer(text: string): string | null {
   return canonicalUnit(m[1], m[1]);
 }
 
+/** A numeric token as the literal amount it says, or null («1,500», «0»). */
+function literalAmount(token: string): number | null {
+  return parseNumber(token);
+}
+
+/**
+ * All the amounts a text literally says, after spoken prices became digits
+ * («uno cincuenta» -> 1.5). Decimal-aware: «1.50» yields 1.5, never 1 or 5;
+ * numbers glued to other digits (phones «7150-2233», dates, times) yield
+ * nothing. Used to check that an amount from the AI is really in the message.
+ */
+export function extractNumberTokens(text: string): number[] {
+  const p = prepare(text);
+  if (!p) return [];
+  const out: number[] = [];
+  for (const m of p.folded.matchAll(NUMBER_RE)) {
+    const v = literalAmount(m[2]);
+    if (v !== null) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * A bare amount as an answer to «¿1.50 o 150?»: «1.50», «150», «$150.»,
+ * «uno cincuenta», «ciento cincuenta», «150 dólares». Returns the amount
+ * literally said («150» -> 150, «1.50» -> 1.5, «uno cincuenta» -> 1.5), or
+ * null when the text is not just an amount.
+ */
+export function parseAmountAnswer(text: string): number | null {
+  if (typeof text !== "string") return null;
+  let t = fold(text.toLowerCase())
+    .replace(/[¡!¿?"'«»]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.,;:\s]+$/, "");
+  if (!t || t.length > 40) return null;
+  t = t.replace(/^(?:son|es|serian|seria|a|en|de|pues)\s+/, "");
+  const cur =
+    "(?:\\s*(?:usd|dolar(?:es)?|dlls?|pesos?|mxn|colones?|crc|quetzales?|gtq|lempiras?|hnl|soles|pen|euros?|eur|cordobas?|nio))?";
+  // Digits: «1.50», «150», «$150», «q150», «150 dólares».
+  const digits = new RegExp(
+    "^(?:[$€₡]|q(?=\\d)|mx\\$|us\\$)?\\s*(\\d+(?:[.,]\\d+)*)" + cur + "$"
+  ).exec(t);
+  if (digits) return literalAmount(digits[1]);
+  // «un dólar cincuenta», «dos dólares con cincuenta»...
+  const spoken = normalizeSpokenPrices(t);
+  if (spoken !== t) {
+    const m = new RegExp("^(\\d+(?:\\.\\d+)?)\\s+dolares?$").exec(fold(spoken));
+    if (m) return literalAmount(m[1]);
+  }
+  const words = t.replace(cur + "$", "").trim();
+  // «ciento cincuenta», «doscientos»
+  const first = words.split(" ")[0];
+  if ((WORD_VALUES[first] ?? 0) >= 100) {
+    const v = wordsToNumber(words);
+    return v !== null && v > 0 && v <= MAX_PRICE ? v : null;
+  }
+  // «uno cincuenta», «tres con cincuenta»: dollars then cents.
+  const pair = new RegExp(
+    `^(${NUM_WORD})(?:\\s+(?:con|y))?\\s+(${NUM_WORD})$`
+  ).exec(words);
+  if (pair) {
+    const dollars = tokenValue(pair[1]);
+    const cents = tokenValue(pair[2]);
+    if (
+      dollars !== null &&
+      cents !== null &&
+      dollars >= 1 &&
+      dollars < 100 &&
+      cents >= 10 &&
+      cents <= 99
+    ) {
+      return Math.round((dollars + cents / 100) * 100) / 100;
+    }
+  }
+  return null;
+}
+
 /** «la libra», «el kilo»… the way a person says it; other units: «por <unit>». */
 const UNIT_PHRASE: Record<string, string> = {
   lb: "la libra",
@@ -906,9 +1164,22 @@ const UNIT_PHRASE: Record<string, string> = {
   g: "el gramo",
 };
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$",
+  MXN: "$",
+  CRC: "₡",
+  GTQ: "Q",
+  HNL: "L",
+  PEN: "S/",
+  EUR: "€",
+  NIO: "C$",
+};
+
 /** The currency's own symbol («$», «€», «Q»…), from the ISO code. «$» when unknown. */
 export function currencySymbolFor(code: string | null | undefined): string {
   if (!code) return "$";
+  const own = CURRENCY_SYMBOLS[code.toUpperCase()];
+  if (own) return own;
   try {
     const part = new Intl.NumberFormat("es", {
       style: "currency",

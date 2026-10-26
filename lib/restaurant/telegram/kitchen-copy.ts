@@ -66,7 +66,7 @@ export const KITCHEN_COPY = {
     "✅ Recibí la foto. ¿Es una factura o una receta? Responde «factura» o «receta».",
   /** Price update stored as a draft. {items} = «aguacate $1.50 la libra». */
   PRICE_UPDATE_RECEIVED:
-    "✅ Anoté en {empresa}: {items}. Lo ves en Costos › Compras.",
+    "✅ Anoté en {empresa}: {items}. El dueño o un admin lo revisa en Costos › Compras antes de cambiar el precio.",
   /** A price was mentioned but the item, price or unit is missing (parse failures only). */
   PRICE_UPDATE_UNCLEAR:
     "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
@@ -97,18 +97,18 @@ export const KITCHEN_COPY = {
     "Dejé sin guardar el precio de {producto}. Si quieres, mándalo otra vez con la unidad, por ejemplo «{producto} $1.50 la libra».",
   /** The ingredient mentioned was not found in the catalog. {parecidos} = optional «Parecidos: X, Y.» */
   PRICE_INGREDIENT_NOT_FOUND:
-    "No encontré el ingrediente '{ingrediente}'. ¿Lo creo? {parecidos}Lo dejé en Compras para revisar.",
+    "No encontré el ingrediente ‘{ingrediente}’. ¿Lo creo? {parecidos}Lo dejé en Compras para revisar.",
   /** Recipe photo/text could not be saved as a draft. */
   RECIPE_SAVE_FAILED: "No pude guardar la receta. Manda otra foto o escríbela.",
-  /** Stock report saved (se agota, 86, merma). {tipo} = tipo de reporte, {producto} = optional product name */
+  /** Stock report saved (se agota, 86, merma). {detalle} = «se agotó: tomate», {seccion} = «Se agota» / «Merma» */
   STOCK_REPORT_SAVED:
-    "✅ Anotado en {empresa} › {local}. Lo ves en Cocina › {seccion}. El encargado lo revisa.",
+    "✅ Anoté en {empresa} › {local}: {detalle}. Lo ves en Cocina › {seccion}. El encargado lo revisa.",
   /** Photo is neither invoice nor recipe - explain what photos can do */
   PHOTO_NOT_RECOGNIZED:
-    "Puedo leer facturas de proveedor y recetas en papel. Si es una factura, mandámela con buena luz y completa. Si es una receta, que se vean los ingredientes y las cantidades.",
+    "Puedo leer facturas de proveedor y recetas en papel. Para una factura, que se vea completa y con buena luz; para una receta, que se vean los ingredientes y las cantidades. Si es factura o receta, responde «factura» o «receta».",
   /** Answer to a question - brief reply */
   QUESTION_RESPONSE:
-    "Las preguntas están llegando pronto. Por ahora puedo anotar precios, facturas, recetas, se agota y merma. Mándame lo que necesites guardar.",
+    "Todavía no puedo responder preguntas; puedo anotar precios, facturas, recetas, se agota y merma.",
   /** Greeting or smalltalk response */
   GREETING_RESPONSE:
     "👋 ¡Hola! Estoy aquí para anotar precios, facturas, recetas, se agota y merma de {empresa} › {local}.",

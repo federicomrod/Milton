@@ -14,6 +14,7 @@ const {
   extractRecipe,
   classify,
   ai,
+  intentAi,
 } = vi.hoisted(() => ({
   store: {} as Record<string, Row[]>,
   afterJobs: [] as Promise<unknown>[],
@@ -36,6 +37,7 @@ const {
   extractRecipe: vi.fn(),
   classify: vi.fn(),
   ai: vi.fn(),
+  intentAi: vi.fn(),
 }));
 let transcript = "";
 let whisperFails = false;
@@ -113,6 +115,20 @@ vi.mock("@/lib/restaurant/telegram/price-update-ai", async (importOriginal) => {
     >();
   return { ...actual, askPriceAi: (...a: unknown[]) => ai(...a) };
 });
+// The AI interpreter (kitchen-intent-ai) is mocked: no network. Default = down (null).
+vi.mock(
+  "@/lib/restaurant/telegram/kitchen-intent-ai",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@/lib/restaurant/telegram/kitchen-intent-ai")
+      >();
+    return {
+      ...actual,
+      interpretKitchenMessage: (...a: unknown[]) => intentAi(...a),
+    };
+  }
+);
 vi.mock("openai", () => {
   class FakeOpenAI {
     audio = {
@@ -335,6 +351,7 @@ beforeEach(() => {
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
   process.env.OPENAI_API_KEY = "test-key";
   ai.mockReset().mockResolvedValue(null);
+  intentAi.mockReset().mockResolvedValue(null);
   extractInvoice.mockReset().mockResolvedValue(goodExtraction());
   classify.mockReset().mockResolvedValue({
     ok: true,
@@ -399,12 +416,15 @@ describe("unit missing: ask once, save after the answer", () => {
     expect(questionRows()[0].payload).toEqual({});
   });
 
-  it("an unrelated message cancels the question silently and is handled normally", async () => {
+  it("an unrelated message closes the question (PRICE_QUESTION_CLOSED) and is then answered normally", async () => {
     await msg({ text: "queso 3.25" });
     const before = sent.length;
     await msg({ text: "gracias por todo" });
-    expect(sent.length).toBe(before + 1);
-    expect(lastSent().text).toContain("Recibido, gracias");
+    // The cook is told once that the price was left unsaved, then the
+    // message itself gets its own answer (AI down: the greeting copy).
+    expect(sent.length).toBe(before + 2);
+    expect(sent[before].text).toContain("Dejé sin guardar el precio de queso");
+    expect(lastSent().text).toContain("Estoy aquí para anotar");
     await msg({ text: "libra" });
     expect(drafts()).toHaveLength(0);
   });
@@ -553,9 +573,16 @@ describe("AI fallback", () => {
 });
 
 describe("«Recibido, gracias» only for messages that are not a price", () => {
-  it("no number: the generic note", async () => {
+  it("no number: the AI interpreter answers it, never a bare «Recibido»", async () => {
+    intentAi.mockResolvedValue({
+      intent: "greeting_or_smalltalk",
+      items: [],
+      clarify_question: null,
+    });
     await msg({ text: "gracias por todo" });
-    expect(lastSent().text).toContain("Recibido, gracias");
+    expect(intentAi).toHaveBeenCalledTimes(1);
+    expect(lastSent().text).toContain("Estoy aquí para anotar");
+    expect(lastSent().text).not.toContain("Recibido, gracias");
     expect(ai).not.toHaveBeenCalled();
   });
 
@@ -670,16 +697,18 @@ describe("voice: spoken prices become drafts", () => {
     expect(sent.every(NOTHING_LOST)).toBe(true);
   });
 
-  it("«Aguacate a 150 la onza.» never saves 150: it says it did not understand, with a hint", async () => {
+  it("«Aguacate a 150 la onza.» never saves 150 by itself: it asks «¿$1.50 o $150?» and keeps the question open", async () => {
     await voice("Aguacate a 150 la onza.");
     expect(drafts()).toHaveLength(0);
     expect(lines()).toHaveLength(0);
-    expect(lastSent().text).toContain("No entendí: aguacate");
-    expect(lastSent().text).toContain("¿$1.50 o $150?");
+    expect(lastSent().text).toBe(
+      "¿El aguacate está a $1.50 o a $150? Responde 1.50 o 150."
+    );
     expect(sent.every(NOTHING_LOST)).toBe(true);
+    expect(questionRows()).toHaveLength(1);
   });
 
-  it("a stock report with numbers stays an acknowledgement, no AI", async () => {
+  it("quantity talk with numbers is never a price and never a bare «Recibido» (AI interpreter, not the price AI)", async () => {
     for (const t of [
       "quedan tres porciones",
       "llegaron 5 cajas de tomate",
@@ -689,10 +718,11 @@ describe("voice: spoken prices become drafts", () => {
       sent.length = 0;
       await voice(t);
       expect(sent).toHaveLength(1);
-      expect(sent[0].text).toContain("Recibido, gracias");
+      expect(sent[0].text).not.toContain("Recibido, gracias");
     }
     expect(drafts()).toHaveLength(0);
     expect(ai).not.toHaveBeenCalled();
+    expect(intentAi).toHaveBeenCalled();
   });
 
   it("a long note: ten ingredients, one without a price, all the others saved", async () => {
@@ -947,9 +977,10 @@ describe("logs: ids and counts only", () => {
     expect(log).not.toMatch(/tomate|sal \(/i);
   });
 
-  it("an acknowledgement is logged as route=ack", async () => {
+  it("a message the AI interpreter answers is logged as route=ai_handled", async () => {
     await msg({ text: "gracias por todo" });
-    expect(logged()).toContain("route=ack");
+    expect(logged()).toContain("route=ai_handled");
+    expect(logged()).not.toContain("gracias por todo");
   });
 });
 

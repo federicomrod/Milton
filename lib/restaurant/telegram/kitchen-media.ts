@@ -39,6 +39,11 @@ import {
 } from "@/lib/restaurant/telegram/kitchen-copy";
 import { classifyKitchenReport } from "@/lib/restaurant/telegram/kitchen-reports";
 import {
+  findExactIngredient,
+  findSynonymIngredient,
+  looselySameName,
+} from "@/lib/restaurant/kitchen-ingredient-match";
+import {
   currencySymbolFor,
   formatPriceUpdateItems,
   type PriceUpdateItem,
@@ -470,6 +475,112 @@ export interface PriceUpdateInput {
   replySuffix?: string;
 }
 
+/** How a currency is named in a reply: «pesos mexicanos (MXN)». */
+const CURRENCY_NAMES: Record<string, string> = {
+  USD: "dólares (USD)",
+  MXN: "pesos mexicanos (MXN)",
+  CRC: "colones (CRC)",
+  GTQ: "quetzales (GTQ)",
+  HNL: "lempiras (HNL)",
+  PEN: "soles (PEN)",
+  EUR: "euros (EUR)",
+  NIO: "córdobas (NIO)",
+};
+export function currencyName(code: string): string {
+  return CURRENCY_NAMES[code.toUpperCase()] ?? code;
+}
+
+/** Up to 3 close ACTIVE ingredients for a name that matched none. */
+export function closeIngredientNames(
+  name: string,
+  ingredients: Array<{ id: string; name: string }>
+): string[] {
+  const out: string[] = [];
+  const add = (n: string | undefined) => {
+    if (n && !out.includes(n)) out.push(n);
+  };
+  add(findExactIngredient(name, ingredients)?.name);
+  add(findSynonymIngredient(name, ingredients)?.name);
+  const scored = ingredients
+    .map((ing) => ({ ing, score: looselySameName(name, ing.name) }))
+    .filter((x) => x.score > 0)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.ing.name.length - b.ing.name.length ||
+        a.ing.name.localeCompare(b.ing.name, "es")
+    );
+  for (const x of scored) add(x.ing.name);
+  return out.slice(0, 3);
+}
+
+/**
+ * One line per saved line that matched no ingredient: the draft is saved
+ * anyway; the cook is told, with up to 3 close names. Best effort: any
+ * failure here just means no extra lines.
+ */
+async function ingredientNotFoundLines(
+  admin: Admin,
+  staff: KitchenActor,
+  invoiceId: string
+): Promise<string[]> {
+  try {
+    const { data: lineRows } = await admin
+      .from("supplier_invoice_lines")
+      .select("description, match_status")
+      .eq("company_id", staff.company_id)
+      .eq("invoice_id", invoiceId);
+    const unmatched = ((lineRows ?? []) as Array<Record<string, unknown>>)
+      .filter((l) => l.match_status === "unmatched")
+      .map((l) => String(l.description ?? "").trim())
+      .filter(Boolean);
+    if (unmatched.length === 0) return [];
+    const { data: ings } = await admin
+      .from("ingredients")
+      .select("id, name")
+      .eq("company_id", staff.company_id)
+      .is("archived_at", null);
+    const catalog = ((ings ?? []) as Array<Record<string, unknown>>).map(
+      (i) => ({ id: String(i.id), name: String(i.name ?? "") })
+    );
+    return [...new Set(unmatched)].slice(0, 5).map((name) => {
+      const close = closeIngredientNames(name, catalog);
+      return renderKitchenCopy(KITCHEN_COPY.PRICE_INGREDIENT_NOT_FOUND, {
+        ingrediente: name,
+        parecidos: close.length > 0 ? `Parecidos: ${close.join(", ")}. ` : "",
+      });
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * processPriceUpdate that never throws and never leaves the cook without an
+ * answer: on an exception it logs a fixed line and sends PRICE_SAVE_FAILED
+ * (with the same extra lines), the send itself protected.
+ */
+export async function processPriceUpdateSafe(
+  input: PriceUpdateInput
+): Promise<void> {
+  try {
+    await processPriceUpdate(input);
+  } catch {
+    console.error("[kitchen-media] price update failed");
+    try {
+      await sendTelegramMessage(
+        input.chatId,
+        input.replySuffix
+          ? `${KITCHEN_COPY.PRICE_SAVE_FAILED}\n\n${input.replySuffix}`
+          : KITCHEN_COPY.PRICE_SAVE_FAILED,
+        input.replyMarkup ? { replyMarkup: input.replyMarkup } : undefined
+      );
+    } catch {
+      // nothing more to do
+    }
+  }
+}
+
 /** Stores the update as a needs_review draft. Never applies a price. */
 export async function processPriceUpdate(
   input: PriceUpdateInput
@@ -485,6 +596,36 @@ export async function processPriceUpdate(
       input.reportId
     ))
   ) {
+    // A webhook retry: the first delivery already answered.
+    console.info("[kitchen-media] price update duplicate report");
+    return;
+  }
+
+  // The currency the cook SAID must be the company's. Never converted, never
+  // saved as if it were the company's money.
+  const companyCurrency = await resolveCompanyCurrency(
+    admin as never,
+    staff.company_id
+  ).catch(() => null);
+  const said = input.items
+    .map((i) => i.currency)
+    .filter((c): c is NonNullable<typeof c> => Boolean(c));
+  const wrong = companyCurrency
+    ? said.find((c) => c.toUpperCase() !== companyCurrency.toUpperCase())
+    : undefined;
+  if (wrong && companyCurrency) {
+    console.info("[kitchen-media] price update currency mismatch");
+    await sendTelegramMessage(
+      chatId,
+      withSuffix(
+        renderKitchenCopy(KITCHEN_COPY.PRICE_CURRENCY_MISMATCH, {
+          ...destinationVars(staff),
+          moneda_dicha: currencyName(wrong),
+          moneda_empresa: currencyName(companyCurrency),
+        })
+      ),
+      input.replyMarkup ? { replyMarkup: input.replyMarkup } : undefined
+    );
     return;
   }
 
@@ -494,7 +635,7 @@ export async function processPriceUpdate(
     invoice_number: null,
     invoice_date: localDateKey(input.dateSec, tz),
     due_date: null,
-    currency: null,
+    currency: said[0] ?? null,
     subtotal: null,
     tax_amount: null,
     total_amount: null,
@@ -552,22 +693,20 @@ export async function processPriceUpdate(
   console.info(
     `[kitchen-media] price update draft items=${input.items.length}`
   );
+  const received = renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
+    ...destinationVars(staff),
+    items: formatPriceUpdateItems(
+      input.items,
+      currencySymbolFor(companyCurrency)
+    ),
+  });
+  const notFound =
+    created.unmatched > 0
+      ? await ingredientNotFoundLines(admin, staff, created.invoiceId)
+      : [];
   await reply(
     chatId,
-    withSuffix(
-      renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
-        ...destinationVars(staff),
-        items: formatPriceUpdateItems(
-          input.items,
-          currencySymbolFor(
-            await resolveCompanyCurrency(
-              admin as never,
-              staff.company_id
-            ).catch(() => null)
-          )
-        ),
-      })
-    ),
+    withSuffix([received, ...notFound].join("\n")),
     input.replyMarkup
   );
 }

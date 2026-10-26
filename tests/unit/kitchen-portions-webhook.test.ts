@@ -8,6 +8,24 @@ const store: FakeStore = {};
 const send = vi.fn(async () => ({ ok: true }));
 const record = vi.fn(async () => true);
 let failDraftUpdate = false;
+const afterJobs: Promise<unknown>[] = [];
+
+// Text that is not a portions answer is read by the AI from after(): run it
+// here and let the tests wait for it. The AI itself is down (null).
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return {
+    ...actual,
+    after: (fn: () => unknown) => {
+      afterJobs.push(Promise.resolve().then(() => fn()));
+    },
+  };
+});
+vi.mock("@/lib/restaurant/telegram/kitchen-intent-ai", async (orig) => {
+  const actual =
+    await orig<typeof import("@/lib/restaurant/telegram/kitchen-intent-ai")>();
+  return { ...actual, interpretKitchenMessage: async () => null };
+});
 
 vi.mock("@/lib/restaurant/telegram/send", () => ({
   sendTelegramMessage: (...a: unknown[]) => send(...(a as [])),
@@ -156,9 +174,14 @@ describe("a draft is waiting for portions", () => {
   it("a real report («se acabó…») is still stored and acknowledged", async () => {
     waitingDraft();
     await POST(update("2 cajas de limón se acabó"));
+    await Promise.all(afterJobs.splice(0));
     expect(record).toHaveBeenCalledTimes(1);
     expect(store.kitchen_recipe_drafts[0].status).toBe("awaiting_portions");
-    expect(String((send.mock.calls[0] as unknown[])[1])).toContain("Recibido");
+    // AI-first: the stock report is answered with the stock-report copy
+    // (what was saved and where), not a bare «Recibido».
+    expect(String((send.mock.calls[0] as unknown[])[1])).toContain(
+      "Cocina › Se agota"
+    );
   });
 
   it("a photo is never read as the answer", async () => {
@@ -189,7 +212,12 @@ describe("a draft is waiting for portions", () => {
 describe("no draft waiting: unchanged", () => {
   it("«1 hamburguesa» is an ordinary report with the usual acknowledgement", async () => {
     await POST(update("1 hamburguesa"));
+    await Promise.all(afterJobs.splice(0));
     expect(record).toHaveBeenCalledTimes(1);
-    expect(String((send.mock.calls[0] as unknown[])[1])).toContain("Recibido");
+    // AI-first: with the AI down the cook still gets an honest answer, never
+    // a bare «Recibido» and never silence.
+    const reply = String((send.mock.calls[0] as unknown[])[1]);
+    expect(reply).not.toContain("Recibido");
+    expect(reply).toContain("No pude procesarlo");
   });
 });

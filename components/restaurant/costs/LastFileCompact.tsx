@@ -7,7 +7,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 
 type Upload = {
   id: string;
@@ -49,10 +48,7 @@ export function LastFileCompact({
   }
 
   return (
-    <section
-      id={COSTS_FILE_ANCHOR}
-      className="rounded-lg border border-[#dfe3ea] bg-white p-3"
-    >
+    <section className="rounded-lg border border-[#dfe3ea] bg-white p-3">
       <div className="flex items-center justify-between gap-2 mb-2">
         <h2 className="text-[13px] font-bold text-[#151c2c]">Último archivo</h2>
         <button

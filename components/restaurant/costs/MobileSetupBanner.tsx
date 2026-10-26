@@ -50,7 +50,7 @@ export function MobileSetupBanner({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-semibold text-[#151c2c]">
-            Paso {setup.done + 1} de {setup.total}
+            {setup.done} de {setup.total} listos
           </span>
           {setup.next ? (
             <span className="text-[12px] text-[#4a5a85] truncate">

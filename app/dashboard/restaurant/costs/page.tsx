@@ -35,8 +35,6 @@ import {
   PriceChangesTable,
 } from "@/components/restaurant/costs/CostsArea";
 import { formatMoney } from "@/lib/restaurant/costs-format";
-import { LatestInvoicesBox } from "@/components/restaurant/costs/LatestInvoicesBox";
-import { LatestInvoicesCompact } from "@/components/restaurant/costs/LatestInvoicesCompact";
 import { CostsFileWorkspace } from "@/components/restaurant/costs/CostsFileWorkspace";
 import {
   CostsPageLayout,
@@ -53,7 +51,12 @@ import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
-import { CostsDesktopRightColumn } from "@/components/restaurant/costs/CostsDesktopRightColumn";
+import {
+  CostsDesktopRightColumn,
+  CostsMobileBannerHost,
+  CostsMobileBelow,
+  CostsTabletCardsRow,
+} from "@/components/restaurant/costs/CostsDesktopRightColumn";
 
 export const dynamic = "force-dynamic";
 
@@ -276,25 +279,14 @@ export default async function CostsAreaPage({
             />
           ) : null}
 
+          <CostsMobileBannerHost locationId={location ?? null} />
+
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
-          {/* File workspace: hidden by default, visible when picker/workflow active */}
           <CostsFileWorkspace
             locationId={location ?? null}
             companyId={companyId}
           />
-
-          {/* Tablet: 3 compact cards in a row below tabs */}
-          <div className="hidden md:flex lg:hidden gap-3 mt-5 flex-wrap">
-            <div className="flex-1 min-w-[200px]">
-              <CostsDesktopRightColumn
-                latestInvoices={latestInvoices}
-                locationId={location ?? null}
-                shellParams={shellParams}
-                isTablet
-              />
-            </div>
-          </div>
 
           {tab === "precios" ? (
             profitability ? (
@@ -317,15 +309,17 @@ export default async function CostsAreaPage({
             <ProveedoresTab lang={lang} />
           )}
 
-          {/* Mobile: compact cards below tab content */}
-          <div className="md:hidden space-y-3 mt-5">
-            {latestInvoices ? (
-              <LatestInvoicesCompact
-                latest={latestInvoices}
-                shellParams={shellParams}
-              />
-            ) : null}
-          </div>
+          <CostsTabletCardsRow
+            latestInvoices={latestInvoices}
+            locationId={location ?? null}
+            shellParams={shellParams}
+          />
+
+          <CostsMobileBelow
+            latestInvoices={latestInvoices}
+            locationId={location ?? null}
+            shellParams={shellParams}
+          />
         </CostsMainColumn>
 
         {/* Desktop right column: sticky compact cards */}

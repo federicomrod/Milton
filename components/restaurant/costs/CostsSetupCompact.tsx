@@ -58,7 +58,7 @@ export function CostsSetupCompact({
     <section className="rounded-lg border border-[#dfe3ea] bg-white p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-bold text-[#151c2c]">
-          Paso {setup.done + 1} de {setup.total}
+          {setup.done} de {setup.total} listos
         </h2>
         <button
           type="button"

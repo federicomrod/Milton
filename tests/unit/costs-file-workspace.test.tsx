@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// CostsFileWorkspace: hidden by default, visible when picker/workflow active,
-// with a "Cerrar" button that works when idle.
+// CostsFileWorkspace: always mounted; first picker click opens the panel
+// without a `hidden` ancestor; pending work auto-opens; one file-section id.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -43,32 +43,58 @@ vi.mock("@/components/restaurant/recipes-costing/ResetPanel", () => ({
 }));
 
 import { CostsFileWorkspace } from "@/components/restaurant/costs/CostsFileWorkspace";
-import { OPEN_COSTS_PICKER_EVENT } from "@/lib/restaurant/costs-picker";
+import {
+  CostsDesktopRightColumn,
+  CostsTabletCardsRow,
+} from "@/components/restaurant/costs/CostsDesktopRightColumn";
+import {
+  COSTS_FILE_ANCHOR,
+  OPEN_COSTS_PICKER_EVENT,
+} from "@/lib/restaurant/costs-picker";
 
-const workspace = {
-  menu_summary: {
-    setup: {
-      steps: [],
-      done: 0,
-      total: 4,
-      next: null,
-      complete: false,
-    },
-  },
-  latest_upload: null,
-  batches: [],
-  reset: null,
-  actor: { can_submit: true },
+const nextStep = {
+  id: "excel",
+  label: "Subir Excel de costos",
+  done: false,
+  href: null,
+  action: "Continuar: subir tu Excel",
 };
+
+function workspace(over: Record<string, unknown> = {}) {
+  return {
+    menu_summary: {
+      setup: {
+        steps: [nextStep],
+        done: 0,
+        total: 4,
+        next: nextStep,
+        complete: false,
+      },
+    },
+    latest_upload: null,
+    batches: [],
+    reset: null,
+    actor: { can_submit: true },
+    upload_draft_pending: false,
+    ...over,
+  };
+}
+
+let current = workspace();
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   openPicker.mockClear();
+  current = workspace();
   window.localStorage.clear();
   window.location.hash = "";
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => ({ ok: true, status: 200, json: async () => workspace }))
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => current,
+    }))
   );
 });
 
@@ -77,69 +103,125 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function hasHiddenAncestor(el: Element | null): boolean {
+  let node: Element | null = el;
+  while (node) {
+    if (
+      node.classList.contains("hidden") ||
+      (node instanceof HTMLElement && node.hidden)
+    ) {
+      return true;
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
+
 describe("CostsFileWorkspace visibility", () => {
-  it("hidden by default", () => {
+  it("stays mounted and closed by default", async () => {
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
-    expect(screen.queryByTestId("costs-file-workspace")).toBeNull();
+    const root = await screen.findByTestId("costs-file-workspace");
+    expect(root.getAttribute("data-open")).toBe("false");
+    expect(root.className).not.toMatch(/\bhidden\b/);
   });
 
-  it("becomes visible on OPEN_COSTS_PICKER_EVENT", async () => {
+  it("one OPEN_COSTS_PICKER_EVENT shows the file card and opens the picker", async () => {
+    current = workspace();
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
-    expect(screen.queryByTestId("costs-file-workspace")).toBeNull();
+    const panel = await screen.findByTestId("price-catalog-panel");
 
     act(() => {
       window.dispatchEvent(new CustomEvent(OPEN_COSTS_PICKER_EVENT));
     });
 
     await waitFor(() =>
-      expect(screen.getByTestId("costs-file-workspace")).toBeTruthy()
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
     );
-    // Workspace is visible (not hidden)
-    const workspace = screen.getByTestId("costs-file-workspace");
-    expect(workspace.className).not.toMatch(/\bhidden\b/);
+    expect(hasHiddenAncestor(panel)).toBe(false);
+    expect(openPicker).toHaveBeenCalledTimes(1);
   });
 
-  it("becomes visible if URL hash is #costos-ultimo-archivo", () => {
+  it("auto-opens when upload_draft_pending is already set", async () => {
+    current = workspace({ upload_draft_pending: true });
+    render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
+    );
+    expect(screen.getByTestId("price-catalog-panel")).toBeTruthy();
+  });
+
+  it("becomes visible if URL hash is #costos-ultimo-archivo", async () => {
     window.location.hash = "#costos-ultimo-archivo";
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
-    expect(screen.getByTestId("costs-file-workspace")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
+    );
   });
 
-  it("Cerrar button hides it when idle (no work in progress)", async () => {
+  it("Cerrar hides it when idle (no work in progress)", async () => {
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
+    await screen.findByTestId("price-catalog-panel");
     act(() => {
       window.dispatchEvent(new CustomEvent(OPEN_COSTS_PICKER_EVENT));
     });
-
     await waitFor(() =>
-      expect(screen.getByTestId("costs-file-workspace")).toBeTruthy()
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
     );
 
-    const closeButton = screen.getByLabelText("Cerrar");
-    fireEvent.click(closeButton);
+    fireEvent.click(screen.getByLabelText("Cerrar"));
 
     await waitFor(() =>
-      expect(screen.queryByTestId("costs-file-workspace")).toBeNull()
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("false")
     );
   });
 
   it("stays visible with pending import, no Cerrar button", async () => {
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
+    await screen.findByTestId("price-catalog-panel");
     act(() => {
       window.dispatchEvent(new CustomEvent(OPEN_COSTS_PICKER_EVENT));
     });
-
     await waitFor(() =>
-      expect(screen.getByTestId("costs-file-workspace")).toBeTruthy()
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
     );
 
-    // Simulate import pending
     act(() => panelState.props.onImportPending?.(5));
 
-    // Cerrar button should not be visible when work is in progress
     await waitFor(() => expect(screen.queryByLabelText("Cerrar")).toBeNull());
+    expect(
+      screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+    ).toBe("true");
+  });
 
-    // Workspace still visible
-    expect(screen.getByTestId("costs-file-workspace")).toBeTruthy();
+  it("there is exactly one #costos-ultimo-archivo in the Costos chrome", async () => {
+    render(
+      <>
+        <CostsFileWorkspace locationId="loc-ids" companyId="co-1" />
+        <CostsDesktopRightColumn
+          latestInvoices={null}
+          locationId="loc-ids"
+          shellParams={{}}
+        />
+        <CostsTabletCardsRow
+          latestInvoices={null}
+          locationId="loc-ids"
+          shellParams={{}}
+        />
+      </>
+    );
+    await screen.findByTestId("price-catalog-panel");
+    expect(document.querySelectorAll(`#${COSTS_FILE_ANCHOR}`)).toHaveLength(1);
   });
 });

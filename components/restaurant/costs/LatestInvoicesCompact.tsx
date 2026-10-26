@@ -22,16 +22,19 @@ function dateText(iso: string): string {
 export function LatestInvoicesCompact({
   latest,
   shellParams = {},
+  testId,
 }: {
   latest: LatestInvoices;
   shellParams?: Record<string, string | string[] | undefined>;
+  /** Only the desktop aside should carry the test id (tablet/mobile also render this card). */
+  testId?: string;
 }) {
   const { rows, pendingCount, firstPendingId } = latest;
   const displayRows = rows.slice(0, 3);
 
   return (
     <section
-      data-testid="latest-invoices-compact"
+      data-testid={testId}
       className="rounded-lg border border-[#dfe3ea] bg-white p-3 space-y-2"
     >
       <div className="flex items-center justify-between gap-2">

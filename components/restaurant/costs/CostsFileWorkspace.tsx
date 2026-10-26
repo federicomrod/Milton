@@ -1,19 +1,23 @@
 // components/restaurant/costs/CostsFileWorkspace.tsx
 //
-// Client wrapper for CostsSetupSection that manages visibility: hidden by
-// default, visible when the picker/workflow is active (file in progress,
-// preview, import pending, or reset panel open). Renders full-width under the
-// tabs row, above tab content.
+// Always mounts CostsSetupSection so the first «Subir archivo» / «Ver» click
+// can open the picker. The wrapper toggles open/closed without `hidden` (or
+// any display:none) on the file panel's ancestors.
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { CostsSetupSection } from "./CostsSetupSection";
 import {
   COSTS_FILE_ANCHOR,
   OPEN_COSTS_PICKER_EVENT,
 } from "@/lib/restaurant/costs-picker";
+
+const CLOSED_CLASS =
+  "invisible pointer-events-none absolute w-px h-px overflow-visible";
+const OPEN_CLASS =
+  "w-full rounded-lg border border-[#dfe3ea] bg-white p-4 my-5";
 
 export function CostsFileWorkspace({
   locationId,
@@ -27,15 +31,18 @@ export function CostsFileWorkspace({
   const [hasWork, setHasWork] = useState(false);
 
   useEffect(() => {
-    // Open on OPEN_COSTS_PICKER_EVENT
-    const onOpen = () => setVisible(true);
+    const onOpen = () => {
+      setVisible(true);
+      requestAnimationFrame(() => {
+        document
+          .getElementById(COSTS_FILE_ANCHOR)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    };
     window.addEventListener(OPEN_COSTS_PICKER_EVENT, onOpen);
 
-    // Open if URL hash is #COSTS_FILE_ANCHOR
     const checkHash = () => {
-      if (window.location.hash === `#${COSTS_FILE_ANCHOR}`) {
-        setVisible(true);
-      }
+      if (window.location.hash === `#${COSTS_FILE_ANCHOR}`) setVisible(true);
     };
     checkHash();
     window.addEventListener("hashchange", checkHash);
@@ -46,9 +53,9 @@ export function CostsFileWorkspace({
     };
   }, []);
 
-  // Track if there's work in progress from the setup section
   const handleWorkInProgress = useCallback((inProgress: boolean) => {
     setHasWork(inProgress);
+    if (inProgress) setVisible(true);
   }, []);
 
   const handleBusyChange = useCallback((isBusy: boolean) => {
@@ -56,42 +63,41 @@ export function CostsFileWorkspace({
   }, []);
 
   const handleClose = () => {
-    // Only allow closing if not busy and no work in progress
-    if (!busy && !hasWork) {
-      setVisible(false);
-    }
+    if (!busy && !hasWork) setVisible(false);
   };
-
-  if (!visible) {
-    return null;
-  }
 
   return (
     <div
       data-testid="costs-file-workspace"
-      className="w-full rounded-lg border border-[#dfe3ea] bg-white p-4 my-5"
+      data-open={visible ? "true" : "false"}
+      className={visible ? OPEN_CLASS : CLOSED_CLASS}
     >
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[15px] font-bold text-[#151c2c]">
-          Archivo de costos
-        </h2>
-        {!busy && !hasWork ? (
-          <button
-            type="button"
-            onClick={handleClose}
-            className="rounded-lg p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
-            aria-label="Cerrar"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        ) : null}
+      {visible ? (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-[15px] font-bold text-[#151c2c]">
+            Archivo de costos
+          </h2>
+          {!busy && !hasWork ? (
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-lg p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
+              aria-label="Cerrar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <div id={COSTS_FILE_ANCHOR}>
+        <CostsSetupSection
+          locationId={locationId}
+          companyId={companyId}
+          embeddedInWorkspace
+          onWorkInProgress={handleWorkInProgress}
+          onBusyChange={handleBusyChange}
+        />
       </div>
-      <CostsSetupSection
-        locationId={locationId}
-        companyId={companyId}
-        onWorkInProgress={handleWorkInProgress}
-        onBusyChange={handleBusyChange}
-      />
     </div>
   );
 }

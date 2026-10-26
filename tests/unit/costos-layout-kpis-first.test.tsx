@@ -145,9 +145,16 @@ describe("setup incomplete: one compact banner", () => {
     ).toBe("false");
     // nothing of the full block yet
     expect(screen.queryByTestId("costs-setup-detail")).toBeNull();
-    // the file card stays mounted (hidden) so «Continuar» can open the picker
-    const card = document.getElementById("costos-ultimo-archivo");
-    expect(card?.parentElement?.className).toMatch(/\bhidden\b/);
+    // the file card stays mounted (hidden) so «Continuar» can open the picker.
+    // The #costos-ultimo-archivo id lives on CostsFileWorkspace, not this card.
+    const fileHeading = screen.getByRole("heading", { name: "Último archivo" });
+    let node: HTMLElement | null = fileHeading.parentElement;
+    let hiddenAncestor = false;
+    while (node) {
+      if (node.classList.contains("hidden")) hiddenAncestor = true;
+      node = node.parentElement;
+    }
+    expect(hiddenAncestor).toBe(true);
   });
 
   it("«Ver detalle» expands the EXISTING checklist and «Último archivo» inline, unchanged", async () => {

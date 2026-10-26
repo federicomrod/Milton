@@ -393,14 +393,18 @@ describe("the page order", () => {
     );
     const at = (s: string) => html.indexOf(s);
     expect(at("Precios que subieron")).toBeGreaterThan(at("HEADER-"));
-    // Two-column layout: tabs and invoices are both present
-    expect(at("Últimas facturas")).toBeGreaterThan(-1);
-    expect(at("Cambios de precio")).toBeGreaterThan(-1);
-    // File workspace comes after tabs
+    expect(at("Cambios de precio")).toBeGreaterThan(at("Precios que subieron"));
+    // Workspace sits after the tabs (main column).
     expect(at("FILE-WORKSPACE")).toBeGreaterThan(at("Cambios de precio"));
+    // Desktop: Últimas facturas lives in the sticky <aside>, not above the tabs.
+    const asideStart = html.indexOf("<aside");
+    const asideEnd = html.indexOf("</aside>");
+    expect(asideStart).toBeGreaterThan(at("Cambios de precio"));
+    expect(html.slice(asideStart, asideEnd)).toContain("Últimas facturas");
     // «con facturas pendientes» links to Compras
     expect(html).toMatch(
       /href="[^"]*tab=compras[^"]*"[^>]*>[\s\S]*?con facturas pendientes/
     );
+    vi.doUnmock("@/components/restaurant/costs/CostsFileWorkspace");
   });
 });

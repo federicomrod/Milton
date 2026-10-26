@@ -10,13 +10,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -108,18 +101,6 @@ interface MenuItem {
   name: string;
   selling_price: number | null;
 }
-
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: "Alta",
-  medium: "Media",
-  low: "Baja",
-};
-
-const CONFIDENCE_COLORS: Record<string, string> = {
-  high: "bg-green-100 text-green-800",
-  medium: "bg-gray-100 text-gray-700",
-  low: "bg-red-100 text-red-800",
-};
 
 /** numeric columns can arrive as strings ("240.000"): always a number or null. */
 function toNumber(value: unknown): number | null {
@@ -223,7 +204,6 @@ export function KitchenRecipeDraftsCard({
   focusDraftId,
   onFocusConsumed,
   reloadSignal = 0,
-  variant = "card",
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
@@ -232,8 +212,6 @@ export function KitchenRecipeDraftsCard({
   onFocusConsumed?: () => void;
   /** Changes when something outside (a file upload) added drafts: reload. */
   reloadSignal?: number;
-  /** Page Recetas block vs the standalone card used by existing tests. */
-  variant?: "card" | "section";
 }) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -819,211 +797,127 @@ export function KitchenRecipeDraftsCard({
         l.unit
     );
 
-  const selectClass =
-    "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
-
-  const visibleDrafts =
-    variant === "section" && !listExpanded
-      ? drafts.slice(0, KITCHEN_RECIPES_PREVIEW)
-      : drafts;
-
-  const list = (
-    <div className={variant === "section" ? "space-y-2" : "space-y-3"}>
-      {visibleDrafts.map((draft) =>
-        variant === "section" ? (
-          <div
-            key={draft.id}
-            data-testid="kitchen-draft-row"
-            data-new={newIds.has(draft.id) ? "true" : undefined}
-            className="flex items-center justify-between gap-3 border-t border-border py-2.5 first:border-t-0 first:pt-0"
-          >
-            <div className="min-w-0">
-              <p className="font-medium text-[13px] truncate">
-                {stripPreparationMarker(draft.dish_name)}
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {draftSourceLabel(draft.staff_name)}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="inline-flex items-center rounded-full bg-[#D8D0F8] px-2 py-0.5 text-[11px] font-semibold text-[#0D1117]">
-                Borrador de Milton
-              </span>
-              {newIds.has(draft.id) ? (
-                <Badge variant="outline" className="text-[#1B40C8]">
-                  Nuevo
-                </Badge>
-              ) : null}
-              {canManage ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => openEditor(draft)}
-                >
-                  Revisar
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : (
-          <div
-            key={draft.id}
-            data-new={newIds.has(draft.id) ? "true" : undefined}
-            className={
-              "rounded-lg border p-3 hover:bg-muted/50" +
-              (newIds.has(draft.id) ? " border-[#c6d3f5] bg-[#f6f8fe]" : "")
-            }
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-medium">
-                    {stripPreparationMarker(draft.dish_name)}
-                  </h3>
-                  {draft.is_preparation ||
-                  isPreparationName(draft.dish_name) ? (
-                    <Badge variant="outline">Preparación</Badge>
-                  ) : null}
-                  {draft.approved_exists ? (
-                    <Badge variant="outline">
-                      Ya existe una receta aprobada
-                    </Badge>
-                  ) : null}
-                  {newIds.has(draft.id) ? (
-                    <Badge variant="outline" className="text-[#1B40C8]">
-                      Nuevo
-                    </Badge>
-                  ) : null}
-                  <Badge className={CONFIDENCE_COLORS[draft.confidence] || ""}>
-                    {CONFIDENCE_LABELS[draft.confidence] || draft.confidence}
-                  </Badge>
-                  {draft.status === "awaiting_portions" && (
-                    <Badge variant="outline">Faltan porciones</Badge>
-                  )}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {draft.staff_name} • {draft.location_name} •{" "}
-                  {new Date(draft.created_at).toLocaleDateString()}
-                </p>
-                <DraftListCost
-                  draft={draft}
-                  cost={computeDraftCost(
-                    costInputs(draft.lines),
-                    priceMap,
-                    draft.portions,
-                    null,
-                    conversionMap
-                  )}
-                  currency={currencyOf(draft)}
-                  canManage={canManage}
-                  ingredientById={ingredientById}
-                  open={pricesOpenFor === draft.id}
-                  onToggle={() =>
-                    setPricesOpenFor(
-                      pricesOpenFor === draft.id ? null : draft.id
-                    )
-                  }
-                  onPriceSaved={() => void loadIngredients()}
-                />
-              </div>
-              {canManage && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => openEditor(draft)}
-                  >
-                    Revisar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => handleReject(draft.id)}
-                  >
-                    Rechazar
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        )
-      )}
-    </div>
-  );
+  const visibleDrafts = listExpanded
+    ? drafts
+    : drafts.slice(0, KITCHEN_RECIPES_PREVIEW);
 
   return (
     <>
-      {variant === "section" ? (
-        <div data-testid="kitchen-recipes-list">
-          <div className="mb-2 flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-[#0D1117]">
-              Recetas para revisar
-            </h3>
-            <span
-              data-testid="kitchen-recipes-count"
-              className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#1B40C8] px-1.5 text-[11px] font-semibold text-white"
-            >
-              {drafts.length}
-            </span>
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          {drafts.length === 0 && !error ? (
-            <p
-              className="text-sm text-muted-foreground py-2"
-              data-testid="kitchen-recipes-empty"
-            >
-              No tienes recetas por revisar. Sube tus recetas o pide a tu equipo
-              que te las mande por nota de voz.
-            </p>
-          ) : (
-            list
-          )}
-          {!listExpanded && drafts.length > KITCHEN_RECIPES_PREVIEW ? (
-            <button
-              type="button"
-              data-testid="kitchen-recipes-see-all"
-              className="mt-2 text-sm font-semibold text-[#1B40C8] hover:text-[#1533A3]"
-              onClick={() => setListExpanded(true)}
-            >
-              Ver las {drafts.length}
-            </button>
-          ) : null}
+      <div data-testid="kitchen-recipes-list">
+        <div className="mb-2 flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-[#0D1117]">
+            Recetas para revisar
+          </h3>
+          <span
+            data-testid="kitchen-recipes-count"
+            className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#1B40C8] px-1.5 text-[11px] font-semibold text-white"
+          >
+            {drafts.length}
+          </span>
         </div>
-      ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recetas para revisar</CardTitle>
-            <CardDescription>
-              Recetas que envían tus cocineros por Telegram o que subes desde un
-              archivo. Revísalas y confírmalas: pasan a Menú como borrador y no
-              cuentan en los costos hasta que alguien las apruebe.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 flex gap-2">
-              <select
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-                className={selectClass}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {drafts.length === 0 && !error ? (
+          <p
+            className="text-sm text-muted-foreground py-2"
+            data-testid="kitchen-recipes-empty"
+          >
+            No tienes recetas por revisar. Sube tus recetas o pide a tu equipo
+            que te las mande por nota de voz.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {visibleDrafts.map((draft) => (
+              <div
+                key={draft.id}
+                data-testid="kitchen-draft-row"
+                data-new={newIds.has(draft.id) ? "true" : undefined}
+                className="flex items-center justify-between gap-3 border-t border-border py-2.5 first:border-t-0 first:pt-0"
               >
-                <option value="">Todas las ubicaciones</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {drafts.length === 0 && !error && (
-              <p className="text-sm text-muted-foreground">
-                No hay recetas pendientes.
-              </p>
-            )}
-            {list}
-          </CardContent>
-        </Card>
-      )}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <p className="font-medium text-[13px] truncate">
+                      {stripPreparationMarker(draft.dish_name)}
+                    </p>
+                    {draft.is_preparation ||
+                    isPreparationName(draft.dish_name) ? (
+                      <Badge variant="outline">Preparación</Badge>
+                    ) : null}
+                    {draft.approved_exists ? (
+                      <Badge variant="outline">
+                        Ya existe una receta aprobada
+                      </Badge>
+                    ) : null}
+                    {draft.status === "awaiting_portions" ? (
+                      <Badge variant="outline">Faltan porciones</Badge>
+                    ) : null}
+                    {newIds.has(draft.id) ? (
+                      <Badge variant="outline" className="text-[#1B40C8]">
+                        Nuevo
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {draftSourceLabel(draft.staff_name)}
+                  </p>
+                  <DraftListCost
+                    draft={draft}
+                    cost={computeDraftCost(
+                      costInputs(draft.lines),
+                      priceMap,
+                      draft.portions,
+                      null,
+                      conversionMap
+                    )}
+                    currency={currencyOf(draft)}
+                    canManage={canManage}
+                    ingredientById={ingredientById}
+                    open={pricesOpenFor === draft.id}
+                    onToggle={() =>
+                      setPricesOpenFor(
+                        pricesOpenFor === draft.id ? null : draft.id
+                      )
+                    }
+                    onPriceSaved={() => void loadIngredients()}
+                  />
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="inline-flex items-center rounded-full bg-[#D8D0F8] px-2 py-0.5 text-[11px] font-semibold text-[#0D1117]">
+                    Borrador de Milton
+                  </span>
+                  {canManage ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openEditor(draft)}
+                      >
+                        Revisar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleReject(draft.id)}
+                      >
+                        Rechazar
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!listExpanded && drafts.length > KITCHEN_RECIPES_PREVIEW ? (
+          <button
+            type="button"
+            data-testid="kitchen-recipes-see-all"
+            className="mt-2 text-sm font-semibold text-[#1B40C8] hover:text-[#1533A3]"
+            onClick={() => setListExpanded(true)}
+          >
+            Ver las {drafts.length}
+          </button>
+        ) : null}
+      </div>
 
       {editedDraft && (
         <Dialog
@@ -1311,7 +1205,7 @@ export function KitchenRecipeDraftsCard({
                 </Button>
                 <Button
                   variant="outline"
-                  className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                  className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD]"
                   disabled={saving}
                   onClick={() => void handleSaveDraft()}
                 >
@@ -1338,7 +1232,7 @@ export function KitchenRecipeDraftsCard({
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
                       variant="outline"
-                      className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#f6f8fe]"
+                      className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD]"
                       onClick={() => {
                         setConfirmClose(false);
                         closeEditor();

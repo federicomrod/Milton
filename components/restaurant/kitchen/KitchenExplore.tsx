@@ -15,7 +15,10 @@ import {
   type KitchenAnalysisTab,
   type KitchenExploreTab,
 } from "@/lib/restaurant/kitchen-explore";
-import { KitchenReportsCard } from "./KitchenReportsCard";
+import {
+  KITCHEN_LOW_STOCK_TYPES,
+  KitchenReportsCard,
+} from "./KitchenReportsCard";
 
 export function KitchenExplore({
   insights,
@@ -92,7 +95,7 @@ export function KitchenExplore({
           <KitchenReportsCard
             canManage={canManage}
             locations={locations}
-            initialType="running_out"
+            includeTypes={KITCHEN_LOW_STOCK_TYPES}
           />
         )
       ) : null}

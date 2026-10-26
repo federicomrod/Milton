@@ -86,6 +86,10 @@ export function KitchenAttentionFeed({
     },
   ];
 
+  if (insights.feed.length === 0 && insights.highlights.length === 0) {
+    return null;
+  }
+
   return (
     <section
       data-testid="kitchen-attention"
@@ -128,12 +132,14 @@ export function KitchenAttentionFeed({
       </div>
 
       {shown.length === 0 ? (
-        <p
-          className="text-sm text-muted-foreground py-6"
-          data-testid="kitchen-attention-empty"
-        >
-          {insights.empty_feed}
-        </p>
+        insights.feed.length === 0 ? null : (
+          <p
+            className="text-sm text-muted-foreground py-6"
+            data-testid="kitchen-attention-empty"
+          >
+            {insights.empty_feed}
+          </p>
+        )
       ) : (
         <ul>
           {shown.map((item) => {
@@ -165,7 +171,7 @@ export function KitchenAttentionFeed({
                   type="button"
                   disabled={busy}
                   onClick={() => onAction(item)}
-                  className="text-xs rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-60 whitespace-nowrap"
+                  className="text-xs rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[#1B40C8] hover:bg-[#E7EDFD] disabled:opacity-60 whitespace-nowrap"
                 >
                   {busy ? t(lang, "Saving…", "Guardando…") : item.action_label}
                 </button>

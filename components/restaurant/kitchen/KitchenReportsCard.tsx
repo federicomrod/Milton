@@ -28,11 +28,13 @@ interface Report {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  running_out: "Se acaba",
+  running_out: "Se agota",
   "86": "86",
   waste: "Merma",
   unclassified: "Sin clasificar",
 };
+
+export const KITCHEN_LOW_STOCK_TYPES = ["running_out", "86"] as const;
 
 const selectClass =
   "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
@@ -41,10 +43,13 @@ export function KitchenReportsCard({
   canManage,
   locations,
   initialType = "",
+  includeTypes,
 }: {
   canManage: boolean;
   locations: { id: string; name: string }[];
   initialType?: string;
+  /** When set and the type filter is empty, show only these report types. */
+  includeTypes?: readonly string[];
 }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [locationId, setLocationId] = useState("");
@@ -85,6 +90,11 @@ export function KitchenReportsCard({
     setReloadKey((k) => k + 1);
   };
 
+  const visible =
+    type || !includeTypes?.length
+      ? reports
+      : reports.filter((r) => includeTypes.includes(r.report_type));
+
   return (
     <Card>
       <CardHeader>
@@ -123,10 +133,10 @@ export function KitchenReportsCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {error && <p className="text-sm text-destructive">{error}</p>}
-        {reports.length === 0 && (
+        {visible.length === 0 && (
           <p className="text-sm text-muted-foreground">Aún no hay reportes.</p>
         )}
-        {reports.map((r) => (
+        {visible.map((r) => (
           <div key={r.id} className="space-y-2 border-b pb-3 text-sm">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-muted-foreground">

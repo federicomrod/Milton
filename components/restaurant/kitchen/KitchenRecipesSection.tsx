@@ -69,7 +69,6 @@ export function KitchenRecipesSection({
         onDone={() => setUploadTick((n) => n + 1)}
       />
       <KitchenRecipeDraftsCard
-        variant="section"
         canManage={canManage}
         locations={locations}
         focusDraftId={focusDraftId}

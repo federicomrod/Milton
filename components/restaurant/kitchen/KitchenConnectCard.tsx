@@ -51,7 +51,7 @@ function readCachedQr(locationId: string): KitchenQrPayload | null {
       return parsed;
     }
   } catch {
-    // private mode / blocked storage
+    // private window / blocked storage
   }
   return null;
 }
@@ -67,6 +67,8 @@ function writeCachedQr(locationId: string, qr: KitchenQrPayload) {
 type QrLoad = {
   qr: KitchenQrPayload | null;
   locationName: string;
+  locationId: string | null;
+  hasActiveQr: boolean;
   error: string | null;
 };
 
@@ -76,31 +78,54 @@ export function resetKitchenQrLoad() {
   qrLoad = null;
 }
 
+function emptyLoad(
+  over: Partial<QrLoad> & Pick<QrLoad, "locationName">
+): QrLoad {
+  return {
+    qr: null,
+    locationId: null,
+    hasActiveQr: false,
+    error: null,
+    ...over,
+  };
+}
+
 async function loadConnectQr(
   canManage: boolean,
   fallbackName: string
 ): Promise<QrLoad> {
   if (qrLoad) return qrLoad;
-  qrLoad = (async () => {
+  const pending = (async (): Promise<QrLoad> => {
     const res = await fetch("/api/restaurant/kitchen/qr");
     if (!res.ok) {
-      return {
-        qr: null,
+      return emptyLoad({
         locationName: fallbackName,
         error: "No se pudo cargar el QR de cocina.",
-      };
+      });
     }
     const data = (await res.json()) as { locations?: LocationStatus[] };
     const loc = data.locations?.[0];
     if (!loc) {
-      return { qr: null, locationName: fallbackName, error: null };
+      return emptyLoad({ locationName: fallbackName });
     }
     const cached = readCachedQr(loc.location_id);
     if (cached) {
-      return { qr: cached, locationName: loc.name, error: null };
+      return {
+        qr: cached,
+        locationName: loc.name,
+        locationId: loc.location_id,
+        hasActiveQr: true,
+        error: null,
+      };
     }
     if (loc.has_active_qr || !canManage) {
-      return { qr: null, locationName: loc.name, error: null };
+      return {
+        qr: null,
+        locationName: loc.name,
+        locationId: loc.location_id,
+        hasActiveQr: loc.has_active_qr,
+        error: null,
+      };
     }
     const created = await fetch("/api/restaurant/kitchen/qr", {
       method: "POST",
@@ -111,6 +136,8 @@ async function loadConnectQr(
       return {
         qr: null,
         locationName: loc.name,
+        locationId: loc.location_id,
+        hasActiveQr: false,
         error:
           created.status === 403
             ? "Solo los dueños pueden crear el QR."
@@ -119,9 +146,97 @@ async function loadConnectQr(
     }
     const payload = (await created.json()) as KitchenQrPayload;
     writeCachedQr(loc.location_id, payload);
-    return { qr: payload, locationName: loc.name, error: null };
+    return {
+      qr: payload,
+      locationName: loc.name,
+      locationId: loc.location_id,
+      hasActiveQr: true,
+      error: null,
+    };
   })();
-  return qrLoad;
+  qrLoad = pending;
+  try {
+    const result = await pending;
+    if (result.error) qrLoad = null;
+    return result;
+  } catch (err) {
+    qrLoad = null;
+    throw err;
+  }
+}
+
+async function rotateConnectQr(
+  locationId: string,
+  locationName: string
+): Promise<QrLoad> {
+  qrLoad = null;
+  const created = await fetch("/api/restaurant/kitchen/qr", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ location_id: locationId }),
+  });
+  if (!created.ok) {
+    return {
+      qr: null,
+      locationName,
+      locationId,
+      hasActiveQr: true,
+      error:
+        created.status === 403
+          ? "Solo los dueños pueden crear el QR."
+          : "No se pudo crear el QR.",
+    };
+  }
+  const payload = (await created.json()) as KitchenQrPayload;
+  writeCachedQr(locationId, payload);
+  const next: QrLoad = {
+    qr: payload,
+    locationName,
+    locationId,
+    hasActiveQr: true,
+    error: null,
+  };
+  qrLoad = Promise.resolve(next);
+  return next;
+}
+
+function QrMissing({
+  canManage,
+  locationId,
+  hasActiveQr,
+  busy,
+  onGenerate,
+}: {
+  canManage: boolean;
+  locationId: string | null;
+  hasActiveQr: boolean;
+  busy: boolean;
+  onGenerate: () => void;
+}) {
+  if (canManage) {
+    return (
+      <div className="space-y-2" data-testid="kitchen-qr-generate">
+        <Button
+          type="button"
+          disabled={busy || !locationId}
+          className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3] disabled:opacity-60"
+          onClick={onGenerate}
+        >
+          Generar QR nuevo
+        </Button>
+        {hasActiveQr ? (
+          <p className="text-center text-[12px] text-muted-foreground">
+            Esto reemplaza el QR anterior.
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <p className="text-sm text-[#0D1117]" data-testid="kitchen-qr-ask-owner">
+      Pide al dueño que te comparta el QR.
+    </p>
+  );
 }
 
 export function KitchenConnectCard({
@@ -139,28 +254,60 @@ export function KitchenConnectCard({
   const [locationName, setLocationName] = useState(
     locations[0]?.name ?? "cocina"
   );
+  const [locationId, setLocationId] = useState<string | null>(
+    locations[0]?.id ?? null
+  );
+  const [hasActiveQr, setHasActiveQr] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
 
+  const apply = (next: QrLoad) => {
+    setQr(next.qr);
+    setLocationName(next.locationName);
+    setLocationId(next.locationId);
+    setHasActiveQr(next.hasActiveQr);
+    setError(next.error);
+  };
+
   useEffect(() => {
     let cancelled = false;
-    void loadConnectQr(canManage, locations[0]?.name ?? "cocina").then(
-      (next) => {
-        if (cancelled) return;
-        setQr(next.qr);
-        setLocationName(next.locationName);
-        setError(next.error);
-      }
-    );
+    void loadConnectQr(canManage, locations[0]?.name ?? "cocina")
+      .then((next) => {
+        if (!cancelled) apply(next);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("No se pudo cargar el QR de cocina.");
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [canManage, locations]);
 
+  const generate = async () => {
+    if (!locationId) return;
+    setBusy(true);
+    try {
+      apply(await rotateConnectQr(locationId, locationName));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const qrBlock = qr ? (
     <KitchenQrResult qr={qr} locationName={locationName} variant="print" />
-  ) : null;
+  ) : (
+    <QrMissing
+      canManage={canManage}
+      locationId={locationId}
+      hasActiveQr={hasActiveQr}
+      busy={busy}
+      onGenerate={() => void generate()}
+    />
+  );
 
   if (variant === "compact") {
     return (
@@ -190,7 +337,7 @@ export function KitchenConnectCard({
             <span
               key={cook.id}
               title={cook.name}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#E8EEFB] text-[11px] font-semibold text-[#1B40C8]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#E7EDFD] text-[11px] font-semibold text-[#1B40C8]"
             >
               {cookInitials(cook.name)}
             </span>
@@ -252,46 +399,50 @@ export function KitchenConnectCard({
             className="h-[180px] w-[180px] max-md:h-[200px] max-md:w-[200px]"
           />
         </div>
-      ) : (
-        <div
-          data-testid="kitchen-qr-slot"
-          className="mx-auto h-[180px] w-[180px] max-md:h-[200px] max-md:w-[200px] rounded-md border border-dashed border-border"
-        />
-      )}
+      ) : null}
       <p className="text-sm text-[#0D1117]">
         Tu equipo escanea este código con Telegram y ya puede mandarte reportes
         y recetas por nota de voz.
       </p>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      <div className="hidden md:block space-y-1">
-        <Button
-          type="button"
-          disabled={!qr}
-          className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3] disabled:opacity-60"
-          onClick={() =>
-            qr &&
-            downloadQrFile(
-              qr.qr_png_data_url,
-              `${kitchenQrFilename(locationName)}.png`
-            )
-          }
-        >
-          Descargar QR para imprimir
-        </Button>
-        <p className="text-center text-[12px] text-muted-foreground">
-          Pégalo en la cocina.
-        </p>
-      </div>
-      <div className="md:hidden">
-        <Button
-          type="button"
-          disabled={!qr}
-          className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3] disabled:opacity-60"
-          onClick={() => qr && void shareOrDownloadQr(qr, locationName)}
-        >
-          Compartir QR
-        </Button>
-      </div>
+      {qr ? (
+        <>
+          <div className="hidden md:block space-y-1">
+            <Button
+              type="button"
+              className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3]"
+              onClick={() =>
+                downloadQrFile(
+                  qr.qr_png_data_url,
+                  `${kitchenQrFilename(locationName)}.png`
+                )
+              }
+            >
+              Descargar QR para imprimir
+            </Button>
+            <p className="text-center text-[12px] text-muted-foreground">
+              Pégalo en la cocina.
+            </p>
+          </div>
+          <div className="md:hidden">
+            <Button
+              type="button"
+              className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3]"
+              onClick={() => void shareOrDownloadQr(qr, locationName)}
+            >
+              Compartir QR
+            </Button>
+          </div>
+        </>
+      ) : (
+        <QrMissing
+          canManage={canManage}
+          locationId={locationId}
+          hasActiveQr={hasActiveQr}
+          busy={busy}
+          onGenerate={() => void generate()}
+        />
+      )}
     </section>
   );
 }

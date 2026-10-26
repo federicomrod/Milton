@@ -125,36 +125,19 @@ const draw = (extra: Partial<Parameters<typeof CostsSetupSection>[0]> = {}) => {
   );
 };
 
-describe("setup incomplete: one compact banner", () => {
-  it("collapsed by default: one row with the progress, the next step, a button and «Ver detalle»; no checklist or file card", async () => {
+describe("embedded workspace (the path Costos actually renders)", () => {
+  it("file card is mounted with no hidden ancestor", async () => {
     current = workspace(false);
-    draw();
-    const banner = await screen.findByTestId("costs-setup-banner");
-    expect(banner.textContent).toContain("Configura tus costos · 1 de 4");
-    expect(banner.textContent).toContain("Siguiente: Completar 42 precios");
-    expect(banner.className).toMatch(/max-h-\[56px\]/);
-    // the primary button is the same next-step action (the same link)
-    const cta = screen.getByRole("link", { name: "Continuar" });
-    expect(cta.getAttribute("href")).toBe(
-      "/dashboard/restaurant/menu/ingredientes?filtro=falta_precio"
-    );
+    draw({ embeddedInWorkspace: true });
+    const panel = await screen.findByTestId("price-catalog-panel");
     expect(
-      screen
-        .getByRole("button", { name: /Ver detalle/ })
-        .getAttribute("aria-expanded")
-    ).toBe("false");
-    // nothing of the full block yet
-    expect(screen.queryByTestId("costs-setup-detail")).toBeNull();
-    // the file card stays mounted (hidden) so «Continuar» can open the picker.
-    // The #costos-ultimo-archivo id lives on CostsFileWorkspace, not this card.
-    const fileHeading = screen.getByRole("heading", { name: "Último archivo" });
-    let node: HTMLElement | null = fileHeading.parentElement;
-    let hiddenAncestor = false;
+      screen.getByRole("heading", { name: "Último archivo" })
+    ).toBeTruthy();
+    let node: HTMLElement | null = panel;
     while (node) {
-      if (node.classList.contains("hidden")) hiddenAncestor = true;
+      expect(node.classList.contains("hidden")).toBe(false);
       node = node.parentElement;
     }
-    expect(hiddenAncestor).toBe(true);
   });
 
   it("«Ver detalle» expands the EXISTING checklist and «Último archivo» inline, unchanged", async () => {

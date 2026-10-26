@@ -251,15 +251,13 @@ export function CostsSetupSection({
       importPending !== null ||
       busy ||
       resetOpen ||
-      !!data?.upload_draft_pending ||
-      !!data?.latest_upload?.has_candidate_blocks;
+      !!data?.upload_draft_pending;
     onWorkInProgress?.(hasWork);
   }, [
     importPending,
     busy,
     resetOpen,
     data?.upload_draft_pending,
-    data?.latest_upload?.has_candidate_blocks,
     onWorkInProgress,
   ]);
 
@@ -401,12 +399,21 @@ export function CostsSetupSection({
   const onNext = importPending ? goToImport : goToFile;
   // The server's can("prices.edit") answer (absent in old fixtures = allowed).
   const canEditPrices = data.actor.capabilities?.["prices.edit"] ?? true;
+  const more = (
+    <MoreMenu
+      data={data}
+      canEditPrices={canEditPrices}
+      onUndoBatch={(ids) => void onUndoBatch(ids)}
+      onReset={() => setResetOpen(true)}
+    />
+  );
   const filePanel = (
     <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
       <div className="mb-1 flex items-baseline">
         <h2 className="text-[13px] font-semibold text-[#151c2c]">
           Último archivo
         </h2>
+        {more}
         {data.latest_upload ? (
           <span className="ml-auto truncate text-[12px] text-[#6b7280]">
             {data.latest_upload.filename}
@@ -481,14 +488,6 @@ export function CostsSetupSection({
       </div>
     );
   }
-  const more = (
-    <MoreMenu
-      data={data}
-      canEditPrices={canEditPrices}
-      onUndoBatch={(ids) => void onUndoBatch(ids)}
-      onReset={() => setResetOpen(true)}
-    />
-  );
   const age = ageLabel(data.latest_upload?.created_at, Date.now());
 
   const foldedLine =

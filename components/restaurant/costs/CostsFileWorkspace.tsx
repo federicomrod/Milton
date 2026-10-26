@@ -15,7 +15,7 @@ import {
 } from "@/lib/restaurant/costs-picker";
 
 const CLOSED_CLASS =
-  "invisible pointer-events-none absolute w-px h-px overflow-visible";
+  "invisible pointer-events-none absolute w-px h-px overflow-hidden";
 const OPEN_CLASS =
   "w-full rounded-lg border border-[#dfe3ea] bg-white p-4 my-5";
 

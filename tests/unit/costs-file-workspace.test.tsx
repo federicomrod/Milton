@@ -122,7 +122,7 @@ describe("CostsFileWorkspace visibility", () => {
     render(<CostsFileWorkspace locationId="loc-1" companyId="co-1" />);
     const root = await screen.findByTestId("costs-file-workspace");
     expect(root.getAttribute("data-open")).toBe("false");
-    expect(root.className).not.toMatch(/\bhidden\b/);
+    expect(root.classList.contains("hidden")).toBe(false);
   });
 
   it("one OPEN_COSTS_PICKER_EVENT shows the file card and opens the picker", async () => {
@@ -141,6 +141,42 @@ describe("CostsFileWorkspace visibility", () => {
     );
     expect(hasHiddenAncestor(panel)).toBe(false);
     expect(openPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays closed on load after a file is uploaded (3/4 done, nothing pending), and Cerrar is available once opened", async () => {
+    current = workspace({
+      menu_summary: {
+        setup: {
+          steps: [nextStep],
+          done: 3,
+          total: 4,
+          next: nextStep,
+          complete: false,
+        },
+      },
+      latest_upload: {
+        id: "u1",
+        filename: "costos-prueba.xlsx",
+        created_at: "2026-09-01T10:00:00Z",
+        has_candidate_blocks: true,
+      },
+      upload_draft_pending: false,
+    });
+    render(<CostsFileWorkspace locationId="loc-idle" companyId="co-1" />);
+    await screen.findByTestId("price-catalog-panel");
+    expect(
+      screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+    ).toBe("false");
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(OPEN_COSTS_PICKER_EVENT));
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
+    );
+    expect(screen.getByLabelText("Cerrar")).toBeTruthy();
   });
 
   it("auto-opens when upload_draft_pending is already set", async () => {
@@ -203,6 +239,31 @@ describe("CostsFileWorkspace visibility", () => {
     expect(
       screen.getByTestId("costs-file-workspace").getAttribute("data-open")
     ).toBe("true");
+  });
+
+  it("Más acciones is reachable when there is reset data or batches", async () => {
+    current = workspace({
+      batches: [
+        {
+          id: "b1",
+          filename: "costos-prueba.xlsx",
+          uploads: 1,
+          batch_ids: ["batch-1"],
+        },
+      ],
+      reset: { prompt: "RESET", warning: null },
+    });
+    render(<CostsFileWorkspace locationId="loc-more" companyId="co-1" />);
+    await screen.findByTestId("price-catalog-panel");
+    act(() => {
+      window.dispatchEvent(new CustomEvent(OPEN_COSTS_PICKER_EVENT));
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("costs-file-workspace").getAttribute("data-open")
+      ).toBe("true")
+    );
+    expect(screen.getByLabelText("Más acciones")).toBeTruthy();
   });
 
   it("there is exactly one #costos-ultimo-archivo in the Costos chrome", async () => {

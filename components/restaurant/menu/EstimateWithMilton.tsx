@@ -7,6 +7,7 @@
 // apart from the real figures.
 
 import { useEffect, useRef, useState } from "react";
+import { Sparkles } from "lucide-react";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import {
   GhostBtn,
@@ -146,7 +147,7 @@ export function useEstimateRun({
 export function NoRecipeEditNotice({ className = "" }: { className?: string }) {
   return (
     <p
-      className={"text-[12px] text-[#6b7280] " + className}
+      className={"text-[12px] text-[var(--brand-muted)] " + className}
       data-testid="recipes-edit-denied"
     >
       {CAPABILITY_MESSAGES["recipes.edit"]} {ESTIMATE_NO_ROLE_HINT}
@@ -238,7 +239,7 @@ export function EstimateWithMilton({
   } else if (!live && !state.note) {
     if (probe.status === "failed") {
       reason = (
-        <p className="text-[12px] text-[#6b7280]">
+        <p className="text-[12px] text-[var(--brand-muted)]">
           {ESTIMATE_PROBE_FAILED}{" "}
           <button
             type="button"
@@ -246,7 +247,7 @@ export function EstimateWithMilton({
               setProbe({ status: "loading" });
               setAttempt((n) => n + 1);
             }}
-            className="font-semibold text-[#1B40C8] underline"
+            className="font-semibold text-[var(--brand-blue)] hover:underline"
           >
             {ESTIMATE_RETRY}
           </button>
@@ -254,11 +255,13 @@ export function EstimateWithMilton({
       );
     } else if (probe.status === "ok" && !probe.available) {
       reason = (
-        <p className="text-[12px] text-[#6b7280]">{ESTIMATE_UNAVAILABLE}</p>
+        <p className="text-[12px] text-[var(--brand-muted)]">
+          {ESTIMATE_UNAVAILABLE}
+        </p>
       );
     } else if (probe.status === "ok") {
       reason = (
-        <p className="text-[12px] text-[#6b7280]">
+        <p className="text-[12px] text-[var(--brand-muted)]">
           {probe.needs_link > 0 ? ESTIMATE_NEEDS_LINK : ESTIMATE_NOTHING_TO_DO}
         </p>
       );
@@ -271,36 +274,44 @@ export function EstimateWithMilton({
   return (
     <div className="space-y-1.5" data-testid="estimate-with-milton">
       {variant === "link" ? (
-        <button
-          type="button"
+        <GhostBtn
           disabled={disabled}
-          title={ESTIMATE_HELP}
           onClick={() => void start(eligible)}
-          className="font-semibold text-[#3557c9] disabled:opacity-60"
+          className="hover:bg-[var(--ai-lavender)]"
         >
+          <Sparkles className="h-3.5 w-3.5" />
           {label}
-        </button>
+        </GhostBtn>
       ) : (
         <>
-          <Btn disabled={disabled} onClick={() => void start(eligible)}>
+          <Btn
+            disabled={disabled}
+            onClick={() => void start(eligible)}
+            className={
+              variant === "primary" ? "" : "hover:bg-[var(--ai-lavender)]"
+            }
+          >
+            <Sparkles className="h-3.5 w-3.5" />
             {label}
           </Btn>
           {live ? (
-            <p className="text-[12px] text-[#6b7280]">{ESTIMATE_HELP}</p>
+            <p className="text-[12px] text-[var(--brand-muted)]">
+              {ESTIMATE_HELP}
+            </p>
           ) : null}
         </>
       )}
       {reason}
       {state.running ? (
-        <p role="status" className="text-[12px] text-[#6b7280]">
+        <p role="status" className="text-[12px] text-[var(--brand-muted)]">
           {progressText(state.processed, state.total)}
         </p>
       ) : null}
       {state.note ? (
-        <p className="text-[12px] text-[#6b7280]">{state.note}</p>
+        <p className="text-[12px] text-[var(--brand-muted)]">{state.note}</p>
       ) : null}
       {state.summary ? (
-        <p className="text-[12px] text-[#6b7280]">{state.summary}</p>
+        <p className="text-[12px] text-[var(--brand-muted)]">{state.summary}</p>
       ) : null}
     </div>
   );

@@ -299,7 +299,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
     const note = await screen.findByText(
       "Falta aplicar la actualización de la base de datos (062)."
     );
-    expect(note.className).toContain("text-[#6b7280]");
+    expect(note.className).toContain("text-[var(--brand-muted)]");
     expect(note.className).not.toMatch(/c03535|red-/);
   });
 });
@@ -373,9 +373,11 @@ describe("PlatoScreen · estimate overlay", () => {
         estimates={[estimate()]}
       />
     );
-    expect(
-      screen.getByText("≈ $4.20 costo estimado · ≈ 62% margen estimado")
-    ).toBeTruthy();
+    // Text is now split across styled spans, so check for parts
+    expect(screen.getByText("$4.20")).toBeTruthy();
+    expect(screen.getByText("62%")).toBeTruthy();
+    expect(screen.getByText(/costo estimado/)).toBeTruthy();
+    expect(screen.getByText(/margen estimado/)).toBeTruthy();
     expect(screen.getAllByText("Estimado por Milton").length).toBeGreaterThan(
       0
     );
@@ -485,7 +487,7 @@ describe("PlatoScreen · estimate overlay", () => {
     const note = await screen.findByText(
       "Este plato ya tiene receta aprobada; Milton no la cambia."
     );
-    expect(note.className).toContain("text-[#6b7280]");
+    expect(note.className).toContain("text-[var(--brand-muted)]");
   });
 });
 
@@ -703,6 +705,104 @@ describe("MenuDishesScreen · estimate overlay", () => {
       screen.getByRole("button", { name: "Usar como borrador" })
     ).toBeTruthy();
     expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+  });
+
+  it("«Ver estimado» link uses dishHref with the base_odoo_product_id", () => {
+    mountList(dishesWorkspace({}), [estimate()]);
+    const link = screen.getByRole("link", { name: "Ver estimado" });
+    expect(link.getAttribute("href")).toBe(
+      "/dashboard/restaurant/menu/platos?producto=1"
+    );
+  });
+
+  it("inline flow: click «Estimar con Milton» shows «Estimando…», then estimate appears inline without reload", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          calls.push({ url, body: JSON.parse(String(init.body)) });
+          return jsonRes({
+            done: 1,
+            remaining: 0,
+            results: [{ menu_item_id: "m1", skipped_reason: null }],
+          });
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    const onEstimated = vi.fn();
+    const { rerender } = render(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[]}
+        onEstimated={onEstimated}
+      />
+    );
+    // Step 1: button shows «Estimar con Milton»
+    const button = screen.getByTestId("dish-estimate-action");
+    expect(button.textContent).toContain("Estimar con Milton");
+    expect(screen.queryByTestId("dish-estimate")).toBeNull();
+
+    // Step 2: click and verify «Estimando…» appears and button is disabled
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(button.textContent).toContain("Estimando…");
+      expect(button.hasAttribute("disabled")).toBe(true);
+    });
+
+    // Step 3: onEstimated is called, parent updates estimates
+    await waitFor(() => expect(onEstimated).toHaveBeenCalled());
+    rerender(
+      <MenuDishesScreen
+        data={dishesWorkspace({})}
+        onOpenDish={() => undefined}
+        estimates={[estimate()]}
+        onEstimated={onEstimated}
+      />
+    );
+
+    // Step 4: estimate strip appears inline, button is gone
+    expect(screen.getByTestId("dish-estimate")).toBeTruthy();
+    expect(screen.getByTestId("dish-estimate").textContent).toContain(
+      "Estimado por Milton"
+    );
+    expect(screen.queryByTestId("dish-estimate-action")).toBeNull();
+  });
+
+  it("when button is disabled, reason text is visible next to button in ink color, not grey", () => {
+    const ws = dishesWorkspace({ menu_item_id: null });
+    mountList(ws, []);
+    const button = screen.getByTestId("dish-estimate-action");
+    expect(button.hasAttribute("disabled")).toBe(true);
+    const reason = screen.getByText(
+      "Primero vincula este producto a un plato."
+    );
+    expect(reason.className).toContain("text-[var(--brand-ink)]");
+    expect(reason.className).not.toContain("text-[var(--brand-muted)]");
+  });
+
+  it("when estimate fails, error message is visible in ink color", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return jsonRes(
+            { error: "No pude estimar este plato. Intenta de nuevo." },
+            500
+          );
+        }
+        return jsonRes({ available: true, eligible: 1, needs_link: 0 });
+      })
+    );
+    mountList(dishesWorkspace({}), []);
+    fireEvent.click(screen.getByTestId("dish-estimate-action"));
+    const error = await screen.findByText(
+      "No pude estimar este plato. Intenta de nuevo."
+    );
+    expect(error.className).toContain("text-[var(--brand-ink)]");
+    expect(error.className).not.toContain("text-[var(--brand-muted)]");
   });
 
   it("no «Sin receta» rows: no row action, and the link says there is nothing to estimate", async () => {

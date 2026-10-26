@@ -13,7 +13,7 @@ import {
   groupStatusDisplay,
 } from "@/lib/restaurant/costing/rollup";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Sparkles } from "lucide-react";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { RowActions } from "@/components/restaurant/groups/RowActions";
 import {
@@ -36,7 +36,7 @@ import {
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { platosHref } from "@/lib/restaurant/menu-links";
+import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
@@ -903,17 +903,17 @@ function RowEstimate({
         type="button"
         data-testid="dish-estimate-action"
         disabled={busy || reason !== null}
-        title={reason ?? undefined}
         onClick={() => void run()}
-        className="font-semibold text-[#3557c9] disabled:text-[#6b7280] disabled:opacity-80"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-blue)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-blue)] hover:bg-[var(--ai-lavender)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
+        <Sparkles className="h-3.5 w-3.5" />
         {busy ? "Estimando…" : ESTIMATE_BUTTON}
       </button>
-      {reason && canEdit ? (
-        <span className="text-[#6b7280]">{reason}</span>
+      {reason ? (
+        <span className="text-[var(--brand-ink)]">{reason}</span>
       ) : null}
       {note ? (
-        <span role="status" className="text-[#6b7280]">
+        <span role="status" className="text-[var(--brand-ink)]">
           {note}
         </span>
       ) : null}
@@ -959,11 +959,15 @@ function RowEstimateUse({
         type="button"
         disabled={busy}
         onClick={() => void use()}
-        className="font-semibold text-[#3557c9] disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--brand-blue-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       >
         {ESTIMATE_USE_BUTTON}
       </button>
-      {note ? <span role="status">{note}</span> : null}
+      {note ? (
+        <span role="status" className="text-[var(--brand-muted)]">
+          {note}
+        </span>
+      ) : null}
     </>
   );
 }
@@ -1085,17 +1089,47 @@ const DishRows = memo(function DishRows({
           {estimate ? (
             <div
               data-testid="dish-estimate"
-              className="mt-1 ml-5 inline-flex flex-wrap items-center gap-1.5 rounded-md border border-dashed border-[#c9cfdb] px-1.5 py-0.5 text-[12px] text-[#6b7280]"
+              className="mt-1 ml-5 inline-flex flex-wrap items-center gap-2 rounded-lg bg-[#D8D0F8]/40 px-2.5 py-1.5 text-[12px]"
             >
-              <span className="rounded-md bg-[#f1f3f7] px-1.5 py-px text-[11px] font-semibold text-[#5b6476]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
+                <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
                 {ESTIMATE_BADGE}
               </span>
-              <span>{estimate.text}</span>
+              <span>
+                {estimate.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
+                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                    <span
+                      key={i}
+                      className="font-semibold text-[var(--brand-blue)]"
+                    >
+                      {part}
+                    </span>
+                  ) : (
+                    <span key={i} className="text-[var(--brand-ink)]">
+                      {part}
+                    </span>
+                  )
+                )}
+              </span>
+              <span className="text-[var(--brand-ink)]">·</span>
+              <Link
+                href={
+                  dish.base_odoo_product_id
+                    ? dishHref(dish.base_odoo_product_id)
+                    : platosHref()
+                }
+                className="font-semibold text-[var(--brand-blue)] hover:underline"
+              >
+                Ver estimado
+              </Link>
               {canEstimate ? (
-                <RowEstimateUse
-                  menuItemId={estimate.menu_item_id}
-                  onUsed={onEstimated}
-                />
+                <>
+                  <span className="text-[var(--brand-ink)]">·</span>
+                  <RowEstimateUse
+                    menuItemId={estimate.menu_item_id}
+                    onUsed={onEstimated}
+                  />
+                </>
               ) : null}
             </div>
           ) : null}

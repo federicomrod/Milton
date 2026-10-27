@@ -1,7 +1,6 @@
-// Speed fix 1: the legacy CFO dashboard layout does no KPI, data-status or
-// chat work on restaurant pages (Cockpit → Menú used to trigger all of it).
+// Restaurant pages no longer sit inside the legacy CFO client layout.
 
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 
@@ -11,30 +10,45 @@ const src = readFileSync(
 );
 
 describe("dashboard layout on restaurant pages", () => {
-  it("skips the legacy KPI load and the data-status fetch there", () => {
-    const kpis = src.slice(src.indexOf("// Load selected KPIs"));
-    expect(kpis.indexOf("if (onRestaurant) return;")).toBeGreaterThan(-1);
-    expect(kpis.indexOf("if (onRestaurant) return;")).toBeLessThan(
-      kpis.indexOf('fetch("/api/kpis/calculate"')
-    );
-    const status = src.slice(
-      src.indexOf("Restaurant pages don't use the legacy")
-    );
-    expect(status.indexOf("if (onRestaurant) return;")).toBeLessThan(
-      status.indexOf("refreshDataStatus();")
-    );
-    expect(src).toContain('pathname?.startsWith("/dashboard/restaurant")');
+  it("is a server passthrough: no client session, KPIs, chat or data-status", () => {
+    expect(src).not.toContain('"use client"');
+    expect(src).not.toContain("ensureSession");
+    expect(src).not.toContain("/api/kpis/");
+    expect(src).not.toContain("/api/data/status");
+    expect(src).not.toContain("miltonchat");
+    expect(src).not.toContain("useUser");
+    expect(src).toContain("return children");
   });
 
-  it("loads the legacy chat lazily, so restaurant pages never download it", () => {
-    expect(src).not.toMatch(/^import MiltonChat from/m);
-    expect(src).toContain(
-      'dynamic(() => import("@/components/dashboard/miltonchat")'
+  it("root providers are ThemeProvider only; prefs live on Ajustes", () => {
+    const providers = readFileSync(
+      join(process.cwd(), "components/layout/client-providers.tsx"),
+      "utf8"
     );
-    expect(src).toContain("{!onRestaurant && (");
+    expect(providers).toContain("ThemeProvider");
+    expect(providers).not.toContain("UserProvider");
+    expect(providers).not.toContain("UserPreferencesProvider");
+    expect(providers).not.toContain("BusinessProvider");
+    const settings = readFileSync(
+      join(process.cwd(), "app/dashboard/settings/layout.tsx"),
+      "utf8"
+    );
+    expect(settings).toContain("SettingsPreferencesProviders");
   });
 
-  it("keeps the redirect exemption for restaurant pages", () => {
-    expect(src).toContain('if (pathname.startsWith("/dashboard/restaurant"))');
+  it("the leftover CFO routes and chat helper are gone", () => {
+    for (const f of [
+      "app/api/kpis/calculate/route.ts",
+      "app/api/kpis/selected/route.ts",
+      "app/api/data/status/route.ts",
+      "app/api/business-type/route.ts",
+      "app/api/chat/route.ts",
+      "components/dashboard/miltonchat.tsx",
+      "lib/dashboard-kpis-server.ts",
+      "lib/dashboard-kpis.ts",
+      "lib/ai/dashboard-context.ts",
+    ]) {
+      expect(existsSync(join(process.cwd(), f)), f).toBe(false);
+    }
   });
 });

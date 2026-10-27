@@ -27,10 +27,7 @@ export const ALLOW: Record<string, string> = {
     "sends one email to the company's saved address; changes nothing",
   "restaurant/onboarding/complete/route.ts":
     "marks the signed-in person's own onboarding as done",
-  "business-type/route.ts":
-    "classifies text during onboarding; writes nothing company-wide",
   // Reads and analysis that write nothing company-wide
-  "chat/route.ts": "AI chat; writes nothing company-wide",
   "restaurant/ask-milton/route.ts":
     "read-only chat over the restaurant context",
   "restaurant/data-source-requests/route.ts":

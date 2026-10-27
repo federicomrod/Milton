@@ -20,14 +20,10 @@ import { EmailBriefingCard } from "@/components/restaurant/EmailBriefingCard";
 import {
   Building2,
   MapPin,
-  Globe,
   CreditCard,
   Mail,
   Calendar,
   Edit,
-  DollarSign,
-  Hash,
-  Palette,
 } from "lucide-react";
 import { Company } from "@/lib/profile-service";
 
@@ -149,18 +145,6 @@ export default function AccountPage() {
                 </p>
               </div>
             </div>
-
-            <div className="flex items-start gap-3">
-              <Globe className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Zona horaria
-                </p>
-                <p className="text-base text-foreground">
-                  {profile?.timezone || "Sin definir"}
-                </p>
-              </div>
-            </div>
           </CardContent>
         </Card>
 
@@ -219,66 +203,7 @@ export default function AccountPage() {
           </CardContent>
         </Card>
 
-        {/* User Preferences */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Preferencias</CardTitle>
-            <CardDescription>Cómo se muestran fechas y números</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-start gap-3">
-              <DollarSign className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Moneda
-                </p>
-                <p className="text-base text-foreground">
-                  {profile?.currency || "EUR"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Formato de fecha
-                </p>
-                <p className="text-base text-foreground">
-                  {profile?.date_format || "DD/MM/YYYY"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <Hash className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Formato de número
-                </p>
-                <p className="text-base text-foreground">
-                  {profile?.number_format || "1,000.00"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <Palette className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Tema
-                </p>
-                <p className="text-base text-foreground capitalize">
-                  {profile?.theme === "dark"
-                    ? "Oscuro"
-                    : profile?.theme === "light"
-                      ? "Claro"
-                      : profile?.theme || "Claro"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Currency, theme and formats live on Ajustes only (no duplicate here). */}
 
         {/* Telegram Briefing (Telegram Connection UI v1) */}
         <TelegramConnectionCard />

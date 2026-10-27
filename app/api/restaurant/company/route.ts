@@ -1,6 +1,6 @@
 // /api/restaurant/company
 //
-//   GET   → { company: { id, name, industry? } } of the signed-in person's
+//   GET   → { company: { id, name, industry?, currency } } of the signed-in person's
 //           company. The company comes from the membership (auth), never
 //           from the request; the old `companies.created_by` lookup finds
 //           nothing for restaurant accounts, which made «Nombre de la
@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
+import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,11 @@ export async function GET() {
       { status: 500 }
     );
   }
-  return NextResponse.json({ company: data ?? null });
+  if (!data) return NextResponse.json({ company: null });
+  // Same currency the cockpit and costs use (derived from the company's
+  // data; El Salvador → USD). Ajustes and Cuenta show it read-only.
+  const currency = await resolveCompanyCurrency(auth.supabase, auth.companyId);
+  return NextResponse.json({ company: { ...data, currency } });
 }
 
 export async function PATCH(req: NextRequest) {

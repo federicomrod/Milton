@@ -105,7 +105,11 @@ export function detectIntent(message: string): AskMiltonIntent {
       "top margin",
       "mas rentable",
       "mayor margen",
-      "mejor margen"
+      "mayores margenes",
+      "mejor margen",
+      "mejores margenes",
+      "me deja mas",
+      "deja mas ganancia"
     )
   ) {
     return "most_profitable_dish";
@@ -122,6 +126,9 @@ export function detectIntent(message: string): AskMiltonIntent {
       "which dishes should i fix",
       "fix first",
       "peor margen",
+      "peores margenes",
+      "menor margen",
+      "menores margenes",
       "menos rentable",
       "me deja menos",
       "deja menos",

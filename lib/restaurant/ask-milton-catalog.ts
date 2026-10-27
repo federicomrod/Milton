@@ -22,7 +22,8 @@ export const CATALOG_CAPS = {
   unpricedNames: 10,
   usedIn: 4,
   dishes: 25,
-  foodCost: 5,
+  /** Ranked platos per direction: owners may ask «top 10». */
+  foodCost: 10,
   groups: 20,
 } as const;
 
@@ -142,6 +143,8 @@ export interface AskMiltonMenuDishes {
   top_by_sales: AskMiltonMenuDish[];
   /** Highest food cost % (cost / sale price), same costing as Menú › Resumen. */
   top_by_food_cost: AskMiltonMenuDish[];
+  /** Highest margin first — same «aprobado»-only ranking as Resumen. */
+  top_by_margin?: AskMiltonMenuDish[];
   /** Net sales by menu category (Churrascos, Bebidas…). */
   sales_by_category: Array<{
     category: string;
@@ -208,6 +211,10 @@ export function buildMenuDishes(
       .slice(0, CATALOG_CAPS.dishes)
       .map(toRow),
     top_by_food_cost: ranking.worst
+      .map((w) => dishes[Number(w.id)])
+      .filter((d) => d != null)
+      .map(toRow),
+    top_by_margin: ranking.best
       .map((w) => dishes[Number(w.id)])
       .filter((d) => d != null)
       .map(toRow),

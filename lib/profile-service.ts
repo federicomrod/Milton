@@ -22,8 +22,61 @@ export interface Company {
   name: string;
   industry?: string;
   created_by: string;
+  /** Display currency derived from the company's data (GET only). */
+  currency?: string;
   created_at?: string;
   updated_at?: string;
+}
+
+/**
+ * Display preferences (zona horaria, formatos, tema) are per person and live
+ * in the Supabase Auth user metadata. The `profiles` table has NO
+ * timezone / currency / date_format / number_format / theme columns (see
+ * supabase/migrations/001_baseline.sql), so writing them there always
+ * failed with «No pudimos guardar tus cambios». No migration needed.
+ * Currency is not a personal preference: it comes from the company's data.
+ */
+export interface DisplayPreferences {
+  timezone?: string;
+  date_format?: string;
+  number_format?: string;
+  theme?: string;
+}
+
+export const PREFERENCE_KEYS = [
+  "timezone",
+  "date_format",
+  "number_format",
+  "theme",
+] as const;
+
+export function pickPreferences(source: unknown): DisplayPreferences {
+  const out: DisplayPreferences = {};
+  if (!source || typeof source !== "object") return out;
+  const record = source as Record<string, unknown>;
+  for (const key of PREFERENCE_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() && value.length <= 64) {
+      out[key] = value.trim();
+    }
+  }
+  return out;
+}
+
+/** The device's time zone: a better first guess than a fixed European one. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Saved preferences of an auth user (empty object when none). */
+export function preferencesFromAuthUser(user: unknown): DisplayPreferences {
+  const meta = (user as { user_metadata?: { preferences?: unknown } } | null)
+    ?.user_metadata;
+  return pickPreferences(meta?.preferences);
 }
 
 export async function getUserProfile(): Promise<UserProfile | null> {
@@ -43,56 +96,55 @@ export async function getUserProfile(): Promise<UserProfile | null> {
     .from("profiles")
     .select("*")
     .eq("user_id", user.id)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Error fetching user profile:", error.message);
-    return null;
   }
 
-  return data as UserProfile;
+  return {
+    ...((data ?? {}) as Partial<UserProfile>),
+    user_id: user.id,
+    role: ((data as UserProfile | null)?.role ?? "user") as UserRole,
+    created_at:
+      (data as UserProfile | null)?.created_at ?? user.created_at ?? undefined,
+    ...preferencesFromAuthUser(user),
+  } as UserProfile;
 }
 
-export async function upsertUserProfile(
-  profileData: Partial<UserProfile>
-): Promise<UserProfile> {
+/** Save the person's display preferences (Auth user metadata, not `profiles`). */
+export async function saveUserPreferences(
+  prefs: Partial<UserProfile>
+): Promise<DisplayPreferences> {
   const supabase = createClient();
   const {
     data: { user },
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError) console.error("Auth error (upsertUserProfile):", userError);
+  if (userError) console.error("Auth error (saveUserPreferences):", userError);
   if (!user) throw new Error("User not authenticated");
 
-  // Remove fields that don't belong in profiles - they're in other tables
-  const { email, company_name, industry, ...cleanProfileData } =
-    profileData as any;
-
-  const payload = {
-    ...cleanProfileData,
-    user_id: user.id,
-    updated_at: new Date().toISOString(),
+  const next = {
+    ...preferencesFromAuthUser(user),
+    ...pickPreferences(prefs),
   };
-
-  // ✅ This is the key line — ensures updates occur by user_id (not id)
-  const { data, error } = await supabase
-    .from("profiles")
-    .upsert(payload, { onConflict: "user_id" })
-    .select()
-    .single();
-
+  const { error } = await supabase.auth.updateUser({
+    data: { preferences: next },
+  });
   if (error) {
-    console.error(
-      "Profile update error:",
-      error.message,
-      error.details,
-      error.hint
-    );
+    console.error("Preferences update error:", error.message);
     throw error;
   }
+  return next;
+}
 
-  return data as UserProfile;
+/** @deprecated profiles has no preference columns; kept for old callers. */
+export async function upsertUserProfile(
+  profileData: Partial<UserProfile>
+): Promise<UserProfile> {
+  const saved = await saveUserPreferences(profileData);
+  return { ...(profileData as UserProfile), ...saved };
 }
 
 /**
@@ -142,6 +194,14 @@ export async function getUserCompany(): Promise<Company | null> {
   return data as Company;
 }
 
+/** A company save the server refused, with its plain-Spanish reason. */
+export class CompanySaveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CompanySaveError";
+  }
+}
+
 export async function updateCompany(
   companyData: Partial<Company>
 ): Promise<Company> {
@@ -166,6 +226,16 @@ export async function updateCompany(
     if (res?.ok) {
       const json = (await res.json()) as { company: Company };
       return json.company;
+    }
+    // A member who may not rename, or a bad name: say why. Falling through
+    // to the legacy `created_by` update would only fail with a vaguer error.
+    if (res && (res.status === 400 || res.status === 403)) {
+      const json = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      throw new CompanySaveError(
+        json?.error || "No pudimos guardar el nombre de la empresa."
+      );
     }
   }
 
@@ -200,54 +270,4 @@ export async function updateCompany(
   }
 
   return company as Company;
-}
-
-/**
- * Check if a user has admin role
- */
-export async function isUserAdmin(userId?: string): Promise<boolean> {
-  const supabase = createClient();
-  const userIdToCheck = userId || (await supabase.auth.getUser()).data.user?.id;
-
-  if (!userIdToCheck) {
-    return false;
-  }
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", userIdToCheck)
-    .single();
-
-  if (error) {
-    console.error("Error checking admin status:", error.message);
-    return false;
-  }
-
-  return data?.role === "admin";
-}
-
-/**
- * Get the role of a user
- */
-export async function getUserRole(userId?: string): Promise<UserRole> {
-  const supabase = createClient();
-  const userIdToCheck = userId || (await supabase.auth.getUser()).data.user?.id;
-
-  if (!userIdToCheck) {
-    return "user";
-  }
-
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("user_id", userIdToCheck)
-    .single();
-
-  if (error) {
-    console.error("Error fetching user role:", error.message);
-    return "user";
-  }
-
-  return (data?.role as UserRole) || "user";
 }

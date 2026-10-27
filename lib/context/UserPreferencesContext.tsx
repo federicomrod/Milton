@@ -11,9 +11,12 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/context/UserContext";
 import { persistTheme } from "@/lib/theme";
+import {
+  browserTimeZone,
+  preferencesFromAuthUser,
+} from "@/lib/profile-service";
 
 interface UserPreferences {
-  currency: string;
   date_format: string;
   number_format: string;
   timezone: string;
@@ -34,10 +37,9 @@ const UserPreferencesContext = createContext<UserPreferencesContextType | null>(
 export function UserPreferencesProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const [prefs, setPrefs] = useState<UserPreferences>({
-    currency: "EUR",
     date_format: "DD/MM/YYYY",
     number_format: "1,000.00",
-    timezone: "Europe/Berlin",
+    timezone: browserTimeZone(),
     theme: "light",
   });
   const [loading, setLoading] = useState(true);
@@ -49,28 +51,21 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Preferences live in the Auth user metadata: `profiles` has no
+      // currency / date_format / number_format / timezone / theme columns.
       const supabase = createClient();
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("currency, date_format, number_format, timezone, theme")
-        .eq("user_id", user.id)
-        .single();
+      const {
+        data: { user: authUser },
+        error,
+      } = await supabase.auth.getUser();
 
       if (error) {
         console.error("Error loading user preferences:", error);
       }
 
-      if (data) {
-        setPrefs((prev) => ({
-          currency: data.currency || prev.currency,
-          date_format: data.date_format || prev.date_format,
-          number_format: data.number_format || prev.number_format,
-          timezone: data.timezone || prev.timezone,
-          theme: data.theme || prev.theme,
-        }));
-        persistTheme(data.theme || "light");
-      }
+      const saved = preferencesFromAuthUser(authUser);
+      setPrefs((prev) => ({ ...prev, ...saved }));
+      if (saved.theme) persistTheme(saved.theme);
     } catch (error) {
       console.error("Failed to fetch preferences:", error);
     } finally {
@@ -80,42 +75,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchPrefs();
-
-    // ✅ Live subscription to profile changes in Supabase
-    if (!user) return;
-
-    const supabase = createClient();
-
-    const channel = supabase
-      .channel("profile-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "profiles",
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
-          console.log("📡 Profile updated in real-time:", payload.new);
-          if (payload.new) {
-            setPrefs((prev) => ({
-              currency: payload.new.currency || prev.currency,
-              date_format: payload.new.date_format || prev.date_format,
-              number_format: payload.new.number_format || prev.number_format,
-              timezone: payload.new.timezone || prev.timezone,
-              theme: payload.new.theme || prev.theme,
-            }));
-            persistTheme(payload.new.theme || "light");
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchPrefs, user]);
+  }, [fetchPrefs]);
 
   const updatePrefs = useCallback((next: UserPreferences) => {
     setPrefs(next);

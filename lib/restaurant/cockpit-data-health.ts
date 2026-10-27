@@ -125,17 +125,17 @@ export function buildCockpitDataHealth(
         ? t(
             lang,
             `${input.dishesWithoutRecipe} dishes without a recipe`,
-            `${input.dishesWithoutRecipe} ${input.dishesWithoutRecipe === 1 ? "platillo sin receta" : "platillos sin receta"}`
+            `${input.dishesWithoutRecipe} ${input.dishesWithoutRecipe === 1 ? "plato sin receta" : "platos sin receta"}`
           )
         : t(
             lang,
             "Every sold dish has a recipe",
-            "Todos los platillos vendidos tienen receta"
+            "Todos los platos vendidos tienen receta"
           ),
     detail: t(
       lang,
       "Sold dishes without a recipe cannot be costed.",
-      "Los platillos vendidos sin receta no se pueden costear."
+      "Los platos vendidos sin receta no se pueden costear."
     ),
     tone: input.dishesWithoutRecipe > 0 ? "warn" : "ok",
     issue: input.dishesWithoutRecipe > 0,
@@ -157,12 +157,12 @@ export function buildCockpitDataHealth(
         : t(
             lang,
             `Recipe coverage ${recipePct.toFixed(1)}% — sold dishes with a recipe`,
-            `Cobertura de recetas ${recipePct.toFixed(1)}% — platillos vendidos con receta`
+            `Cobertura de recetas ${recipePct.toFixed(1)}% — platos vendidos con receta`
           ),
     detail: t(
       lang,
       "Share of net sales from sold dishes that have a recipe.",
-      "Parte de las ventas netas que viene de platillos vendidos con receta."
+      "Parte de las ventas netas que viene de platos vendidos con receta."
     ),
     tone: recipePct === null ? "warn" : recipePct < 80 ? "warn" : "ok",
     issue: recipePct === null || recipePct < 80,
@@ -189,7 +189,7 @@ export function buildCockpitDataHealth(
     detail: t(
       lang,
       "Share of net sales in the selected period from dishes that have a cost — not the share of ingredients mapped.",
-      "Parte de las ventas netas del periodo seleccionado que viene de platillos con costo — no el porcentaje de ingredientes ligados."
+      "Parte de las ventas netas del periodo seleccionado que viene de platos con costo — no el porcentaje de ingredientes ligados."
     ),
     tone: costPct === 0 ? "warn" : costPct < 80 ? "warn" : "ok",
     issue: costPct < 80,

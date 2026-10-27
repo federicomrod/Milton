@@ -292,7 +292,7 @@ export function generateSuggestedActions(
 
   if (wantsInvoiceReview && ctx.invoices.needs_review_count > 0) {
     add({
-      label: `Review pending invoices (${ctx.invoices.needs_review_count})`,
+      label: `Revisar facturas pendientes (${ctx.invoices.needs_review_count})`,
       action_type: "navigation",
       agent_key: null,
       related_entity_type: null,
@@ -320,7 +320,7 @@ export function generateSuggestedActions(
 
   if (wantsDataQuality && ctx.agent_actions.open.length > 0) {
     add({
-      label: "Open setup / data quality issues",
+      label: "Ver problemas de datos",
       action_type: "navigation",
       agent_key: null,
       related_entity_type: null,
@@ -329,7 +329,7 @@ export function generateSuggestedActions(
       impact_json: {},
       priority: "medium",
       creates_agent_action: false,
-      target_route: "/dashboard/restaurant/agents",
+      target_route: "/dashboard/restaurant",
     });
   }
 

@@ -50,7 +50,7 @@ export async function GET() {
   if (error) {
     console.error("[menu-items GET]", error.message);
     return NextResponse.json(
-      { error: "Read failed", details: error.message },
+      { error: "No pude leer.", details: error.message },
       { status: 500 }
     );
   }
@@ -80,12 +80,18 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json({ error: "`name` is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El nombre es obligatorio." },
+      { status: 400 }
+    );
   }
   const category =
     typeof body.category === "string" && body.category.trim() !== ""
@@ -131,7 +137,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!brand) {
       return NextResponse.json(
-        { error: "brand_id does not belong to this company" },
+        { error: "Esa marca no es de esta empresa." },
         { status: 400 }
       );
     }
@@ -147,7 +153,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!location) {
       return NextResponse.json(
-        { error: "location_id does not belong to this company" },
+        { error: "Ese restaurante no es de esta empresa." },
         { status: 400 }
       );
     }
@@ -179,7 +185,7 @@ export async function POST(req: NextRequest) {
     console.error("[menu-items POST]", insertErr?.message);
     return NextResponse.json(
       {
-        error: "Create failed",
+        error: "No se pudo crear.",
         details: insertErr?.message ?? "no row returned",
       },
       { status: 500 }

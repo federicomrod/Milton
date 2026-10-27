@@ -21,7 +21,7 @@ import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
-import Link from "next/link";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   Upload,
   Plus,
@@ -685,7 +685,12 @@ function UploadCard({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            body,
+            "No se pudo subir el archivo. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       setSummary(body.summary);
@@ -854,7 +859,12 @@ function ManualCreateCard({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(j?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            j,
+            "No se pudo crear la factura. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       // Reset and surface the new id.
@@ -1311,7 +1321,12 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            body,
+            "No se pudo cargar la factura. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       setData(body as ReviewData);
@@ -1345,7 +1360,12 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(body?.error ?? `HTTP ${res.status}`);
+        alert(
+          userErrorMessage(
+            body,
+            "No se pudieron guardar las líneas. Inténtalo de nuevo."
+          )
+        );
         return false;
       }
       // Optimistic merge; also reload events for the timeline.
@@ -1400,7 +1420,12 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(body?.error ?? `HTTP ${res.status}`);
+        alert(
+          userErrorMessage(
+            body,
+            "No se pudo registrar la factura. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       setPostResult({
@@ -1642,17 +1667,9 @@ function ReviewDetail({
                 </ul>
               </details>
             )}
-            {isPriceUpdate ? null : (
-              <p className="text-[#151c2c]">
-                {postResult.next_steps}{" "}
-                <Link
-                  className="text-[#1B40C8] hover:underline"
-                  href="/dashboard/restaurant/agents"
-                >
-                  Abrir el Centro de agentes →
-                </Link>
-              </p>
-            )}
+            {isPriceUpdate ? null : postResult.next_steps ? (
+              <p className="text-[#151c2c]">{postResult.next_steps}</p>
+            ) : null}
           </div>
         )}
         {/* Event history */}
@@ -2111,7 +2128,12 @@ function AddLineForm({
       );
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(j?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            j,
+            "No se pudieron guardar las líneas. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       const created: IngredientLite | null =
@@ -2424,7 +2446,12 @@ function AIExtractCard({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            body,
+            "No se pudo leer la factura. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       onExtracted(body.extraction as ExtractedDraft, {
@@ -2523,7 +2550,12 @@ function ExtractedDraftReview({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(body?.error ?? `HTTP ${res.status}`);
+        setError(
+          userErrorMessage(
+            body,
+            "No se pudo guardar la factura. Inténtalo de nuevo."
+          )
+        );
         return;
       }
       const id = body?.invoice?.id as string | undefined;

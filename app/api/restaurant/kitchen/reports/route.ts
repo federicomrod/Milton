@@ -28,12 +28,15 @@ export async function GET(req: NextRequest) {
     const type = sp.get("type");
     if (locationId && !UUID_RE.test(locationId)) {
       return NextResponse.json(
-        { error: "Invalid location_id" },
+        { error: "El restaurante no es válido." },
         { status: 400 }
       );
     }
     if (type && !(REPORT_TYPES as readonly string[]).includes(type)) {
-      return NextResponse.json({ error: "Invalid type" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El tipo no es válido." },
+        { status: 400 }
+      );
     }
 
     let query = supabase
@@ -50,7 +53,7 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error("[kitchen-reports] list failed:", error.message);
       return NextResponse.json(
-        { error: "Could not load reports" },
+        { error: "No pude cargar los avisos." },
         { status: 500 }
       );
     }
@@ -88,7 +91,7 @@ export async function GET(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not load reports" },
+      { error: "No pude cargar los avisos." },
       { status: 500 }
     );
   }

@@ -210,7 +210,7 @@ const HEURISTIC_COLUMNS: Record<string, string[]> = {
     "receta",
     "recipe",
     "plato",
-    "platillo",
+    "platillo", // input matcher / model instruction: keep «platillo»
     "dish",
     "menu",
     "preparacion",

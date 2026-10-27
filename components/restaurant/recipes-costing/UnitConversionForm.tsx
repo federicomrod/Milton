@@ -9,6 +9,7 @@ import { useState } from "react";
 import { clearEditors } from "@/lib/restaurant/recipe-costing/editor-cache";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import { clearIngredientOptionsCache } from "./ingredient-options";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export interface ConversionRow {
   id: string;
@@ -48,7 +49,7 @@ export async function removeConversion(id: string): Promise<string | null> {
     return null;
   }
   const json = (await res.json().catch(() => ({}))) as { error?: string };
-  return json.error ?? "No pude quitar la conversión.";
+  return userErrorMessage(json, "No pude quitar la conversión.");
 }
 
 export function UnitConversionForm({
@@ -108,7 +109,7 @@ export function UnitConversionForm({
           setUnavailable(true);
           return;
         }
-        setError(json.error ?? "No pude guardar la conversión.");
+        setError(userErrorMessage(json, "No pude guardar la conversión."));
         return;
       }
       forgetCostCaches();

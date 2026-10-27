@@ -134,7 +134,7 @@ export function selectCockpitInsights(
         t(
           lang,
           `Cost coverage is ${snapshot.cost.coverage_pct.toFixed(1)}% of net sales. Gross margin % and food cost % stay hidden until dishes have a cost.`,
-          `La cobertura de costos es ${snapshot.cost.coverage_pct.toFixed(1)}% de las ventas netas. El margen bruto % y el % de costo de comida se ocultan hasta que los platillos tengan costo.`
+          `La cobertura de costos es ${snapshot.cost.coverage_pct.toFixed(1)}% de las ventas netas. El margen bruto % y el % de costo de comida se ocultan hasta que los platos tengan costo.`
         )
       ),
       action: {
@@ -157,7 +157,7 @@ export function selectCockpitInsights(
         t(
           lang,
           "Sold dishes are still missing recipes",
-          "Todavía faltan recetas en platillos vendidos"
+          "Todavía faltan recetas en platos vendidos"
         )
       ),
       body: polishInsight(
@@ -165,7 +165,7 @@ export function selectCockpitInsights(
         t(
           lang,
           `${missing} sold dishes have no recipe, so their cost stays hidden.`,
-          `${missing} ${missing === 1 ? "platillo vendido no tiene receta" : "platillos vendidos no tienen receta"}, así que su costo sigue oculto.`
+          `${missing} ${missing === 1 ? "plato vendido no tiene receta" : "platos vendidos no tienen receta"}, así que su costo sigue oculto.`
         )
       ),
       action: {
@@ -187,11 +187,7 @@ export function selectCockpitInsights(
       },
       title: polishInsight(
         lang,
-        t(
-          lang,
-          "A dish is running a thin margin",
-          "Un platillo tiene margen bajo"
-        )
+        t(lang, "A dish is running a thin margin", "Un plato tiene margen bajo")
       ),
       body: polishInsight(
         lang,
@@ -202,7 +198,7 @@ export function selectCockpitInsights(
         )
       ),
       action: {
-        label: t(lang, "Review the dish", "Revisar el platillo"),
+        label: t(lang, "Review the dish", "Revisar el plato"),
         href: MENU_HREF,
       },
     });

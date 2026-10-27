@@ -431,7 +431,7 @@ async function loadRecipeCostingWorkspaceUnsafe(
     return { ok: false, error: "No se pudieron leer las versiones de receta." };
   }
   if (menuRes.error) {
-    return { ok: false, error: "No se pudieron leer los platillos." };
+    return { ok: false, error: "No se pudieron leer los platos." };
   }
 
   const liveHistory = sortBatchesNewestFirst(

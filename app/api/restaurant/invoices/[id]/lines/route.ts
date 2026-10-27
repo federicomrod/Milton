@@ -77,7 +77,10 @@ export async function POST(
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   // Verify the invoice exists for this company.
@@ -89,12 +92,15 @@ export async function POST(
     .maybeSingle();
   if (invErr) {
     return NextResponse.json(
-      { error: "Invoice lookup failed", details: invErr.message },
+      { error: "No pude cargar la factura.", details: invErr.message },
       { status: 500 }
     );
   }
   if (!invRow) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No encontré la factura." },
+      { status: 404 }
+    );
   }
   const invoice = invRow as Pick<
     SupplierInvoice,
@@ -104,7 +110,10 @@ export async function POST(
   // Refuse mutations once an invoice is posted.
   if (invoice.status === "posted") {
     return NextResponse.json(
-      { error: "Invoice is already posted; lines are read-only." },
+      {
+        error:
+          "Esta factura ya está registrada; las líneas no se pueden editar.",
+      },
       { status: 409 }
     );
   }
@@ -124,12 +133,15 @@ export async function POST(
       .maybeSingle();
     if (lineLoadErr) {
       return NextResponse.json(
-        { error: "Line lookup failed", details: lineLoadErr.message },
+        { error: "No pude cargar las líneas.", details: lineLoadErr.message },
         { status: 500 }
       );
     }
     if (!existing) {
-      return NextResponse.json({ error: "Line not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No encontré la línea." },
+        { status: 404 }
+      );
     }
     const line = existing as SupplierInvoiceLine;
 
@@ -147,7 +159,7 @@ export async function POST(
         patch.match_status = "matched" as InvoiceLineMatchStatus;
       } else {
         return NextResponse.json(
-          { error: "ingredient_id must be a string or null" },
+          { error: "El ingrediente no es válido." },
           { status: 400 }
         );
       }
@@ -156,7 +168,7 @@ export async function POST(
     if (typeof body.review_status === "string") {
       if (!isInvoiceLineReviewStatus(body.review_status)) {
         return NextResponse.json(
-          { error: "review_status must be pending, approved, or rejected" },
+          { error: "El estado de revisión no es válido." },
           { status: 400 }
         );
       }
@@ -186,7 +198,7 @@ export async function POST(
       const newName = stringOrNull(newIngredientRaw.name);
       if (!newName) {
         return NextResponse.json(
-          { error: "new_ingredient.name is required" },
+          { error: "Falta el nombre del ingrediente." },
           { status: 400 }
         );
       }
@@ -194,7 +206,7 @@ export async function POST(
         stringOrNull(newIngredientRaw.default_unit) ?? line.unit;
       if (!newDefaultUnit) {
         return NextResponse.json(
-          { error: "new_ingredient.default_unit is required" },
+          { error: "Falta la unidad del ingrediente." },
           { status: 400 }
         );
       }
@@ -209,7 +221,10 @@ export async function POST(
         .limit(1);
       if (lookupErr) {
         return NextResponse.json(
-          { error: "Ingredient lookup failed", details: lookupErr.message },
+          {
+            error: "No pude cargar el ingrediente.",
+            details: lookupErr.message,
+          },
           { status: 500 }
         );
       }
@@ -234,7 +249,7 @@ export async function POST(
         if (createErr || !createdIng) {
           return NextResponse.json(
             {
-              error: "Could not create ingredient",
+              error: "No pude crear el ingrediente.",
               details: createErr?.message,
             },
             { status: 500 }
@@ -297,7 +312,7 @@ export async function POST(
       const q = numberOrNull(body.quantity);
       if (q === null || q <= 0) {
         return NextResponse.json(
-          { error: "quantity must be a positive number" },
+          { error: "La cantidad tiene que ser un número mayor que 0." },
           { status: 400 }
         );
       }
@@ -314,7 +329,7 @@ export async function POST(
       const lt = numberOrNull(body.line_total);
       if (lt === null || lt < 0) {
         return NextResponse.json(
-          { error: "line_total must be a non-negative number" },
+          { error: "El total de la línea no puede ser negativo." },
           { status: 400 }
         );
       }
@@ -332,7 +347,10 @@ export async function POST(
     }
 
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No hay nada que actualizar." },
+        { status: 400 }
+      );
     }
 
     const { data: updated, error: updErr } = await supabase
@@ -345,7 +363,7 @@ export async function POST(
       .single();
     if (updErr || !updated) {
       return NextResponse.json(
-        { error: "Update failed", details: updErr?.message },
+        { error: "No se pudo guardar.", details: updErr?.message },
         { status: 500 }
       );
     }
@@ -392,25 +410,25 @@ export async function POST(
   const description = stringOrNull(body.description);
   if (!description) {
     return NextResponse.json(
-      { error: "description is required" },
+      { error: "Falta la descripción." },
       { status: 400 }
     );
   }
   const quantity = numberOrNull(body.quantity);
   if (quantity === null || quantity <= 0) {
     return NextResponse.json(
-      { error: "quantity must be a positive number" },
+      { error: "La cantidad tiene que ser un número mayor que 0." },
       { status: 400 }
     );
   }
   const unit = stringOrNull(body.unit);
   if (!unit) {
-    return NextResponse.json({ error: "unit is required" }, { status: 400 });
+    return NextResponse.json({ error: "Falta la unidad." }, { status: 400 });
   }
   const lineTotal = numberOrNull(body.line_total);
   if (lineTotal === null || lineTotal < 0) {
     return NextResponse.json(
-      { error: "line_total must be a non-negative number" },
+      { error: "El total de la línea no puede ser negativo." },
       { status: 400 }
     );
   }
@@ -440,7 +458,7 @@ export async function POST(
     const newName = stringOrNull(newIngredientRaw.name);
     if (!newName) {
       return NextResponse.json(
-        { error: "new_ingredient.name is required" },
+        { error: "Falta el nombre del ingrediente." },
         { status: 400 }
       );
     }
@@ -458,7 +476,7 @@ export async function POST(
       .limit(1);
     if (lookupErr) {
       return NextResponse.json(
-        { error: "Ingredient lookup failed", details: lookupErr.message },
+        { error: "No pude cargar el ingrediente.", details: lookupErr.message },
         { status: 500 }
       );
     }
@@ -483,7 +501,7 @@ export async function POST(
       if (createErr || !created) {
         return NextResponse.json(
           {
-            error: "Could not create ingredient",
+            error: "No pude crear el ingrediente.",
             details: createErr?.message,
           },
           { status: 500 }
@@ -548,7 +566,7 @@ export async function POST(
     .single();
   if (createErr || !created) {
     return NextResponse.json(
-      { error: "Could not create line", details: createErr?.message },
+      { error: "No pude crear la línea.", details: createErr?.message },
       { status: 500 }
     );
   }

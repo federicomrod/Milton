@@ -73,16 +73,19 @@ export async function GET(
 
   if (invRes.error) {
     return NextResponse.json(
-      { error: "Invoice lookup failed", details: invRes.error.message },
+      { error: "No pude cargar la factura.", details: invRes.error.message },
       { status: 500 }
     );
   }
   if (!invRes.data) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No encontré la factura." },
+      { status: 404 }
+    );
   }
   if (lineRes.error) {
     return NextResponse.json(
-      { error: "Invoice lines lookup failed", details: lineRes.error.message },
+      { error: "No pude cargar las líneas.", details: lineRes.error.message },
       { status: 500 }
     );
   }

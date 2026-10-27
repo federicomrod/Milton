@@ -640,7 +640,7 @@ describe("data health, local dates, and first paint", () => {
     expect(period?.label).toContain("este periodo");
     expect(period?.tooltip).toBe("231 de 266 ingredientes con costo");
     expect(allTime?.label).toContain("histórica");
-    expect(recipe?.label).toContain("platillos vendidos con receta");
+    expect(recipe?.label).toContain("platos vendidos con receta");
     const src = read("lib/restaurant/cockpit-data-health.ts");
     expect(src).not.toContain(
       "Los conteos de ingredientes ligados van solo en el tooltip."

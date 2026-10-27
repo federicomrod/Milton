@@ -22,6 +22,7 @@ import {
 } from "@/lib/restaurant/groups/group-ops";
 import type { GroupMemberType } from "@/lib/restaurant/groups/item-groups";
 import { useRememberedSet, type useItemGroups } from "./use-item-groups";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export interface SuggestedCluster extends Cluster {
   /** Set when the suggestion is stored (an ai_suggested / suggested group). */
@@ -184,7 +185,7 @@ export function useMiltonSuggestions({
         };
         if (!res.ok) {
           grouping.notify(
-            json.error ?? "Milton no pudo sugerir grupos ahora.",
+            userErrorMessage(json, "Milton no pudo sugerir grupos ahora."),
             true
           );
           return;

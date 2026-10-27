@@ -260,7 +260,7 @@ export function MenuProfitabilityTable({
             {t(
               lang,
               "No menu items match the current filters.",
-              "Ningún platillo coincide con estos filtros."
+              "Ningún plato coincide con estos filtros."
             )}
           </CardContent>
         </Card>
@@ -276,7 +276,7 @@ export function MenuProfitabilityTable({
                       onClick={() => toggleSort("name")}
                       icon={sortIcon("name")}
                     >
-                      {t(lang, "Menu item", "Platillo")}
+                      {t(lang, "Menu item", "Plato")}
                     </SortableTh>
                     <th className="px-3 py-3 font-medium">
                       {t(lang, "POS mapping", "Ligue del POS")}
@@ -466,7 +466,7 @@ export function MenuProfitabilityTable({
                 {t(
                   lang,
                   `Showing first 100 of ${filtered.length} matching items.`,
-                  `Mostrando los primeros 100 de ${filtered.length} platillos.`
+                  `Mostrando los primeros 100 de ${filtered.length} platos.`
                 )}
               </p>
             )}

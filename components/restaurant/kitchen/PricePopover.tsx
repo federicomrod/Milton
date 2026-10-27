@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export interface PriceEditable {
   id: string;
@@ -122,7 +123,7 @@ export function PricePopover({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError(json.error ?? "No pude guardar el precio.");
+        setError(userErrorMessage(json, "No pude guardar el precio."));
         return;
       }
       setOpen(false);

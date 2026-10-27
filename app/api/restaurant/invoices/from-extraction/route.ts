@@ -47,13 +47,16 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
   if (!isExtractedInvoice(body.extraction)) {
     return NextResponse.json(
       {
         error:
-          "extraction did not match the invoice extraction schema. Re-run extract or edit the draft.",
+          "La lectura no tiene el formato de una factura. Vuelve a subirla o edita el borrador.",
       },
       { status: 400 }
     );

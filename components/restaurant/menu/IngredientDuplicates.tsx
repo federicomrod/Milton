@@ -25,6 +25,7 @@ import type {
 } from "@/lib/restaurant/ingredient-duplicates-server";
 import type { IngredienteItem } from "./IngredientesScreen";
 import { clearIngredientOptionsCache } from "@/components/restaurant/recipes-costing/ingredient-options";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export interface DupToast {
   message: string;
@@ -44,7 +45,8 @@ async function post(path: string, body: unknown) {
     sets?: unknown[];
     unavailable?: boolean;
   };
-  if (!res.ok) throw new Error(json.error ?? "No pude guardar el cambio.");
+  if (!res.ok)
+    throw new Error(userErrorMessage(json, "No pude guardar el cambio."));
   return json;
 }
 

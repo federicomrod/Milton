@@ -50,6 +50,7 @@ import {
   ASK_MILTON_MAX_RELATED_LINKS,
 } from "@/lib/restaurant/ask-milton-limits";
 import { isPerItemAskMiltonChip } from "@/lib/restaurant/ask-milton-actions";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const MiltonUiLang = createContext<PreferredLanguage>("es");
 function useMiltonLang(): PreferredLanguage {
@@ -251,13 +252,14 @@ function ExecutiveBriefingPanelInner() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(
-          typeof body?.error === "string"
-            ? body.error
-            : t(
-                lang,
-                "Could not load the briefing",
-                "No se pudo cargar el briefing"
-              )
+          userErrorMessage(
+            body,
+            t(
+              lang,
+              "Could not load the briefing",
+              "No se pudo cargar el briefing"
+            )
+          )
         );
         setData(null);
         return;
@@ -495,13 +497,14 @@ function ChatWorkspace() {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           setError(
-            typeof body?.error === "string"
-              ? body.error
-              : t(
-                  lang,
-                  "Could not get an answer",
-                  "No se pudo obtener una respuesta"
-                )
+            userErrorMessage(
+              body,
+              t(
+                lang,
+                "Could not get an answer",
+                "No se pudo obtener una respuesta"
+              )
+            )
           );
           return;
         }
@@ -949,13 +952,6 @@ function SuggestedActionChip({
         <span className="text-emerald-800 dark:text-emerald-300 font-medium">
           {t(lang, "Action created", "Acción creada")}
         </span>
-        <Link
-          href="/dashboard/restaurant/agents"
-          className="inline-flex items-center gap-0.5 text-emerald-700 dark:text-emerald-400 underline hover:no-underline"
-        >
-          {t(lang, "View in Agents", "Ver en Agentes")}
-          <ArrowRight className="h-3 w-3" />
-        </Link>
       </span>
     );
   }
@@ -971,13 +967,6 @@ function SuggestedActionChip({
             "Ya hay una acción abierta para esto."
           )}
         </span>
-        <Link
-          href="/dashboard/restaurant/agents"
-          className="inline-flex items-center gap-0.5 text-gray-700 dark:text-gray-400 underline hover:no-underline"
-        >
-          {t(lang, "View in Agents", "Ver en Agentes")}
-          <ArrowRight className="h-3 w-3" />
-        </Link>
       </span>
     );
   }

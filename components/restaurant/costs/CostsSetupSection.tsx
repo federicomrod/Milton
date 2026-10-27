@@ -53,6 +53,7 @@ import {
 } from "@/lib/restaurant/costs-picker";
 import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 /** localStorage key: the detail is open or closed, per company. */
 export function setupOpenKey(companyId: string | null | undefined): string {
@@ -330,7 +331,8 @@ export function CostsSetupSection({
           { method: "POST" }
         );
         const json = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(json.error ?? "No pude deshacer el lote.");
+        if (!res.ok)
+          throw new Error(userErrorMessage(json, "No pude deshacer el lote."));
       }
       markTabsStale();
       await reload();

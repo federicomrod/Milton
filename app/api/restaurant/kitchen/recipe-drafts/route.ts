@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[recipe-drafts] list failed:", error.message);
     return NextResponse.json(
-      { error: "Could not load drafts." },
+      { error: "No pude cargar los borradores." },
       { status: 500 }
     );
   }

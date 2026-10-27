@@ -54,22 +54,6 @@ export function BusinessProvider({ children }: BusinessProviderProps) {
     } catch (err) {
       console.error("Failed to persist businessType to localStorage", err);
     }
-
-    // Fire-and-forget POST to persist in Supabase
-    try {
-      // No need to await – but we also don't want to crash the UI if this fails
-      void fetch("/api/business-type", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ businessType: type }),
-      }).catch((err) => {
-        console.error("Failed to persist businessType to Supabase", err);
-      });
-    } catch (err) {
-      console.error("Unexpected error calling /api/business-type", err);
-    }
   };
 
   const value: BusinessContextValue = {

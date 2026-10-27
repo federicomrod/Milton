@@ -57,9 +57,6 @@ export async function proxy(request: NextRequest) {
     process.env.NODE_ENV === "development" &&
     pathname.startsWith("/dashboard/restaurant")
   ) {
-    console.log(
-      `[Proxy] DEV bypass for restaurant route, pathname=${pathname}`
-    );
     return NextResponse.next();
   }
 
@@ -183,14 +180,6 @@ export async function proxy(request: NextRequest) {
   // Authentication is still enforced for all these routes — the
   // `if (!user) redirect to /auth/login` check above still applies.
   if (isRestaurantPivotRoute) {
-    console.log(
-      `[Proxy] PROD bypass: restaurant pilot route pathname=${pathname} skips onboarding gate`
-    );
-    console.info("[cockpit-timing] proxy", {
-      ms: Date.now() - authStarted,
-      authMs,
-      path: pathname,
-    });
     const existing = response.headers.get("Server-Timing");
     const proxyTiming = `proxy;dur=${Date.now() - authStarted}, auth;dur=${authMs}`;
     response.headers.set(
@@ -211,21 +200,12 @@ export async function proxy(request: NextRequest) {
         .eq("created_by", user.id)
         .single();
 
-      console.log(
-        `[Proxy] User ${user.id} accessing ${pathname}, onboarding_status: ${company?.onboarding_status}, is_admin: ${isAdmin}`
-      );
-
       // If onboarding is not complete, redirect to onboarding-required page
       if (company?.onboarding_status !== "completed") {
-        console.log(
-          `[Proxy] Redirecting ${user.id} to /onboarding-required (status: ${company?.onboarding_status})`
-        );
         const url = request.nextUrl.clone();
         url.pathname = "/onboarding-required";
         return NextResponse.redirect(url);
       }
-
-      console.log(`[Proxy] Access granted to ${pathname}`);
     } catch (error) {
       // If there's an error checking onboarding, allow the request through
       // (better to show the page than block users)

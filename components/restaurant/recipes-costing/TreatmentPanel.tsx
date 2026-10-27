@@ -13,6 +13,7 @@ import {
 } from "./ingredient-options";
 import { KITCHEN_UNITS } from "@/lib/restaurant/kitchen-units";
 import { PrimaryBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
 
@@ -177,7 +178,7 @@ function ResalePicker({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setPriceError(json.error ?? "No pude guardar el precio.");
+        setPriceError(userErrorMessage(json, "No pude guardar el precio."));
         return;
       }
       clearIngredientOptionsCache();

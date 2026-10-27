@@ -45,7 +45,10 @@ export async function PATCH(
   try {
     body = (await req.json()) as PatchBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   const patch: Record<string, unknown> = {};
@@ -63,7 +66,7 @@ export async function PATCH(
   }
   if (Object.keys(patch).length === 0) {
     return NextResponse.json(
-      { error: "Nothing to update — supply at least one field" },
+      { error: "No hay nada que actualizar: envía al menos un campo." },
       { status: 400 }
     );
   }
@@ -81,13 +84,13 @@ export async function PATCH(
     const pgCode = (error as { code?: string } | null)?.code;
     if (pgCode === "23505") {
       return NextResponse.json(
-        { error: "Another ingredient with that name already exists" },
+        { error: "Ya existe un ingrediente con ese nombre." },
         { status: 409 }
       );
     }
     console.error("[ingredients PATCH]", error?.message);
     return NextResponse.json(
-      { error: "Update failed", details: error?.message },
+      { error: "No se pudo guardar.", details: error?.message },
       { status: 500 }
     );
   }

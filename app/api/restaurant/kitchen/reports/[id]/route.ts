@@ -32,20 +32,26 @@ export async function PATCH(
 
     const { id } = await params;
     if (!UUID_RE.test(id)) {
-      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El identificador no es válido." },
+        { status: 400 }
+      );
     }
     let body: { report_type?: unknown };
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El cuerpo tiene que ser JSON." },
+        { status: 400 }
+      );
     }
     if (
       typeof body.report_type !== "string" ||
       !(REPORT_TYPES as readonly string[]).includes(body.report_type)
     ) {
       return NextResponse.json(
-        { error: "Invalid report_type" },
+        { error: "El tipo de aviso no es válido." },
         { status: 400 }
       );
     }
@@ -60,12 +66,15 @@ export async function PATCH(
     if (error) {
       console.error("[kitchen-reports] reclassify failed:", error.message);
       return NextResponse.json(
-        { error: "Could not update the report" },
+        { error: "No pude actualizar el aviso." },
         { status: 500 }
       );
     }
     if (!data) {
-      return NextResponse.json({ error: "Report not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No encontré el aviso." },
+        { status: 404 }
+      );
     }
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -74,7 +83,7 @@ export async function PATCH(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not update the report" },
+      { error: "No pude actualizar el aviso." },
       { status: 500 }
     );
   }

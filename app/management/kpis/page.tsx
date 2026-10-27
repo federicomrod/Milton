@@ -162,7 +162,7 @@ export default function KpisPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">Cargando…</div>
       </div>
     );
   }

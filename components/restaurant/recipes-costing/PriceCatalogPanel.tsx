@@ -21,6 +21,7 @@ import {
 } from "./RecipeImportPreview";
 import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const UNIT_LABEL: Record<CatalogUnit, string> = {
   oz: "onza",
@@ -94,9 +95,7 @@ async function postJson(url: string, body: unknown) {
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    throw new Error(
-      typeof json.error === "string" ? json.error : "No pude guardar."
-    );
+    throw new Error(userErrorMessage(json, "No pude guardar."));
   }
   return json;
 }
@@ -232,7 +231,8 @@ export const PriceCatalogPanel = forwardRef<
         body: form,
       });
       const json = (await res.json()) as Preview & { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude leer el archivo.");
+      if (!res.ok)
+        throw new Error(userErrorMessage(json, "No pude leer el archivo."));
       setPreview(json);
       // Suggested units are pre-filled, unless the person already chose.
       const initial: Record<string, string> = {};
@@ -330,7 +330,7 @@ export const PriceCatalogPanel = forwardRef<
         error?: string;
       };
       if (!res.ok || !json.draft) {
-        throw new Error(json.error ?? "No pude guardar tu archivo.");
+        throw new Error(userErrorMessage(json, "No pude guardar tu archivo."));
       }
       setDraftName(json.draft.filename);
       setDraftToken(json.draft.updated_at ?? `${Date.now()}`);
@@ -373,7 +373,8 @@ export const PriceCatalogPanel = forwardRef<
         body: form,
       });
       const json = (await res.json()) as Saved & { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude guardar la lista.");
+      if (!res.ok)
+        throw new Error(userErrorMessage(json, "No pude guardar la lista."));
       setSaved(json);
       setPreview(null);
       void loadOpen();

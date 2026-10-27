@@ -117,7 +117,7 @@ describe("Spanish completeness for the executive cockpit (#129)", () => {
     );
     expect(health.items.some((i) => i.label.includes("sin receta"))).toBe(true);
     expect(
-      health.items.some((i) => i.detail.includes("platillos con costo"))
+      health.items.some((i) => i.detail.includes("platos con costo"))
     ).toBe(true);
   });
 });

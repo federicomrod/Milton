@@ -28,7 +28,10 @@ export async function GET(
 
     const { id } = await params;
     if (!UUID_RE.test(id)) {
-      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El identificador no es válido." },
+        { status: 400 }
+      );
     }
 
     const { data: report } = await createAdminClient()
@@ -43,7 +46,7 @@ export async function GET(
       !report.media_kind ||
       !report.telegram_file_id
     ) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
     }
 
     const file = await openTelegramFile(report.telegram_file_id as string);
@@ -64,7 +67,7 @@ export async function GET(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not load media" },
+      { error: "No pude cargar el archivo." },
       { status: 500 }
     );
   }

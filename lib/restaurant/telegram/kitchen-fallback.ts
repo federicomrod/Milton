@@ -11,6 +11,7 @@
 
 import {
   destinationVars,
+  destinationWhere,
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "./kitchen-copy";
@@ -127,7 +128,7 @@ export function stockSavedReply(
   const kind: KitchenReportType =
     type === "unclassified" ? "running_out" : type;
   return renderKitchenCopy(KITCHEN_COPY.STOCK_REPORT_SAVED, {
-    ...destinationVars(staff),
+    donde: destinationWhere(staff),
     detalle: describeStock(kind, products, text),
     seccion: stockSection(kind),
   });

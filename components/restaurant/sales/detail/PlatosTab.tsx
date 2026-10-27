@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DrillView } from "@/components/restaurant/menu/DrillView";
 import { DrillErrorBoundary } from "@/components/restaurant/menu/DrillErrorBoundary";
 import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface DishesPayload {
   menu_dishes: MenuDish[];
@@ -66,7 +67,7 @@ export function PlatosTab({
           .json()
           .catch(() => ({}))) as Partial<DishesPayload> & { error?: string };
         if (!res.ok)
-          throw new Error(json.error ?? "No pude cargar los platos.");
+          throw new Error(userErrorMessage(json, "No pude cargar los platos."));
         return json as DishesPayload;
       })
       .then((j) => !cancelled && setAnswer({ key: requestKey, data: j }))

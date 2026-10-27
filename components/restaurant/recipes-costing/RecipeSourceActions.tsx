@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { GhostBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export const USE_RECIPE_LABEL = "Usar la receta de otro plato";
 export const COPY_RECIPE_LABEL = "Copiar receta de…";
@@ -83,7 +84,9 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
         };
         if (!alive) return;
         if (!res.ok) {
-          setError(body.error ?? "No pude cargar las recetas para copiar.");
+          setError(
+            userErrorMessage(body, "No pude cargar las recetas para copiar.")
+          );
           setCandidates([]);
           return;
         }
@@ -160,7 +163,7 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
         return;
       }
       if (!res.ok) {
-        setError(body.error ?? "No pude copiar la receta.");
+        setError(userErrorMessage(body, "No pude copiar la receta."));
         return;
       }
       close();

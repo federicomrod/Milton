@@ -72,6 +72,7 @@ import {
   nextLanguageOnCountryChange,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 type IconComponent = ComponentType<{ className?: string }>;
 
@@ -163,8 +164,10 @@ export function RestaurantOnboardingWizard({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(
-          data.error ||
+          userErrorMessage(
+            data,
             "No pudimos terminar la configuración. Inténtalo de nuevo."
+          )
         );
       }
       setStep(4);

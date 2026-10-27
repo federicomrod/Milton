@@ -57,7 +57,6 @@ const ALLOWED_HREFS = new Set([
   "/dashboard/restaurant/menu/ingredientes",
   "/dashboard/restaurant/costs?tab=proveedores",
   "/dashboard/restaurant/costs?tab=compras",
-  "/dashboard/restaurant/agents",
   "/dashboard/restaurant/menu/platos",
   "/dashboard/restaurant/data?seccion=conexiones",
 ]);
@@ -1422,10 +1421,7 @@ function agentAnswer(
   return {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
-    related_links: [
-      relatedLink(lang, "/dashboard/restaurant/agents"),
-      relatedLink(lang, "/dashboard/restaurant"),
-    ],
+    related_links: [relatedLink(lang, "/dashboard/restaurant")],
     suggested_followups: [
       t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
       t(
@@ -1869,7 +1865,6 @@ function genericBriefingAnswer(
     related_links: [
       relatedLink(lang, "/dashboard/restaurant"),
       relatedLink(lang, "/dashboard/restaurant/menu"),
-      relatedLink(lang, "/dashboard/restaurant/agents"),
     ],
     suggested_followups: [
       t(

@@ -77,6 +77,7 @@ import { DrillErrorBoundary } from "@/components/restaurant/menu/DrillErrorBound
 import { DrillView } from "@/components/restaurant/menu/DrillView";
 import { ProductosView } from "@/components/restaurant/groups/ProductosView";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const TONE: Record<DishStatus, "ok" | "pur" | "warn" | "grey"> = {
   aprobado: "ok",
@@ -105,7 +106,8 @@ async function post(body: Record<string, unknown>) {
     error?: string;
     menu_dish_id?: string;
   };
-  if (!res.ok) throw new Error(json.error ?? "No pude guardar el cambio.");
+  if (!res.ok)
+    throw new Error(userErrorMessage(json, "No pude guardar el cambio."));
   return json;
 }
 
@@ -924,7 +926,7 @@ function RowEstimate({
         results?: Array<{ skipped_reason?: string | null }>;
       };
       if (!res.ok) {
-        setNote(json.error ?? estimateSkipMessage(null));
+        setNote(userErrorMessage(json, estimateSkipMessage(null)));
         return;
       }
       const skipped = json.results?.[0]?.skipped_reason;
@@ -993,7 +995,9 @@ function RowEstimateUse({
         applied?: number;
       };
       if (!res.ok) {
-        setNote(json.error ?? "No pude usar el estimado como borrador.");
+        setNote(
+          userErrorMessage(json, "No pude usar el estimado como borrador.")
+        );
         return;
       }
       invalidateEstimateProbe();

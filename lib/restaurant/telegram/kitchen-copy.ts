@@ -104,7 +104,7 @@ export const KITCHEN_COPY = {
   RECIPE_SAVE_FAILED: "No pude guardar la receta. Manda otra foto o escríbela.",
   /** Stock report saved (se agota, 86, merma). {detalle} = «se agotó: tomate», {seccion} = «Se agota» / «Merma» */
   STOCK_REPORT_SAVED:
-    "✅ Anoté en {empresa} › {local}: {detalle}. Lo ves en Cocina › {seccion}. El encargado lo revisa.",
+    "✅ Anoté en {donde}: {detalle}. Lo ves en Cocina › {seccion}. El encargado lo revisa.",
   /** Photo is neither invoice nor recipe - explain what photos can do */
   PHOTO_NOT_RECOGNIZED:
     "Puedo leer facturas de proveedor y recetas en papel. Para una factura, que se vea completa y con buena luz; para una receta, que se vean los ingredientes y las cantidades. Si es factura o receta, responde «factura» o «receta».",
@@ -186,6 +186,16 @@ export function destinationVars(staff: {
     empresa: staff.company_name?.trim() || "tu restaurante",
     local: staff.location_name?.trim() || "tu local",
   };
+}
+
+/** «Empresa › Local», or just the company when both names are the same. */
+export function destinationWhere(staff: {
+  company_name?: string | null;
+  location_name?: string | null;
+}): string {
+  const { empresa, local } = destinationVars(staff);
+  if (empresa.toLowerCase() === local.toLowerCase()) return empresa;
+  return `${empresa} › ${local}`;
 }
 
 /** «Tus restaurantes:» followed by one «• {empresa} › {local}» line each. */

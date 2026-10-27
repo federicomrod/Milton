@@ -39,7 +39,7 @@ export async function POST(
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[costs/batches/undo]", message);
     return NextResponse.json(
-      { error: "Undo failed", details: message },
+      { error: "No pude deshacer.", details: message },
       { status: 500 }
     );
   }

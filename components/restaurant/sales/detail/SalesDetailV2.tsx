@@ -27,6 +27,7 @@ import { DimensionPanel } from "./DimensionPanel";
 import { PlatosTab } from "./PlatosTab";
 import { dayLabelEs, hourLabel, moneyFmt, rangeLabelEs } from "./format";
 import { Highlights } from "./Highlights";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   dimensionLeader,
   leaderLabel,
@@ -88,7 +89,7 @@ export function SalesDetailV2({
           .json()
           .catch(() => ({}))) as SalesDetailPayload & { error?: string };
         if (!res.ok)
-          throw new Error(json.error ?? "No pude cargar las ventas.");
+          throw new Error(userErrorMessage(json, "No pude cargar las ventas."));
         const cube = parseDetailCube(json.cube);
         if (!cube)
           throw new Error("Las ventas llegaron en un formato que no entiendo.");

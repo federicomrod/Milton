@@ -12,6 +12,7 @@ import {
   NoRecipeEditNotice,
 } from "@/components/restaurant/menu/EstimateWithMilton";
 import { Card, GhostBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface MenuReadResponse {
   error?: string;
@@ -105,7 +106,7 @@ export function MenuReaderPanel({
       });
       const json = (await res.json().catch(() => ({}))) as MenuReadResponse;
       if (!res.ok) {
-        throw new Error(json.error ?? "No pude leer el menú.");
+        throw new Error(userErrorMessage(json, "No pude leer el menú."));
       }
       setResult(json);
       if (json.drafted > 0) onDone();

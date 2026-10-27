@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { SALES_UPLOAD_DENIED_MESSAGE } from "@/lib/restaurant/pos-upload-messages";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface UploadSummary {
   inserted_rows: number;
@@ -89,8 +90,20 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         credentials: "include",
       });
       const json = await res.json();
-      if (!res.ok) setError(json as UploadError);
-      else setSummary(json as UploadSummary);
+      if (!res.ok) {
+        const raw = json as UploadError;
+        setError({
+          ...raw,
+          error: userErrorMessage(
+            raw,
+            t(
+              lang,
+              "Could not upload the file. Try again.",
+              "No se pudo subir el archivo. Inténtalo de nuevo."
+            )
+          ),
+        });
+      } else setSummary(json as UploadSummary);
     } catch (err) {
       setError({
         error: t(lang, "Network error", "Error de red"),

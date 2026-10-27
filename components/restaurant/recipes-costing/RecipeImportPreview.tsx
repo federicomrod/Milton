@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
 import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 /** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
 export const IMPORT_RECIPES_BUTTON_ID = "importar-recetas";
@@ -127,7 +128,8 @@ export function RecipeImportPreview({
     fetch("/api/restaurant/recipes/import", { method: "POST", body: form })
       .then(async (res) => {
         const json = (await res.json()) as RecipePreview & { error?: string };
-        if (!res.ok) throw new Error(json.error ?? "No pude leer las recetas.");
+        if (!res.ok)
+          throw new Error(userErrorMessage(json, "No pude leer las recetas."));
         if (!cancelled) {
           setPreview(json);
           onDishesRef.current?.(json.dishes ?? 0);
@@ -168,7 +170,7 @@ export function RecipeImportPreview({
         body: form,
       });
       const json = (await res.json()) as Imported & { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude importar.");
+      if (!res.ok) throw new Error(userErrorMessage(json, "No pude importar."));
       setImported(json);
       setPreview(null);
       onDishesRef.current?.(0);

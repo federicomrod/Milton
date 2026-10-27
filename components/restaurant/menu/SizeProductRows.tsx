@@ -9,6 +9,7 @@ import Link from "next/link";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import { dishHref } from "@/lib/restaurant/menu-links";
 import type { MenuDishVariant } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   canUseSiblingRecipe,
   pickApprovedSibling,
@@ -67,7 +68,7 @@ function ProductRow({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setNote(json.error ?? "No pude cambiar el vínculo.");
+        setNote(userErrorMessage(json, "No pude cambiar el vínculo."));
         return;
       }
       setConfirming(false);

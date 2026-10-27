@@ -70,14 +70,17 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+      return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
     }
     if (file.size === 0) {
-      return NextResponse.json({ error: "Empty file" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El archivo está vacío." },
+        { status: 400 }
+      );
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: `File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)` },
+        { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
         { status: 400 }
       );
     }
@@ -105,7 +108,7 @@ export async function POST(req: NextRequest) {
       const lines = text.split("\n").filter((l) => l.trim().length > 0);
       if (lines.length < 2) {
         return NextResponse.json(
-          { error: "File contains no data rows" },
+          { error: "El archivo está vacío." },
           { status: 400 }
         );
       }
@@ -131,7 +134,7 @@ export async function POST(req: NextRequest) {
       const sheetName = workbook.SheetNames[0];
       if (!sheetName) {
         return NextResponse.json(
-          { error: "Workbook has no sheets" },
+          { error: "El archivo no tiene hojas." },
           { status: 400 }
         );
       }
@@ -196,7 +199,7 @@ export async function POST(req: NextRequest) {
     if (normalized.length === 0) {
       return NextResponse.json(
         {
-          error: "No valid rows in file",
+          error: "El archivo no tiene filas válidas.",
           failed_rows: failed,
           resolved_columns: resolved,
         },
@@ -428,7 +431,7 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof Error ? err.message : "Unexpected error";
     console.error("[invoices/upload] crash:", msg);
     return NextResponse.json(
-      { error: "Upload failed", details: msg },
+      { error: "No se pudo subir el archivo.", details: msg },
       { status: 500 }
     );
   }

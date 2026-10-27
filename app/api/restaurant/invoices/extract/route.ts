@@ -60,20 +60,23 @@ export async function POST(req: NextRequest) {
     formData = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "Body must be multipart/form-data" },
+      { error: "El cuerpo tiene que ser multipart/form-data." },
       { status: 400 }
     );
   }
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+    return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
   }
   if (file.size === 0) {
-    return NextResponse.json({ error: "Empty file" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El archivo está vacío." },
+      { status: 400 }
+    );
   }
   if (file.size > MAX_FILE_BYTES) {
     return NextResponse.json(
-      { error: `File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)` },
+      { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
       { status: 400 }
     );
   }
@@ -83,8 +86,7 @@ export async function POST(req: NextRequest) {
   if (PDF_MIME_TYPES.has(mime)) {
     return NextResponse.json(
       {
-        error:
-          "PDF extraction will be added next; image upload works now. Export the page as a PNG/JPG and try again.",
+        error: "Todavía no leo PDF; sube una foto PNG o JPG.",
       },
       { status: 415 }
     );
@@ -92,8 +94,7 @@ export async function POST(req: NextRequest) {
   if (!IMAGE_MIME_TYPES.has(mime)) {
     return NextResponse.json(
       {
-        error:
-          "Unsupported file type. Use PNG, JPG, or WEBP. (PDF support is coming next.)",
+        error: "Ese tipo de archivo no sirve. Usa PNG, JPG o WEBP.",
       },
       { status: 415 }
     );

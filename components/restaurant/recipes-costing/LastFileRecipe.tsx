@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { LastFileLookup } from "@/lib/restaurant/recipe-import/last-file";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const cache = new Map<string, LastFileLookup>();
 
@@ -104,7 +105,8 @@ export function LastFileDialog({
         }),
       });
       const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude traer la receta.");
+      if (!res.ok)
+        throw new Error(userErrorMessage(json, "No pude traer la receta."));
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No pude traer la receta.");

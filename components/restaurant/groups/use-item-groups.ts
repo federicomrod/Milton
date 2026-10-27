@@ -15,6 +15,7 @@ import {
   type OpResult,
 } from "@/lib/restaurant/groups/group-ops";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export interface GroupToast {
   message: string;
@@ -33,7 +34,7 @@ async function save(ops: GroupOps): Promise<void> {
   });
   if (res.ok) return;
   const json = (await res.json().catch(() => ({}))) as { error?: string };
-  throw new Error(json.error ?? "No pude guardar la agrupación.");
+  throw new Error(userErrorMessage(json, "No pude guardar la agrupación."));
 }
 
 // The changes made in this browser session, newest last. A payload that was

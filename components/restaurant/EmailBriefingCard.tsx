@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Mail, Send } from "lucide-react";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 type Cadence = "off" | "daily" | "weekly";
 
@@ -114,8 +115,10 @@ export function EmailBriefingCard() {
         const json = await parseJsonSafely(res);
         if (!res.ok) {
           setLoadError(
-            (json.error as string) ||
+            userErrorMessage(
+              json,
               "No se pudieron cargar las preferencias de entrega."
+            )
           );
           return;
         }
@@ -169,8 +172,10 @@ export function EmailBriefingCard() {
       if (!res.ok) {
         setSaveFeedback({
           kind: "error",
-          message:
-            (json.error as string) || "No se pudieron guardar los ajustes.",
+          message: userErrorMessage(
+            json,
+            "No se pudieron guardar los ajustes."
+          ),
         });
         return;
       }
@@ -202,9 +207,10 @@ export function EmailBriefingCard() {
       if (!res.ok) {
         setTestFeedback({
           kind: "error",
-          message:
-            (json.error as string) ||
-            "No se pudo enviar el correo de prueba. Inténtalo de nuevo.",
+          message: userErrorMessage(
+            json,
+            "No se pudo enviar el correo de prueba. Inténtalo de nuevo."
+          ),
         });
         return;
       }

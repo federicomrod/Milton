@@ -473,7 +473,11 @@ function SidebarBrand({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AddRestaurantDialog open={addOpen} onOpenChange={setAddOpen} />
+      <AddRestaurantDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        lang={lang}
+      />
     </div>
   );
 }

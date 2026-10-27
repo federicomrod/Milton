@@ -260,7 +260,7 @@ export function MenuProfitabilityTable({
             {t(
               lang,
               "No menu items match the current filters.",
-              "Ningún platillo coincide con estos filtros."
+              "Ningún plato coincide con estos filtros."
             )}
           </CardContent>
         </Card>
@@ -466,7 +466,7 @@ export function MenuProfitabilityTable({
                 {t(
                   lang,
                   `Showing first 100 of ${filtered.length} matching items.`,
-                  `Mostrando los primeros 100 de ${filtered.length} platillos.`
+                  `Mostrando los primeros 100 de ${filtered.length} platos.`
                 )}
               </p>
             )}

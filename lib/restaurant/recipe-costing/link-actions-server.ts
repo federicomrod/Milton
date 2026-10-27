@@ -289,7 +289,7 @@ export async function createRecipeAndLink(input: {
       ok: false,
       error:
         recipe.error?.message ??
-        "Creé el platillo pero no pude guardar la receta.",
+        "Creé el plato pero no pude guardar la receta.",
     };
   }
   await input.supabase.from("recipe_versions").insert({

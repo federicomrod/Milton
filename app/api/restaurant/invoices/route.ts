@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[invoices GET]", error.message);
     return NextResponse.json(
-      { error: "Read failed", details: error.message },
+      { error: "No pude leer.", details: error.message },
       { status: 500 }
     );
   }
@@ -188,7 +188,10 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   const invoiceDate =
@@ -197,7 +200,7 @@ export async function POST(req: NextRequest) {
       : null;
   if (!invoiceDate) {
     return NextResponse.json(
-      { error: "invoice_date is required (YYYY-MM-DD)" },
+      { error: "Falta la fecha de la factura (AAAA-MM-DD)." },
       { status: 400 }
     );
   }
@@ -230,7 +233,7 @@ export async function POST(req: NextRequest) {
       if (createErr || !created) {
         return NextResponse.json(
           {
-            error: "Could not create supplier",
+            error: "No pude crear el proveedor.",
             details: createErr?.message,
           },
           { status: 500 }
@@ -274,7 +277,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (invErr || !invoice) {
     return NextResponse.json(
-      { error: "Could not create invoice", details: invErr?.message },
+      { error: "No pude crear la factura.", details: invErr?.message },
       { status: 500 }
     );
   }

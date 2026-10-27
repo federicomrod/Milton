@@ -127,19 +127,22 @@ describe("POST /invoices/extract", () => {
 
   it("400 empty file, 415 pdf and other types", async () => {
     let res = await extractPOST(upload("image/png", 0));
-    expect([res.status, (await res.json()).error]).toEqual([400, "Empty file"]);
+    expect([res.status, (await res.json()).error]).toEqual([
+      400,
+      "El archivo está vacío.",
+    ]);
     res = await extractPOST(upload("application/pdf"));
     expect(res.status).toBe(415);
-    expect((await res.json()).error).toMatch(/^PDF extraction will be added/);
+    expect((await res.json()).error).toMatch(/^Todavía no leo PDF/);
     res = await extractPOST(upload("text/plain"));
     expect(res.status).toBe(415);
-    expect((await res.json()).error).toMatch(/^Unsupported file type/);
+    expect((await res.json()).error).toMatch(/^Ese tipo de archivo no sirve/);
   });
 
   it("400 when the file is over 10 MB", async () => {
     const res = await extractPOST(upload("image/png", 10 * 1024 * 1024 + 1));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("File too large (max 10 MB)");
+    expect((await res.json()).error).toBe("El archivo pesa más de 10 MB.");
   });
 
   it("502 with the same messages for each upstream failure", async () => {
@@ -236,12 +239,12 @@ describe("POST /invoices/from-extraction", () => {
     let res = await fromPOST(bad);
     expect([res.status, (await res.json()).error]).toEqual([
       400,
-      "Body must be JSON",
+      "El cuerpo tiene que ser JSON.",
     ]);
     res = await fromPOST(jsonReq({ extraction: { lines: 1 } }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(
-      /^extraction did not match the invoice extraction schema/
+      /^La lectura no tiene el formato de una factura/
     );
     res = await fromPOST(
       jsonReq({ extraction: { ...goodModel, invoice_date: null } })

@@ -16,6 +16,7 @@ import {
   type ConversionRow,
 } from "@/components/restaurant/recipes-costing/UnitConversionForm";
 import { sameUnit } from "@/lib/restaurant/units";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 export function IngredientConversions({
   ingredientId,
@@ -184,7 +185,9 @@ export function IngredientConversions({
                   error?: string;
                 };
                 if (!res.ok) {
-                  setError(json.error ?? "No pude guardar el precio.");
+                  setError(
+                    userErrorMessage(json, "No pude guardar el precio.")
+                  );
                 } else {
                   setCorrecting(false);
                   changed();

@@ -34,19 +34,9 @@ export const ALLOW: Record<string, string> = {
   "business-type/route.ts":
     "classifies text during onboarding; writes nothing company-wide",
   // Reads and analysis that write nothing company-wide
-  "ai/business-model-analyzer/route.ts":
-    "AI analysis; writes nothing company-wide",
-  "ai/column-mapper/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/dataset-classifier/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/forecast-generator/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/insight-generator/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/onboarding/route.ts": "AI onboarding chat; writes nothing company-wide",
   "analytics/financial-metrics/route.ts":
     "calculation over the request body; writes nothing",
-  "charts/generate/route.ts": "builds a chart spec; writes nothing",
   "chat/route.ts": "AI chat; writes nothing company-wide",
-  "milton/ask/route.ts": "AI question; writes nothing company-wide",
-  "openai-analyze/route.ts": "AI analysis; writes nothing company-wide",
   "restaurant/ask-milton/route.ts":
     "read-only chat over the restaurant context",
   "restaurant/data-source-requests/route.ts":

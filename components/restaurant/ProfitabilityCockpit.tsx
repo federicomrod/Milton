@@ -176,7 +176,7 @@ export function ProfitabilityKpisSection({
           sub={t(lang, "cogs / covered revenue", "costo / ventas con costo")}
         />
         <Kpi
-          label={t(lang, "Items w/ Issues", "Platillos con problemas")}
+          label={t(lang, "Items w/ Issues", "Platos con problemas")}
           href={platosHref(["falta_precio", "borrador", "sin_receta"])}
           value={`${
             kpis.menu_items_with_issues + kpis.menu_items_without_recipe
@@ -218,7 +218,7 @@ export function MarginRiskSection({
   const cards = (
     <>
       <RiskCard
-        title={t(lang, "Low margin items", "Platillos de margen bajo")}
+        title={t(lang, "Low margin items", "Platos de margen bajo")}
         subtitle={t(
           lang,
           `Gross margin below 60% · ${data.lowMargin.length} items`,
@@ -247,7 +247,7 @@ export function MarginRiskSection({
       </RiskCard>
 
       <RiskCard
-        title={t(lang, "High food cost items", "Platillos de costo alto")}
+        title={t(lang, "High food cost items", "Platos de costo alto")}
         subtitle={t(
           lang,
           `Food cost above 35% · ${data.highFoodCost.length} items`,
@@ -645,7 +645,7 @@ export function DataQualityChecklistSection({
               problemCopy={t(
                 lang,
                 "POS items unmapped",
-                "Platillos del POS sin ligar"
+                "Platos del POS sin ligar"
               )}
               href="/dashboard/restaurant/menu"
               hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
@@ -661,7 +661,7 @@ export function DataQualityChecklistSection({
               problemCopy={t(
                 lang,
                 "Menu items without a recipe",
-                "Platillos sin receta"
+                "Platos sin receta"
               )}
               href="/dashboard/restaurant/menu"
               hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
@@ -857,11 +857,7 @@ export function ItemsNeedingAttention({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-gray-500" />
-          {t(
-            lang,
-            "Items needing attention",
-            "Platillos que necesitan atención"
-          )}
+          {t(lang, "Items needing attention", "Platos que necesitan atención")}
         </CardTitle>
       </CardHeader>
       <CardContent>

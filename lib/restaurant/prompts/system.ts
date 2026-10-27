@@ -145,7 +145,8 @@ export const ASK_MILTON_SYSTEM_PROMPT = [
   "",
   "suggested_followups:",
   "  0–2 short questions the user might ask next, derived from data",
-  "  actually in context. In Spanish use «plato(s)».",
+  // input matcher / model instruction: keep «platillo»
+  "  actually in context. In Spanish use «plato(s)», never «platillo(s)».",
   "",
   "confidence_notes:",
   "  The UI does not show these. Leave the array empty unless a hard",

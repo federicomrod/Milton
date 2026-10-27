@@ -6,7 +6,7 @@
 
 const SPANISH_MARK = /[áéíóúüñÁÉÍÓÚÜÑ¿¡]/;
 const SPANISH_WORD =
-  /\b(pud[eo]|pued[eoa]n?s?|tienes?|factura[s]?|archivo[s]?|inténtalo|intenta|guardar|encontré|cuerpo|platos?|recetas?|sube|falta|indica|elige|restaurante|líneas?|vacío|ingredientes?|proveedor(?:es)?|menú|costos?|permiso|cambiar|precios?|rol|familias?|unidades?|distintas?|esto|para|son|no se|no pude|no encontré)\b/i;
+  /\b(el|la|los|las|un|una|de|del|que|es|ya|hay|ese|esa|este|esta|estos|estas|debe|deben|tiene|tienen|tienes|faltan|falta|demasiados|demasiado|pud[eo]|pued[eoa]n?s?|factura[s]?|archivo[s]?|inténtalo|intenta|guardar|encontré|cuerpo|platos?|recetas?|sube|indica|elige|restaurante|líneas?|vacío|ingredientes?|proveedor(?:es)?|menú|costos?|permiso|cambiar|precios?|rol|familias?|unidades?|distintas?|esto|para|son|nada|actualizar|cantidades|mayores|formato|columnas|obligatorio|tratamiento|elementos|letras|turnos|grupo|existe|escribe|nombre|empresa|marca|lugar|anterior|igual|no se|no pude|no encontré)\b/i;
 
 function looksSpanish(text: string): boolean {
   return SPANISH_MARK.test(text) || SPANISH_WORD.test(text);

@@ -23,6 +23,7 @@ function fold(s: string): string {
 function mentionsDish(m: string): boolean {
   return (
     m.includes("plato") ||
+    m.includes("platillo") || // input matcher / model instruction: keep «platillo»
     m.includes("dish") ||
     m.includes("dishes") ||
     m.includes("menu item")

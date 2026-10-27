@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     if (!colCheck.ok) {
       return NextResponse.json(
         {
-          error: `Missing required columns: ${colCheck.missingRequired.join(", ")}`,
+          error: `Faltan columnas: ${colCheck.missingRequired.join(", ")}.`,
           missing_columns: colCheck.missingRequired,
           resolved_columns: colCheck.resolved,
         },

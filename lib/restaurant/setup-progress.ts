@@ -15,8 +15,7 @@ export type SetupStepId =
   | "costs"
   | "menu"
   | "recipes"
-  | "invoices"
-  | "agents";
+  | "invoices";
 
 export interface SetupStepProgress {
   id: SetupStepId;
@@ -30,7 +29,6 @@ export const SETUP_STEP_HREFS: Record<SetupStepId, string> = {
   menu: "/dashboard/restaurant/menu",
   recipes: "/dashboard/restaurant/menu",
   invoices: "/dashboard/restaurant/invoices",
-  agents: "/dashboard/restaurant/agents",
 };
 
 const STEP_ORDER: SetupStepId[] = [
@@ -39,7 +37,6 @@ const STEP_ORDER: SetupStepId[] = [
   "menu",
   "recipes",
   "invoices",
-  "agents",
 ];
 
 export function setupStepStatus(
@@ -60,8 +57,6 @@ export function setupStepStatus(
       return dq.menu_items_without_recipe > 0 ? "review" : "done";
     case "invoices":
       return s.supplier_invoices_count > 0 ? "done" : "missing";
-    case "agents":
-      return s.agent_runs_count > 0 ? "done" : "missing";
   }
 }
 

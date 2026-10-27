@@ -18,12 +18,11 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type FormEvent,
 } from "react";
 import Link from "next/link";
-import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
-import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { useSearchParams } from "next/navigation";
 import {
   Sparkles,
@@ -35,8 +34,6 @@ import {
   ArrowRight,
   Info,
   Zap,
-  Check,
-  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,6 +46,32 @@ import {
 } from "@/lib/restaurant/ask-milton-limits";
 import { isPerItemAskMiltonChip } from "@/lib/restaurant/ask-milton-actions";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import {
+  compactBriefingLine,
+  isSpecificBriefingItem,
+  markAskSent,
+  readBriefingExpanded,
+  writeBriefingExpanded,
+  type BriefingCompactPeriods,
+} from "@/lib/restaurant/briefing-compact";
+import { COCKPIT_HREF } from "@/lib/restaurant/navigation";
+
+const BRIEFING_STATE_EVENT = "milton:briefing-state";
+function subscribeBriefingState(cb: () => void): () => void {
+  window.addEventListener(BRIEFING_STATE_EVENT, cb);
+  return () => window.removeEventListener(BRIEFING_STATE_EVENT, cb);
+}
+function notifyBriefingState(): void {
+  window.dispatchEvent(new Event(BRIEFING_STATE_EVENT));
+}
+
+function sessionStore(): Storage | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
 
 const MiltonUiLang = createContext<PreferredLanguage>("es");
 function useMiltonLang(): PreferredLanguage {
@@ -114,6 +137,7 @@ interface BriefingPayload {
     food_cost_pct: number | null;
     open_recommendations_total: number;
     open_recommendations_critical: number;
+    sales_periods?: BriefingCompactPeriods | null;
   };
   briefing: {
     headline: string;
@@ -176,12 +200,37 @@ export function AskMiltonWorkspace({
 }: {
   lang?: PreferredLanguage;
 }) {
+  // The briefing starts collapsed so the conversation sits near the top.
+  // The choice is remembered per browser session; after the first question
+  // of the session it stays collapsed (lib/restaurant/briefing-compact.ts).
+  // useSyncExternalStore keeps the server render (collapsed) and the first
+  // client render in agreement, then reads sessionStorage.
+  const briefingOpen = useSyncExternalStore(
+    subscribeBriefingState,
+    () => readBriefingExpanded(sessionStore()),
+    () => false
+  );
+  const toggleBriefing = useCallback(() => {
+    writeBriefingExpanded(
+      sessionStore(),
+      !readBriefingExpanded(sessionStore())
+    );
+    notifyBriefingState();
+  }, []);
+  const onAskSent = useCallback(() => {
+    markAskSent(sessionStore());
+    notifyBriefingState();
+  }, []);
+
   return (
     <MiltonUiLang.Provider value={lang}>
-      <div className="space-y-6">
-        <ExecutiveBriefingPanel />
+      <div className="space-y-4">
+        <ExecutiveBriefingPanel
+          expanded={briefingOpen}
+          onToggle={toggleBriefing}
+        />
         <Suspense fallback={<ChatWorkspaceSkeleton />}>
-          <ChatWorkspace />
+          <ChatWorkspace onSent={onAskSent} />
         </Suspense>
       </div>
     </MiltonUiLang.Provider>
@@ -203,11 +252,16 @@ function ChatWorkspaceSkeleton() {
 // Executive briefing panel
 // ---------------------------------------------------------------------------
 
-function ExecutiveBriefingPanel() {
+interface BriefingPanelProps {
+  expanded: boolean;
+  onToggle: () => void;
+}
+
+function ExecutiveBriefingPanel(props: BriefingPanelProps) {
   // useSearchParams() requires a Suspense boundary — see the wrapper below.
   return (
     <Suspense fallback={<ExecutiveBriefingPanelSkeleton />}>
-      <ExecutiveBriefingPanelInner />
+      <ExecutiveBriefingPanelInner {...props} />
     </Suspense>
   );
 }
@@ -216,8 +270,8 @@ function ExecutiveBriefingPanelSkeleton() {
   const lang = useMiltonLang();
   return (
     <Card>
-      <CardContent className="pt-4 pb-4">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <CardContent className="py-3">
+        <div className="flex items-center gap-2 text-sm text-foreground">
           <Sparkles className="h-4 w-4" />
           {t(lang, "Loading briefing...", "Cargando el briefing...")}
         </div>
@@ -226,7 +280,7 @@ function ExecutiveBriefingPanelSkeleton() {
   );
 }
 
-function ExecutiveBriefingPanelInner() {
+function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps) {
   const lang = useMiltonLang();
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -274,32 +328,71 @@ function ExecutiveBriefingPanelInner() {
     void load();
   }, [load]);
 
+  // Collapsed line: only numbers the briefing context already computed.
+  // Falls back to the briefing's own headline, never to a made-up figure.
+  const compact = data
+    ? (compactBriefingLine(
+        data.context_summary.sales_periods,
+        data.context_summary.currency,
+        lang
+      ) ?? data.briefing.headline)
+    : null;
+  // Generic advice is dropped; what is left must name a number or a thing.
+  const risks = data ? data.briefing.top_risks.filter(isSpecificBriefingItem) : [];
+  const opportunities = data
+    ? data.briefing.top_opportunities.filter(isSpecificBriefingItem)
+    : [];
+  const actions = data
+    ? data.briefing.recommended_actions.filter(isSpecificBriefingItem)
+    : [];
+  const hasLists = risks.length + opportunities.length + actions.length > 0;
+
   return (
-    <Card className="border-[#c6d3f5] dark:border-[#2a3f8f]/50 bg-gradient-to-br from-[#eef2fd]/60 via-background to-background dark:from-[#1B40C8]/20 dark:via-background">
-      <CardContent className="pt-5 pb-5">
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
+    <Card
+      data-testid="ask-milton-briefing"
+      data-expanded={expanded ? "true" : "false"}
+      className="border-[#c6d3f5] dark:border-[#2a3f8f]/50 bg-gradient-to-br from-[#eef2fd]/60 via-background to-background dark:from-[#1B40C8]/20 dark:via-background"
+    >
+      <CardContent className="py-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
             <Sparkles className="h-4 w-4 text-[#1B40C8] dark:text-[#9fb4f2]" />
           </span>
-          <h2 className="text-base font-semibold">
+          <h2 className="text-sm font-semibold">
             {t(lang, "Executive briefing", "Briefing ejecutivo")}
           </h2>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto h-7 text-xs gap-1"
-            onClick={load}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
-            />
-            {t(lang, "Refresh", "Actualizar")}
-          </Button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-[#1B40C8] dark:text-[#9fb4f2]"
+              onClick={load}
+              disabled={loading}
+              aria-label={t(lang, "Refresh", "Actualizar")}
+              title={t(lang, "Refresh", "Actualizar")}
+            >
+              <RefreshCw
+                className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
+              />
+            </Button>
+            {data && (
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                data-testid="ask-milton-briefing-toggle"
+                className="inline-flex items-center h-7 rounded-full bg-[#1B40C8] px-3 text-xs font-semibold text-white shadow-sm hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
+              >
+                {expanded
+                  ? t(lang, "Show less", "Ver menos")
+                  : t(lang, "Show more", "Ver más")}
+              </button>
+            )}
+          </div>
         </div>
 
         {loading && !data && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-foreground mt-2">
             {t(
               lang,
               "Reading your latest restaurant numbers…",
@@ -308,7 +401,7 @@ function ExecutiveBriefingPanelInner() {
           </p>
         )}
         {error && (
-          <p className="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
             <AlertTriangle className="h-3.5 w-3.5" />
             {t(
               lang,
@@ -319,45 +412,64 @@ function ExecutiveBriefingPanelInner() {
           </p>
         )}
 
-        {data && (
-          <div className="space-y-4">
+        {data && !expanded && compact && (
+          <p
+            className="mt-2 text-sm font-medium leading-snug text-foreground line-clamp-2"
+            data-testid="ask-milton-briefing-compact"
+          >
+            {compact}
+          </p>
+        )}
+
+        {data && expanded && (
+          <div className="mt-3 space-y-4">
             <div>
               <p className="text-base font-semibold leading-snug">
                 {data.briefing.headline}
               </p>
-              <p className="text-sm text-muted-foreground leading-relaxed mt-1">
+              <p className="text-sm text-foreground leading-relaxed mt-1">
                 {data.briefing.summary}
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <BriefingList
-                title={t(lang, "Top risks", "Principales riesgos")}
-                items={data.briefing.top_risks}
-                tone="risk"
-              />
-              <BriefingList
-                title={t(
-                  lang,
-                  "Top opportunities",
-                  "Principales oportunidades"
-                )}
-                items={data.briefing.top_opportunities}
-                tone="opportunity"
-              />
-              <BriefingList
-                title={t(lang, "Recommended actions", "Acciones recomendadas")}
-                items={data.briefing.recommended_actions}
-                tone="action"
-              />
-            </div>
+            {hasLists && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <BriefingList
+                  title={t(lang, "Top risks", "Principales riesgos")}
+                  items={risks}
+                  tone="risk"
+                />
+                <BriefingList
+                  title={t(
+                    lang,
+                    "Top opportunities",
+                    "Principales oportunidades"
+                  )}
+                  items={opportunities}
+                  tone="opportunity"
+                />
+                <BriefingList
+                  title={t(lang, "Recommended actions", "Acciones recomendadas")}
+                  items={actions}
+                  tone="action"
+                />
+              </div>
+            )}
 
             {data.briefing.confidence_notes.length > 0 && (
-              <div className="text-[12px] text-muted-foreground italic flex items-start gap-1.5">
-                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <div className="text-[12px] text-foreground flex items-start gap-1.5">
+                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-[#1B40C8]" />
                 <span>{data.briefing.confidence_notes[0]}</span>
               </div>
             )}
+
+            <Link
+              href={withLocationParam(COCKPIT_HREF, locationId)}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-[#1B40C8] dark:text-[#9fb4f2] hover:underline"
+            >
+              {t(lang, "See the numbers in Cockpit", "Ver las cifras en el Cockpit")}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
         )}
       </CardContent>
@@ -383,7 +495,7 @@ function BriefingList({
         : "text-[#1B40C8]";
   return (
     <div>
-      <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
+      <p className="text-[12px] uppercase tracking-wide text-foreground font-semibold mb-1.5">
         {title}
       </p>
       <ul className="space-y-1 text-sm">
@@ -402,7 +514,7 @@ function BriefingList({
 // Chat workspace
 // ---------------------------------------------------------------------------
 
-function ChatWorkspace() {
+function ChatWorkspace({ onSent }: { onSent?: () => void }) {
   const lang = useMiltonLang();
   const { draft, nonce } = useAskMiltonController();
   const [turns, setTurns] = useState<ChatTurn[]>([]);
@@ -449,6 +561,7 @@ function ChatWorkspace() {
         content: t.content,
       }));
       setTurns((prev) => [...prev, userTurn]);
+      onSent?.();
       setInput("");
       setPending(true);
       try {
@@ -492,7 +605,7 @@ function ChatWorkspace() {
         setPending(false);
       }
     },
-    [pending, turns, locationId, lang]
+    [pending, turns, locationId, lang, onSent]
   );
 
   const onSubmit = (e: FormEvent) => {
@@ -571,13 +684,6 @@ function ChatWorkspace() {
               {t(lang, "Send", "Enviar")}
             </Button>
           </div>
-          <p className="text-[12px] text-muted-foreground mt-2">
-            {t(
-              lang,
-              "Milton can propose actions from chat. You still approve them in Agents.",
-              "Milton puede proponer acciones desde el chat. Tú las apruebas en Agentes."
-            )}
-          </p>
         </form>
       </CardContent>
     </Card>
@@ -710,7 +816,6 @@ function MessageBubble({
               actions={a.suggested_actions.filter(
                 (x) => !isPerItemAskMiltonChip(x)
               )}
-              disabled={disabled}
             />
           )}
 
@@ -756,20 +861,10 @@ function FollowupChips({
 // Suggested action chips (Stage 2)
 // ---------------------------------------------------------------------------
 
-type ChipActionState =
-  | "idle"
-  | "confirming"
-  | "loading"
-  | "success"
-  | "duplicate"
-  | "error";
-
 function SuggestedActionChips({
   actions,
-  disabled,
 }: {
   actions: SuggestedActionLocal[];
-  disabled: boolean;
 }) {
   const lang = useMiltonLang();
   return (
@@ -780,185 +875,31 @@ function SuggestedActionChips({
       </p>
       <div className="flex flex-wrap gap-2">
         {actions.map((action, i) => (
-          <SuggestedActionChip key={i} action={action} disabled={disabled} />
+          <SuggestedActionChip key={i} action={action} />
         ))}
       </div>
     </div>
   );
 }
 
-function SuggestedActionChip({
-  action,
-  disabled,
-}: {
-  action: SuggestedActionLocal;
-  disabled: boolean;
-}) {
-  const lang = useMiltonLang();
-  const canManage = useCan("menu.manage");
-  const [state, setState] = useState<ChipActionState>("idle");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+// Ask Milton only links to the screen where you act (#379): no action is
+// created or approved from the chat.
+function SuggestedActionChip({ action }: { action: SuggestedActionLocal }) {
   const locationId = useSearchParams().get("location");
-
-  const handleConfirm = async () => {
-    setState("loading");
-    setErrorMsg(null);
-    try {
-      const res = await fetch("/api/restaurant/ask-milton/create-action", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ suggested_action: action }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (res.status === 409) {
-        setState("duplicate");
-      } else if (!res.ok) {
-        setErrorMsg(
-          (body as { error?: string })?.error ?? `HTTP ${res.status}`
-        );
-        setState("error");
-      } else {
-        setState("success");
-      }
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error
-          ? err.message
-          : t(lang, "Network error", "Error de red")
-      );
-      setState("error");
-    }
-  };
-
-  // Navigation-only chip
-  if (!action.creates_agent_action && action.target_route) {
-    return (
-      <Link
-        href={withLocationParam(action.target_route, locationId)}
-        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-background px-2.5 py-1 hover:bg-muted hover:border-[#a9bcef] dark:hover:border-[#2a3f8f] transition-colors"
-      >
-        <ExternalLink className="h-3 w-3 text-muted-foreground" />
-        {action.label}
-        <ArrowRight className="h-3 w-3" />
-      </Link>
-    );
-  }
-
-  // Agent-action chip states
-  if (state === "idle" && !canManage) {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs flex-wrap">
-        <button
-          type="button"
-          disabled
-          className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-border px-2.5 py-1 text-[#6b7280] opacity-60"
-        >
-          <Zap className="h-3 w-3" />
-          {action.label}
-        </button>
-        <span className="text-[#6b7280]">
-          {CAPABILITY_MESSAGES["menu.manage"]}
-        </span>
-      </span>
-    );
-  }
-  if (state === "idle") {
-    return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setState("confirming")}
-        className="inline-flex items-center gap-1.5 text-xs rounded-full border border-dashed border-[#a9bcef] dark:border-[#2a3f8f] bg-[#eef2fd] dark:bg-[#1B40C8]/30 text-[#102a85] dark:text-[#9fb4f2] px-2.5 py-1 hover:bg-[#e1e8fa] dark:hover:bg-[#1B40C8]/40 transition-colors disabled:opacity-50"
-      >
-        <Zap className="h-3 w-3" />
-        {action.label}
-      </button>
-    );
-  }
-
-  if (state === "confirming") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-[#c6d3f5] dark:border-[#2a3f8f] bg-[#eef2fd] dark:bg-[#1B40C8]/30 px-3 py-1.5 flex-wrap">
-        <span className="text-[#102a85] dark:text-[#9fb4f2] font-medium">
-          {t(
-            lang,
-            "Create this as an agent action?",
-            "¿Crear esto como acción?"
-          )}
-        </span>
-        <button
-          type="button"
-          onClick={() => void handleConfirm()}
-          className="rounded border border-[#a9bcef] dark:border-[#2a3f8f] bg-[#1B40C8] text-white px-2 py-0.5 hover:bg-[#1535a6] transition-colors"
-        >
-          {t(lang, "Yes", "Sí")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setState("idle")}
-          className="rounded border border-border px-2 py-0.5 hover:bg-muted transition-colors text-muted-foreground"
-        >
-          {t(lang, "No", "No")}
-        </button>
-      </span>
-    );
-  }
-
-  if (state === "loading") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-full border border-border bg-muted/40 px-2.5 py-1 text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        {t(lang, "Creating…", "Creando…")}
-      </span>
-    );
-  }
-
-  if (state === "success") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1 flex-wrap">
-        <Check className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-        <span className="text-emerald-800 dark:text-emerald-300 font-medium">
-          {t(lang, "Action created", "Acción creada")}
-        </span>
-      </span>
-    );
-  }
-
-  if (state === "duplicate") {
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/30 px-3 py-1 flex-wrap">
-        <Info className="h-3 w-3 text-gray-500 dark:text-gray-400" />
-        <span className="text-gray-700 dark:text-gray-400">
-          {t(
-            lang,
-            "An open action already exists for this item.",
-            "Ya hay una acción abierta para esto."
-          )}
-        </span>
-      </span>
-    );
-  }
-
-  // error state
+  if (action.creates_agent_action || !action.target_route) return null;
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 px-3 py-1 flex-wrap">
-      <AlertTriangle className="h-3 w-3 text-red-500" />
-      <span className="text-red-700 dark:text-red-400">
-        {errorMsg ?? t(lang, "Something went wrong", "Algo salió mal")}
-      </span>
-      <button
-        type="button"
-        onClick={() => setState("idle")}
-        className="underline text-red-700 dark:text-red-400 hover:no-underline"
-      >
-        {t(lang, "Retry", "Reintentar")}
-      </button>
-    </span>
+    <Link
+      href={withLocationParam(action.target_route, locationId)}
+      className="inline-flex items-center gap-1.5 text-xs rounded-full border border-[#1B40C8]/30 dark:border-[#1B40C8]/50 bg-[#E7EDFD] dark:bg-[#1B40C8]/20 text-[#1B40C8] dark:text-[#c9d6fb] font-medium px-2.5 py-1 hover:bg-[#1B40C8] hover:text-white hover:border-[#1B40C8] dark:hover:bg-[#1533A3] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+    >
+      {action.label}
+      <ArrowRight className="h-3 w-3" />
+    </Link>
   );
 }
 
 function PendingBubble() {
+  const lang = useMiltonLang();
   return (
     <div className="flex items-start gap-3">
       <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e1e8fa] dark:bg-[#1B40C8]/40">
@@ -966,7 +907,11 @@ function PendingBubble() {
       </span>
       <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm text-muted-foreground flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Reading your latest restaurant data…
+        {t(
+          lang,
+          "Reading your latest restaurant data…",
+          "Leyendo los datos más recientes de tu restaurante…"
+        )}
       </div>
     </div>
   );

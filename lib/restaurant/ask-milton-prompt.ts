@@ -21,6 +21,8 @@ import {
   parseRequestedCount,
 } from "@/lib/restaurant/ask-milton-count";
 import { displayName } from "@/lib/restaurant/sentence-case";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { SALES_HREF } from "@/lib/restaurant/navigation";
 import {
   ASK_MILTON_MAX_FOLLOWUPS,
   ASK_MILTON_MAX_RELATED_LINKS,
@@ -107,11 +109,19 @@ export function isAskMiltonAnswer(v: unknown): v is AskMiltonAnswer {
   return true;
 }
 
+/** Ventas, optionally on its Platos tab and a custom date range. */
+const VENTAS_HREF_RE =
+  /^\/dashboard\/restaurant\/sales(\?(tab=platos|p=custom|desde=\d{4}-\d{2}-\d{2}|hasta=\d{4}-\d{2}-\d{2})(&(tab=platos|p=custom|desde=\d{4}-\d{2}-\d{2}|hasta=\d{4}-\d{2}-\d{2}))*)?$/;
+
+export function isAllowedRelatedHref(href: string): boolean {
+  return ALLOWED_HREFS.has(href) || VENTAS_HREF_RE.test(href);
+}
+
 export function sanitizeRelatedLinks(
   links: AskMiltonRelatedLink[]
 ): AskMiltonRelatedLink[] {
   return links
-    .filter((l) => ALLOWED_HREFS.has(l.href))
+    .filter((l) => isAllowedRelatedHref(l.href))
     .slice(0, ASK_MILTON_MAX_RELATED_LINKS);
 }
 
@@ -265,29 +275,13 @@ export function buildAskMiltonUserPrompt(
 // Deterministic fallback helpers
 // ---------------------------------------------------------------------------
 
+/** Same money format as Ventas and Menú: «$501», never «USD 501». */
 function fmtCurrency(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    return `${amount.toFixed(0)} ${currency}`;
-  }
+  return formatMoneyEs(amount, currency, { decimals: 0 });
 }
 
 function fmtCurrencyDec(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
-  } catch {
-    return `${amount.toFixed(2)} ${currency}`;
-  }
+  return formatMoneyEs(amount, currency, { decimals: 2 });
 }
 
 function pct(n: number | null | undefined): string {
@@ -308,7 +302,6 @@ type RelatedLinkRoute =
   | "/dashboard/restaurant/menu/ingredientes"
   | "/dashboard/restaurant/costs?tab=proveedores"
   | "/dashboard/restaurant/costs?tab=compras"
-  | "/dashboard/restaurant/agents"
   | "/dashboard/restaurant/menu/platos"
   | "/dashboard/restaurant/data?seccion=conexiones";
 
@@ -333,7 +326,6 @@ const RELATED_LINK_LABELS: Record<
     en: "Supplier Invoices",
     es: "Facturas de Proveedores",
   },
-  "/dashboard/restaurant/agents": { en: "Agents", es: "Agentes" },
   "/dashboard/restaurant/menu/platos": {
     en: "Dishes",
     es: "Platos",
@@ -349,6 +341,29 @@ function relatedLink(
   href: RelatedLinkRoute
 ): AskMiltonRelatedLink {
   return { label: RELATED_LINK_LABELS[href][lang], href };
+}
+
+/**
+ * Ventas on the same dates the answer used (custom range), optionally on
+ * its Platos tab, so the chip opens the numbers the answer quoted.
+ */
+export function ventasLink(
+  lang: PreferredLanguage,
+  period: { start: string | null; end: string | null },
+  tab?: "platos"
+): AskMiltonRelatedLink {
+  const q = new URLSearchParams();
+  if (tab) q.set("tab", tab);
+  if (period.start && period.end) {
+    q.set("p", "custom");
+    q.set("desde", period.start);
+    q.set("hasta", period.end);
+  }
+  const query = q.toString();
+  return {
+    label: t(lang, "Sales", "Ventas"),
+    href: query ? `${SALES_HREF}?${query}` : SALES_HREF,
+  };
 }
 
 // ---- Most profitable dish ----
@@ -1536,6 +1551,59 @@ function formatDateKey(dateKey: string, lang: PreferredLanguage): string {
   return `${day} ${monthLabel} ${year}`;
 }
 
+/** «20 de octubre», with the year only when it is not the current one. */
+function formatDayMonth(
+  dateKey: string,
+  lang: PreferredLanguage,
+  currentYear: number
+): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return dateKey;
+  const year = Number(match[1]);
+  if (year !== currentYear) return formatDateKey(dateKey, lang);
+  const monthLabel = MONTH_LABELS[Number(match[2])]?.[lang] ?? match[2];
+  const day = Number(match[3]);
+  return lang === "es" ? `${day} de ${monthLabel}` : `${monthLabel} ${day}`;
+}
+
+/**
+ * «del 20 al 26 de octubre» / «del 28 de septiembre al 4 de octubre» /
+ * «del 28 de diciembre de 2025 al 3 de enero de 2026». The year is left
+ * out when the whole range is in the current year.
+ */
+export function formatDateRange(
+  start: string,
+  end: string,
+  lang: PreferredLanguage,
+  currentYear: number = new Date().getFullYear()
+): string {
+  const s = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  const e = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
+  if (!s || !e) return t(lang, `${start} – ${end}`, `del ${start} al ${end}`);
+  const sameYear = s[1] === e[1];
+  const showYear = !(sameYear && Number(e[1]) === currentYear);
+  const endText = showYear
+    ? formatDateKey(end, lang)
+    : formatDayMonth(end, lang, currentYear);
+  if (start === end) {
+    return t(lang, `on ${endText}`, `el ${endText}`);
+  }
+  if (sameYear && s[2] === e[2]) {
+    const yearEs = showYear ? ` de ${e[1]}` : "";
+    const yearEn = showYear ? `, ${e[1]}` : "";
+    const monthLabel = MONTH_LABELS[Number(e[2])] ?? { en: e[2], es: e[2] };
+    return t(
+      lang,
+      `${monthLabel.en} ${Number(s[3])}–${Number(e[3])}${yearEn}`,
+      `del ${Number(s[3])} al ${Number(e[3])} de ${monthLabel.es}${yearEs}`
+    );
+  }
+  const startText = sameYear
+    ? formatDayMonth(start, lang, Number(s[1]))
+    : formatDateKey(start, lang);
+  return t(lang, `${startText} – ${endText}`, `del ${startText} al ${endText}`);
+}
+
 function formatBestDate(
   date: SalesDateBucket,
   lang: PreferredLanguage
@@ -1622,28 +1690,31 @@ function pickCategoryItems(
 export function salesPeriodPhrase(
   period: AskMiltonSalesSnapshot["period"],
   lang: PreferredLanguage,
-  fallback: string
+  fallback: string,
+  currentYear: number = new Date().getFullYear()
 ): string {
   const { start, end } = period;
   if (!start || !end) return fallback;
+  const range = formatDateRange(start, end, lang, currentYear);
   if (period.source === "last_week" || period.source === "last_days") {
     const days = period.days ?? 7;
     return t(
       lang,
-      `in the last ${days} days of sales (${formatDateKey(start, lang)} – ${formatDateKey(end, lang)})`,
-      `en los últimos ${days} días con ventas (del ${formatDateKey(start, lang)} al ${formatDateKey(end, lang)})`
+      `in the last ${days} days of sales (${range})`,
+      `en los últimos ${days} días con ventas (${range})`
     );
   }
   const m = /^(\d{4})-(\d{2})-01$/.exec(start);
   if (m && start.slice(0, 7) === end.slice(0, 7)) {
     const monthLabel = MONTH_LABELS[Number(m[2])]?.[lang] ?? m[2];
-    return t(lang, `in ${monthLabel} ${m[1]}`, `en ${monthLabel} de ${m[1]}`);
+    const year = Number(m[1]) === currentYear ? "" : m[1];
+    return t(
+      lang,
+      year ? `in ${monthLabel} ${year}` : `in ${monthLabel}`,
+      year ? `en ${monthLabel} de ${year}` : `en ${monthLabel}`
+    );
   }
-  return t(
-    lang,
-    `from ${formatDateKey(start, lang)} to ${formatDateKey(end, lang)}`,
-    `del ${formatDateKey(start, lang)} al ${formatDateKey(end, lang)}`
-  );
+  return lang === "es" ? range : `from ${range}`;
 }
 
 function asksForDishes(message: string): boolean {
@@ -1653,6 +1724,36 @@ function asksForDishes(message: string): boolean {
     .replace(/\p{M}/gu, "");
   // input matcher: keep «platillo»
   return /\b(plato|platos|platillo|platillos|dish|dishes)\b/.test(m);
+}
+
+/** True for a list that tags kinds (snapshots built by this version). */
+function hasKinds(items: SalesSnapshotItem[]): boolean {
+  return items.some((i) => i.kind !== undefined);
+}
+
+/**
+ * «Plato» questions rank food (Menú's rule: drinks, extras and
+ * modifiers are not dishes). A list without kinds is used as is.
+ */
+export function pickTopSellers(
+  sales: AskMiltonSalesSnapshot,
+  message: string,
+  category: string | null
+): { category: string | null; items: SalesSnapshotItem[]; dishesOnly: boolean } {
+  const picked = pickCategoryItems(sales, category);
+  if (!asksForDishes(message)) return { ...picked, dishesOnly: false };
+  if (picked.category) {
+    const food = picked.items.filter((i) => i.kind === "food");
+    if (hasKinds(picked.items) && food.length > 0) {
+      return { ...picked, items: food, dishesOnly: true };
+    }
+    return { ...picked, dishesOnly: false };
+  }
+  const dishes = sales.top_dishes_by_units ?? [];
+  if (dishes.length > 0) {
+    return { category: null, items: dishes, dishesOnly: true };
+  }
+  return { ...picked, dishesOnly: false };
 }
 
 function topSellingItemsAnswer(
@@ -1665,7 +1766,7 @@ function topSellingItemsAnswer(
 
   const categories = sales.by_category.map((c) => c.key).filter(Boolean);
   const category = matchCategoryFromQuestion(message, categories);
-  const picked = pickCategoryItems(sales, category);
+  const picked = pickTopSellers(sales, message, category);
   const requested = parseRequestedCount(message);
   const items = picked.items.slice(0, requested ?? 4);
   const c = sales.totals.currency || ctx.briefing.currency;
@@ -1693,6 +1794,8 @@ function topSellingItemsAnswer(
       `${roundUnits(n)} ${roundUnits(n) === 1 ? "unit" : "units"}`,
       `${roundUnits(n)} ${roundUnits(n) === 1 ? "unidad" : "unidades"}`
     );
+  const row = (i: SalesSnapshotItem, idx: number) =>
+    `${idx + 1}. ${i.name} — ${units(i.units)} · ${fmtCurrency(i.revenue, c)}`;
 
   const lines: string[] = [];
   if (requested !== null && requested > 1) {
@@ -1709,10 +1812,7 @@ function topSellingItemsAnswer(
             `Your ${n} best-selling ${nounMany}${scope} ${period}:`,
             `Tus ${n} ${nounMany} más vendidos${scope} ${period}:`
           ),
-      ...items.map(
-        (i, idx) =>
-          `${idx + 1}. ${i.name} — ${units(i.units)} · ${fmtCurrency(i.revenue, c)}`
-      )
+      ...items.map(row)
     );
   } else {
     const top = items[0];
@@ -1723,11 +1823,26 @@ function topSellingItemsAnswer(
         `Tu ${nounOne} más vendido${scope} ${period} es ${top.name}: ${units(top.units)} por ${fmtCurrency(top.revenue, c)}.`
       )
     );
-    const rest = (requested === 1 ? [] : items.slice(1))
-      .map((i) => `${i.name} (${units(i.units)})`)
-      .join(", ");
-    if (rest) {
-      lines.push(t(lang, `Then: ${rest}.`, `Le siguen: ${rest}.`));
+    const rest = requested === 1 ? [] : items.slice(1);
+    if (rest.length > 0) {
+      lines.push(
+        t(lang, "Then:", "Le siguen:"),
+        ...rest.map((i, idx) => row(i, idx + 1))
+      );
+    }
+  }
+
+  // A drink that outsold the top dish is worth a line of its own.
+  if (picked.dishesOnly && !picked.category) {
+    const drink = sales.top_items_by_units.find((i) => i.kind === "drink");
+    if (drink && drink.units > items[0].units) {
+      lines.push(
+        t(
+          lang,
+          `The best-selling drink was ${drink.name} (${units(drink.units)}).`,
+          `La bebida más vendida fue ${drink.name} (${units(drink.units)}).`
+        )
+      );
     }
   }
 
@@ -1738,24 +1853,10 @@ function topSellingItemsAnswer(
   }));
 
   return {
-    answer: lines.join(requested !== null && requested > 1 ? "\n" : " "),
+    answer: lines.join("\n"),
     supporting_facts: facts,
-    related_links: [
-      relatedLink(lang, "/dashboard/restaurant"),
-      relatedLink(lang, "/dashboard/restaurant/data?seccion=conexiones"),
-    ],
-    suggested_followups: [
-      t(
-        lang,
-        "Which days do we sell the most breakfast items?",
-        "¿Qué días vendemos más desayunos?"
-      ),
-      t(
-        lang,
-        "What is my most profitable dish?",
-        "¿Cuál es mi plato más rentable?"
-      ),
-    ],
+    related_links: salesItemLinks(lang, sales),
+    suggested_followups: topSellingFollowups(lang, items[0], dishes),
     confidence_notes: sales.period.truncated
       ? [
           t(
@@ -1766,6 +1867,43 @@ function topSellingItemsAnswer(
         ]
       : [],
   };
+}
+
+/** Sales answers open Ventas (same dates, Platos tab) and Menú › Platos. */
+export function salesItemLinks(
+  lang: PreferredLanguage,
+  sales: AskMiltonSalesSnapshot
+): AskMiltonRelatedLink[] {
+  return [
+    ventasLink(lang, sales.period, "platos"),
+    relatedLink(lang, "/dashboard/restaurant/menu/platos"),
+  ];
+}
+
+/** Follow-ups Milton can answer from the same snapshot and Menú. */
+function topSellingFollowups(
+  lang: PreferredLanguage,
+  top: SalesSnapshotItem,
+  dishes: boolean
+): string[] {
+  return [
+    t(
+      lang,
+      "Which day of the week do I sell the most?",
+      "¿Qué día de la semana vendo más?"
+    ),
+    dishes || top.kind === "food"
+      ? t(
+          lang,
+          "What is my most profitable dish?",
+          "¿Cuál es mi plato más rentable?"
+        )
+      : t(
+          lang,
+          "What are my 5 best-selling dishes?",
+          "¿Cuáles son mis 5 platos más vendidos?"
+        ),
+  ];
 }
 
 function bestSalesDayAnswer(
@@ -1880,7 +2018,7 @@ function bestSalesDayAnswer(
   return {
     answer: lines.join(" "),
     supporting_facts: facts.slice(0, 4),
-    related_links: [relatedLink(lang, "/dashboard/restaurant")],
+    related_links: [ventasLink(lang, sales.period)],
     suggested_followups: [
       t(
         lang,

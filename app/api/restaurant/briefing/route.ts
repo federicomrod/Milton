@@ -51,6 +51,21 @@ function buildContextSummary(ctx: BriefingContext) {
     food_cost_pct: ctx.kpis.food_cost_pct,
     open_recommendations_total: ctx.open_recommendations.total,
     open_recommendations_critical: ctx.open_recommendations.critical,
+    // Already-computed dated periods for the panel's collapsed line
+    // (lib/restaurant/briefing-compact.ts). Null when the context has none.
+    sales_periods: ctx.sales_periods
+      ? {
+          yesterday_date: ctx.sales_periods.yesterday_date,
+          yesterday: {
+            sales: ctx.sales_periods.yesterday.current.sales,
+            delta_pct: ctx.sales_periods.yesterday.delta_pct,
+          },
+          last_7_days: {
+            sales: ctx.sales_periods.last_7_days.current.sales,
+            delta_pct: ctx.sales_periods.last_7_days.delta_pct,
+          },
+        }
+      : null,
   };
 }
 

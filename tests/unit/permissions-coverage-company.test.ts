@@ -127,13 +127,6 @@ const CASES: Case[] = [
       (await import("@/app/api/restaurant/add-restaurant/route")).POST as Call,
   },
   {
-    name: "agents/config POST",
-    cap: "company.edit",
-    body: {},
-    load: async () =>
-      (await import("@/app/api/restaurant/agents/config/route")).POST as Call,
-  },
-  {
     name: "telegram pairing-code POST",
     cap: "company.edit",
     load: async () =>
@@ -251,7 +244,6 @@ describe("client gating reads the server answer", () => {
     const { readFileSync } = await import("node:fs");
     for (const f of [
       "components/restaurant/TelegramConnectionCard.tsx",
-      "components/restaurant/AgentControlCenter.tsx",
       "components/restaurant/settings/PosSalesUploadPanel.tsx",
       "app/dashboard/settings/page.tsx",
       "components/restaurant/RestaurantShell.tsx",

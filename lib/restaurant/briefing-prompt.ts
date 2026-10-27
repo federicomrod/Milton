@@ -248,15 +248,6 @@ export function buildDeterministicBriefing(
       )
     );
   }
-  if (risks.length < 3 && ctx.open_recommendations.critical > 0) {
-    risks.push(
-      t(
-        lang,
-        `${ctx.open_recommendations.critical} critical agent recommendation${ctx.open_recommendations.critical === 1 ? "" : "s"} still open.`,
-        `${ctx.open_recommendations.critical} recomendación${ctx.open_recommendations.critical === 1 ? "" : "es"} crítica${ctx.open_recommendations.critical === 1 ? "" : "s"} de agente aún abierta${ctx.open_recommendations.critical === 1 ? "" : "s"}.`
-      )
-    );
-  }
 
   // Opportunities
   const opps: string[] = [];
@@ -330,15 +321,6 @@ export function buildDeterministicBriefing(
         lang,
         `Upload cost entries for ${ctx.data_quality.ingredients_without_cost_entries} ingredient${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "s"} that still have no price.`,
         `Sube costos para ${ctx.data_quality.ingredients_without_cost_entries} ingrediente${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "s"} que aún no tiene${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "n"} precio.`
-      )
-    );
-  }
-  if (actions.length === 0 && ctx.open_recommendations.total > 0) {
-    actions.push(
-      t(
-        lang,
-        `Review ${ctx.open_recommendations.total} open agent recommendation${ctx.open_recommendations.total === 1 ? "" : "s"} in the Agent Control Center.`,
-        `Revisa ${ctx.open_recommendations.total} recomendación${ctx.open_recommendations.total === 1 ? "" : "es"} de agente abierta${ctx.open_recommendations.total === 1 ? "" : "s"} en el Centro de Control de Agentes.`
       )
     );
   }

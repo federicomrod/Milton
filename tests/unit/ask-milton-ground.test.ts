@@ -209,7 +209,12 @@ describe("resolveAskMiltonAnswer — best_sales_day grounding", () => {
       none
     );
     expect(source).toBe("openai");
-    expect(answer).toEqual(ai);
+    // The model's words stay; chips come from the rule path (Ventas, Platos).
+    expect(answer.answer).toBe(ai.answer);
+    expect(answer.related_links.map((l) => l.label)).toEqual([
+      "Ventas",
+      "Platos",
+    ]);
   });
 
   it("falls back to the deterministic answer when the model is missing", () => {

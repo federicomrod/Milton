@@ -315,8 +315,10 @@ export const LEGACY_ROUTE_MAP: readonly MappedLegacyRoute[] = [
     area: "kitchen",
   },
   {
+    // #379: the English agents page is retired; old links land on Resumen.
     id: "agents",
     href: "/dashboard/restaurant/agents",
+    resolvesTo: COCKPIT_HREF,
     legacyLabel: "Agents",
     area: "data_settings",
   },

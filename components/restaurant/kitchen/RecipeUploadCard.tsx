@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   FILE_TOO_BIG_MESSAGE_CLIENT,
   MAX_UPLOAD_BYTES_CLIENT,
@@ -110,7 +111,7 @@ export const RecipeUploadCard = forwardRef<
       if (!res.ok) {
         setRow(key, {
           status: "error",
-          message: data.error || GENERIC_ERROR,
+          message: userErrorMessage(data, GENERIC_ERROR),
         });
         return null;
       }

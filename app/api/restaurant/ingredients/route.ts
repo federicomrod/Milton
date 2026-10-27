@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[ingredients GET]", error.message);
     return NextResponse.json(
-      { error: "Read failed", details: error.message },
+      { error: "No pude leer.", details: error.message },
       { status: 500 }
     );
   }
@@ -84,12 +84,18 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json({ error: "`name` is required" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El nombre es obligatorio." },
+      { status: 400 }
+    );
   }
   const category =
     typeof body.category === "string" && body.category.trim() !== ""
@@ -127,7 +133,7 @@ export async function POST(req: NextRequest) {
   if (error || !data) {
     console.error("[ingredients POST]", error?.message);
     return NextResponse.json(
-      { error: "Create failed", details: error?.message },
+      { error: "No se pudo crear.", details: error?.message },
       { status: 500 }
     );
   }

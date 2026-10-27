@@ -31,7 +31,10 @@ export async function DELETE(
 
     const { id } = await params;
     if (!UUID_RE.test(id)) {
-      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El identificador no es válido." },
+        { status: 400 }
+      );
     }
     const now = new Date().toISOString();
     const { data, error } = await createAdminClient()
@@ -50,12 +53,15 @@ export async function DELETE(
     if (error) {
       console.error("[kitchen-staff] remove failed:", error.message);
       return NextResponse.json(
-        { error: "Could not remove the cook" },
+        { error: "No pude quitar al cocinero." },
         { status: 500 }
       );
     }
     if (!data) {
-      return NextResponse.json({ error: "Cook not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "No encontré al cocinero." },
+        { status: 404 }
+      );
     }
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -64,7 +70,7 @@ export async function DELETE(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not remove the cook" },
+      { error: "No pude quitar al cocinero." },
       { status: 500 }
     );
   }

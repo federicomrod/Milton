@@ -245,10 +245,10 @@ export interface ExtractedRecipe {
   overall_confidence: "high" | "medium" | "low";
 }
 
-const EXTRACTION_SYSTEM_PROMPT = `Eres un asistente de cocina experto en recetas de restaurantes mexicanos. Extrae la información estructurada de una receta: nombre del platillo, número de porciones, y lista de ingredientes con cantidades estimadas. Responde siempre en JSON con esta estructura exacta:
+const EXTRACTION_SYSTEM_PROMPT = `Eres un asistente de cocina experto en recetas de restaurantes mexicanos. Extrae la información estructurada de una receta: nombre del plato, número de porciones, y lista de ingredientes con cantidades estimadas. Responde siempre en JSON con esta estructura exacta:
 
 {
-  "dish_name": "nombre del platillo",
+  "dish_name": "nombre del plato",
   "portions": número o null,
   "ingredients": [
     {"name": "ingrediente", "estimated_quantity": número o null, "unit": "g/kg/ml/l/pza/unidad" o null, "confidence": "high/medium/low"}
@@ -266,7 +266,7 @@ function buildExtractionUserPrompt(
   caption: string | null,
   isPhoto: boolean
 ): string {
-  let prompt = `Extrae el nombre del platillo, número de porciones, e ingredientes con cantidades de esta receta.`;
+  let prompt = `Extrae el nombre del plato, número de porciones, e ingredientes con cantidades de esta receta.`;
   if (caption && caption.trim()) {
     prompt += `\n\nContexto del cocinero: ${caption}`;
   }

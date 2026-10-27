@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  destinationWhere,
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "@/lib/restaurant/telegram/kitchen-copy";
+import { stockSavedReply } from "@/lib/restaurant/telegram/kitchen-fallback";
 
 // Sofia's strings, verbatim (bold markers dropped; send.ts is plain text).
 describe("kitchen copy", () => {
@@ -60,5 +62,24 @@ describe("kitchen copy", () => {
 
   it("the report path always uses the generic R5 (checked in the webhook content test)", () => {
     expect(KITCHEN_COPY.REPORT_ACK).toMatch(/Recibido, gracias/);
+  });
+
+  it("does not repeat the restaurant name when company and location match", () => {
+    const same = {
+      company_name: " Casa Centro ",
+      location_name: "casa centro",
+    };
+    const different = {
+      company_name: "Casa Centro",
+      location_name: "Roma Norte",
+    };
+    expect(destinationWhere(same)).toBe("Casa Centro");
+    expect(destinationWhere(different)).toBe("Casa Centro › Roma Norte");
+    expect(stockSavedReply(same, "86", ["tomate"], "")).toBe(
+      "✅ Anoté en Casa Centro: se agotó tomate. Lo ves en Cocina › Se agota. El encargado lo revisa."
+    );
+    expect(stockSavedReply(different, "86", ["tomate"], "")).toBe(
+      "✅ Anoté en Casa Centro › Roma Norte: se agotó tomate. Lo ves en Cocina › Se agota. El encargado lo revisa."
+    );
   });
 });

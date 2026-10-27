@@ -19,6 +19,7 @@ import {
 } from "@/components/restaurant/menu/estimate-overlay";
 import { useToast } from "@/components/ui/use-toast";
 import { PrimaryBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const UNIT_LABEL: Record<string, string> = {
   g: "g",
@@ -83,7 +84,9 @@ export function EstimatePanel({
         applied?: number;
       };
       if (!res.ok) {
-        setNote(json.error ?? "No pude usar el estimado como borrador.");
+        setNote(
+          userErrorMessage(json, "No pude usar el estimado como borrador.")
+        );
         return;
       }
       // The counts «Estimar con Milton» shows just changed.

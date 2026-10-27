@@ -49,7 +49,10 @@ export async function POST(
     .eq("id", draftId)
     .maybeSingle();
   if (!draft || draft.company_id !== auth.companyId) {
-    return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No encontré el borrador." },
+      { status: 404 }
+    );
   }
 
   const { data: updated, error: updateError } = await admin
@@ -66,14 +69,14 @@ export async function POST(
   if (updateError) {
     console.error("[reject] update failed");
     return NextResponse.json(
-      { error: "Could not reject draft" },
+      { error: "No pude rechazar el borrador." },
       { status: 500 }
     );
   }
 
   if (!updated) {
     return NextResponse.json(
-      { error: "Draft not found or not in rejectable status" },
+      { error: "Ese borrador ya no se puede rechazar." },
       { status: 404 }
     );
   }

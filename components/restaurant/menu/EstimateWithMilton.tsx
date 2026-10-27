@@ -24,6 +24,7 @@ import {
   ESTIMATE_UNAVAILABLE,
 } from "./estimate-overlay";
 
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   invalidateEstimateProbe,
   loadEstimateProbe,
@@ -107,7 +108,8 @@ export function useEstimateRun({
           });
           status = res.status;
           json = (await res.json().catch(() => ({}))) as ChunkResponse;
-          if (!res.ok) throw new Error(json.error ?? "No pude estimar.");
+          if (!res.ok)
+            throw new Error(userErrorMessage(json, "No pude estimar."));
         } catch {
           if (status === 503) {
             note = ESTIMATE_MISSING_TABLE;

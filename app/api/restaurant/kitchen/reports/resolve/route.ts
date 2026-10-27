@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El cuerpo tiene que ser JSON." },
+        { status: 400 }
+      );
     }
     const ids = Array.isArray(body.ids)
       ? body.ids.filter(
@@ -32,7 +35,10 @@ export async function POST(req: NextRequest) {
         )
       : [];
     if (ids.length === 0) {
-      return NextResponse.json({ error: "Invalid ids" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Los identificadores no son válidos." },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await createAdminClient()
@@ -48,7 +54,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[kitchen-reports] resolve failed:", error.message);
       return NextResponse.json(
-        { error: "Could not resolve the report" },
+        { error: "No pude resolver el aviso." },
         { status: 500 }
       );
     }
@@ -59,7 +65,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not resolve the report" },
+      { error: "No pude resolver el aviso." },
       { status: 500 }
     );
   }

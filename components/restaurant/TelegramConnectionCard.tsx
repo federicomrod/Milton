@@ -35,6 +35,7 @@ import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Send, MessageCircle, RefreshCw, CheckCircle2 } from "lucide-react";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface ConnectionStatus {
   connected: boolean;
@@ -101,7 +102,7 @@ export function TelegramConnectionCard() {
       if (!res.ok) {
         if (!silent) {
           setStatusError(
-            (json.error as string) || "No se pudo cargar el estado de Telegram."
+            userErrorMessage(json, "No se pudo cargar el estado de Telegram.")
           );
         }
         return;
@@ -150,8 +151,10 @@ export function TelegramConnectionCard() {
       const json = await parseJsonSafely(res);
       if (!res.ok) {
         setPairingError(
-          (json.error as string) ||
+          userErrorMessage(
+            json,
             "No se pudo empezar el emparejamiento de Telegram."
+          )
         );
         // The company may already be connected on the server (e.g. a
         // second tab completed pairing first) — re-check rather than
@@ -188,9 +191,10 @@ export function TelegramConnectionCard() {
       if (!res.ok) {
         setSendFeedback({
           kind: "error",
-          message:
-            (json.error as string) ||
-            "No se pudo enviar el briefing de prueba. Inténtalo de nuevo.",
+          message: userErrorMessage(
+            json,
+            "No se pudo enviar el briefing de prueba. Inténtalo de nuevo."
+          ),
         });
         return;
       }

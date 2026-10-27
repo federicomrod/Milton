@@ -23,6 +23,7 @@ import {
 } from "@/lib/restaurant/objetivos";
 import type { ObjetivosReferences } from "@/lib/restaurant/objetivos-references";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
@@ -221,7 +222,9 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok)
-        throw new Error(json.error ?? "No pude guardar los objetivos.");
+        throw new Error(
+          userErrorMessage(json, "No pude guardar los objetivos.")
+        );
       setStatus({
         kind: "ok",
         message: `Objetivos guardados. Vigentes desde ${startLabel.split(" · ")[0]} — ya se ven en el Cockpit.`,

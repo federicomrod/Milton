@@ -31,6 +31,7 @@ import {
   emptyLineCounts,
   type InvoiceLinePreviewRow,
 } from "@/lib/restaurant/invoice-list-preview";
+import { isPurchaseInvoice } from "@/lib/restaurant/price-update-note";
 import {
   isInvoiceStatus,
   type SupplierInvoice,
@@ -70,14 +71,26 @@ export async function GET(req: NextRequest) {
   if (statusFilter && isInvoiceStatus(statusFilter)) {
     query = query.eq("status", statusFilter);
   }
-  const { data: invoices, error } = await query;
+  const { data: allInvoices, error } = await query;
   if (error) {
     console.error("[invoices GET]", error.message);
     return NextResponse.json(
-      { error: "Read failed", details: error.message },
+      { error: "No pude leer.", details: error.message },
       { status: 500 }
     );
   }
+
+  // A posted / rejected Telegram price update is not a purchase and is not
+  // listed (same rule as the Compras tab; price-update-refs.ts). A pending one
+  // stays: that is where a person approves it.
+  const invoices = (allInvoices ?? []).filter((i) => {
+    const inv = i as SupplierInvoice;
+    return (
+      isPurchaseInvoice(inv) ||
+      inv.status === "draft" ||
+      inv.status === "needs_review"
+    );
+  });
 
   // Pull aggregated line counts in one round-trip so the list can show
   // "matched / total" progress without a per-row query.
@@ -175,7 +188,10 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: "El cuerpo tiene que ser JSON." },
+      { status: 400 }
+    );
   }
 
   const invoiceDate =
@@ -184,7 +200,7 @@ export async function POST(req: NextRequest) {
       : null;
   if (!invoiceDate) {
     return NextResponse.json(
-      { error: "invoice_date is required (YYYY-MM-DD)" },
+      { error: "Falta la fecha de la factura (AAAA-MM-DD)." },
       { status: 400 }
     );
   }
@@ -217,7 +233,7 @@ export async function POST(req: NextRequest) {
       if (createErr || !created) {
         return NextResponse.json(
           {
-            error: "Could not create supplier",
+            error: "No pude crear el proveedor.",
             details: createErr?.message,
           },
           { status: 500 }
@@ -261,7 +277,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (invErr || !invoice) {
     return NextResponse.json(
-      { error: "Could not create invoice", details: invErr?.message },
+      { error: "No pude crear la factura.", details: invErr?.message },
       { status: 500 }
     );
   }

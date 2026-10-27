@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fmtMoney } from "@/components/restaurant/InvoicesPage";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -192,7 +193,10 @@ function SupplierCard({
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           setArchiveError(
-            typeof body?.error === "string" ? body.error : `HTTP ${res.status}`
+            userErrorMessage(
+              body,
+              "No pude archivar el proveedor. Inténtalo de nuevo."
+            )
           );
           return;
         }
@@ -364,7 +368,10 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           setError(
-            typeof body?.error === "string" ? body.error : `HTTP ${res.status}`
+            userErrorMessage(
+              body,
+              "No pude guardar el proveedor. Inténtalo de nuevo."
+            )
           );
           return;
         }

@@ -14,7 +14,8 @@ type Op =
   | { type: "or"; expr: string }
   | { type: "not"; col: string; op: string; val: unknown }
   | { type: "contains"; col: string; val: unknown[] }
-  | { type: "ilike"; col: string; val: string };
+  | { type: "ilike"; col: string; val: string }
+  | { type: "like"; col: string; val: string };
 
 /** A PostgREST filter list: "a.eq.1,and(b.is.null,c.lt.2)" (comma = OR). */
 function splitTop(expr: string): string[] {
@@ -70,6 +71,19 @@ function matches(row: Row, ops: Op[]) {
         .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
         .replace(/%/g, ".*");
       return new RegExp(`^${pattern}$`, "i").test(String(row[op.col] ?? ""));
+    }
+    if (op.type === "like") {
+      // Case-sensitive SQL LIKE: % = any run, \\% / \\_ / \\\\ = literal.
+      let re = "";
+      for (let i = 0; i < op.val.length; i++) {
+        const ch = op.val[i];
+        if (ch === "\\" && i + 1 < op.val.length) {
+          re += op.val[++i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        } else if (ch === "%") re += ".*";
+        else if (ch === "_") re += ".";
+        else re += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+      return new RegExp(`^${re}$`, "s").test(String(row[op.col] ?? ""));
     }
     if (op.type === "contains") {
       const cell = row[op.col];
@@ -218,6 +232,10 @@ export function makeFakeDb(store: FakeStore, options: FakeDbOptions = {}) {
       ),
       ilike: (col: string, val: string) => (
         ops.push({ type: "ilike", col, val }),
+        self
+      ),
+      like: (col: string, val: string) => (
+        ops.push({ type: "like", col, val }),
         self
       ),
       contains: (col: string, val: unknown[]) => (

@@ -43,7 +43,7 @@ export const COST_RESET_STEP_LABELS: Record<CostResetStepId, string> = {
   component_recipes: "recetas de preparación y sus versiones",
   prepared_components: "preparaciones",
   import_pos_mappings: "vínculos POS importados",
-  costing_menu_items: "platillos creados al costear",
+  costing_menu_items: "platos creados al costear",
   ingredient_aliases: "nombres recordados",
   ingredient_cost_entries: "costos",
   supplier_ingredients: "vínculos de proveedor",
@@ -64,7 +64,7 @@ export const RESET_CONFIRM_SINGLE_ERROR_ES =
 export const RESET_CONFIRM_MULTI_ERROR_ES =
   "Escribe el nombre de la cuenta o el de todos los restaurantes para confirmar.";
 export const RESET_SALES_LINKS_NOTE_ES =
-  "Se pierden los vínculos entre las ventas y los platillos borrados; los totales de ingresos no cambian. Los platillos que creaste a mano se quedan como un cascarón vacío, sin receta.";
+  "Se pierden los vínculos entre las ventas y los platos borrados; los totales de ingresos no cambian. Los platos que creaste a mano se quedan como un cascarón vacío, sin receta.";
 
 export interface CostResetConfirmTarget {
   companyName: string | null;

@@ -54,6 +54,7 @@ import {
 } from "@/lib/restaurant/recipe-upload/marker";
 import { draftSourceLabel } from "@/lib/restaurant/kitchen-draft-source";
 import { KITCHEN_RECIPES_PREVIEW } from "@/lib/restaurant/kitchen-explore";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface DraftLine {
   id: string;
@@ -471,7 +472,7 @@ export function KitchenRecipeDraftsCard({
       if (!res.ok) {
         setModalMessage({
           kind: "error",
-          text: data.error ?? "No se pudo guardar el borrador.",
+          text: userErrorMessage(data, "No se pudo guardar el borrador."),
         });
         return false;
       }
@@ -554,7 +555,7 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json().catch(() => ({}));
       setModalMessage({
         kind: "error",
-        text: data.error ?? "No se pudo confirmar.",
+        text: userErrorMessage(data, "No se pudo confirmar."),
       });
     }
   };
@@ -642,7 +643,10 @@ export function KitchenRecipeDraftsCard({
     if (res.status === 409 && json.existing) {
       return { ok: false, similar: json.existing };
     }
-    return { ok: false, error: json.error };
+    return {
+      ok: false,
+      error: userErrorMessage(json, "No pude crear el ingrediente."),
+    };
   };
 
   const updateLineQuantity = (index: number, quantity: number | null) => {

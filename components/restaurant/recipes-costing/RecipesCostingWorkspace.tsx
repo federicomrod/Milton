@@ -49,6 +49,7 @@ import { PlatoScreen } from "./PlatoScreen";
 import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 type WorkspaceTab = "resumen" | "plato" | "preparaciones";
 
@@ -437,7 +438,7 @@ export function RecipesCostingWorkspace({
       body: JSON.stringify(body),
     });
     const json = (await res.json()) as { error?: string };
-    if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
+    if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
   }
 
   const postAndReload = (url: string, body: Record<string, unknown>) =>

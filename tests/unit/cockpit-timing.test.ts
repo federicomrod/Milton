@@ -51,7 +51,7 @@ describe("cockpit timing (#134)", () => {
     );
     expect(menu).toContain("loadMenuAreaModel");
     expect(costs).toMatch(/timeCockpitStep\(\s*"costs-route"/);
-    expect(proxy).toContain('console.info("[cockpit-timing] proxy"');
+    expect(proxy).not.toContain('console.info("[cockpit-timing] proxy"');
     expect(proxy).toContain("Server-Timing");
     expect(read("instrumentation.ts")).toContain("installCockpitServerTiming");
   });

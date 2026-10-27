@@ -69,17 +69,20 @@ export async function POST(
     .maybeSingle();
   if (invErr) {
     return NextResponse.json(
-      { error: "Invoice lookup failed", details: invErr.message },
+      { error: "No pude cargar la factura.", details: invErr.message },
       { status: 500 }
     );
   }
   if (!invRow) {
-    return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "No encontré la factura." },
+      { status: 404 }
+    );
   }
   const invoice = invRow as SupplierInvoice;
   if (invoice.status === "posted") {
     return NextResponse.json(
-      { error: "Invoice is already posted." },
+      { error: "Esta factura ya está registrada." },
       { status: 409 }
     );
   }
@@ -110,7 +113,7 @@ export async function POST(
   ]);
   if (linesRes.error) {
     return NextResponse.json(
-      { error: "Line lookup failed", details: linesRes.error.message },
+      { error: "No pude cargar las líneas.", details: linesRes.error.message },
       { status: 500 }
     );
   }
@@ -243,7 +246,7 @@ export async function POST(
   if (inserts.length === 0) {
     return NextResponse.json(
       {
-        error: "No postable lines remained after unit conversion checks.",
+        error: "No quedaron líneas listas para registrar.",
         skipped_lines: skipped,
       },
       { status: 400 }
@@ -259,7 +262,7 @@ export async function POST(
     console.error("[invoices/approve] cost entry insert:", insErr.message);
     return NextResponse.json(
       {
-        error: "Could not write ingredient_cost_entries",
+        error: "No pude guardar los costos.",
         details: insErr.message,
       },
       { status: 500 }
@@ -351,7 +354,6 @@ export async function POST(
     posted_lines: insertedCount,
     skipped_lines: skipped,
     /** CTA copy for the UI. */
-    next_steps:
-      "Invoice posted. Run Supplier Agent and Recipe & Margin Agent to detect price and margin changes.",
+    next_steps: "Factura registrada. Los precios nuevos ya están en Costos.",
   });
 }

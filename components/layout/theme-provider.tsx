@@ -1,39 +1,43 @@
 "use client";
 
 import { useEffect } from "react";
-import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
+import {
+  THEME_EVENT,
+  THEME_STORAGE_KEY,
+  applyThemeClass,
+  normalizeTheme,
+  readStoredTheme,
+} from "@/lib/theme";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const { prefs } = useUserPreferences();
-
   useEffect(() => {
-    const root = window.document.documentElement;
+    const sync = (value?: string | null) => {
+      applyThemeClass(
+        value == null || value === ""
+          ? readStoredTheme()
+          : normalizeTheme(value)
+      );
+    };
+    sync();
 
-    // Remove existing theme classes
-    root.classList.remove("light", "dark");
+    const onCustom = (event: Event) => {
+      sync((event as CustomEvent<string>).detail);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === THEME_STORAGE_KEY) sync(event.newValue);
+    };
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onSystem = () => sync();
 
-    if (prefs.theme === "system") {
-      // Use system preference
-      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-        .matches
-        ? "dark"
-        : "light";
-      root.classList.add(systemTheme);
-
-      // Listen for system theme changes
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const handleChange = (e: MediaQueryListEvent) => {
-        root.classList.remove("light", "dark");
-        root.classList.add(e.matches ? "dark" : "light");
-      };
-
-      mediaQuery.addEventListener("change", handleChange);
-      return () => mediaQuery.removeEventListener("change", handleChange);
-    } else {
-      // Use user preference
-      root.classList.add(prefs.theme);
-    }
-  }, [prefs.theme]);
+    window.addEventListener(THEME_EVENT, onCustom);
+    window.addEventListener("storage", onStorage);
+    mediaQuery.addEventListener("change", onSystem);
+    return () => {
+      window.removeEventListener(THEME_EVENT, onCustom);
+      window.removeEventListener("storage", onStorage);
+      mediaQuery.removeEventListener("change", onSystem);
+    };
+  }, []);
 
   return <>{children}</>;
 }

@@ -47,7 +47,7 @@ export async function GET() {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not load kitchen QR status" },
+      { error: "No pude cargar el QR de cocina." },
       { status: 500 }
     );
   }
@@ -67,14 +67,17 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El cuerpo tiene que ser JSON." },
+        { status: 400 }
+      );
     }
     if (
       typeof body.location_id !== "string" ||
       !UUID_RE.test(body.location_id)
     ) {
       return NextResponse.json(
-        { error: "Invalid location_id" },
+        { error: "El restaurante no es válido." },
         { status: 400 }
       );
     }
@@ -86,7 +89,7 @@ export async function POST(req: NextRequest) {
     );
     if (!result.ok) {
       return NextResponse.json(
-        { error: "Location not found" },
+        { error: "No encontré ese restaurante." },
         { status: 404 }
       );
     }
@@ -101,7 +104,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not create the QR" },
+      { error: "No pude crear el QR." },
       { status: 500 }
     );
   }

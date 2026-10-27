@@ -37,6 +37,7 @@ import {
 } from "@/lib/restaurant/ingredient-usage";
 import type { IngredientUseEntry } from "@/lib/restaurant/ingredient-uses";
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   PRICE_SOURCE_LABEL,
   parsePriceInput,
@@ -220,7 +221,7 @@ export function IngredientesScreen({
         error?: string;
         skipped?: string[];
       };
-      if (!res.ok) throw new Error(json.error ?? "No pude archivar.");
+      if (!res.ok) throw new Error(userErrorMessage(json, "No pude archivar."));
       const done = new Set(ids.filter((id) => !json.skipped?.includes(id)));
       setItems((prev) =>
         prev.map((i) => (done.has(i.id) ? { ...i, archived } : i))

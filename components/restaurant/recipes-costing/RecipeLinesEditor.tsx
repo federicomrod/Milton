@@ -81,6 +81,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { sameUnit } from "@/lib/restaurant/units";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const MASS = ["oz", "lb", "g", "kg"];
 /** "Ninguna / Pendiente": none of the readings is right. */
@@ -181,7 +182,7 @@ async function call(
     if (!res.ok) {
       return {
         ok: false,
-        error: json.error ?? "No pude guardar el cambio.",
+        error: userErrorMessage(json, "No pude guardar el cambio."),
         conversion: json.conversion,
       };
     }

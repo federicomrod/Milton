@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   MAX_RESTAURANT_NAME,
   validateRestaurantName,
@@ -92,7 +93,7 @@ function Row({
         body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
+      if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
       setNote({ ok: true, text: done });
       onSaved();
     } catch (e) {

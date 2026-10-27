@@ -28,6 +28,7 @@ import {
   type SortColumn,
 } from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
 const UNIT_LABEL: Record<string, string> = {
@@ -126,7 +127,9 @@ export function PreparacionesScreen({
       error?: string;
     };
     if (!res.ok)
-      throw new Error(json.error ?? "No pude cargar las preparaciones.");
+      throw new Error(
+        userErrorMessage(json, "No pude cargar las preparaciones.")
+      );
     return json;
   }, [locationId]);
 
@@ -409,7 +412,7 @@ function PreparationDetail({
         body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error ?? "No pude guardar.");
+      if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
       // Yield changed the version: reload this editor once.
       setLocalReload((k) => k + 1);
       onChanged();
@@ -439,7 +442,7 @@ function PreparationDetail({
       const json = (await res.json().catch(() => ({}))) as EditorState & {
         error?: string;
       };
-      if (!res.ok) throw new Error(json.error ?? "No pude aprobar.");
+      if (!res.ok) throw new Error(userErrorMessage(json, "No pude aprobar."));
       // The server's locked copy is what this preparation shows from now on;
       // dishes that use it, and the other Menú tabs, have new numbers.
       clearEditors();

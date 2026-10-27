@@ -12,7 +12,7 @@
 // just added, then refreshes the router so the sidebar's location list
 // picks up the new entry.
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -40,15 +40,19 @@ import {
   type ConceptType,
   type PosSystemChoice,
 } from "@/lib/restaurant/onboarding-copy";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface AddRestaurantDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  lang: PreferredLanguage;
 }
 
 export function AddRestaurantDialog({
   open,
   onOpenChange,
+  lang,
 }: AddRestaurantDialogProps) {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -59,6 +63,11 @@ export function AddRestaurantDialog({
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = name.trim().length > 0 && !submitting;
+  const submitFallback = t(
+    lang,
+    "Could not add the restaurant. Please try again.",
+    "No se pudo agregar el restaurante. Inténtalo de nuevo."
+  );
 
   function resetAndClose(nextOpen: boolean) {
     if (!nextOpen && !submitting) {
@@ -81,9 +90,9 @@ export function AddRestaurantDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, conceptType, country, posSystem }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.success) {
-        setError(json.error || "Could not add restaurant. Please try again.");
+        setError(userErrorMessage(json, submitFallback));
         setSubmitting(false);
         return;
       }
@@ -93,100 +102,126 @@ export function AddRestaurantDialog({
       }
       router.refresh();
     } catch {
-      setError("Could not add restaurant. Please try again.");
+      setError(submitFallback);
       setSubmitting(false);
     }
+  }
+
+  function onFormSubmit(e: FormEvent) {
+    e.preventDefault();
+    void handleSubmit();
   }
 
   return (
     <Dialog open={open} onOpenChange={resetAndClose}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Add a restaurant</DialogTitle>
-          <DialogDescription>
-            Add another restaurant to your account. You can switch between them
-            any time.
-          </DialogDescription>
-        </DialogHeader>
+        <form onSubmit={onFormSubmit}>
+          <DialogHeader>
+            <DialogTitle>
+              {t(lang, "Add a restaurant", "Agregar restaurante")}
+            </DialogTitle>
+            <DialogDescription>
+              {t(
+                lang,
+                "Add another restaurant to your account. You can switch between them any time.",
+                "Agrega otro restaurante a tu cuenta. Puedes cambiar entre ellos cuando quieras."
+              )}
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-5 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="add-restaurant-name">Restaurant name</Label>
-            <Input
-              id="add-restaurant-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Pinche Gringo Reforma"
-              maxLength={120}
-              autoFocus
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>What best describes it?</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {CONCEPT_TYPE_OPTIONS.map((opt) => (
-                <SelectableCard
-                  key={opt.value}
-                  label={opt.label}
-                  selected={conceptType === opt.value}
-                  onClick={() => setConceptType(opt.value)}
-                  className="min-h-[64px] px-2 py-3"
-                />
-              ))}
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="add-restaurant-name">
+                {t(lang, "Restaurant name", "Nombre del restaurante")}
+              </Label>
+              <Input
+                id="add-restaurant-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t(lang, "e.g. Casa Centro", "ej. Casa Centro")}
+                maxLength={120}
+                autoFocus
+              />
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label>Country</Label>
-            <Select
-              value={country ?? undefined}
-              onValueChange={(v) => setCountry(v)}
-            >
-              <SelectTrigger className="h-11 w-full">
-                <SelectValue placeholder="Select a country" />
-              </SelectTrigger>
-              <SelectContent>
-                {COUNTRY_OPTIONS.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>
-                    {c.label}
-                  </SelectItem>
+            <div className="space-y-2">
+              <Label>
+                {t(lang, "What best describes it?", "¿Qué lo describe mejor?")}
+              </Label>
+              <div className="grid grid-cols-3 gap-2">
+                {CONCEPT_TYPE_OPTIONS.map((opt) => (
+                  <SelectableCard
+                    key={opt.value}
+                    label={opt.label}
+                    selected={conceptType === opt.value}
+                    onClick={() => setConceptType(opt.value)}
+                    className="min-h-[64px] px-2 py-3"
+                  />
                 ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>POS system</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {POS_SYSTEM_OPTIONS.map((opt) => (
-                <SelectableCard
-                  key={opt.value}
-                  label={opt.label}
-                  selected={posSystem === opt.value}
-                  onClick={() => setPosSystem(opt.value)}
-                  className="min-h-[64px] px-2 py-3"
-                />
-              ))}
+              </div>
             </div>
+
+            <div className="space-y-2">
+              <Label>{t(lang, "Country", "País")}</Label>
+              <Select
+                value={country ?? undefined}
+                onValueChange={(v) => setCountry(v)}
+              >
+                <SelectTrigger className="h-11 w-full">
+                  <SelectValue
+                    placeholder={t(lang, "Select a country", "Elige un país")}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {COUNTRY_OPTIONS.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>
+                {t(lang, "POS system", "Sistema de punto de venta")}
+              </Label>
+              <div className="grid grid-cols-3 gap-2">
+                {POS_SYSTEM_OPTIONS.map((opt) => (
+                  <SelectableCard
+                    key={opt.value}
+                    label={opt.label}
+                    selected={posSystem === opt.value}
+                    onClick={() => setPosSystem(opt.value)}
+                    className="min-h-[64px] px-2 py-3"
+                  />
+                ))}
+              </div>
+            </div>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => resetAndClose(false)}
-            disabled={submitting}
-          >
-            Cancel
-          </Button>
-          <Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-            {submitting ? "Adding..." : "Add restaurant"}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => resetAndClose(false)}
+              disabled={submitting}
+            >
+              {t(lang, "Cancel", "Cancelar")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={!canSubmit}
+              className="bg-[#1B40C8] text-white hover:bg-[#1533A3]"
+            >
+              {submitting
+                ? t(lang, "Adding…", "Agregando…")
+                : t(lang, "Add restaurant", "Agregar restaurante")}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

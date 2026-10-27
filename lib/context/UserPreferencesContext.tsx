@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useUser } from "@/lib/context/UserContext";
+import { persistTheme } from "@/lib/theme";
 
 interface UserPreferences {
   currency: string;
@@ -68,13 +69,14 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
           timezone: data.timezone || prev.timezone,
           theme: data.theme || prev.theme,
         }));
+        persistTheme(data.theme || "light");
       }
     } catch (error) {
       console.error("Failed to fetch preferences:", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     fetchPrefs();
@@ -104,6 +106,7 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
               timezone: payload.new.timezone || prev.timezone,
               theme: payload.new.theme || prev.theme,
             }));
+            persistTheme(payload.new.theme || "light");
           }
         }
       )
@@ -114,9 +117,19 @@ export function UserPreferencesProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchPrefs, user]);
 
+  const updatePrefs = useCallback((next: UserPreferences) => {
+    setPrefs(next);
+    persistTheme(next.theme);
+  }, []);
+
   return (
     <UserPreferencesContext.Provider
-      value={{ prefs, setPrefs, refreshPrefs: fetchPrefs, loading }}
+      value={{
+        prefs,
+        setPrefs: updatePrefs,
+        refreshPrefs: fetchPrefs,
+        loading,
+      }}
     >
       {children}
     </UserPreferencesContext.Provider>

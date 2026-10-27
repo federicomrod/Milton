@@ -5,6 +5,7 @@ import { formatResetPartialFailureEs } from "@/lib/restaurant/cost-workbook/rese
 import type { CostResetStepResult } from "@/lib/restaurant/cost-workbook/types";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import { Card, GhostBtn } from "./ui";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 /**
  * "Empezar de nuevo": a destructive, owner/admin-only action that clears
@@ -51,7 +52,7 @@ export function ResetPanel({
         setError(
           json.steps?.length
             ? formatResetPartialFailureEs(json.steps)
-            : (json.error ?? "No se pudo empezar de nuevo.")
+            : userErrorMessage(json, "No se pudo empezar de nuevo.")
         );
       } else {
         setDone(true);
@@ -91,12 +92,12 @@ export function ResetPanel({
             <b>Se borra:</b> ingredientes y precios, preparaciones, recetas y
             todas sus versiones (también las aprobadas), los vínculos y
             tratamientos de los productos del POS, los nombres recordados, las
-            filas por revisar y los platillos que creó el costeo. Tus cargas
-            quedan archivadas y no se vuelven a usar.
+            filas por revisar y los platos que creó el costeo. Tus cargas quedan
+            archivadas y no se vuelven a usar.
           </p>
           <p>
             <b>No se toca:</b> las ventas del POS, la conexión con Odoo ni los
-            platillos que no creó el costeo.
+            platos que no creó el costeo.
           </p>
           {reset.warning ? (
             <p className="font-semibold text-[#c03535]">{reset.warning}</p>

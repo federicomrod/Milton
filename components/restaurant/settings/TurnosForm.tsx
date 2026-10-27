@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from "react";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { useRouter } from "next/navigation";
+import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   ALL_WEEKDAYS,
   crossingCutoff,
@@ -131,7 +132,8 @@ export function TurnosForm(props: TurnosFormProps) {
         error?: string;
         cutoff?: string;
       };
-      if (!res.ok) throw new Error(json.error ?? "No pude guardar los turnos.");
+      if (!res.ok)
+        throw new Error(userErrorMessage(json, "No pude guardar los turnos."));
       setStatus({
         kind: "ok",
         message: `Turnos guardados. El día de ventas termina a las ${json.cutoff ?? minutesToTime(cutoff)}; Ventas y Cockpit ya los usan.`,

@@ -59,10 +59,11 @@ describe("the old top navigation is gone", () => {
       false
     );
   });
-  it("the legacy chat bubble is not drawn on those pages either", () => {
+  it("the legacy dashboard wrapper is a passthrough (no chat bubble)", () => {
     const layout = read("app/dashboard/layout.tsx");
-    expect(layout).toContain('pathname?.startsWith("/dashboard/account")');
-    expect(layout).toContain("{!isChatOpen && !onRestaurant && (");
+    expect(layout).not.toContain('"use client"');
+    expect(layout).not.toContain("miltonchat");
+    expect(layout).toContain("return children");
   });
 });
 

@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json(
         {
-          error: "Company not found for user",
+          error: "No encontré la empresa.",
           message:
             "No company could be resolved via created_by, profiles.id, profiles.user_id, or company_memberships. " +
             "Ensure the user is linked to a company in at least one of these tables.",
@@ -179,14 +179,17 @@ export async function POST(req: NextRequest) {
     const replaceExisting =
       replaceRaw === "true" || replaceRaw === "1" || replaceRaw === "on";
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+      return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
     }
     if (file.size === 0) {
-      return NextResponse.json({ error: "Empty file" }, { status: 400 });
+      return NextResponse.json(
+        { error: "El archivo está vacío." },
+        { status: 400 }
+      );
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: `File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB)` },
+        { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
         { status: 400 }
       );
     }
@@ -210,7 +213,7 @@ export async function POST(req: NextRequest) {
       const lines = text.split("\n").filter((l) => l.trim().length > 0);
       if (lines.length < 2) {
         return NextResponse.json(
-          { error: "File contains no data rows" },
+          { error: "El archivo está vacío." },
           { status: 400 }
         );
       }
@@ -236,7 +239,7 @@ export async function POST(req: NextRequest) {
       const sheetName = workbook.SheetNames[0];
       if (!sheetName) {
         return NextResponse.json(
-          { error: "File contains no sheets" },
+          { error: "El archivo no tiene hojas." },
           { status: 400 }
         );
       }
@@ -250,7 +253,7 @@ export async function POST(req: NextRequest) {
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: "File contains no data rows" },
+        { error: "El archivo está vacío." },
         { status: 400 }
       );
     }
@@ -260,7 +263,7 @@ export async function POST(req: NextRequest) {
     if (!colCheck.ok) {
       return NextResponse.json(
         {
-          error: "Missing required columns",
+          error: "Faltan columnas obligatorias.",
           missing: colCheck.missingRequired,
           headers,
         },
@@ -362,7 +365,7 @@ export async function POST(req: NextRequest) {
     if (inserts.length === 0) {
       return NextResponse.json(
         {
-          error: "No valid rows to insert",
+          error: "No hay filas válidas para guardar.",
           validation_errors,
         },
         { status: 400 }
@@ -399,7 +402,7 @@ export async function POST(req: NextRequest) {
         );
         return NextResponse.json(
           {
-            error: "Could not replace existing rows",
+            error: "No pude reemplazar las filas existentes.",
             details: delError.message,
           },
           { status: 500 }
@@ -423,7 +426,7 @@ export async function POST(req: NextRequest) {
         console.error("[POS Upload] insert failed:", insertError.message);
         return NextResponse.json(
           {
-            error: "Database insert failed",
+            error: "No pude guardar las filas.",
             details: insertError.message,
             inserted_before_failure: inserted,
             deleted_rows: deletedRows,
@@ -462,7 +465,7 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[POS Upload] Unexpected error:", message);
     return NextResponse.json(
-      { error: "Upload failed", details: message },
+      { error: "No se pudo subir el archivo.", details: message },
       { status: 500 }
     );
   }

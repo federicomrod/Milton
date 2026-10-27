@@ -6,7 +6,7 @@
 
 const SPANISH_MARK = /[áéíóúüñÁÉÍÓÚÜÑ¿¡]/;
 const SPANISH_WORD =
-  /\b(pude|pudo|puedo|factura|facturas|archivo|inténtalo|intenta|guardar|encontré|cuerpo|plato|platos|receta|recetas|sube|falta|indica|elige|restaurante|tiene|línea|líneas|vacío|ingrediente|proveedor|menú|costo|costos|no se|no pude|no encontré)\b/i;
+  /\b(pud[eo]|pued[eoa]n?s?|tienes?|factura[s]?|archivo[s]?|inténtalo|intenta|guardar|encontré|cuerpo|platos?|recetas?|sube|falta|indica|elige|restaurante|líneas?|vacío|ingredientes?|proveedor(?:es)?|menú|costos?|permiso|cambiar|precios?|rol|familias?|unidades?|distintas?|esto|para|son|no se|no pude|no encontré)\b/i;
 
 function looksSpanish(text: string): boolean {
   return SPANISH_MARK.test(text) || SPANISH_WORD.test(text);

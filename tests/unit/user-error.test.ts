@@ -20,6 +20,21 @@ describe("userErrorMessage", () => {
     expect(userErrorMessage({ error: "Sube un archivo." }, FALLBACK)).toBe(
       "Sube un archivo."
     );
+    expect(
+      userErrorMessage(
+        { error: "Los ingredientes son de familias de unidad distintas." },
+        FALLBACK
+      )
+    ).toBe("Los ingredientes son de familias de unidad distintas.");
+    expect(
+      userErrorMessage({ error: "Tu rol no puede cambiar precios." }, FALLBACK)
+    ).toBe("Tu rol no puede cambiar precios.");
+    expect(
+      userErrorMessage(
+        { error: "No tienes permiso para cambiar esto." },
+        FALLBACK
+      )
+    ).toBe("No tienes permiso para cambiar esto.");
   });
 
   it("returns the fallback for English errors", () => {

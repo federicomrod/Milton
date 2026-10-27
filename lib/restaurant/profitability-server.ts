@@ -156,7 +156,6 @@ export interface SetupCounts {
   mappings_count: number;
   recipe_inputs_count: number;
   supplier_invoices_count: number;
-  agent_runs_count: number;
   ingredients_count: number;
 }
 
@@ -442,7 +441,6 @@ export async function fetchProfitabilityData(
     suppliersRes,
     supplierIngredientsRes,
     supplierInvoicesCountRes,
-    agentRunsCountRes,
     priceUpdateRefs,
   ] = await Promise.all([
     loadPos(),
@@ -585,10 +583,6 @@ export async function fetchProfitabilityData(
       .from("supplier_invoices")
       .select("*", { count: "exact", head: true })
       .eq("company_id", companyId),
-    supabase
-      .from("agent_runs")
-      .select("*", { count: "exact", head: true })
-      .eq("company_id", companyId),
     // A Telegram price update is a price, not a purchase (#313): its ids are
     // excluded from every purchase total / count below (price-update-refs.ts).
     loadPriceUpdateRefs(supabase, companyId),
@@ -614,7 +608,6 @@ export async function fetchProfitabilityData(
   errLog("suppliers", suppliersRes.error);
   errLog("supplier_ingredients", supplierIngredientsRes.error);
   errLog("supplier_invoices_count", supplierInvoicesCountRes.error);
-  errLog("agent_runs_count", agentRunsCountRes.error);
   warnIfTruncated("profitability pos_sales_items", posRes);
   warnIfTruncated("profitability pos_item_mappings", mappingsRes);
   warnIfTruncated("profitability menu_recipe_inputs", recipeInputsRes);
@@ -1160,7 +1153,6 @@ export async function fetchProfitabilityData(
         : (supplierInvoicesCountRes.count ?? 0),
       priceUpdateRefs
     ),
-    agent_runs_count: agentRunsCountRes.count ?? 0,
     ingredients_count: ingredients.length,
   };
 

@@ -12,7 +12,15 @@ import {
   type SalesWeekdayBucket,
 } from "@/lib/restaurant/ask-milton-sales";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { dishFoodCostAnswer } from "@/lib/restaurant/ask-milton-dish-cost";
+import {
+  dishFoodCostAnswer,
+  rankDishesByFoodCost,
+} from "@/lib/restaurant/ask-milton-dish-cost";
+import {
+  listSize,
+  parseRequestedCount,
+} from "@/lib/restaurant/ask-milton-count";
+import { displayName } from "@/lib/restaurant/sentence-case";
 import {
   ASK_MILTON_MAX_FOLLOWUPS,
   ASK_MILTON_MAX_RELATED_LINKS,
@@ -223,6 +231,14 @@ export function buildAskMiltonUserPrompt(
     `detected_intent = ${JSON.stringify(intent)}`,
   ];
 
+  const requested = parseRequestedCount(message);
+  if (requested !== null) {
+    parts.push(
+      `requested_count = ${requested}`,
+      "The user asked for exactly that many items: list exactly that many (fewer only when the context has fewer, and say so)."
+    );
+  }
+
   if (
     resolved.resolved_ingredients.length > 0 ||
     resolved.resolved_menu_items.length > 0
@@ -339,9 +355,16 @@ function relatedLink(
 
 function mostProfitableAnswer(
   ctx: AskMiltonContext,
+  message: string,
   lang: PreferredLanguage
 ): AskMiltonAnswer {
+  // Same «aprobado»-only ranking as Menú › Resumen when it exists, so the
+  // best list never disagrees with the worst list or with Resumen.
+  if (rankDishesByFoodCost(ctx, 1, "best").ranked.length > 0) {
+    return dishFoodCostAnswer(ctx, lang, message, "best");
+  }
   const items = ctx.menu.most_profitable_items;
+  const extra = Math.max(0, listSize(message, 3) - 1);
   const c = ctx.briefing.currency;
 
   if (items.length === 0) {
@@ -359,8 +382,8 @@ function mostProfitableAnswer(
       suggested_followups: [
         t(
           lang,
-          "Which menu items have missing recipes?",
-          "¿Qué artículos del menú no tienen receta?"
+          "Which dishes have missing recipes?",
+          "¿Qué platos no tienen receta?"
         ),
         t(
           lang,
@@ -377,12 +400,12 @@ function mostProfitableAnswer(
   lines.push(
     t(
       lang,
-      `Your most profitable dish is ${top.name} at ${pct(top.gross_margin_pct)} gross margin` +
+      `Your most profitable dish is ${displayName(top.name)} at ${pct(top.gross_margin_pct)} gross margin` +
         (top.gross_profit_per_item !== null
           ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} profit per serving)`
           : "") +
         ".",
-      `Tu plato más rentable es ${top.name} con ${pct(top.gross_margin_pct)} de margen bruto` +
+      `Tu plato más rentable es ${displayName(top.name)} con ${pct(top.gross_margin_pct)} de margen bruto` +
         (top.gross_profit_per_item !== null
           ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} de utilidad por porción)`
           : "") +
@@ -393,19 +416,17 @@ function mostProfitableAnswer(
     lines.push(
       t(
         lang,
-        `Selling price: ${fmtCurrencyDec(top.selling_price, c)}, estimated food cost: ${fmtCurrencyDec(top.estimated_cost, c)}.`,
-        `Precio de venta: ${fmtCurrencyDec(top.selling_price, c)}, costo de alimentos estimado: ${fmtCurrencyDec(top.estimated_cost, c)}.`
+        `It sells for ${fmtCurrencyDec(top.selling_price, c)} and its ingredients cost ${fmtCurrencyDec(top.estimated_cost, c)}.`,
+        `Se vende en ${fmtCurrencyDec(top.selling_price, c)} y sus ingredientes cuestan ${fmtCurrencyDec(top.estimated_cost, c)}.`
       )
     );
   }
-  if (items.length > 1) {
+  if (items.length > 1 && extra > 0) {
     const runners = items
-      .slice(1, 3)
-      .map((i) => `${i.name} (${pct(i.gross_margin_pct)})`)
+      .slice(1, 1 + extra)
+      .map((i) => `${displayName(i.name)} (${pct(i.gross_margin_pct)})`)
       .join(", ");
-    lines.push(
-      t(lang, `Next best: ${runners}.`, `Los siguientes mejores: ${runners}.`)
-    );
+    lines.push(t(lang, `Then: ${runners}.`, `Le siguen: ${runners}.`));
   }
 
   const notes: string[] = [];
@@ -414,7 +435,7 @@ function mostProfitableAnswer(
       t(
         lang,
         `Cost coverage is ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes and ingredient costs appear in this list.`,
-        `La cobertura de costo es ${ctx.briefing.kpis.cost_coverage_pct}% — solo los artículos con recetas y costos de ingredientes completos aparecen en esta lista.`
+        `La cobertura de costo es ${ctx.briefing.kpis.cost_coverage_pct}% — solo los platos con receta y costos de ingredientes completos aparecen en esta lista.`
       )
     );
   }
@@ -472,8 +493,11 @@ function mostProfitableAnswer(
 //
 function expensiveIngredientsAnswer(
   ctx: AskMiltonContext,
+  message: string,
   lang: PreferredLanguage
 ): AskMiltonAnswer {
+  const requested = parseRequestedCount(message);
+  const size = requested ?? 5;
   const FOLLOWUPS = [
     t(
       lang,
@@ -504,25 +528,43 @@ function expensiveIngredientsAnswer(
   // ── Tier 0 (R1-16c): the latest confirmed prices, ranked ────────────────
   const prices = ctx.ingredient_prices;
   if (prices.top_by_unit_cost.length > 0) {
-    const top = prices.top_by_unit_cost.slice(0, 5);
+    const top = prices.top_by_unit_cost.slice(0, size);
     const money = (i: (typeof top)[number]) =>
       `${fmtCurrencyDec(i.price, i.currency)}/${i.unit}`;
     const line = (i: (typeof top)[number], idx: number) =>
-      `${idx + 1}. ${i.name} — ${money(i)}`;
+      `${idx + 1}. ${displayName(i.name)} — ${money(i)}`;
+    const n = top.length;
     const lines = [
-      t(
-        lang,
-        "The most expensive ingredients by latest price:",
-        "Los ingredientes más caros por su último precio:"
-      ),
+      requested !== null && n < requested
+        ? t(
+            lang,
+            `Only ${n} ingredients have a price so far:`,
+            `Por ahora solo ${n} ingredientes tienen precio:`
+          )
+        : n === 1
+          ? t(
+              lang,
+              "Your most expensive ingredient by latest price:",
+              "Tu ingrediente más caro por su último precio:"
+            )
+          : t(
+              lang,
+              `Your ${n} most expensive ingredients by latest price:`,
+              `Tus ${n} ingredientes más caros por su último precio:`
+            ),
       ...top.map(line),
     ];
     if (prices.unpriced_count > 0) {
       lines.push(
+        "",
         t(
           lang,
-          `${prices.unpriced_count} ingredients have no price yet (Sin precio).`,
-          `${prices.unpriced_count} ingredientes no tienen precio todavía (Sin precio).`
+          prices.unpriced_count === 1
+            ? "Note: 1 ingredient is still «Sin precio», so it isn't in this list."
+            : `Note: ${prices.unpriced_count} ingredients are still «Sin precio», so they aren't in this list.`,
+          prices.unpriced_count === 1
+            ? "Ojo: 1 ingrediente sigue «Sin precio», así que no entra en esta lista."
+            : `Ojo: ${prices.unpriced_count} ingredientes siguen «Sin precio», así que no entran en esta lista.`
         )
       );
     }
@@ -563,7 +605,7 @@ function expensiveIngredientsAnswer(
 
     if (items.length > 1) {
       const rest = items
-        .slice(1, 5)
+        .slice(1, size)
         .map(
           (i) =>
             `${i.name}: ${fmtCurrencyDec(i.unit_cost, i.currency)}/${i.unit}` +
@@ -606,7 +648,7 @@ function expensiveIngredientsAnswer(
   const usageWithCost = ctx.ingredient_usage
     .filter((u) => (u.unit_cost ?? 0) > 0)
     .sort((a, b) => (b.unit_cost ?? 0) - (a.unit_cost ?? 0))
-    .slice(0, 5);
+    .slice(0, size);
 
   if (usageWithCost.length > 0) {
     const c = ctx.briefing.currency;
@@ -724,7 +766,7 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `Cost coverage is ${b.kpis.cost_coverage_pct}% — add ingredient prices to see per-item cost drivers.`,
-          `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — agrega precios de ingredientes para ver los factores de costo por artículo.`
+          `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — agrega precios de ingredientes para ver qué pesa más en el costo de cada plato.`
         )
       );
     }
@@ -789,7 +831,7 @@ function expensiveIngredientsAnswer(
       t(
         lang,
         "Which menu items have missing recipes?",
-        "¿Qué artículos del menú no tienen receta?"
+        "¿Qué platos no tienen receta?"
       ),
     ],
     confidence_notes: [
@@ -1197,11 +1239,13 @@ function missingRecipesAnswer(
       t(
         lang,
         `${b.data_quality.menu_items_without_recipe} menu item(s) have no recipe.`,
-        `${b.data_quality.menu_items_without_recipe} artículo(s) del menú no tienen receta.`
+        b.data_quality.menu_items_without_recipe === 1
+          ? "1 plato del menú no tiene receta."
+          : `${b.data_quality.menu_items_without_recipe} platos del menú no tienen receta.`
       )
     );
     facts.push({
-      label: t(lang, "Items without recipe", "Artículos sin receta"),
+      label: t(lang, "Dishes without recipe", "Platos sin receta"),
       value: String(b.data_quality.menu_items_without_recipe),
       source_area: "data_quality",
     });
@@ -1215,7 +1259,7 @@ function missingRecipesAnswer(
       t(
         lang,
         `High-revenue items missing a recipe: ${names}.`,
-        `Artículos de alto ingreso sin receta: ${names}.`
+        `Platos que venden mucho y no tienen receta: ${names}.`
       )
     );
   }
@@ -1238,7 +1282,7 @@ function missingRecipesAnswer(
       t(
         lang,
         "All menu items appear to have recipes attached.",
-        "Todos los artículos del menú parecen tener una receta asignada."
+        "Todos los platos del menú tienen receta."
       )
     );
   }
@@ -1294,11 +1338,11 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.unmapped_pos_items} POS item(s) unmapped to menu items`,
-        `${dq.unmapped_pos_items} artículo(s) del POS sin vincular a artículos del menú`
+        `${dq.unmapped_pos_items} productos del POS sin vincular a un plato`
       )
     );
     facts.push({
-      label: t(lang, "Unmapped POS items", "Artículos del POS sin vincular"),
+      label: t(lang, "Unmapped POS items", "Productos del POS sin vincular"),
       value: String(dq.unmapped_pos_items),
       source_area: "data_quality",
     });
@@ -1308,7 +1352,7 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.menu_items_without_recipe} menu item(s) without a recipe`,
-        `${dq.menu_items_without_recipe} artículo(s) del menú sin receta`
+        `${dq.menu_items_without_recipe} platos sin receta`
       )
     );
   }
@@ -1361,7 +1405,7 @@ function costCoverageAnswer(
       t(
         lang,
         "Which menu items have missing recipes?",
-        "¿Qué artículos del menú no tienen receta?"
+        "¿Qué platos no tienen receta?"
       ),
       t(
         lang,
@@ -1516,7 +1560,7 @@ function salesUnavailableAnswer(
         : "I don't have POS sales in Milton for this restaurant and period yet. Upload or sync sales to see top items and busiest days.",
       reason === "read_error"
         ? "No pude leer las ventas del POS ahora, así que aún no tengo un desglose de ventas confiable."
-        : "Aún no tengo ventas de POS en Milton para este restaurante y período. Sube o sincroniza ventas para ver los artículos más vendidos y los días más fuertes."
+        : "Aún no tengo ventas de POS en Milton para este restaurante y período. Sube o sincroniza ventas para ver lo más vendido y los días más fuertes."
     ),
     supporting_facts: [],
     related_links: [
@@ -1570,6 +1614,47 @@ function pickCategoryItems(
   return { category: null, items: sales.top_items_by_units };
 }
 
+/**
+ * The window a sales answer covers, in words: «en los últimos 7 días (del
+ * 21 al 27 de octubre de 2026)» or «en octubre de 2026». Always the real
+ * dates of `sales.period`, so a month is never called «la última semana».
+ */
+export function salesPeriodPhrase(
+  period: AskMiltonSalesSnapshot["period"],
+  lang: PreferredLanguage,
+  fallback: string
+): string {
+  const { start, end } = period;
+  if (!start || !end) return fallback;
+  if (period.source === "last_week" || period.source === "last_days") {
+    const days = period.days ?? 7;
+    return t(
+      lang,
+      `in the last ${days} days of sales (${formatDateKey(start, lang)} – ${formatDateKey(end, lang)})`,
+      `en los últimos ${days} días con ventas (del ${formatDateKey(start, lang)} al ${formatDateKey(end, lang)})`
+    );
+  }
+  const m = /^(\d{4})-(\d{2})-01$/.exec(start);
+  if (m && start.slice(0, 7) === end.slice(0, 7)) {
+    const monthLabel = MONTH_LABELS[Number(m[2])]?.[lang] ?? m[2];
+    return t(lang, `in ${monthLabel} ${m[1]}`, `en ${monthLabel} de ${m[1]}`);
+  }
+  return t(
+    lang,
+    `from ${formatDateKey(start, lang)} to ${formatDateKey(end, lang)}`,
+    `del ${formatDateKey(start, lang)} al ${formatDateKey(end, lang)}`
+  );
+}
+
+function asksForDishes(message: string): boolean {
+  const m = message
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  // input matcher: keep «platillo»
+  return /\b(plato|platos|platillo|platillos|dish|dishes)\b/.test(m);
+}
+
 function topSellingItemsAnswer(
   ctx: AskMiltonContext,
   message: string,
@@ -1581,38 +1666,69 @@ function topSellingItemsAnswer(
   const categories = sales.by_category.map((c) => c.key).filter(Boolean);
   const category = matchCategoryFromQuestion(message, categories);
   const picked = pickCategoryItems(sales, category);
-  const items = picked.items.slice(0, 5);
+  const requested = parseRequestedCount(message);
+  const items = picked.items.slice(0, requested ?? 4);
   const c = sales.totals.currency || ctx.briefing.currency;
-  const period =
-    sales.period.start && sales.period.end
-      ? `${sales.period.start} – ${sales.period.end}`
-      : ctx.briefing.period_label;
+  const period = salesPeriodPhrase(
+    sales.period,
+    lang,
+    ctx.briefing.period_label
+  );
 
   if (items.length === 0) {
     return salesUnavailableAnswer(ctx, lang);
   }
 
-  const top = items[0];
-  const rest = items
-    .slice(1, 4)
-    .map(
-      (i) =>
-        `${i.name} (${roundUnits(i.units)} ${t(lang, "units", "unidades")})`
-    )
-    .join(", ");
+  const dishes = asksForDishes(message);
+  const nounOne = dishes ? t(lang, "dish", "plato") : t(lang, "item", "producto");
+  const nounMany = dishes
+    ? t(lang, "dishes", "platos")
+    : t(lang, "items", "productos");
   const scope = picked.category
-    ? t(lang, `in ${picked.category}`, `en ${picked.category}`)
-    : t(lang, "overall", "en general");
-
-  const lines = [
+    ? t(lang, ` in ${picked.category}`, ` en ${picked.category}`)
+    : "";
+  const units = (n: number) =>
     t(
       lang,
-      `Top-selling item ${scope} (${period}): ${top.name} — ${roundUnits(top.units)} units, ${fmtCurrency(top.revenue, c)}.`,
-      `Artículo más vendido ${scope} (${period}): ${top.name} — ${roundUnits(top.units)} unidades, ${fmtCurrency(top.revenue, c)}.`
-    ),
-  ];
-  if (rest) {
-    lines.push(t(lang, `Also: ${rest}.`, `También: ${rest}.`));
+      `${roundUnits(n)} ${roundUnits(n) === 1 ? "unit" : "units"}`,
+      `${roundUnits(n)} ${roundUnits(n) === 1 ? "unidad" : "unidades"}`
+    );
+
+  const lines: string[] = [];
+  if (requested !== null && requested > 1) {
+    const n = items.length;
+    lines.push(
+      n < requested
+        ? t(
+            lang,
+            `I only have ${n} ${nounMany}${scope} with sales ${period}:`,
+            `Solo tengo ${n} ${nounMany}${scope} con ventas ${period}:`
+          )
+        : t(
+            lang,
+            `Your ${n} best-selling ${nounMany}${scope} ${period}:`,
+            `Tus ${n} ${nounMany} más vendidos${scope} ${period}:`
+          ),
+      ...items.map(
+        (i, idx) =>
+          `${idx + 1}. ${i.name} — ${units(i.units)} · ${fmtCurrency(i.revenue, c)}`
+      )
+    );
+  } else {
+    const top = items[0];
+    lines.push(
+      t(
+        lang,
+        `Your best-selling ${nounOne}${scope} ${period} is ${top.name}: ${units(top.units)} for ${fmtCurrency(top.revenue, c)}.`,
+        `Tu ${nounOne} más vendido${scope} ${period} es ${top.name}: ${units(top.units)} por ${fmtCurrency(top.revenue, c)}.`
+      )
+    );
+    const rest = (requested === 1 ? [] : items.slice(1))
+      .map((i) => `${i.name} (${units(i.units)})`)
+      .join(", ");
+    if (rest) {
+      lines.push(t(lang, `Then: ${rest}.`, `Le siguen: ${rest}.`));
+    }
   }
 
   const facts: AskMiltonSupportingFact[] = items.slice(0, 3).map((i) => ({
@@ -1622,7 +1738,7 @@ function topSellingItemsAnswer(
   }));
 
   return {
-    answer: lines.join(" "),
+    answer: lines.join(requested !== null && requested > 1 ? "\n" : " "),
     supporting_facts: facts,
     related_links: [
       relatedLink(lang, "/dashboard/restaurant"),
@@ -1632,7 +1748,7 @@ function topSellingItemsAnswer(
       t(
         lang,
         "Which days do we sell the most breakfast items?",
-        "¿Qué días vendemos más artículos de desayuno?"
+        "¿Qué días vendemos más desayunos?"
       ),
       t(
         lang,
@@ -1681,13 +1797,14 @@ function bestSalesDayAnswer(
   }
 
   const c = sales.totals.currency || ctx.briefing.currency;
-  const period =
-    sales.period.start && sales.period.end
-      ? `${sales.period.start} – ${sales.period.end}`
-      : ctx.briefing.period_label;
+  const period = salesPeriodPhrase(
+    sales.period,
+    lang,
+    ctx.briefing.period_label
+  );
   const scope = picked.category
-    ? t(lang, `${picked.category} items`, `artículos de ${picked.category}`)
-    : t(lang, "all items", "todos los artículos");
+    ? t(lang, `${picked.category} items`, `${picked.category}`)
+    : t(lang, "all sales", "tus ventas");
   const dayPhrase = weekdayCountPhrase(top.key, top.day_count, lang);
   const dayLabel = weekdayLabel(top.key, lang);
   const runners = ranked
@@ -1704,8 +1821,8 @@ function bestSalesDayAnswer(
   const lines = [
     t(
       lang,
-      `Strongest weekday for ${scope} (${period}), ranked by average per day: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/day and ${top.avg_orders_per_day} orders/day across ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} orders).`,
-      `El día de la semana más fuerte para ${scope} (${period}), según el promedio por día: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/día y ${top.avg_orders_per_day} pedidos/día en ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} pedidos).`
+      `Strongest weekday for ${scope} ${period}, ranked by average per day: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/day and ${top.avg_orders_per_day} orders/day across ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} orders).`,
+      `El día de la semana más fuerte para ${scope} ${period}, según el promedio por día: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/día y ${top.avg_orders_per_day} pedidos/día en ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} pedidos).`
     ),
   ];
   if (runners) {
@@ -1768,7 +1885,7 @@ function bestSalesDayAnswer(
       t(
         lang,
         "Which breakfast items sell the most?",
-        "¿Cuáles son los artículos de desayuno más vendidos?"
+        "¿Cuáles son los desayunos más vendidos?"
       ),
       t(
         lang,
@@ -1841,7 +1958,7 @@ function genericBriefingAnswer(
       t(
         lang,
         `${ctx.briefing.data_quality.menu_items_without_recipe} menu item(s) still need a recipe.`,
-        `${ctx.briefing.data_quality.menu_items_without_recipe} artículo(s) del menú aún necesitan receta.`
+        `${ctx.briefing.data_quality.menu_items_without_recipe} platos aún necesitan receta.`
       )
     );
   }
@@ -1909,14 +2026,14 @@ export function buildDeterministicAnswer(
   let answer: AskMiltonAnswer;
   switch (intent) {
     case "most_profitable_dish":
-      answer = mostProfitableAnswer(ctx, lang);
+      answer = mostProfitableAnswer(ctx, message, lang);
       break;
     case "least_profitable_dishes":
     case "dish_food_cost":
-      answer = dishFoodCostAnswer(ctx, lang);
+      answer = dishFoodCostAnswer(ctx, lang, message, "worst");
       break;
     case "expensive_ingredients":
-      answer = expensiveIngredientsAnswer(ctx, lang);
+      answer = expensiveIngredientsAnswer(ctx, message, lang);
       break;
     case "ingredient_usage":
       answer = ingredientUsageAnswer(ctx, message, resolved, lang);

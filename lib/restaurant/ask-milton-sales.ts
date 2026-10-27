@@ -33,6 +33,7 @@ import {
   type WeekdayKey,
 } from "@/lib/restaurant/pos-local-time";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
+import { displayName } from "@/lib/restaurant/sentence-case";
 
 export {
   localWeekdayAndHour,
@@ -61,6 +62,8 @@ export type SalesPeriodSource =
   | "named_period"
   | "latest_month"
   | "last_week"
+  /** «últimos 14 días», «last 2 weeks»: the N days ending on the latest sale. */
+  | "last_days"
   | "empty";
 
 export interface SalesSnapshotBucket {
@@ -109,6 +112,8 @@ export interface AskMiltonSalesPeriod {
   start: string | null;
   end: string | null;
   source: SalesPeriodSource;
+  /** Window length for last_week / last_days, so answers can say «7 días». */
+  days?: number;
   timezone: string;
   rows_reviewed: number;
   truncated: boolean;
@@ -161,6 +166,13 @@ export interface SalesFactRow {
   currency: string;
   is_tip?: boolean;
   discount_amount?: number;
+  /** Source line id (Odoo pos.order.line id). */
+  line_id?: string | null;
+  /**
+   * Set on a combo component line: the line id of the combo it belongs to.
+   * Its units are the combo's, already counted once on the parent line.
+   */
+  combo_parent_line_id?: string | null;
 }
 
 interface MetricBucket {
@@ -322,7 +334,39 @@ export function toSalesFactRow(row: PosSalesItemRow): SalesFactRow {
     currency: row.currency ?? "USD",
     is_tip: line.isTip,
     discount_amount: line.discount,
+    line_id: row.external_line_id ?? null,
+    combo_parent_line_id: comboParentLineId(row),
   };
+}
+
+/** The combo line a component belongs to; null on normal and parent lines. */
+function comboParentLineId(row: PosSalesItemRow): string | null {
+  const parent = trimOrNull(row.combo_parent_external_line_id);
+  if (!parent) return null;
+  if (row.external_line_id && parent === String(row.external_line_id)) {
+    return null;
+  }
+  return parent;
+}
+
+/**
+ * The dish name an owner recognises, from the POS line name: Odoo appends
+ * the chosen options in brackets («Típico Nicaragüense (Huevo, Queso)»), and
+ * some menus are typed in capitals. Display only — never used to match.
+ */
+/** A combo component line: points at a parent line other than itself. */
+function isComboComponent(row: SalesFactRow): boolean {
+  const parent = row.combo_parent_line_id;
+  return Boolean(parent) && parent !== row.line_id;
+}
+
+export function cleanPosItemName(raw: string | null | undefined): string {
+  let name = (raw ?? "").replace(/\s+/g, " ").trim();
+  name = name.replace(/^["'«“]+|["'»”]+$/g, "").trim();
+  const withoutOptions = name.replace(/\s*\([^()]*\)\s*$/, "").trim();
+  if (withoutOptions) name = withoutOptions;
+  name = name.replace(/^["'«“]+|["'»”]+$/g, "").trim();
+  return displayName(name);
 }
 
 export function emptySalesSnapshot(
@@ -422,10 +466,81 @@ function shiftDateKey(dateKey: string, days: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+const COUNT_WORDS: Record<string, number> = {
+  un: 1,
+  una: 1,
+  uno: 1,
+  dos: 2,
+  tres: 3,
+  cuatro: 4,
+  cinco: 5,
+  seis: 6,
+  siete: 7,
+  ocho: 8,
+  nueve: 9,
+  diez: 10,
+  catorce: 14,
+  quince: 15,
+  treinta: 30,
+  a: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  fourteen: 14,
+  fifteen: 15,
+  thirty: 30,
+};
+const COUNT_TOKEN = `(\\d{1,3}|${Object.keys(COUNT_WORDS).join("|")})`;
+const LAST_N_RE = new RegExp(
+  `\\b(?:ultim[oa]s?|pasad[oa]s?|last|past|previous)\\s+${COUNT_TOKEN}\\s+(dias?|semanas?|days?|weeks?)\\b`
+);
+const N_LAST_RE = new RegExp(
+  `\\b${COUNT_TOKEN}\\s+(dias?|semanas?|days?|weeks?)\\s+(?:pasad[oa]s?|atras)\\b`
+);
+// «última semana», «la ultima semanas», «semana pasada», «esta semana»,
+// «last week», «past week», «this week», «últimos días» (no number).
+const ONE_WEEK_RE =
+  /\b(?:(?:ultim[oa]s?|pasad[oa]s?|esta|this|last|past|previous)\s+semanas?|semanas?\s+pasad[oa]s?|(?:this|last|past|previous)\s+week)\b/;
+
+function toCount(token: string): number | null {
+  if (/^\d+$/.test(token)) return Number(token);
+  return COUNT_WORDS[token] ?? null;
+}
+
+/**
+ * Days in a relative window named by the question, or null. Every window
+ * ends on the latest sale date, so a stale sync shows its real dates
+ * instead of an empty week.
+ */
+export function relativeWindowDays(folded: string): number | null {
+  const m = folded.match(LAST_N_RE) ?? folded.match(N_LAST_RE);
+  if (m) {
+    const n = toCount(m[1]);
+    if (n !== null && n >= 1) {
+      const unitDays = m[2].startsWith("sem") || m[2].startsWith("week") ? 7 : 1;
+      return Math.min(n * unitDays, 366);
+    }
+  }
+  if (ONE_WEEK_RE.test(folded)) return 7;
+  return null;
+}
+
 export function resolveSalesPeriod(
   question: string | undefined,
   saleDates: string[]
-): { start: string; end: string; source: SalesPeriodSource } | null {
+): {
+  start: string;
+  end: string;
+  source: SalesPeriodSource;
+  days?: number;
+} | null {
   const dates = saleDates.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
   if (dates.length === 0) return null;
   const maxDate = dates[dates.length - 1];
@@ -433,15 +548,13 @@ export function resolveSalesPeriod(
 
   const q = question ?? "";
   const folded = foldText(q);
-  if (
-    folded.includes("last week") ||
-    folded.includes("semana pasada") ||
-    folded.includes("la semana pasada")
-  ) {
+  const days = relativeWindowDays(folded);
+  if (days !== null) {
     return {
-      start: shiftDateKey(maxDate, -6),
+      start: shiftDateKey(maxDate, -(days - 1)),
       end: maxDate,
-      source: "last_week",
+      source: days === 7 ? "last_week" : "last_days",
+      days,
     };
   }
 
@@ -521,6 +634,7 @@ export function buildSalesSnapshot(
         start: period.start,
         end: period.end,
         source: period.source,
+        ...(period.days ? { days: period.days } : {}),
         timezone: tz,
         rows_reviewed: 0,
         truncated: options.truncated === true,
@@ -549,6 +663,17 @@ export function buildSalesSnapshot(
   const revenueAcc = emptyRevenueBreakdown();
   const currency = options.currency || windowed[0]?.currency || "USD";
 
+  // Combo components: Odoo writes one line per component with the combo's
+  // quantity, so counting them would sell one combo two or three times.
+  // Like Menú, the units stay on the combo line and a component's money
+  // is credited to the combo.
+  const comboNameByLineId = new Map<string, string>();
+  for (const row of windowed) {
+    if (row.line_id && !isComboComponent(row)) {
+      comboNameByLineId.set(row.line_id, row.item_name);
+    }
+  }
+
   for (const row of windowed) {
     if (options.currency && row.currency && row.currency !== options.currency) {
       continue;
@@ -562,8 +687,13 @@ export function buildSalesSnapshot(
     addClassifiedLine(revenueAcc, line);
     if (row.order_key) orderIds.add(row.order_key);
     if (line.isTip) continue;
-    totalUnits += row.quantity;
-    const netRow = { ...row, revenue: line.net };
+    const isComboPart = isComboComponent(row);
+    if (!isComboPart) totalUnits += row.quantity;
+    const netRow = {
+      ...row,
+      revenue: line.net,
+      quantity: isComboPart ? 0 : row.quantity,
+    };
 
     const local = localWeekdayAndHour(row, tz);
     const weekdayIdx = weekdayBuckets[local.weekday] ? local.weekday : 0;
@@ -582,7 +712,12 @@ export function buildSalesSnapshot(
     }
 
     const category = row.category == null ? null : capName(row.category);
-    const itemName = capName(row.item_name || "(unnamed)");
+    const comboName = isComboPart
+      ? comboNameByLineId.get(row.combo_parent_line_id ?? "")
+      : undefined;
+    const itemName = capName(
+      cleanPosItemName(comboName ?? row.item_name) || "(unnamed)"
+    );
     const catKey = category ?? "";
     let cat = categoryBuckets.get(catKey);
     if (!cat) {
@@ -620,7 +755,10 @@ export function buildSalesSnapshot(
     }
     bump(pay, netRow);
 
-    const itemKey = itemName.toLowerCase() || "(unnamed)";
+    // A component whose combo line is outside the read adds money to the
+    // totals above but is not an item of its own.
+    if (isComboPart && comboName === undefined) continue;
+    const itemKey = foldText(itemName) || "(unnamed)";
     let item = itemBuckets.get(itemKey);
     if (!item) {
       item = {
@@ -698,6 +836,7 @@ export function buildSalesSnapshot(
       start: period.start,
       end: period.end,
       source: period.source,
+      ...(period.days ? { days: period.days } : {}),
       timezone: tz,
       rows_reviewed: windowed.length,
       truncated: options.truncated === true,
@@ -869,7 +1008,8 @@ export async function fetchAskMiltonSalesSnapshot(
   const result = await fetchCompanyPosSalesRows(
     supabase,
     companyId,
-    selectedLocationId
+    selectedLocationId,
+    { withComboLines: true }
   );
   if (result.error) {
     console.error(

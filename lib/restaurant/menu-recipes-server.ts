@@ -38,6 +38,7 @@ import {
 } from "@/lib/restaurant/missing-schema-column";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
+import { loadPriceUpdateRefs } from "@/lib/restaurant/price-update-refs";
 import {
   previousSameUnitCost,
   priceSourceOf,
@@ -688,33 +689,40 @@ export async function fetchIngredientLatestCosts(
   supabase: SupabaseClient,
   companyId: string
 ): Promise<IngredientLatestCostRow[]> {
-  const [ingredientsRes, entriesRes, suppliersRes] = await Promise.all([
-    fetchAllRows<{
-      id: string;
-      name: string;
-      category: string | null;
-      default_unit: string | null;
-    }>(() =>
-      supabase
-        .from("ingredients")
-        .select("id, name, category, default_unit")
-        .eq("company_id", companyId)
-    ),
-    // effective_date / date_source (036) decide which entry is the current
-    // one, exactly as in the editor: read them (older databases fall back).
-    fetchAllRowsRetryingWithoutColumns<IngredientCostEntry>(
-      ["effective_date", "date_source"],
-      (select) =>
+  const [ingredientsRes, entriesRes, suppliersRes, priceUpdateRefs] =
+    await Promise.all([
+      fetchAllRows<{
+        id: string;
+        name: string;
+        category: string | null;
+        default_unit: string | null;
+      }>(() =>
         supabase
-          .from("ingredient_cost_entries")
-          .select(select)
-          .eq("company_id", companyId),
-      "id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
-    ),
-    fetchAllRows<{ id: string; name: string }>(() =>
-      supabase.from("suppliers").select("id, name").eq("company_id", companyId)
-    ),
-  ]);
+          .from("ingredients")
+          .select("id, name, category, default_unit")
+          .eq("company_id", companyId)
+      ),
+      // effective_date / date_source (036) decide which entry is the current
+      // one, exactly as in the editor: read them (older databases fall back).
+      fetchAllRowsRetryingWithoutColumns<IngredientCostEntry>(
+        ["effective_date", "date_source"],
+        (select) =>
+          supabase
+            .from("ingredient_cost_entries")
+            .select(select)
+            .eq("company_id", companyId),
+        "id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at"
+      ),
+      fetchAllRows<{ id: string; name: string }>(() =>
+        supabase
+          .from("suppliers")
+          .select("id, name")
+          .eq("company_id", companyId)
+      ),
+      // Which invoice lines were Telegram price updates (label «Telegram», #313).
+      // null (read failed) → the label falls back to «factura».
+      loadPriceUpdateRefs(supabase, companyId),
+    ]);
   if (ingredientsRes.error) {
     console.error(
       "[fetchIngredientLatestCosts] ingredients:",
@@ -769,7 +777,7 @@ export async function fetchIngredientLatestCosts(
             supplier_name: latestRow.supplier_id
               ? (supplierNameById.get(latestRow.supplier_id) ?? null)
               : null,
-            source: priceSourceOf(latestRow),
+            source: priceSourceOf(latestRow, priceUpdateRefs?.lineIds),
             previous_unit_cost: previousSameUnitCost(list, latestRow),
           }
         : null,

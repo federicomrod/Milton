@@ -31,6 +31,7 @@ import {
   emptyLineCounts,
   type InvoiceLinePreviewRow,
 } from "@/lib/restaurant/invoice-list-preview";
+import { isPurchaseInvoice } from "@/lib/restaurant/price-update-note";
 import {
   isInvoiceStatus,
   type SupplierInvoice,
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
   if (statusFilter && isInvoiceStatus(statusFilter)) {
     query = query.eq("status", statusFilter);
   }
-  const { data: invoices, error } = await query;
+  const { data: allInvoices, error } = await query;
   if (error) {
     console.error("[invoices GET]", error.message);
     return NextResponse.json(
@@ -78,6 +79,18 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // A posted / rejected Telegram price update is not a purchase and is not
+  // listed (same rule as the Compras tab; price-update-refs.ts). A pending one
+  // stays: that is where a person approves it.
+  const invoices = (allInvoices ?? []).filter((i) => {
+    const inv = i as SupplierInvoice;
+    return (
+      isPurchaseInvoice(inv) ||
+      inv.status === "draft" ||
+      inv.status === "needs_review"
+    );
+  });
 
   // Pull aggregated line counts in one round-trip so the list can show
   // "matched / total" progress without a per-row query.

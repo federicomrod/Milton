@@ -533,7 +533,9 @@ export function SupplierTrendsSection({
               {t(lang, "Top supplier spend", "Mayor gasto por proveedor")}
               <span className="text-xs text-muted-foreground font-normal">
                 · {t(lang, "total", "total")}{" "}
-                {fmt.money.format(data.total_supplier_spend)}
+                {data.total_supplier_spend === null
+                  ? "—"
+                  : fmt.money.format(data.total_supplier_spend)}
               </span>
             </CardTitle>
           </CardHeader>

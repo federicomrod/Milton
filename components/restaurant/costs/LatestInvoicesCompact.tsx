@@ -8,6 +8,7 @@ import Link from "next/link";
 import type { LatestInvoices } from "@/lib/restaurant/costs-page-data";
 import { costsTabHref, invoiceReviewHref } from "@/lib/restaurant/costs-tabs";
 import { invoiceTotalText } from "@/lib/restaurant/costs-format";
+import { isPurchaseInvoice } from "@/lib/restaurant/price-update-note";
 
 function dateText(iso: string): string {
   const d = new Date(iso);
@@ -64,7 +65,13 @@ export function LatestInvoicesCompact({
               <div className="flex items-center justify-between text-[#5B6570] mt-0.5">
                 <span>{dateText(inv.invoice_date)}</span>
                 <span className="font-medium text-[#0D1117]">
-                  {invoiceTotalText(inv.total_amount, inv.currency)}
+                  {isPurchaseInvoice(inv) ? (
+                    invoiceTotalText(inv.total_amount, inv.currency)
+                  ) : (
+                    <span data-testid="price-update-label">
+                      Actualización de precio
+                    </span>
+                  )}
                 </span>
               </div>
             </Link>

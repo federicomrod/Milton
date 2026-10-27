@@ -27,11 +27,32 @@ import {
   summarizePurchaseWindows,
   type PurchaseWindows,
 } from "@/lib/restaurant/costs-tabs";
+import { isPurchaseInvoice } from "@/lib/restaurant/price-update-note";
+import {
+  isPurchaseCostEntry,
+  loadPriceUpdateRefs,
+} from "@/lib/restaurant/price-update-refs";
 import type { InvoiceListItem } from "@/components/restaurant/InvoicesPage";
 import type { SupplierRow } from "@/components/restaurant/SuppliersPage";
 
 /** Invoice statuses that still need someone (not posted / rejected). */
 export const PENDING_INVOICE_STATUSES = ["draft", "needs_review"] as const;
+
+/**
+ * A Telegram price update is a price, not a purchase (#313; see
+ * price-update-refs.ts). Compras and «Últimas facturas» list it only while it
+ * is pending (that is where a person approves it); once posted / rejected its
+ * price lives on the ingredient.
+ */
+function isListedInvoice(inv: {
+  notes?: string | null;
+  status: string;
+}): boolean {
+  return (
+    isPurchaseInvoice(inv) ||
+    (PENDING_INVOICE_STATUSES as readonly string[]).includes(inv.status)
+  );
+}
 
 async function companyScope() {
   const user = await getCachedAuthUser();
@@ -57,17 +78,19 @@ export async function loadCostsKpiExtras(
     if (!scope) return null;
     const { supabase, companyId } = scope;
 
-    const [currency, entriesRes, supplierCountRes, pendingRes] =
+    const [currency, entriesRes, supplierCountRes, pendingRes, refs] =
       await Promise.all([
         resolveCompanyCurrency(supabase, companyId),
         fetchAllRows<{
           cost_date: string;
           total_cost: number | null;
           currency: string | null;
+          source_type: string | null;
+          source_id: string | null;
         }>(() =>
           supabase
             .from("ingredient_cost_entries")
-            .select("cost_date, total_cost, currency")
+            .select("cost_date, total_cost, currency, source_type, source_id")
             .eq("company_id", companyId)
             .not("supplier_id", "is", null)
             .gte("cost_date", purchaseWindowStart(today))
@@ -82,6 +105,7 @@ export async function loadCostsKpiExtras(
           .eq("company_id", companyId)
           .in("status", [...PENDING_INVOICE_STATUSES])
           .limit(1000),
+        loadPriceUpdateRefs(supabase, companyId),
       ]);
 
     if (entriesRes.error) {
@@ -98,13 +122,18 @@ export async function loadCostsKpiExtras(
         ).size;
 
     return {
-      purchases: entriesRes.error
-        ? { last30: null, previous30: null }
-        : summarizePurchaseWindows(
-            [...succeededRows(entriesRes)],
-            today,
-            currency
-          ),
+      // Price updates are not purchases; refs unreadable → «—», never a total
+      // that may include them (price-update-refs.ts).
+      purchases:
+        entriesRes.error || !refs
+          ? { last30: null, previous30: null }
+          : summarizePurchaseWindows(
+              [...succeededRows(entriesRes)].filter((e) =>
+                isPurchaseCostEntry(e, refs)
+              ),
+              today,
+              currency
+            ),
       currency,
       supplierCount: supplierCountRes.error
         ? null
@@ -164,7 +193,8 @@ export async function loadLatestInvoices(
         .eq("company_id", companyId)
         .order("invoice_date", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(limit),
+        // Over-fetch: posted price updates are dropped below (#313).
+        .limit(Math.min(50, limit * 3)),
       supabase
         .from("supplier_invoices")
         .select("id", { count: "exact", head: true })
@@ -186,7 +216,9 @@ export async function loadLatestInvoices(
     type Raw = Omit<LatestInvoiceRow, "supplier_name"> & {
       supplier_id: string | null;
     };
-    const raw = (latestRes.data ?? []) as Raw[];
+    const raw = ((latestRes.data ?? []) as Raw[])
+      .filter(isListedInvoice)
+      .slice(0, limit);
     const supplierIds = [
       ...new Set(raw.map((r) => r.supplier_id).filter(Boolean)),
     ] as string[];
@@ -284,8 +316,17 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
     resolveCompanyCurrency(supabase, companyId),
   ]);
 
+  // A posted / rejected Telegram price update is not listed (#313).
+  const listedRows = (
+    (invRes.data ?? []) as Array<{
+      id: string;
+      status: string;
+      notes?: string | null;
+    }>
+  ).filter(isListedInvoice);
+
   // Lines only for the (<= 200) loaded invoices, like GET /api/restaurant/invoices.
-  const invoiceIds = ((invRes.data ?? []) as { id: string }[]).map((r) => r.id);
+  const invoiceIds = listedRows.map((r) => r.id);
   const lineRes =
     invoiceIds.length === 0
       ? {
@@ -323,13 +364,13 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
 
   const ingredientRows = [...succeededRows(ingRes)];
   const summaries = buildInvoiceLineSummaries(
-    ((invRes.data ?? []) as { id: string }[]).map((r) => r.id),
+    invoiceIds,
     succeededRows(lineRes),
     new Map(ingredientRows.map((i) => [i.id, i.name]))
   );
 
   const invoices: InvoiceListItem[] = (
-    (invRes.data ?? []) as Array<{
+    listedRows as Array<{
       id: string;
       supplier_id: string | null;
       invoice_number: string | null;
@@ -428,7 +469,7 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
   }
 
   // Metrics are best-effort: a failed read degrades the metric to "—".
-  const [linksRes, costRes] = await Promise.all([
+  const [linksRes, costRes, refs] = await Promise.all([
     fetchAllRows<{ supplier_id: string; ingredient_id: string }>(() =>
       supabase
         .from("supplier_ingredients")
@@ -439,13 +480,16 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
       supplier_id: string;
       cost_date: string;
       total_cost: number;
+      source_type: string | null;
+      source_id: string | null;
     }>(() =>
       supabase
         .from("ingredient_cost_entries")
-        .select("supplier_id, cost_date, total_cost")
+        .select("supplier_id, cost_date, total_cost, source_type, source_id")
         .eq("company_id", companyId)
         .not("supplier_id", "is", null)
     ),
+    loadPriceUpdateRefs(supabase, companyId),
   ]);
 
   if (linksRes.error) {
@@ -472,7 +516,10 @@ async function loadSuppliersTabDataUnsafe(): Promise<SupplierRow[] | null> {
   }
   const latestCostDate = new Map<string, string>();
   const totalSpend = new Map<string, number>();
-  for (const e of succeededRows(costRes)) {
+  // Price updates are not purchases (price-update-refs.ts); refs unreadable →
+  // spend and «última compra» stay «—», never a number that may include them.
+  for (const e of refs ? succeededRows(costRes) : []) {
+    if (!isPurchaseCostEntry(e, refs as NonNullable<typeof refs>)) continue;
     const prev = latestCostDate.get(e.supplier_id);
     if (!prev || e.cost_date > prev)
       latestCostDate.set(e.supplier_id, e.cost_date);

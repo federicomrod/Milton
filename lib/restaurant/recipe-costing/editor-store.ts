@@ -33,6 +33,7 @@ import { loadPosProductLink } from "./link-actions-server";
 import { PREPARATION_DRAFT_KIND } from "./prefill-preparations";
 import { effectiveDateForNewApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { IngredientCostEntry } from "@/types/restaurant-costing";
+import { loadPriceUpdateRefs } from "@/lib/restaurant/price-update-refs";
 import type {
   CostingLoad,
   EditorStore,
@@ -54,10 +55,19 @@ function inputTable(version: VersionRef): { table: string; fk: string } {
 const ENTRY_SELECT =
   "id, ingredient_id, supplier_id, source_type, source_id, cost_date, effective_date, date_source, quantity, unit, total_cost, unit_cost, normalized_unit, normalized_unit_cost, currency, notes, created_at";
 
-function sourceLabel(entry: IngredientCostEntry | undefined): string {
+// Same rule as priceSourceOf (ingredientes-screen.ts): an invoice_line entry
+// that came from a Telegram price update is «Telegram», not a «factura» (#313).
+function sourceLabel(
+  entry: IngredientCostEntry | undefined,
+  priceUpdateLineIds?: ReadonlySet<string> | null
+): string {
   if (!entry) return "lista";
   if (entry.source_type === "manual") return "manual";
-  if (entry.source_type === "invoice_line") return "factura";
+  if (entry.source_type === "invoice_line") {
+    return entry.source_id && priceUpdateLineIds?.has(entry.source_id)
+      ? "Telegram"
+      : "factura";
+  }
   if (typeof entry.notes === "string" && entry.notes.startsWith("Receta"))
     return "recetas";
   return "lista";
@@ -76,6 +86,7 @@ export function createSupabaseEditorStore(
         componentRecipes,
         componentInputs,
         versions,
+        priceUpdateRefs,
       ] = await Promise.all([
         fetchAllRowsRetryingWithoutColumns<{
           id: string;
@@ -137,6 +148,8 @@ export function createSupabaseEditorStore(
         fetchCostingRecipeVersions(supabase, companyId, {
           componentsOnly: true,
         }),
+        // Telegram price-update lines (label «Telegram»); null → «factura».
+        loadPriceUpdateRefs(supabase, companyId),
       ]);
       for (const res of [ingredients, entries, components]) {
         if (res.error) throw new Error(res.error.message);
@@ -211,7 +224,10 @@ export function createSupabaseEditorStore(
       return {
         data,
         sourceOf: (entryId) =>
-          sourceLabel(entryId ? entryById.get(entryId) : undefined),
+          sourceLabel(
+            entryId ? entryById.get(entryId) : undefined,
+            priceUpdateRefs?.lineIds
+          ),
       };
     },
 

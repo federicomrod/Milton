@@ -41,6 +41,7 @@ import {
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import {
   isPriceUpdateNote,
+  isPurchaseInvoice,
   isTelegramInvoice,
 } from "@/lib/restaurant/price-update-note";
 import {
@@ -413,10 +414,15 @@ export function InvoicesPage({
   /** The server's can("prices.edit") answer; false = read-only. */
   canEditPrices?: boolean;
 }) {
-  const [invoices, setInvoices] = useState<InvoiceListItem[]>(initialInvoices);
+  const [invoices, setInvoices] = useState<InvoiceListItem[]>(
+    initialInvoices.filter(keepInList)
+  );
   const [ingredients, setIngredients] =
     useState<IngredientLite[]>(initialIngredients);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [postResults, setPostResults] = useState<Record<string, PostResult>>(
+    {}
+  );
   const [refreshing, setRefreshing] = useState(false);
   // «Agregar factura» (CSV, foto, a mano) folds below the list; open it when
   // there is nothing yet or a «Subir factura» link points at its anchor.
@@ -491,7 +497,8 @@ export function InvoicesPage({
       });
       if (!res.ok) return;
       const body = (await res.json()) as { invoices: InvoiceListItem[] };
-      if (Array.isArray(body.invoices)) setInvoices(body.invoices);
+      if (Array.isArray(body.invoices))
+        setInvoices(body.invoices.filter(keepInList));
     } catch {
       // best-effort
     } finally {
@@ -505,6 +512,15 @@ export function InvoicesPage({
   const renderReview = (id: string) => (
     <ReviewDetail
       invoiceId={id}
+      postResult={postResults[id] ?? null}
+      onPostResult={(r) =>
+        setPostResults((cur) => {
+          const next = { ...cur };
+          if (r) next[id] = r;
+          else delete next[id];
+          return next;
+        })
+      }
       ingredients={ingredients}
       onIngredientCreated={upsertIngredient}
       onClose={() => setReviewingId(null)}
@@ -1025,7 +1041,8 @@ function invoiceValue(inv: InvoiceListItem, key: string): SortValue {
     case "date":
       return inv.invoice_date;
     case "total":
-      return inv.total_amount;
+      // A price update has no invoice total: sorted last like any missing total.
+      return isPurchaseInvoice(inv) ? inv.total_amount : null;
     case "status":
       return inv.status;
     case "lines":
@@ -1156,11 +1173,6 @@ function InvoiceListCard({
                           (sin proveedor)
                         </span>
                       )}
-                      {isPriceUpdateNote(inv.notes) && (
-                        <span className="ml-2">
-                          <PriceUpdateLabel />
-                        </span>
-                      )}
                     </td>
                     <td className="px-4 py-3 align-top">
                       <ProductsCell inv={inv} />
@@ -1172,7 +1184,11 @@ function InvoiceListCard({
                       {fmtDate(inv.invoice_date)}
                     </td>
                     <td className="px-4 py-3 text-right align-top tabular-nums text-[#151c2c]">
-                      {totalText(inv.total_amount, inv.currency)}
+                      {isPurchaseInvoice(inv) ? (
+                        totalText(inv.total_amount, inv.currency)
+                      ) : (
+                        <PriceUpdateLabel />
+                      )}
                     </td>
                     <td className="px-4 py-3 align-top">
                       <span
@@ -1240,8 +1256,27 @@ interface ReviewData {
   events: InvoiceEvent[];
 }
 
+interface PostResult {
+  posted_lines: number;
+  skipped_lines: { description: string; reason: string }[];
+  next_steps: string;
+}
+
+/** Statuses a price update keeps in Compras (the only place to approve it). */
+const PENDING_STATUSES = ["draft", "needs_review"];
+
+/**
+ * Same rule as the server list: an approved/posted/rejected Telegram price
+ * update is a price (see Menú › Ingredientes), no longer an invoice row.
+ */
+function keepInList(inv: InvoiceListItem): boolean {
+  return isPurchaseInvoice(inv) || PENDING_STATUSES.includes(inv.status);
+}
+
 function ReviewDetail({
   invoiceId,
+  postResult,
+  onPostResult,
   ingredients,
   onIngredientCreated,
   onClose,
@@ -1249,6 +1284,9 @@ function ReviewDetail({
   canEdit = true,
 }: {
   invoiceId: string;
+  /** Kept by the page so the message survives the row leaving the list. */
+  postResult: PostResult | null;
+  onPostResult: (r: PostResult | null) => void;
   ingredients: IngredientLite[];
   onIngredientCreated: (ing: IngredientLite) => void;
   onClose: () => void;
@@ -1260,11 +1298,7 @@ function ReviewDetail({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [postingBusy, setPostingBusy] = useState(false);
-  const [postResult, setPostResult] = useState<{
-    posted_lines: number;
-    skipped_lines: { description: string; reason: string }[];
-    next_steps: string;
-  } | null>(null);
+  const setPostResult = onPostResult;
   const [showEvents, setShowEvents] = useState(false);
 
   const load = useCallback(async () => {
@@ -1412,6 +1446,7 @@ function ReviewDetail({
       (l.match_status === "matched" || l.match_status === "auto_matched")
   );
   const canPost = inv.status !== "posted" && approvedMatched.length > 0;
+  const isPriceUpdate = !isPurchaseInvoice(inv);
 
   return (
     <Card>
@@ -1457,12 +1492,14 @@ function ReviewDetail({
             <div className="text-[#6b7385]">Vencimiento</div>
             <div>{inv.due_date ? fmtDate(inv.due_date) : "—"}</div>
           </div>
-          <div>
-            <div className="text-[#6b7385]">Total</div>
-            <div className="font-mono">
-              {totalText(inv.total_amount, inv.currency, lines)}
+          {isPurchaseInvoice(inv) ? (
+            <div>
+              <div className="text-[#6b7385]">Total</div>
+              <div className="font-mono">
+                {totalText(inv.total_amount, inv.currency, lines)}
+              </div>
             </div>
-          </div>
+          ) : null}
           <div>
             <div className="text-[#6b7385]">Origen</div>{" "}
             <div data-testid="invoice-origin">{originLabel(inv)}</div>
@@ -1553,21 +1590,40 @@ function ReviewDetail({
             title={
               !canPost
                 ? "Primero aprueba y asigna al menos una línea"
-                : "Registra los costos de los ingredientes y marca la factura como publicada"
+                : isPriceUpdate
+                  ? "Actualiza el precio de cada ingrediente"
+                  : "Registra los costos de los ingredientes y marca la factura como publicada"
             }
           >
-            {postingBusy ? "Publicando…" : "Publicar factura"}
+            {postingBusy
+              ? isPriceUpdate
+                ? "Aprobando…"
+                : "Publicando…"
+              : isPriceUpdate
+                ? "Aprobar precios"
+                : "Publicar factura"}
           </Button>
         </div>
         {postResult && (
           <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-xs space-y-2">
-            <p className="font-semibold text-green-800">
-              {postResult.posted_lines === 1 ? "Se publicó" : "Se publicaron"}{" "}
-              {postResult.posted_lines}{" "}
-              {postResult.posted_lines === 1
-                ? "registro de costo"
-                : "registros de costo"}
-              .
+            <p
+              data-testid={isPriceUpdate ? "price-update-posted" : undefined}
+              className="font-semibold text-green-800"
+            >
+              {isPriceUpdate ? (
+                "Precios actualizados. Los ves en Menú › Ingredientes."
+              ) : (
+                <>
+                  {postResult.posted_lines === 1
+                    ? "Se publicó"
+                    : "Se publicaron"}{" "}
+                  {postResult.posted_lines}{" "}
+                  {postResult.posted_lines === 1
+                    ? "registro de costo"
+                    : "registros de costo"}
+                  .
+                </>
+              )}
             </p>
             {postResult.skipped_lines.length > 0 && (
               <details>
@@ -1586,15 +1642,17 @@ function ReviewDetail({
                 </ul>
               </details>
             )}
-            <p className="text-[#151c2c]">
-              {postResult.next_steps}{" "}
-              <Link
-                className="text-[#1B40C8] hover:underline"
-                href="/dashboard/restaurant/agents"
-              >
-                Abrir el Centro de agentes →
-              </Link>
-            </p>
+            {isPriceUpdate ? null : (
+              <p className="text-[#151c2c]">
+                {postResult.next_steps}{" "}
+                <Link
+                  className="text-[#1B40C8] hover:underline"
+                  href="/dashboard/restaurant/agents"
+                >
+                  Abrir el Centro de agentes →
+                </Link>
+              </p>
+            )}
           </div>
         )}
         {/* Event history */}

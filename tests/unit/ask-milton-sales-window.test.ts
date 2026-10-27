@@ -107,7 +107,7 @@ describe("combo lines — units counted once, revenue on the combo", () => {
     expect(snap.totals.revenue).toBe(24);
     expect(snap.top_items_by_units).toHaveLength(1);
     expect(snap.top_items_by_units[0]).toMatchObject({
-      name: "Típico Nicaragüense",
+      name: "Típico nicaragüense",
       units: 2,
       revenue: 24,
     });
@@ -169,7 +169,7 @@ describe("top-selling answer states the real window", () => {
       none
     );
     expect(out.answer).toMatch(
-      /^Tu plato más vendido en los últimos 7 días con ventas \(del 21 de octubre de 2026 al 27 de octubre de 2026\) es /
+      /^Tu plato más vendido en los últimos 7 días con ventas \(del 21 al 27 de octubre\) es /
     );
     expect(out.answer).not.toMatch(/"/);
   });
@@ -193,7 +193,10 @@ describe("top-selling answer states the real window", () => {
 
   it("a month is never called a week", () => {
     const snap = buildSalesSnapshot(weekRows, ES_TZ, { question: "octubre" });
-    expect(salesPeriodPhrase(snap.period, "es", "x")).toBe("en octubre de 2026");
+    expect(salesPeriodPhrase(snap.period, "es", "x", 2026)).toBe("en octubre");
+    expect(salesPeriodPhrase(snap.period, "es", "x", 2027)).toBe(
+      "en octubre de 2026"
+    );
     const ctx = salesContext(weekRows, "es");
     ctx.sales = snap;
     expect(

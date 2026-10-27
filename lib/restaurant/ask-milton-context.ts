@@ -39,6 +39,7 @@ import {
 import {
   emptySalesSnapshot,
   fetchAskMiltonSalesSnapshot,
+  applyCanonicalItemNames,
   type AskMiltonSalesSnapshot,
 } from "@/lib/restaurant/ask-milton-sales";
 import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
@@ -991,9 +992,15 @@ export async function buildAskMiltonContext(
     read_errors.push("pos_sales_items");
   }
 
-  const sales = salesResult.snapshot ?? emptySalesSnapshot();
-
   const econ = profData.dishEconomics ?? null;
+  // Menú's spelling (accents) for sold items that match a menu dish.
+  const sales = applyCanonicalItemNames(
+    salesResult.snapshot ?? emptySalesSnapshot(),
+    [
+      ...(econ?.menu_dishes ?? []).map((d) => d.name),
+      ...menuItemRows.map((m) => m.name),
+    ]
+  );
   const ingredient_prices = buildIngredientPrices({
     rows: latestPrices,
     dishCount: usageLoad?.ok ? usageLoad.dishCount : null,

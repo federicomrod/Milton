@@ -11,6 +11,12 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 
 export const ESTIMATE_BADGE = "Estimado por Milton";
 export const PRICE_ESTIMATE_BADGE = "Precio estimado";
+/** Shown on a plato marked «Estimado» when the Milton estimate is not displayed. */
+export const ESTIMATE_HIDDEN_REASON =
+  "Ya tiene costo real; no se muestra el estimado.";
+/** «Estimado» with no Milton estimate row: the cost comes from an unapproved draft. */
+export const ESTIMATE_DRAFT_REASON =
+  "Calculado desde un borrador sin aprobar; aún no hay estimado de Milton.";
 export const ESTIMATE_BUTTON = "Estimar con Milton";
 export const ESTIMATE_HELP =
   "Milton estima cuánto lleva cada plato y cuánto cuesta cada ingrediente en tu país. Son aproximaciones para que veas por dónde van tus márgenes; tú las validas.";

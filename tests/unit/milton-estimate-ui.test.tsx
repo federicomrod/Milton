@@ -375,7 +375,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
         skipped_reason: n === 0 && i === 2 ? "sin_datos" : null,
       }));
       n += 1;
-      const answer = jsonRes({ done: false, remaining: 10, results });
+      const answer = jsonRes({ done: 4, remaining: 30 - n * 5, results });
       // hold the 2nd call to read the progress text
       return n === 2 ? gate.then(() => answer) : answer;
     });
@@ -394,17 +394,22 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Estimar con Milton" })
     );
-    expect(
-      await screen.findByText(
-        "Estimando 6 de 20 platos (los que más venden primero)…"
-      )
-    ).toBeTruthy();
+    expect(await screen.findByText("Estimando 5 de 20 platos…")).toBeTruthy();
     release!();
     expect(
       await screen.findByText(
         "Listo: 19 platos estimados. 1 plato quedó sin estimar."
       )
     ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Quedan 10 platos sin estimar. Vuelve a pulsar para estimar los siguientes."
+      )
+    ).toBeTruthy();
+    expect(screen.getByTestId("estimate-run-list").textContent).toContain(
+      "Plato 0"
+    );
+    expect(screen.getByRole("button", { name: /Ver todos/ })).toBeTruthy();
     const posts = fetchMock.mock.calls.filter(
       (c) => (c[1] as RequestInit | undefined)?.method === "POST"
     );
@@ -841,6 +846,34 @@ describe("MenuDishesScreen · estimate overlay", () => {
       expect(screen.queryByTestId("dish-estimate")).toBeNull();
       cleanup();
     }
+  });
+
+  it("a plato marked «Estimado» always shows the lavender strip; a hidden estimate says why in gray", () => {
+    // Real cost present: the estimate is hidden on purpose, the strip stays.
+    mountList(dishesWorkspace({ cost_status: "estimado", cost_total: 20 }), [
+      estimate(),
+    ]);
+    const strip = screen.getByTestId("dish-estimate");
+    expect(strip.textContent).toContain("Estimado por Milton");
+    expect(screen.getByTestId("dish-estimate-reason").textContent).toBe(
+      "Ya tiene costo real; no se muestra el estimado."
+    );
+    expect(strip.textContent).not.toContain("≈");
+    expect(strip.className).toContain("#D8D0F8");
+    expect(screen.getByTestId("dish-estimate-reason").className).toContain(
+      "#4b5466"
+    );
+    cleanup();
+    // No estimate row at all: still the strip, with the reason.
+    mountList(dishesWorkspace({ cost_status: "estimado" }), []);
+    expect(screen.getByTestId("dish-estimate")).toBeTruthy();
+    expect(screen.getByTestId("dish-estimate-reason").textContent).toBe(
+      "Calculado desde un borrador sin aprobar; aún no hay estimado de Milton."
+    );
+    cleanup();
+    // A plato that is not «Estimado» and has a real cost keeps showing nothing.
+    mountList(dishesWorkspace({ cost_total: 20 }), [estimate()]);
+    expect(screen.queryByTestId("dish-estimate")).toBeNull();
   });
 
   it("offers «Estimar con Milton» in the controls row and on the «Sin receta» row", async () => {

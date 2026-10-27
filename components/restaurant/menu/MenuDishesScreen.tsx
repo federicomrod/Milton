@@ -54,6 +54,8 @@ import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
   ESTIMATE_BADGE,
+  ESTIMATE_DRAFT_REASON,
+  ESTIMATE_HIDDEN_REASON,
   ESTIMATE_BUTTON,
   ESTIMATE_USE_BUTTON,
   ESTIMATE_USE_SUCCESS,
@@ -297,20 +299,23 @@ export function MenuDishesScreen({
       string,
       {
         text: string;
+        reason?: string;
         menu_item_id: string;
         usable: boolean;
         line_count: number;
       }
     >();
-    if (estimates.length === 0) return map;
     for (const dish of [...dishes, ...excluded]) {
       if (dish.status === "excluded") continue;
-      const est = estimateForProducts(estimates, [
-        dish.base_odoo_product_id,
-        ...dish.variants.map((v) => v.odoo_product_id),
-      ]);
-      if (!est) continue;
-      if (
+      const est =
+        estimates.length > 0
+          ? estimateForProducts(estimates, [
+              dish.base_odoo_product_id,
+              ...dish.variants.map((v) => v.odoo_product_id),
+            ])
+          : null;
+      const hidden =
+        est == null ||
         !overlayAllowed(est, {
           real_cost: dish.cost_total,
           has_approved_version: (dish.approved_count ?? 0) > 0,
@@ -318,9 +323,20 @@ export function MenuDishesScreen({
         }) ||
         dish.source === "excel" ||
         dish.cost_status === "aprobado" ||
-        dish.cost_status === "estimado"
-      )
+        dish.cost_status === "estimado";
+      if (hidden) {
+        // A plato whose status is «Estimado» always carries the strip; when
+        // the estimate itself is not shown, it says why.
+        if (dish.cost_status === "estimado")
+          map.set(dish.id, {
+            text: "",
+            reason: est ? ESTIMATE_HIDDEN_REASON : ESTIMATE_DRAFT_REASON,
+            menu_item_id: est?.menu_item_id ?? "",
+            usable: false,
+            line_count: 0,
+          });
         continue;
+      }
       const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
       map.set(dish.id, {
         text: estimateText(est, data.currency, avg).text,
@@ -1086,6 +1102,8 @@ const DishRows = memo(function DishRows({
   /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
   estimate?: {
     text: string;
+    /** The estimate is not shown on purpose: why (readable gray). */
+    reason?: string;
     menu_item_id: string;
     usable?: boolean;
     line_count?: number;
@@ -1183,22 +1201,32 @@ const DishRows = memo(function DishRows({
                 <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
                 {ESTIMATE_BADGE}
               </span>
-              <span>
-                {estimate.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
-                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
-                    <span
-                      key={i}
-                      className="font-semibold text-[var(--brand-blue)]"
-                    >
-                      {part}
-                    </span>
-                  ) : (
-                    <span key={i} className="text-[var(--brand-ink)]">
-                      {part}
-                    </span>
-                  )
-                )}
-              </span>
+              {estimate.reason ? (
+                <span
+                  data-testid="dish-estimate-reason"
+                  className="text-[#4b5466]"
+                >
+                  {estimate.reason}
+                </span>
+              ) : null}
+              {estimate.reason ? null : (
+                <span>
+                  {estimate.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
+                    part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                      <span
+                        key={i}
+                        className="font-semibold text-[var(--brand-blue)]"
+                      >
+                        {part}
+                      </span>
+                    ) : (
+                      <span key={i} className="text-[var(--brand-ink)]">
+                        {part}
+                      </span>
+                    )
+                  )}
+                </span>
+              )}
               <span className="text-[var(--brand-ink)]">·</span>
               <Link
                 href={

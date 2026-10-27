@@ -29,7 +29,6 @@ import {
   Sparkles,
   RefreshCw,
   AlertTriangle,
-  Cpu,
   Send,
   User,
   Loader2,
@@ -39,7 +38,6 @@ import {
   Check,
   ExternalLink,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
@@ -286,7 +284,6 @@ function ExecutiveBriefingPanelInner() {
           <h2 className="text-base font-semibold">
             {t(lang, "Executive briefing", "Briefing ejecutivo")}
           </h2>
-          {data && <SourceBadge source={data.source} />}
           <Button
             size="sm"
             variant="ghost"
@@ -398,33 +395,6 @@ function BriefingList({
         ))}
       </ul>
     </div>
-  );
-}
-
-function SourceBadge({ source }: { source: "openai" | "deterministic" }) {
-  const lang = useMiltonLang();
-  return (
-    <Badge
-      variant="outline"
-      className={
-        "text-[12px] uppercase tracking-wide " +
-        (source === "openai"
-          ? "border-[#a9bcef] bg-[#e1e8fa] text-[#102a85] dark:border-[#2a3f8f] dark:bg-[#1B40C8]/40 dark:text-[#9fb4f2]"
-          : "border-border text-muted-foreground")
-      }
-    >
-      {source === "openai" ? (
-        <>
-          <Sparkles className="h-3 w-3 inline mr-1" />
-          {t(lang, "AI answer", "Respuesta de IA")}
-        </>
-      ) : (
-        <>
-          <Cpu className="h-3 w-3 inline mr-1" />
-          {t(lang, "Rule-based", "Por reglas")}
-        </>
-      )}
-    </Badge>
   );
 }
 
@@ -711,7 +681,6 @@ function MessageBubble({
           <span className="text-xs font-medium text-muted-foreground">
             Milton
           </span>
-          {a && <SourceBadge source={a.source} />}
         </div>
         <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
           {turn.content}

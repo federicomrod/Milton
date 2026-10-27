@@ -19,6 +19,7 @@ import {
   type AskMiltonSupportingFact,
   type ResolvedEntities,
 } from "@/lib/restaurant/ask-milton-prompt";
+import { parseRequestedCount } from "@/lib/restaurant/ask-milton-count";
 
 function fold(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
@@ -87,6 +88,56 @@ export function isBestSalesDayAnswerTextCompliant(
   return true;
 }
 
+/** Approved platos exist, so the best list comes from Resumen's ranking. */
+function hasApprovedMarginRanking(ctx: AskMiltonContext): boolean {
+  const list = ctx.menu_dishes?.top_by_margin ?? [];
+  return list.some(
+    (d) =>
+      d.cost_status === "aprobado" &&
+      d.food_cost_pct !== null &&
+      Number.isFinite(d.food_cost_pct)
+  );
+}
+
+const WEEK_WORDS = /\b(semana|week|7 dias|7 days|siete dias|seven days)\b/;
+const MONTH_LIKE_SOURCES = new Set(["latest_month", "named_period"]);
+
+/**
+ * A top-selling answer keeps the model's wording only when it names the
+ * snapshot's real leader, does not call a month «la última semana», and
+ * gives exactly the count the owner asked for (when they asked for one).
+ */
+export function topSellingAnswerIsGrounded(
+  answer: string,
+  ctx: AskMiltonContext,
+  message: string
+): boolean {
+  const sales = ctx.sales;
+  if (!sales.available) return true;
+  const text = fold(answer);
+  if (MONTH_LIKE_SOURCES.has(sales.period.source) && WEEK_WORDS.test(text)) {
+    return false;
+  }
+  const leader = sales.top_items_by_units[0];
+  if (leader && !text.includes(fold(leader.name))) {
+    // Category questions lead with the category's own top item.
+    const inCategory = sales.top_items_by_category.some(
+      (c) => c.items[0] && text.includes(fold(c.items[0].name))
+    );
+    if (!inCategory) return false;
+  }
+  const requested = parseRequestedCount(message);
+  if (requested !== null && requested > 1) {
+    const listed = answer
+      .split("\n")
+      .filter((line) => /^\s*\d+[.)]\s/.test(line)).length;
+    if (listed !== 0 && listed !== Math.min(requested, sales.top_items_by_units.length)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function groundAskMiltonAnswer(
   aiAnswer: AskMiltonAnswer,
   ctx: AskMiltonContext,
@@ -94,7 +145,11 @@ export function groundAskMiltonAnswer(
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
 ): { answer: AskMiltonAnswer; replaced: boolean } {
-  if (intent === "dish_food_cost" || intent === "least_profitable_dishes") {
+  if (
+    intent === "dish_food_cost" ||
+    intent === "least_profitable_dishes" ||
+    (intent === "most_profitable_dish" && hasApprovedMarginRanking(ctx))
+  ) {
     return {
       answer: buildDeterministicAnswer(ctx, message, intent, resolved),
       replaced: true,
@@ -109,6 +164,15 @@ export function groundAskMiltonAnswer(
     const text = fold(aiAnswer.answer);
     const names = top.some((i) => text.includes(fold(i.name)));
     if (names) return { answer: aiAnswer, replaced: false };
+    return {
+      answer: buildDeterministicAnswer(ctx, message, intent, resolved),
+      replaced: true,
+    };
+  }
+  if (intent === "top_selling_items") {
+    if (topSellingAnswerIsGrounded(aiAnswer.answer, ctx, message)) {
+      return { answer: aiAnswer, replaced: false };
+    }
     return {
       answer: buildDeterministicAnswer(ctx, message, intent, resolved),
       replaced: true,

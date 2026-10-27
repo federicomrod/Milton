@@ -204,10 +204,12 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
       "dish_food_cost",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/Entraña — 48%/);
-    expect(out.answer).toMatch(/Ribeye — 41%/);
-    expect(out.answer).toMatch(/Taco — 22%/);
-    expect(out.answer).toMatch(/2 platos sin costo todavía/);
+    expect(out.answer).toMatch(/Entraña — margen 52% · costo 48% del precio/);
+    expect(out.answer).toMatch(/Ribeye — margen 59% · costo 41% del precio/);
+    expect(out.answer).toMatch(/Taco — margen 78% · costo 22% del precio/);
+    expect(out.answer).toMatch(
+      /Ojo: 2 platos aún no tienen costo, así que podría haber otros con peor margen\./
+    );
     expect(out.answer).not.toMatch(/Agua|Postre|0%/);
     expect(out.answer).not.toMatch(/Entraña Angus|\$0|\$1\.16/);
     expect(out.suggested_followups).toHaveLength(2);
@@ -228,8 +230,8 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
       "dish_food_cost",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/Aprobado — 40%/);
-    expect(out.answer).toMatch(/2 platos sin costo todavía/);
+    expect(out.answer).toMatch(/Aprobado — margen 60% · costo 40% del precio/);
+    expect(out.answer).toMatch(/Ojo: 2 platos aún no tienen costo/);
     expect(out.answer).not.toMatch(/Estimado IA|Falta precio|80%|55%/);
   });
 
@@ -263,7 +265,7 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
       "dish_food_cost",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/Aún no hay platos con costo/);
+    expect(out.answer).toMatch(/Todavía ningún plato tiene costo aprobado/);
     expect(out.answer).not.toMatch(/Briefing Fake|Profit Fake|90%/);
   });
 
@@ -278,7 +280,7 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
       detectIntent("¿qué platos tienen peor margen?"),
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/2 platos sin costo todavía/);
+    expect(out.answer).toMatch(/2 platos esperan receta o precio/);
     expect(out.answer).not.toMatch(/0%/);
     expect(out.answer).not.toMatch(/\$0/);
   });
@@ -304,6 +306,59 @@ describe("buildDeterministicAnswer — dish food-cost", () => {
     );
     expect(actions).toEqual([]);
     expect(actions.filter(isPerItemAskMiltonChip)).toEqual([]);
+  });
+});
+
+describe("dish food-cost — Fede's «tres platos con peores márgenes»", () => {
+  const many = ctxWithDishes([
+    dish("QUESO FUNDIDO", 37),
+    dish("Ribeye", 35),
+    dish("Taco", 30),
+    dish("Sopa", 28),
+    dish("Ensalada", 20),
+    dish("Agua", null),
+  ]);
+  const q = "cuales son mis tres platos con peores margenes?";
+
+  it("routes the plural «peores márgenes» to dish food-cost", () => {
+    expect(detectIntent(q)).toBe("dish_food_cost");
+    expect(detectIntent("¿cuáles son mis platos con mejores márgenes?")).toBe(
+      "most_profitable_dish"
+    );
+  });
+
+  it("returns exactly three, in the question's words, with sentence-case names", () => {
+    const out = buildDeterministicAnswer(many, q, detectIntent(q), NO_ENTITIES);
+    const lines = out.answer.split("\n").filter((l) => /^\d+\. /.test(l));
+    expect(lines).toHaveLength(3);
+    expect(out.answer.startsWith("Tus 3 platos con peor margen:")).toBe(true);
+    expect(lines[0]).toBe("1. Queso fundido — margen 63% · costo 37% del precio");
+    expect(out.answer).not.toMatch(/QUESO FUNDIDO|Sopa|Ensalada/);
+    expect(out.answer).toMatch(
+      /Ojo: 1 plato aún no tiene costo, así que podría tener peor margen\./
+    );
+  });
+
+  it("honours digits and «top 2», and keeps 5 by default", () => {
+    const count = (m: string) =>
+      buildDeterministicAnswer(many, m, "dish_food_cost", NO_ENTITIES)
+        .answer.split("\n")
+        .filter((l) => /^\d+\. /.test(l)).length;
+    expect(count("mis 3 platos con peor margen")).toBe(3);
+    expect(count("top 2 platos con peor margen")).toBe(2);
+    expect(count("my worst four dishes by margin")).toBe(4);
+    expect(count("¿qué platos tienen peor margen?")).toBe(5);
+  });
+
+  it("says so when fewer platos are costed than asked", () => {
+    const few = ctxWithDishes([dish("Taco", 30), dish("Agua", null)]);
+    const out = buildDeterministicAnswer(
+      few,
+      "mis tres platos con peor margen",
+      "dish_food_cost",
+      NO_ENTITIES
+    );
+    expect(out.answer).toMatch(/solo 1 plato tiene costo aprobado|Por ahora solo/);
   });
 });
 

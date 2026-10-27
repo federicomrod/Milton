@@ -45,7 +45,10 @@ import {
   type CockpitSalesAggregate,
 } from "@/lib/restaurant/cockpit-aggregates";
 import { classifySaleLine, isTipSaleRow } from "@/lib/restaurant/sales-revenue";
-import { fetchAllRowsRetryingWithoutColumn } from "@/lib/restaurant/missing-schema-column";
+import {
+  fetchAllRowsRetryingWithoutColumn,
+  fetchAllRowsRetryingWithoutColumns,
+} from "@/lib/restaurant/missing-schema-column";
 import { cutoffFor } from "@/lib/restaurant/business-day";
 import { loadBusinessDayConfig } from "@/lib/restaurant/business-day-server";
 
@@ -272,12 +275,26 @@ export interface PosSalesItemRow {
   /** Migration 030. Null on legacy rows — readers use the product name. */
   is_tip?: boolean | null;
   source_metadata?: { discount_estimated?: boolean } | null;
+  /** Only read with `withComboLines`: the source line id. */
+  external_line_id?: string | null;
+  /** Migration 038, only with `withComboLines`: the combo line this is part of. */
+  combo_parent_external_line_id?: string | null;
+  combo_parent_odoo_product_id?: number | null;
   /** R1-17a: business-day cutoff of this line's restaurant (set on read). */
   business_cutoff_min?: number | null;
 }
 
 const POS_SELECT_COLS =
   "id, company_id, location_id, menu_item_id, sale_date, order_id, check_id, raw_item_name, quantity, gross_revenue, net_revenue, discount_amount, currency, sales_channel, payment_type, category, sub_category, order_placed_at, is_tip, source_metadata";
+
+/** Line id + combo-parent link (038). Optional on older schemas. */
+const POS_COMBO_COLS =
+  "external_line_id, combo_parent_external_line_id, combo_parent_odoo_product_id";
+const POS_COMBO_OPTIONAL_COLS = [
+  "combo_parent_external_line_id",
+  "combo_parent_odoo_product_id",
+  "is_tip",
+] as const;
 
 // ---------------------------------------------------------------------------
 // Conversion: pos_sales_items row → POSSalesItem (the type the existing
@@ -474,7 +491,15 @@ export async function fetchCompanyPosSalesRows(
   companyId: string,
   selectedLocationId?: string | null,
   /** Only sales on/after this sale_date (YYYY-MM-DD): bounds a morning job's read. */
-  options?: { sinceDate?: string | null }
+  options?: {
+    sinceDate?: string | null;
+    /**
+     * Also read each line's id and combo-parent link (migration 038), so a
+     * reader can count a combo once instead of once per component. Off by
+     * default: other readers keep today's select unchanged.
+     */
+    withComboLines?: boolean;
+  }
 ) {
   // R1-17a: each line carries the business-day cutoff of its restaurant, so
   // every row walk (daily series, heatmap, shifts) uses the same business day
@@ -484,7 +509,8 @@ export async function fetchCompanyPosSalesRows(
       supabase,
       companyId,
       selectedLocationId,
-      options?.sinceDate ?? null
+      options?.sinceDate ?? null,
+      options?.withComboLines === true
     ),
     loadBusinessDayConfig(supabase as never, companyId),
   ]);
@@ -500,21 +526,30 @@ async function fetchPosSalesRowsRaw(
   supabase: SupabaseLike,
   companyId: string,
   selectedLocationId?: string | null,
-  sinceDate?: string | null
+  sinceDate?: string | null,
+  withComboLines = false
 ) {
+  const makeQuery = (select: string) => {
+    let query = supabase
+      .from("pos_sales_items")
+      .select(select)
+      .eq("company_id", companyId);
+    if (selectedLocationId) {
+      query = query.eq("location_id", selectedLocationId);
+    }
+    if (sinceDate) query = query.gte("sale_date", sinceDate);
+    return query;
+  };
+  if (withComboLines) {
+    return fetchAllRowsRetryingWithoutColumns<PosSalesItemRow>(
+      POS_COMBO_OPTIONAL_COLS,
+      makeQuery,
+      `${POS_SELECT_COLS}, ${POS_COMBO_COLS}`
+    );
+  }
   return fetchAllRowsRetryingWithoutColumn<PosSalesItemRow>(
     "is_tip",
-    (select) => {
-      let query = supabase
-        .from("pos_sales_items")
-        .select(select)
-        .eq("company_id", companyId);
-      if (selectedLocationId) {
-        query = query.eq("location_id", selectedLocationId);
-      }
-      if (sinceDate) query = query.gte("sale_date", sinceDate);
-      return query;
-    },
+    makeQuery,
     POS_SELECT_COLS
   );
 }

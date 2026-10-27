@@ -276,7 +276,7 @@ export function MenuProfitabilityTable({
                       onClick={() => toggleSort("name")}
                       icon={sortIcon("name")}
                     >
-                      {t(lang, "Menu item", "Platillo")}
+                      {t(lang, "Menu item", "Plato")}
                     </SortableTh>
                     <th className="px-3 py-3 font-medium">
                       {t(lang, "POS mapping", "Ligue del POS")}

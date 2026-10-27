@@ -27,34 +27,16 @@ export const ALLOW: Record<string, string> = {
     "sends one email to the company's saved address; changes nothing",
   "restaurant/onboarding/complete/route.ts":
     "marks the signed-in person's own onboarding as done",
-  "onboarding/kpi-preferences/route.ts":
-    "the signed-in person's own onboarding choices",
-  "onboarding/rank-kpis/route.ts":
-    "ranks KPIs for the signed-in person's onboarding; writes nothing company-wide",
   "business-type/route.ts":
     "classifies text during onboarding; writes nothing company-wide",
   // Reads and analysis that write nothing company-wide
-  "ai/business-model-analyzer/route.ts":
-    "AI analysis; writes nothing company-wide",
-  "ai/column-mapper/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/dataset-classifier/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/forecast-generator/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/insight-generator/route.ts": "AI analysis; writes nothing company-wide",
-  "ai/onboarding/route.ts": "AI onboarding chat; writes nothing company-wide",
-  "analytics/financial-metrics/route.ts":
-    "calculation over the request body; writes nothing",
-  "charts/generate/route.ts": "builds a chart spec; writes nothing",
   "chat/route.ts": "AI chat; writes nothing company-wide",
-  "milton/ask/route.ts": "AI question; writes nothing company-wide",
-  "openai-analyze/route.ts": "AI analysis; writes nothing company-wide",
   "restaurant/ask-milton/route.ts":
     "read-only chat over the restaurant context",
   "restaurant/data-source-requests/route.ts":
     "records a «please support this source» request for Milton; no company data",
   "restaurant/kitchen/reports/resolve/route.ts":
     "any company member resolves cook reports, by design (documented in the route)",
-  // Legacy non-restaurant (CFO) flow that only parses a file and writes nothing.
-  "data/parse/route.ts": "legacy CFO flow: parses a file, writes nothing",
 };
 
 function routes(dir: string): string[] {

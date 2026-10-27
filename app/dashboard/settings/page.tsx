@@ -22,8 +22,10 @@ import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
+  browserTimeZone,
+  CompanySaveError,
   getUserProfile,
-  upsertUserProfile,
+  saveUserPreferences,
   getUserCompany,
   updateCompany,
 } from "@/lib/profile-service";
@@ -37,7 +39,6 @@ import {
   Building2,
 } from "lucide-react";
 
-const currencies = ["EUR", "USD", "GBP", "CHF", "MXN"];
 const dateFormats = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
 const numberFormats = ["1,000.00", "1.000,00"];
 const themes = ["light", "dark", "system"];
@@ -46,8 +47,7 @@ export default function SettingsPage() {
   const { setPrefs, refreshPrefs } = useUserPreferences();
   const canEditCompany = useCan("company.edit");
   const [form, setForm] = useState({
-    timezone: "Europe/Berlin",
-    currency: "EUR",
+    timezone: browserTimeZone(),
     date_format: "DD/MM/YYYY",
     number_format: "1,000.00",
     theme: "light",
@@ -56,6 +56,9 @@ export default function SettingsPage() {
     name: "",
     industry: "",
   });
+  // Read-only: money is shown in the company's currency (from its data).
+  const [companyCurrency, setCompanyCurrency] = useState<string | null>(null);
+  const [savedCompanyName, setSavedCompanyName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -70,8 +73,7 @@ export default function SettingsPage() {
 
         if (profile) {
           setForm({
-            timezone: profile.timezone || "Europe/Berlin",
-            currency: profile.currency || "EUR",
+            timezone: profile.timezone || browserTimeZone(),
             date_format: profile.date_format || "DD/MM/YYYY",
             number_format: profile.number_format || "1,000.00",
             theme: profile.theme || "light",
@@ -83,6 +85,8 @@ export default function SettingsPage() {
             name: company.name || "",
             industry: company.industry || "",
           });
+          setSavedCompanyName(company.name || "");
+          setCompanyCurrency(company.currency || null);
         }
       } catch (error) {
         console.error("Failed to load data:", error);
@@ -102,20 +106,29 @@ export default function SettingsPage() {
     setSaving(true);
     setMessage("");
     try {
-      // Update profile and company separately
+      const nameChanged =
+        canEditCompany &&
+        companyForm.name.trim() !== "" &&
+        companyForm.name.trim() !== savedCompanyName.trim();
       await Promise.all([
-        upsertUserProfile(form),
-        // The server's answer: this role may not change the company data.
-        canEditCompany ? updateCompany(companyForm) : Promise.resolve(),
+        saveUserPreferences(form),
+        // Only rename when the name actually changed (and this role may).
+        nameChanged ? updateCompany(companyForm) : Promise.resolve(),
       ]);
+      if (nameChanged) setSavedCompanyName(companyForm.name.trim());
 
-      // ✅ Refresh preferences from Supabase - triggers live update across all components
+      // Apply right away (theme) and re-read what was saved.
+      setPrefs(form);
       await refreshPrefs();
 
       setMessage("¡Listo! Guardamos tus cambios.");
       setTimeout(() => setMessage(""), 3000);
     } catch (error) {
-      setMessage("No pudimos guardar tus cambios. Inténtalo de nuevo.");
+      setMessage(
+        error instanceof CompanySaveError
+          ? error.message
+          : "No pudimos guardar tus cambios. Inténtalo de nuevo."
+      );
       console.error(error);
     } finally {
       setSaving(false);
@@ -224,21 +237,18 @@ export default function SettingsPage() {
                 <DollarSign className="h-4 w-4" />
                 Moneda
               </Label>
-              <Select
-                value={form.currency}
-                onValueChange={(v) => handleChange("currency", v)}
+              <div
+                id="currency"
+                aria-readonly="true"
+                className="flex h-9 w-fit items-center rounded-md border border-input bg-muted/40 px-3 text-sm"
               >
-                <SelectTrigger id="currency">
-                  <SelectValue placeholder="Elige una moneda" />
-                </SelectTrigger>
-                <SelectContent>
-                  {currencies.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c} - {getCurrencySymbol(c)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                {companyCurrency
+                  ? `${companyCurrency} - ${getCurrencySymbol(companyCurrency)}`
+                  : "Sin definir"}
+              </div>
+              <p className="text-xs text-gray-500">
+                Sale de los datos de tu restaurante.
+              </p>
             </div>
 
             <div className="space-y-2">

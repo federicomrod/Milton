@@ -233,7 +233,7 @@ export default function AccountPage() {
                   Moneda
                 </p>
                 <p className="text-base text-foreground">
-                  {profile?.currency || "EUR"}
+                  {company?.currency || "Sin definir"}
                 </p>
               </div>
             </div>

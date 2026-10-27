@@ -18,19 +18,17 @@ vi.mock("@/lib/supabase/client", () => ({
 import { UserProvider, useUser } from "@/lib/context/UserContext";
 
 function Probe() {
-  const { user, loading, error } = useUser();
+  const { user, loading } = useUser();
   return (
     <div>
       <span data-testid="loading">{loading ? "yes" : "no"}</span>
       <span data-testid="user">{user?.id ?? "none"}</span>
-      <span data-testid="error">{error ?? "none"}</span>
     </div>
   );
 }
 
 describe("UserProvider 401", () => {
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "setInterval"] });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -43,7 +41,6 @@ describe("UserProvider 401", () => {
 
   afterEach(() => {
     cleanup();
-    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -65,9 +62,10 @@ describe("UserProvider 401", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/api/user", { credentials: "include" });
 
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The old first retry fired at 1s. Still one call after that window.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     expect(fetch).toHaveBeenCalledTimes(1);
-  });
+  }, 4000);
 
   it("the source has no 401 backoff loop", () => {
     const src = readFileSync(

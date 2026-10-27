@@ -84,7 +84,7 @@ describe("5 · onboarding uses the restaurant shell, not the old top bar", () =>
       /Skip to dashboard|Recommended|Could not finish/
     );
   });
-  it("the legacy onboarding steps (chat, data sources, kpi selection, upload) are untouched and reachable", () => {
+  it("the legacy onboarding steps are gone; /onboarding redirects to the restaurant wizard", () => {
     for (const d of [
       "chat",
       "data-sources",
@@ -95,9 +95,14 @@ describe("5 · onboarding uses the restaurant shell, not the old top bar", () =>
       expect(
         existsSync(join(process.cwd(), `app/onboarding/${d}/page.tsx`)),
         d
-      ).toBe(true);
-    // their layout still guards the flow; only the old top bar is gone
-    expect(read("app/onboarding/layout.tsx")).toContain("getOnboardingStatus");
+      ).toBe(false);
+    const layout = read("app/onboarding/layout.tsx");
+    expect(layout).not.toContain("use client");
+    expect(layout).not.toContain("getOnboardingStatus");
+    expect(layout).not.toContain("Loading...");
+    expect(read("app/onboarding/page.tsx")).toContain(
+      'redirect("/onboarding/restaurant")'
+    );
   });
 });
 

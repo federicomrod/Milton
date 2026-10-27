@@ -1,6 +1,6 @@
-// The legacy CFO write routes that are still called by the legacy dashboard
-// need company.edit (owner / admin / Milton staff). data/upload and
-// kpis/select had no callers and are deleted. Synthetic data only.
+// The leftover CFO write route still called by the dashboard layout
+// (kpis/calculate) needs company.edit. The other legacy write routes
+// had no live callers and are gone. Synthetic data only.
 import { existsSync } from "fs";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -47,15 +47,7 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { DELETE as deleteModelTable } from "@/app/api/data/delete-model-table/route";
-import { POST as normalizeValues } from "@/app/api/data/normalize-values/route";
-import { POST as uploadModelTable } from "@/app/api/data/upload-model-table/route";
 import { POST as calculateKpis } from "@/app/api/kpis/calculate/route";
-import { POST as createScenario } from "@/app/api/scenarios/route";
-import {
-  DELETE as deleteScenario,
-  PATCH as patchScenario,
-} from "@/app/api/scenarios/[id]/route";
 
 const req = (method: string, body: unknown = {}) =>
   new NextRequest("http://localhost/api/x", {
@@ -63,22 +55,8 @@ const req = (method: string, body: unknown = {}) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-const ctx = { params: Promise.resolve({ id: "s-1" }) };
 
 const ROUTES: Array<[string, () => Promise<Response>]> = [
-  [
-    "DELETE data/delete-model-table",
-    () => deleteModelTable(req("DELETE", { tableName: "t" })),
-  ],
-  [
-    "POST data/normalize-values",
-    () =>
-      normalizeValues(req("POST", { fields: [{ field: "a", values: ["x"] }] })),
-  ],
-  [
-    "POST data/upload-model-table",
-    () => uploadModelTable(req("POST", { tableName: "t", rows: [{ a: 1 }] })),
-  ],
   [
     "POST kpis/calculate",
     () =>
@@ -86,12 +64,6 @@ const ROUTES: Array<[string, () => Promise<Response>]> = [
         req("POST", { from_date: "2026-01-01", to_date: "2026-02-01" }) as never
       ),
   ],
-  ["POST scenarios", () => createScenario(req("POST", { name: "Plan" }))],
-  [
-    "PATCH scenarios/[id]",
-    () => patchScenario(req("PATCH", { name: "Plan 2" }), ctx),
-  ],
-  ["DELETE scenarios/[id]", () => deleteScenario(req("DELETE"), ctx)],
 ];
 
 const MESSAGE = "Tu rol no puede cambiar los datos de la empresa.";
@@ -109,9 +81,27 @@ const as = (role: string | null, staff = false) => {
 };
 
 describe("deleted routes", () => {
-  it("data/upload and kpis/select had no callers and are gone", () => {
-    expect(existsSync("app/api/data/upload/route.ts")).toBe(false);
-    expect(existsSync("app/api/kpis/select/route.ts")).toBe(false);
+  it("legacy CFO routes with no live callers are gone", () => {
+    const gone = [
+      "app/api/data/upload/route.ts",
+      "app/api/kpis/select/route.ts",
+      "app/api/data/delete-model-table/route.ts",
+      "app/api/data/normalize-values/route.ts",
+      "app/api/data/parse/route.ts",
+      "app/api/data/sources/route.ts",
+      "app/api/data/table-names/route.ts",
+      "app/api/data/table-preview/route.ts",
+      "app/api/data/upload-model-table/route.ts",
+      "app/api/kpis/series/route.ts",
+      "app/api/model-data/tables/route.ts",
+      "app/api/onboarding/kpi-preferences/route.ts",
+      "app/api/onboarding/rank-kpis/route.ts",
+      "app/api/report-data/route.ts",
+      "app/api/scenarios/route.ts",
+      "app/api/scenarios/[id]/route.ts",
+      "app/api/analytics/financial-metrics/route.ts",
+    ];
+    for (const f of gone) expect(existsSync(f), f).toBe(false);
   });
 });
 

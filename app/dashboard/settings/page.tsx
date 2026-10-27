@@ -30,17 +30,14 @@ import {
   updateCompany,
 } from "@/lib/profile-service";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
-import {
-  Globe,
-  DollarSign,
-  Calendar,
-  Hash,
-  Palette,
-  Building2,
-} from "lucide-react";
+import { Palette, Building2 } from "lucide-react";
 
-const dateFormats = ["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"];
-const numberFormats = ["1,000.00", "1.000,00"];
+// Zona horaria, formato de fecha and formato de número are still loaded and
+// saved back unchanged (Auth user metadata) but hidden: nothing in the app
+// uses them yet. Bring the fields back once something reads them.
+const READ_ONLY_BOX =
+  "flex h-9 w-fit min-w-[8rem] items-center rounded-md border border-input bg-muted/40 px-3 text-sm";
+
 const themes = ["light", "dark", "system"];
 
 export default function SettingsPage() {
@@ -150,7 +147,7 @@ export default function SettingsPage() {
       <div className="mb-5">
         <OperatingPageHeader title="Ajustes" lang="es" showDateRange={false} />
         <p className="mt-0.5 text-[13px] text-[#6b7385]">
-          El nombre de tu empresa y cómo se muestran fechas, números y tema
+          El nombre de tu empresa y el tema de la app
         </p>
       </div>
 
@@ -179,69 +176,17 @@ export default function SettingsPage() {
               />
             </div>
 
+            {/* Read-only: the company API only renames; industry is not saved. */}
             <div className="space-y-2">
               <Label htmlFor="industry">Industria</Label>
-              <Input
-                id="industry"
-                name="industry"
-                placeholder="Ej.: restaurante, café, bar"
-                disabled={!canEditCompany}
-                value={companyForm.industry || ""}
-                onChange={(e) =>
-                  setCompanyForm({ ...companyForm, industry: e.target.value })
-                }
-              />
-            </div>
-            {!canEditCompany && (
-              <p className="text-[13px] text-[#6b7280]">
-                {CAPABILITY_MESSAGES["company.edit"]}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Preferencias regionales y de formato */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Globe className="h-5 w-5" />
-              Preferencias regionales y de formato
-            </CardTitle>
-            <CardDescription>Cómo se muestran tus datos</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="timezone" className="flex items-center gap-2">
-                <Globe className="h-4 w-4" />
-                Zona horaria
-              </Label>
-              <Select
-                value={form.timezone}
-                onValueChange={(v) => handleChange("timezone", v)}
-              >
-                <SelectTrigger id="timezone">
-                  <SelectValue placeholder="Elige una zona horaria" />
-                </SelectTrigger>
-                <SelectContent className="max-h-60">
-                  {Intl.supportedValuesOf("timeZone").map((tz) => (
-                    <SelectItem key={tz} value={tz}>
-                      {tz}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div id="industry" aria-readonly="true" className={READ_ONLY_BOX}>
+                {companyForm.industry || "Sin definir"}
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="currency" className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                Moneda
-              </Label>
-              <div
-                id="currency"
-                aria-readonly="true"
-                className="flex h-9 w-fit items-center rounded-md border border-input bg-muted/40 px-3 text-sm"
-              >
+              <Label htmlFor="currency">Moneda</Label>
+              <div id="currency" aria-readonly="true" className={READ_ONLY_BOX}>
                 {companyCurrency
                   ? `${companyCurrency} - ${getCurrencySymbol(companyCurrency)}`
                   : "Sin definir"}
@@ -251,55 +196,11 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="date_format" className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Formato de fecha
-              </Label>
-              <Select
-                value={form.date_format}
-                onValueChange={(v) => handleChange("date_format", v)}
-              >
-                <SelectTrigger id="date_format">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {dateFormats.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f}{" "}
-                      <span className="text-gray-400 ml-2">
-                        ({formatDateExample(f)})
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label
-                htmlFor="number_format"
-                className="flex items-center gap-2"
-              >
-                <Hash className="h-4 w-4" />
-                Formato de número
-              </Label>
-              <Select
-                value={form.number_format}
-                onValueChange={(v) => handleChange("number_format", v)}
-              >
-                <SelectTrigger id="number_format">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {numberFormats.map((f) => (
-                    <SelectItem key={f} value={f}>
-                      {f}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!canEditCompany && (
+              <p className="text-[13px] text-[#6b7280]">
+                {CAPABILITY_MESSAGES["company.edit"]}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -372,18 +273,4 @@ function getCurrencySymbol(currency: string): string {
     MXN: "MX$",
   };
   return symbols[currency] || currency;
-}
-
-function formatDateExample(format: string): string {
-  const date = new Date(2024, 0, 15); // January 15, 2024
-  switch (format) {
-    case "DD/MM/YYYY":
-      return "15/01/2024";
-    case "MM/DD/YYYY":
-      return "01/15/2024";
-    case "YYYY-MM-DD":
-      return "2024-01-15";
-    default:
-      return "";
-  }
 }

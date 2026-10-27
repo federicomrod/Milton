@@ -74,7 +74,6 @@ describe("Cuenta and Ajustes pages", () => {
     for (const heading of [
       "Información de la empresa",
       "Estado de la cuenta",
-      "Preferencias",
       "TelegramConnectionCard",
       "EmailBriefingCard",
     ])

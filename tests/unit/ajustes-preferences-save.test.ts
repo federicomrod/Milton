@@ -140,12 +140,52 @@ describe("Moneda shows the company's currency, never a made-up EUR", () => {
     expect(page).toContain("companyCurrency");
     const account = read("app/dashboard/account/page.tsx");
     expect(account).not.toMatch(/\|\| "EUR"/);
-    expect(account).toContain("company?.currency");
   });
   it("the company API returns the derived currency", () => {
     const route = read("app/api/restaurant/company/route.ts");
     expect(route).toContain(
       "resolveCompanyCurrency(auth.supabase, auth.companyId)"
     );
+  });
+});
+
+describe("Ajustes hides preferences nothing uses yet", () => {
+  const page = () => read("app/dashboard/settings/page.tsx");
+  it("no Zona horaria, Formato de fecha or Formato de número fields", () => {
+    expect(page()).not.toContain('htmlFor="timezone"');
+    expect(page()).not.toContain('htmlFor="date_format"');
+    expect(page()).not.toContain('htmlFor="number_format"');
+    expect(page()).not.toContain("Preferencias regionales");
+  });
+  it("still keeps and saves the stored values, so they can come back", () => {
+    expect(page()).toContain("timezone: profile.timezone");
+    expect(page()).toContain("date_format: profile.date_format");
+    expect(page()).toContain("number_format: profile.number_format");
+    expect(page()).toContain("saveUserPreferences(form)");
+  });
+  it("Tema stays editable; Moneda and Industria are read-only", () => {
+    expect(page()).toContain('htmlFor="theme"');
+    expect(page()).toContain('handleChange("theme"');
+    expect(page()).toMatch(/id="currency"\s+aria-readonly="true"/);
+    expect(page()).toMatch(/id="industry"\s+aria-readonly="true"/);
+    expect(page()).not.toContain("industry: e.target.value");
+  });
+  it("Cuenta no longer repeats the preferences", () => {
+    const account = read("app/dashboard/account/page.tsx");
+    for (const label of [
+      "Zona horaria",
+      "Formato de fecha",
+      "Formato de número",
+      "Moneda",
+      ">\n                  Tema",
+    ]) {
+      expect(account).not.toContain(label);
+    }
+  });
+  it("the dead profiles.role readers are gone", () => {
+    const src = read("lib/profile-service.ts");
+    expect(src).not.toContain("isUserAdmin(");
+    expect(src).not.toContain("getUserRole(");
+    expect(src).not.toMatch(/select\("role"\)/);
   });
 });

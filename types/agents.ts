@@ -5,8 +5,8 @@
 // supabase/migrations/008_agent_coordination_foundation.sql.
 //
 // All `agent_key` values must match a row in `agent_definitions`. The
-// runtime allowed keys live in lib/restaurant/agents/config.ts so they
-// can be imported from server and client code without dragging types in.
+// agents page and its routes are retired (#379); Ask Milton and the briefing
+// still read these rows.
 
 // ---------------------------------------------------------------------------
 // Enums (string unions kept in sync with the SQL CHECK constraints)

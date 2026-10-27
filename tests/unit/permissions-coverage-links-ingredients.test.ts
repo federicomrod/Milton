@@ -207,50 +207,6 @@ const CASES: Case[] = [
     request: () => json("recipes/upload-draft", "DELETE"),
     message: IMPORTS,
   },
-  {
-    name: "agent-actions/execute POST (menu.manage)",
-    method: "POST",
-    load: () => import("@/app/api/restaurant/agent-actions/execute/route"),
-    request: () => json("agent-actions/execute", "POST"),
-    message: MENU,
-  },
-  {
-    name: "agent-actions/propose POST (menu.manage)",
-    method: "POST",
-    load: () => import("@/app/api/restaurant/agent-actions/propose/route"),
-    request: () => json("agent-actions/propose", "POST"),
-    message: MENU,
-  },
-  {
-    name: "agent-actions/status POST (menu.manage)",
-    method: "POST",
-    load: () => import("@/app/api/restaurant/agent-actions/status/route"),
-    request: () => json("agent-actions/status", "POST"),
-    message: MENU,
-  },
-  {
-    name: "ask-milton/create-action POST (menu.manage)",
-    method: "POST",
-    load: () => import("@/app/api/restaurant/ask-milton/create-action/route"),
-    request: () => json("ask-milton/create-action", "POST"),
-    message: MENU,
-  },
-  {
-    name: "agents/recommendations/[id] PATCH (menu.manage)",
-    method: "PATCH",
-    load: () =>
-      import("@/app/api/restaurant/agents/recommendations/[id]/route"),
-    request: () => json(`agents/recommendations/${UUID}`, "PATCH"),
-    message: MENU,
-    ctx: params,
-  },
-  {
-    name: "agents/run POST (menu.manage)",
-    method: "POST",
-    load: () => import("@/app/api/restaurant/agents/run/route"),
-    request: () => json("agents/run", "POST"),
-    message: MENU,
-  },
 ];
 
 async function call(c: Case): Promise<Response | "threw"> {

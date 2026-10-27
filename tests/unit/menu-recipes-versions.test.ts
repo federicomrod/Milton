@@ -274,15 +274,6 @@ describe("fetchMenuRecipesData — recipe versions", () => {
     expect(ingredientsPage).toContain("menu-recipes-server");
     expect(ingredientsPage).toContain("fetchIngredientLatestCosts");
 
-    const execute = readFileSync(
-      "app/api/restaurant/agent-actions/execute/route.ts",
-      "utf8"
-    );
-    expect(execute).toContain("fetchMenuRecipesData");
-    expect(execute).toContain("pendingRecipesLabel");
-    expect(execute).toContain("cost_pending");
-    expect(execute).toContain("isPendingRecipeCostStatus");
-
     expect(pendingRecipesLabel("es")).toBe("Pendiente de recetas");
   });
 });

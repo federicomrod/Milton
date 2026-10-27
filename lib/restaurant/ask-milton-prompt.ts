@@ -308,7 +308,6 @@ type RelatedLinkRoute =
   | "/dashboard/restaurant/menu/ingredientes"
   | "/dashboard/restaurant/costs?tab=proveedores"
   | "/dashboard/restaurant/costs?tab=compras"
-  | "/dashboard/restaurant/agents"
   | "/dashboard/restaurant/menu/platos"
   | "/dashboard/restaurant/data?seccion=conexiones";
 
@@ -333,7 +332,6 @@ const RELATED_LINK_LABELS: Record<
     en: "Supplier Invoices",
     es: "Facturas de Proveedores",
   },
-  "/dashboard/restaurant/agents": { en: "Agents", es: "Agentes" },
   "/dashboard/restaurant/menu/platos": {
     en: "Dishes",
     es: "Platos",

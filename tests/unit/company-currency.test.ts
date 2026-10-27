@@ -299,7 +299,6 @@ describe("listed create/upload paths no longer hardcode an MXN fallback", () => 
     "app/api/restaurant/invoices/[id]/lines/route.ts",
     "app/api/restaurant/pos/upload/route.ts",
     "lib/restaurant/odoo/sync-company.ts",
-    "app/api/restaurant/agent-actions/execute/route.ts",
     "lib/restaurant/profitability-server.ts",
     "lib/restaurant/menu-recipes-server.ts",
     "lib/restaurant/supabase-targets.ts",

@@ -141,6 +141,7 @@ describe("Compras: Telegram invoices", () => {
       screen.getAllByTestId("invoice-source").map((e) => e.textContent)
     ).toEqual(["por Telegram", "por Telegram", "por foto"]);
     expect(screen.getAllByTestId("price-update-label")).toHaveLength(1);
-    expect(screen.getAllByText("Sin precio").length).toBe(3);
+    // #313: the price update's Total cell shows the label, not «Sin precio»
+    expect(screen.getAllByText("Sin precio").length).toBe(2);
   });
 });

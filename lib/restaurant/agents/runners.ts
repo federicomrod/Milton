@@ -344,10 +344,11 @@ export async function runSupplierAgent(
       description: `${sup.supplier_name} accounts for ${fmtCurrency(
         sup.total_spend,
         currency
-      )} of total supplier spend (${fmtCurrency(
-        data.total_supplier_spend,
-        currency
-      )}) across ${sup.ingredient_count} ingredients — above the ${concentrationThreshold}% concentration threshold.`,
+      )} of total supplier spend (${
+        data.total_supplier_spend === null
+          ? "—"
+          : fmtCurrency(data.total_supplier_spend, currency)
+      }) across ${sup.ingredient_count} ingredients — above the ${concentrationThreshold}% concentration threshold.`,
       severity: "warning",
       recommendation_type: "supplier_concentration",
       related_entity_type: "supplier",

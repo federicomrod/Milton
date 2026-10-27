@@ -16,6 +16,10 @@
 //     margin-risk tables and the data-quality checklist instead.
 
 import { loadUnitConversions } from "@/lib/restaurant/unit-conversions-server";
+import {
+  isPurchaseCostEntry,
+  loadPriceUpdateRefs,
+} from "@/lib/restaurant/price-update-refs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   type CostingData,
@@ -168,8 +172,12 @@ export interface ProfitabilityData {
   ingredientPriceReview?: IngredientPriceTrendRow[];
   topSupplierSpend: SupplierSpendRow[];
   dataQuality: DataQualityCounts;
-  /** Total spend across all cost entries — used by the supplier-spend chart. */
-  total_supplier_spend: number;
+  /**
+   * Total purchase spend across supplier cost entries (Telegram price updates
+   * excluded) — used by the supplier-spend chart. null = could not be
+   * computed safely (never render it as 0).
+   */
+  total_supplier_spend: number | null;
   setupCounts: SetupCounts;
   /**
    * Distinct check_id/order_id values in the POS read. Used by the
@@ -435,6 +443,7 @@ export async function fetchProfitabilityData(
     supplierIngredientsRes,
     supplierInvoicesCountRes,
     agentRunsCountRes,
+    priceUpdateRefs,
   ] = await Promise.all([
     loadPos(),
     // Intentionally NOT filtered by location: resolveScopedName below
@@ -580,6 +589,9 @@ export async function fetchProfitabilityData(
       .from("agent_runs")
       .select("*", { count: "exact", head: true })
       .eq("company_id", companyId),
+    // A Telegram price update is a price, not a purchase (#313): its ids are
+    // excluded from every purchase total / count below (price-update-refs.ts).
+    loadPriceUpdateRefs(supabase, companyId),
   ]);
 
   const posRes = posFetched;
@@ -1054,6 +1066,9 @@ export async function fetchProfitabilityData(
       continue;
     }
     if (!e.supplier_id) continue;
+    // A price update is a price, not spend (price-update-refs.ts). When the
+    // refs could not be read, no spend is summed at all (shown as «—»).
+    if (!priceUpdateRefs || !isPurchaseCostEntry(e, priceUpdateRefs)) continue;
     totalSupplierSpend += e.total_cost ?? 0;
     let agg = spendBySupplier.get(e.supplier_id);
     if (!agg) {
@@ -1063,8 +1078,8 @@ export async function fetchProfitabilityData(
     agg.spend += e.total_cost ?? 0;
     agg.ingredients.add(e.ingredient_id);
   }
-  const topSupplierSpend: SupplierSpendRow[] = Array.from(
-    spendBySupplier.entries()
+  const topSupplierSpend: SupplierSpendRow[] = (
+    priceUpdateRefs ? Array.from(spendBySupplier.entries()) : []
   )
     .map(([supplierId, agg]) => ({
       supplier_id: supplierId,
@@ -1136,7 +1151,15 @@ export async function fetchProfitabilityData(
     recipe_inputs_count: dishSide
       ? dishSide.dishes.reduce((sum, d) => sum + d.lines.length, 0)
       : recipeInputs.length,
-    supplier_invoices_count: supplierInvoicesCountRes.count ?? 0,
+    // Real invoices only: a Telegram price update is not an invoice
+    // (price-update-refs.ts). Unknown (refs failed) with a non-zero raw count
+    // is treated like the error path: 0.
+    supplier_invoices_count: purchaseInvoicesCount(
+      supplierInvoicesCountRes.error
+        ? 0
+        : (supplierInvoicesCountRes.count ?? 0),
+      priceUpdateRefs
+    ),
     agent_runs_count: agentRunsCountRes.count ?? 0,
     ingredients_count: ingredients.length,
   };
@@ -1158,7 +1181,7 @@ export async function fetchProfitabilityData(
     ingredientPriceReview: ingredientPriceReview.slice(0, 12),
     topSupplierSpend,
     dataQuality,
-    total_supplier_spend: totalSupplierSpend,
+    total_supplier_spend: priceUpdateRefs ? totalSupplierSpend : null,
     setupCounts,
     distinct_check_count: distinctCheckCount,
     posSource: posFetched.posSource,
@@ -1195,4 +1218,14 @@ export function costingDataFromProfitability(
   data: ProfitabilityData
 ): CostingData | null {
   return costingDataByProfitability.get(data) ?? null;
+}
+
+/** Raw invoice count minus price-update invoices; 0 if that cannot be known. */
+export function purchaseInvoicesCount(
+  rawCount: number,
+  refs: { invoiceIds: ReadonlySet<string> } | null
+): number {
+  if (rawCount === 0) return 0;
+  if (!refs) return 0;
+  return Math.max(0, rawCount - refs.invoiceIds.size);
 }

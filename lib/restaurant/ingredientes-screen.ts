@@ -6,22 +6,35 @@
 
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
 
-export type PriceSource = "excel" | "lista" | "factura" | "manual";
+export type PriceSource = "excel" | "lista" | "factura" | "manual" | "telegram";
 
 export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
   excel: "Excel",
   lista: "lista de precios",
   factura: "factura",
   manual: "manual",
+  telegram: "Telegram",
 };
 
-/** Same rule as the editor store's sourceLabel (recetas = the Excel). */
-export function priceSourceOf(entry: {
-  source_type: string;
-  notes?: string | null;
-}): PriceSource {
+/**
+ * Same rule as the editor store's sourceLabel (recetas = the Excel).
+ * `priceUpdateLineIds` (from loadPriceUpdateRefs): an invoice_line entry that
+ * came from a Telegram price update is «Telegram», not a «factura» (#313).
+ */
+export function priceSourceOf(
+  entry: {
+    source_type: string;
+    source_id?: string | null;
+    notes?: string | null;
+  },
+  priceUpdateLineIds?: ReadonlySet<string> | null
+): PriceSource {
   if (entry.source_type === "manual") return "manual";
-  if (entry.source_type === "invoice_line") return "factura";
+  if (entry.source_type === "invoice_line") {
+    return entry.source_id && priceUpdateLineIds?.has(entry.source_id)
+      ? "telegram"
+      : "factura";
+  }
   if (typeof entry.notes === "string" && entry.notes.startsWith("Receta")) {
     return "excel";
   }

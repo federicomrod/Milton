@@ -147,7 +147,13 @@ export default async function CostsAreaPage({
   const purchases = extras?.purchases ?? { last30: null, previous30: null };
   const purchasesDelta = pctChange(purchases.last30, purchases.previous30);
   const supplierCount =
-    extras?.supplierCount ?? profitability?.topSupplierSpend?.length ?? null;
+    extras?.supplierCount ??
+    // total_supplier_spend null = purchase refs unreadable: the list is empty
+    // on purpose, so the count is unknown («—»), not 0.
+    (profitability && profitability.total_supplier_spend !== null
+      ? profitability.topSupplierSpend?.length
+      : null) ??
+    null;
   const pendingSuppliers = extras?.suppliersWithPendingInvoices ?? null;
   // Nothing at all yet: say how to start (the setup section above is the upload).
   const nothingYet =

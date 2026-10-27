@@ -18,6 +18,10 @@ import {
   succeededRows,
   warnIfTruncated,
 } from "@/lib/restaurant/paginated-read";
+import {
+  isPurchaseCostEntry,
+  loadPriceUpdateRefs,
+} from "@/lib/restaurant/price-update-refs";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,7 +32,7 @@ export async function GET() {
   const { supabase, companyId } = auth;
 
   type SupplierRow = Record<string, unknown> & { id: string; name: string };
-  const [suppliersRes, linksRes, costRes] = await Promise.all([
+  const [suppliersRes, linksRes, costRes, refs] = await Promise.all([
     fetchAllRows<SupplierRow>(() =>
       supabase
         .from("suppliers")
@@ -47,13 +51,16 @@ export async function GET() {
       supplier_id: string;
       cost_date: string;
       total_cost: number;
+      source_type: string | null;
+      source_id: string | null;
     }>(() =>
       supabase
         .from("ingredient_cost_entries")
-        .select("supplier_id, cost_date, total_cost")
+        .select("supplier_id, cost_date, total_cost, source_type, source_id")
         .eq("company_id", companyId)
         .not("supplier_id", "is", null)
     ),
+    loadPriceUpdateRefs(supabase, companyId),
   ]);
 
   if (suppliersRes.error) {
@@ -80,7 +87,11 @@ export async function GET() {
 
   const latestCostDateBySupplierId = new Map<string, string>();
   const totalSpendBySupplierId = new Map<string, number>();
-  for (const e of succeededRows(costRes)) {
+  // A Telegram price update is a price, not a purchase (price-update-refs.ts);
+  // refs unreadable → no spend / last purchase («—»), never a number that may
+  // include it.
+  for (const e of refs ? succeededRows(costRes) : []) {
+    if (!isPurchaseCostEntry(e, refs as NonNullable<typeof refs>)) continue;
     const sid = e.supplier_id;
     const prev = latestCostDateBySupplierId.get(sid);
     if (!prev || e.cost_date > prev)

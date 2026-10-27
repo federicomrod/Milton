@@ -43,6 +43,7 @@ import {
 } from "@/lib/restaurant/ask-milton-sales";
 import { pendingRecipesLabel } from "@/lib/restaurant/cost-workbook/copy";
 import { type PreferredLanguage } from "@/lib/restaurant/language";
+import { isPurchaseInvoice } from "@/lib/restaurant/price-update-note";
 import { positiveUnitCost } from "@/lib/restaurant/unit-cost";
 import {
   buildIngredientPrices,
@@ -379,7 +380,7 @@ export async function buildAskMiltonContext(
     supabase
       .from("supplier_invoices")
       .select(
-        "id, supplier_id, invoice_number, invoice_date, status, total_amount, currency"
+        "id, supplier_id, invoice_number, invoice_date, status, total_amount, currency, notes"
       )
       .eq("company_id", companyId)
       .order("invoice_date", { ascending: false })
@@ -513,8 +514,14 @@ export async function buildAskMiltonContext(
     status: string;
     total_amount: number | null;
     currency: string | null;
+    notes?: string | null;
   };
-  const invoiceRows = (invoicesRes.data ?? []) as InvoiceRow[];
+  // A Telegram price update is a price, not an invoice (#313): never in the
+  // latest / needs-review lists or the counts (price-update-refs.ts). Its price
+  // reaches Ask Milton through the ingredient cost entries instead.
+  const invoiceRows = ((invoicesRes.data ?? []) as InvoiceRow[]).filter(
+    isPurchaseInvoice
+  );
   const toInvoiceSummary = (r: InvoiceRow): AskMiltonInvoiceSummary => ({
     invoice_id: r.id,
     supplier_name: r.supplier_id

@@ -41,3 +41,14 @@ export function isTelegramInvoice(inv: {
     isPriceUpdateNote(notes)
   );
 }
+
+/**
+ * A supplier invoice row that is a real PURCHASE (not a Telegram price
+ * update). A price update is a price, never a purchase: it must not count as
+ * spend, a purchase line or an invoice in any total or count. A row with no
+ * notes is a purchase. The server-side counterpart for cost entries lives in
+ * lib/restaurant/price-update-refs.ts (`isPurchaseCostEntry`).
+ */
+export function isPurchaseInvoice(inv: { notes?: string | null }): boolean {
+  return !isPriceUpdateNote(inv.notes);
+}

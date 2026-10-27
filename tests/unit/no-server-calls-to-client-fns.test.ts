@@ -224,12 +224,12 @@ describe("a server file never calls a function exported from a client module", (
     const onlyClient: Files = new Map([
       client,
       [
-        "lib/hooks/useReportData.ts",
-        `import { useUser } from "@/components/x/ctx";\nexport function useReportData() { return useUser(); }\n`,
+        "lib/hooks/usePanelData.ts",
+        `import { useUser } from "@/components/x/ctx";\nexport function usePanelData() { return useUser(); }\n`,
       ],
       [
         "components/x/Panel.tsx",
-        `"use client";\nimport { useReportData } from "@/lib/hooks/useReportData";\nexport function Panel() { return useReportData(); }\n`,
+        `"use client";\nimport { usePanelData } from "@/lib/hooks/usePanelData";\nexport function Panel() { return usePanelData(); }\n`,
       ],
     ]);
     expect(findServerCallsToClientFns(onlyClient)).toEqual([]);
@@ -237,7 +237,7 @@ describe("a server file never calls a function exported from a client module", (
       ...onlyClient,
       [
         "app/p/page.tsx",
-        `import { useReportData } from "@/lib/hooks/useReportData";\nexport default function P() { return useReportData(); }\n`,
+        `import { usePanelData } from "@/lib/hooks/usePanelData";\nexport default function P() { return usePanelData(); }\n`,
       ],
     ]);
     expect(findServerCallsToClientFns(alsoServer).map((v) => v[1])).toEqual([

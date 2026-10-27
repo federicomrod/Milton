@@ -27,15 +27,9 @@ export const ALLOW: Record<string, string> = {
     "sends one email to the company's saved address; changes nothing",
   "restaurant/onboarding/complete/route.ts":
     "marks the signed-in person's own onboarding as done",
-  "onboarding/kpi-preferences/route.ts":
-    "the signed-in person's own onboarding choices",
-  "onboarding/rank-kpis/route.ts":
-    "ranks KPIs for the signed-in person's onboarding; writes nothing company-wide",
   "business-type/route.ts":
     "classifies text during onboarding; writes nothing company-wide",
   // Reads and analysis that write nothing company-wide
-  "analytics/financial-metrics/route.ts":
-    "calculation over the request body; writes nothing",
   "chat/route.ts": "AI chat; writes nothing company-wide",
   "restaurant/ask-milton/route.ts":
     "read-only chat over the restaurant context",
@@ -43,8 +37,6 @@ export const ALLOW: Record<string, string> = {
     "records a «please support this source» request for Milton; no company data",
   "restaurant/kitchen/reports/resolve/route.ts":
     "any company member resolves cook reports, by design (documented in the route)",
-  // Legacy non-restaurant (CFO) flow that only parses a file and writes nothing.
-  "data/parse/route.ts": "legacy CFO flow: parses a file, writes nothing",
 };
 
 function routes(dir: string): string[] {

@@ -14,12 +14,14 @@
 import type { AskMiltonContext } from "@/lib/restaurant/ask-milton-context";
 import {
   buildDeterministicAnswer,
+  pickTopSellers,
   type AskMiltonAnswer,
   type AskMiltonIntent,
   type AskMiltonSupportingFact,
   type ResolvedEntities,
 } from "@/lib/restaurant/ask-milton-prompt";
 import { parseRequestedCount } from "@/lib/restaurant/ask-milton-count";
+import { matchCategoryFromQuestion } from "@/lib/restaurant/ask-milton-sales";
 
 function fold(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
@@ -99,6 +101,8 @@ function hasApprovedMarginRanking(ctx: AskMiltonContext): boolean {
   );
 }
 
+const CURRENCY_CODE_AMOUNT =
+  /\b(USD|EUR|MXN|GTQ|HNL|NIO|CRC|COP|PEN|CLP|ARS|DOP|PAB|BZD)\s?\$?\d/;
 const WEEK_WORDS = /\b(semana|week|7 dias|7 days|siete dias|seven days)\b/;
 const MONTH_LIKE_SOURCES = new Set(["latest_month", "named_period"]);
 
@@ -118,7 +122,19 @@ export function topSellingAnswerIsGrounded(
   if (MONTH_LIKE_SOURCES.has(sales.period.source) && WEEK_WORDS.test(text)) {
     return false;
   }
-  const leader = sales.top_items_by_units[0];
+  // Money reads like Ventas («$501»), never with a currency code.
+  if (CURRENCY_CODE_AMOUNT.test(answer)) return false;
+  const category = matchCategoryFromQuestion(
+    message,
+    sales.by_category.map((c) => c.key).filter(Boolean)
+  );
+  const picked = pickTopSellers(sales, message, category);
+  // «Plato» questions must lead with the top dish, not a drink.
+  if (picked.dishesOnly && !picked.category) {
+    const topDish = picked.items[0];
+    if (topDish && !text.includes(fold(topDish.name))) return false;
+  }
+  const leader = picked.dishesOnly ? picked.items[0] : sales.top_items_by_units[0];
   if (leader && !text.includes(fold(leader.name))) {
     // Category questions lead with the category's own top item.
     const inCategory = sales.top_items_by_category.some(
@@ -131,7 +147,7 @@ export function topSellingAnswerIsGrounded(
     const listed = answer
       .split("\n")
       .filter((line) => /^\s*\d+[.)]\s/.test(line)).length;
-    if (listed !== 0 && listed !== Math.min(requested, sales.top_items_by_units.length)) {
+    if (listed !== 0 && listed !== Math.min(requested, picked.items.length)) {
       return false;
     }
   }
@@ -171,7 +187,17 @@ export function groundAskMiltonAnswer(
   }
   if (intent === "top_selling_items") {
     if (topSellingAnswerIsGrounded(aiAnswer.answer, ctx, message)) {
-      return { answer: aiAnswer, replaced: false };
+      // The model's words stay; the chips and follow-ups are the rule
+      // path's (Ventas and Platos), never a generic Panel principal.
+      const grounded = buildDeterministicAnswer(ctx, message, intent, resolved);
+      return {
+        answer: {
+          ...aiAnswer,
+          related_links: grounded.related_links,
+          suggested_followups: grounded.suggested_followups,
+        },
+        replaced: false,
+      };
     }
     return {
       answer: buildDeterministicAnswer(ctx, message, intent, resolved),
@@ -195,10 +221,7 @@ export function groundAskMiltonAnswer(
     answer: {
       answer: textOk ? aiAnswer.answer : grounded.answer,
       supporting_facts: grounded.supporting_facts,
-      related_links:
-        aiAnswer.related_links.length > 0
-          ? aiAnswer.related_links
-          : grounded.related_links,
+      related_links: grounded.related_links,
       suggested_followups:
         aiAnswer.suggested_followups.length > 0
           ? aiAnswer.suggested_followups

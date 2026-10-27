@@ -33,7 +33,13 @@ import {
   type WeekdayKey,
 } from "@/lib/restaurant/pos-local-time";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
-import { displayName } from "@/lib/restaurant/sentence-case";
+import { sentenceCase } from "@/lib/restaurant/sentence-case";
+import {
+  dishKey,
+  exclusionFor,
+  parseVariantName,
+} from "@/lib/restaurant/menu-dishes/variant-name";
+import { suggestTreatment } from "@/lib/restaurant/pos-treatments";
 
 export {
   localWeekdayAndHour,
@@ -90,12 +96,22 @@ export interface SalesDateBucket {
   units: number;
 }
 
+/**
+ * What a sold line is, read with Menú's own rule (exclusionFor: the POS
+ * category, then a drink name) so Ask Milton and Menú › Platos agree.
+ * Discounts, staff meals and charges are not items at all (see
+ * salesItemKind); they only count in the totals, like Ventas.
+ */
+export type SalesItemKind = "food" | "drink" | "extra";
+
 export interface SalesSnapshotItem {
   name: string;
   category: string | null;
   revenue: number;
   units: number;
   orders: number;
+  /** Omitted on old snapshots; treat a missing kind as unknown. */
+  kind?: SalesItemKind;
 }
 
 export interface SalesCategoryWeekday {
@@ -141,8 +157,13 @@ export interface AskMiltonSalesSnapshot {
   by_category: SalesSnapshotBucket[];
   by_channel: SalesSnapshotBucket[];
   by_payment: SalesSnapshotBucket[];
+  /** Every product (food, drinks, extras); discounts and charges never. */
   top_items_by_units: SalesSnapshotItem[];
   top_items_by_revenue: SalesSnapshotItem[];
+  /** Food only (kind «food»): the list for «plato» questions. */
+  top_dishes_by_units: SalesSnapshotItem[];
+  /** Lines left out of the item lists (discounts, staff meals, charges). */
+  excluded_item_count: number;
   top_items_by_category: SalesCategoryItems[];
   /** Weekday split for the top categories — breakfast-by-day questions. */
   by_category_weekday: SalesCategoryWeekday[];
@@ -363,10 +384,84 @@ function isComboComponent(row: SalesFactRow): boolean {
 export function cleanPosItemName(raw: string | null | undefined): string {
   let name = (raw ?? "").replace(/\s+/g, " ").trim();
   name = name.replace(/^["'«“]+|["'»”]+$/g, "").trim();
-  const withoutOptions = name.replace(/\s*\([^()]*\)\s*$/, "").trim();
-  if (withoutOptions) name = withoutOptions;
+  // Menú's own reading of a POS variant: the dish is the text before the
+  // first bracket, so «Tortilla Normal (U)» and «Típico (Huevo) (Queso)»
+  // group and read like Menú › Platos does.
+  const base = parseVariantName(name).base;
+  if (base && !base.startsWith("(")) name = base;
   name = name.replace(/^["'«“]+|["'»”]+$/g, "").trim();
-  return displayName(name);
+  return sentenceCase(name);
+}
+
+/** Menú's grouping key for a cleaned name (accents, case, plurals folded). */
+export function salesItemKey(name: string): string {
+  return dishKey(name) || foldText(name);
+}
+
+/**
+ * Discount, promo, staff and charge lines are not products: Menú drops a
+ * product whose net is $0 or less (pos-product-list) or whose category is
+ * Descuento/Empleados (exclusionFor), and the treatment suggestion reads
+ * «Descuento», «Propina», «Cortesía»… as a charge. Null = not a product.
+ */
+export function salesItemKind(input: {
+  name: string;
+  category: string | null;
+  net_revenue: number;
+}): SalesItemKind | null {
+  if (!(input.net_revenue > 0)) return null;
+  const byName = exclusionFor({ name: input.name, category: input.category });
+  // «Sodas» → «soda»: the same rule on Menú's folded key, so plurals match.
+  const reason =
+    byName ?? exclusionFor({ name: dishKey(input.name), category: null });
+  if (reason === "descuento" || reason === "empleados") return null;
+  const treatment = suggestTreatment({
+    name: input.name,
+    is_combo: false,
+  }).treatment;
+  if (treatment === "excluido") return null;
+  if (reason === "bebida") return "drink";
+  if (reason === "extra") return "extra";
+  if (
+    treatment === "modificador_con_costo" ||
+    treatment === "modificador_sin_costo"
+  ) {
+    return "extra";
+  }
+  return "food";
+}
+
+/**
+ * The menu's own spelling for a sold item when one exists with the same
+ * Menú key («Tipico Nicaragüense» → «Típico nicaragüense»). Names with no
+ * menu match keep the POS spelling; nothing is guessed.
+ */
+export function applyCanonicalItemNames(
+  snapshot: AskMiltonSalesSnapshot,
+  menuNames: Array<string | null | undefined>
+): AskMiltonSalesSnapshot {
+  const canonical = new Map<string, string>();
+  for (const raw of menuNames) {
+    const name = cleanPosItemName(raw);
+    if (!name) continue;
+    const key = salesItemKey(name);
+    if (key && !canonical.has(key)) canonical.set(key, name);
+  }
+  if (canonical.size === 0) return snapshot;
+  const rename = (item: SalesSnapshotItem): SalesSnapshotItem => {
+    const name = canonical.get(salesItemKey(item.name));
+    return name ? { ...item, name: capName(name) } : item;
+  };
+  return {
+    ...snapshot,
+    top_items_by_units: snapshot.top_items_by_units.map(rename),
+    top_items_by_revenue: snapshot.top_items_by_revenue.map(rename),
+    top_dishes_by_units: (snapshot.top_dishes_by_units ?? []).map(rename),
+    top_items_by_category: snapshot.top_items_by_category.map((g) => ({
+      ...g,
+      items: g.items.map(rename),
+    })),
+  };
 }
 
 export function emptySalesSnapshot(
@@ -403,6 +498,8 @@ export function emptySalesSnapshot(
     by_payment: [],
     top_items_by_units: [],
     top_items_by_revenue: [],
+    top_dishes_by_units: [],
+    excluded_item_count: 0,
     top_items_by_category: [],
     by_category_weekday: [],
     by_date: [],
@@ -591,7 +688,8 @@ function breakdownFromMap(
 function itemFromBucket(
   name: string,
   category: string | null,
-  b: MetricBucket
+  b: MetricBucket,
+  kind: SalesItemKind
 ): SalesSnapshotItem {
   return {
     name: capName(name),
@@ -599,6 +697,7 @@ function itemFromBucket(
     revenue: roundInt(b.revenue),
     units: roundInt(b.units),
     orders: b.orders.size,
+    kind,
   };
 }
 
@@ -653,7 +752,12 @@ export function buildSalesSnapshot(
   const paymentBuckets = new Map<string, MetricBucket>();
   const itemBuckets = new Map<
     string,
-    { name: string; category: string | null; bucket: MetricBucket }
+    {
+      name: string;
+      rawName: string;
+      category: string | null;
+      bucket: MetricBucket;
+    }
   >();
   const categoryWeekday = new Map<string, MetricBucket[]>();
   const categoryWeekdayDates = new Map<string, Set<string>[]>();
@@ -758,11 +862,12 @@ export function buildSalesSnapshot(
     // A component whose combo line is outside the read adds money to the
     // totals above but is not an item of its own.
     if (isComboPart && comboName === undefined) continue;
-    const itemKey = foldText(itemName) || "(unnamed)";
+    const itemKey = salesItemKey(itemName) || "(unnamed)";
     let item = itemBuckets.get(itemKey);
     if (!item) {
       item = {
         name: itemName,
+        rawName: comboName ?? row.item_name,
         category,
         bucket: emptyBucket(),
       };
@@ -784,13 +889,28 @@ export function buildSalesSnapshot(
     .slice(0, SALES_SNAPSHOT_CAPS.topCategories)
     .map((c) => c.key);
 
-  const items = Array.from(itemBuckets.values()).map((i) =>
-    itemFromBucket(i.name, i.category, i.bucket)
-  );
+  let excludedItemCount = 0;
+  const items: SalesSnapshotItem[] = [];
+  for (const i of itemBuckets.values()) {
+    const kind = salesItemKind({
+      name: i.rawName,
+      category: i.category,
+      net_revenue: i.bucket.revenue,
+    });
+    if (kind === null) {
+      excludedItemCount += 1;
+      continue;
+    }
+    items.push(itemFromBucket(i.name, i.category, i.bucket, kind));
+  }
   const topByRevenue = [...items]
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, SALES_SNAPSHOT_CAPS.topItems);
   const topByUnits = [...items]
+    .sort((a, b) => b.units - a.units || b.revenue - a.revenue)
+    .slice(0, SALES_SNAPSHOT_CAPS.topItems);
+  const topDishesByUnits = items
+    .filter((i) => i.kind === "food")
     .sort((a, b) => b.units - a.units || b.revenue - a.revenue)
     .slice(0, SALES_SNAPSHOT_CAPS.topItems);
 
@@ -880,6 +1000,8 @@ export function buildSalesSnapshot(
     ),
     top_items_by_units: topByUnits,
     top_items_by_revenue: topByRevenue,
+    top_dishes_by_units: topDishesByUnits,
+    excluded_item_count: excludedItemCount,
     top_items_by_category: topItemsByCategory,
     by_category_weekday: byCategoryWeekday,
     by_date: byDate,
@@ -898,6 +1020,7 @@ const SNAPSHOT_LIST_KEYS = [
   "by_payment",
   "top_items_by_units",
   "top_items_by_revenue",
+  "top_dishes_by_units",
   "top_items_by_category",
   "by_category_weekday",
 ] as const;
@@ -930,6 +1053,7 @@ function capSalesSnapshotNames(
     by_category: snapshot.by_category.map(capBucket),
     top_items_by_units: snapshot.top_items_by_units.map(capItem),
     top_items_by_revenue: snapshot.top_items_by_revenue.map(capItem),
+    top_dishes_by_units: (snapshot.top_dishes_by_units ?? []).map(capItem),
     top_items_by_category: snapshot.top_items_by_category.map((group) => ({
       category: capName(group.category),
       items: group.items.map(capItem),
@@ -973,6 +1097,7 @@ function clampSalesSnapshot(
     by_category: next.by_category.slice(0, 8),
     top_items_by_units: next.top_items_by_units.slice(0, 8),
     top_items_by_revenue: next.top_items_by_revenue.slice(0, 8),
+    top_dishes_by_units: next.top_dishes_by_units.slice(0, 8),
     top_items_by_category: next.top_items_by_category.slice(0, 3),
     by_category_weekday: next.by_category_weekday.slice(0, 3),
   };

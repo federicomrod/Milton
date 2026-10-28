@@ -14,7 +14,6 @@ import {
   succeededRows,
   type OrderableQuery,
 } from "@/lib/restaurant/paginated-read";
-import { fetchProfitabilityData } from "@/lib/restaurant/profitability-server";
 import {
   breakEvenPerDay,
   effectiveFixedCosts,
@@ -458,16 +457,22 @@ export async function groupSharesFor(
   companyId: string,
   month: string,
   locationId: string,
-  restaurantIds: string[]
+  restaurantIds: string[],
+  opts: { confirmedOnly?: boolean } = {}
 ): Promise<{
   shares: Partial<Record<AmountCategory, number>>;
   impuestosPct: number | null;
+  /** A group line used here is a Milton estimate. */
+  hasEstimate: boolean;
 }> {
-  const groupLines = await listFixedCosts(supabase, companyId, month, null);
+  const groupLines = (
+    await listFixedCosts(supabase, companyId, month, null)
+  ).filter((l) => !opts.confirmedOnly || l.status === "confirmed");
   const shares: Partial<Record<AmountCategory, number>> = {};
   let impuestosPct: number | null = null;
+  const hasEstimate = groupLines.some((l) => l.source === "estimate");
   if (groupLines.length === 0 || !restaurantIds.includes(locationId))
-    return { shares, impuestosPct };
+    return { shares, impuestosPct, hasEstimate: false };
   const needsSales = groupLines.some(
     (l) => l.category !== "impuestos" && l.split_rule !== "equal"
   );
@@ -491,7 +496,7 @@ export async function groupSharesFor(
     ).find((s) => s.location_id === locationId);
     if (mine) shares[line.category as AmountCategory] = mine.amount;
   }
-  return { shares, impuestosPct };
+  return { shares, impuestosPct, hasEstimate };
 }
 
 // ---------------------------------------------------------------------------
@@ -501,35 +506,6 @@ export async function groupSharesFor(
 export type MarginRead =
   | { ok: true; margin: MarginInputs }
   | { ok: false; reason: string };
-
-/**
- * Sales and food cost from the existing gross-margin logic
- * (profitability-server): covered dishes only, so a dish with no cost never
- * counts as $0 food cost. No margin → «—» with a reason, never a number.
- */
-export async function loadMarginInputs(
-  supabase: SupabaseClient,
-  companyId: string,
-  selected: { locationId: string; brandId: string | null } | null
-): Promise<MarginRead> {
-  try {
-    const data = await fetchProfitabilityData(supabase, companyId, selected);
-    const k = data.kpis;
-    if (!(k.revenue_with_known_cost > 0))
-      return {
-        ok: false,
-        reason:
-          "Aún no hay ventas de platos con costo de ingredientes para calcular el margen.",
-      };
-    return {
-      ok: true,
-      margin: { sales: k.revenue_with_known_cost, foodCost: k.estimated_cogs },
-    };
-  } catch (err) {
-    console.error("[fixed-costs] margin load failed:", err);
-    return { ok: false, reason: "No se pudo leer el margen en este momento." };
-  }
-}
 
 export interface FixedCostsView {
   month: string;
@@ -556,10 +532,13 @@ export async function loadFixedCostsView(
     locationId: string | null;
     brandId: string | null;
     restaurantIds: string[];
+    /** The month's margin from Rentabilidad (`loadMonthMargin`): one break-even on both screens. */
+    marginRead: MarginRead;
   }
 ): Promise<FixedCostsView> {
   const { supabase, companyId } = ctx;
-  const [currency, lines, shiftRows, marginRead, group] = await Promise.all([
+  const marginRead = args.marginRead;
+  const [currency, lines, shiftRows, group] = await Promise.all([
     resolveCompanyCurrency(supabase, companyId),
     listFixedCosts(supabase, companyId, args.month, args.locationId),
     args.locationId
@@ -569,13 +548,6 @@ export async function loadFixedCostsView(
           .eq("company_id", companyId)
           .eq("restaurant_id", args.locationId)
       : Promise.resolve({ data: null }),
-    loadMarginInputs(
-      supabase,
-      companyId,
-      args.locationId
-        ? { locationId: args.locationId, brandId: args.brandId }
-        : null
-    ),
     args.locationId
       ? groupSharesFor(
           supabase,
@@ -584,7 +556,11 @@ export async function loadFixedCostsView(
           args.locationId,
           args.restaurantIds
         )
-      : Promise.resolve({ shares: {}, impuestosPct: null }),
+      : Promise.resolve({
+          shares: {},
+          impuestosPct: null,
+          hasEstimate: false,
+        }),
   ]);
   // Before migration 054 the table is missing: no shifts → every day is open.
   const weekdays = (

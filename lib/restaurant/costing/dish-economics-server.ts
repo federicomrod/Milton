@@ -5,6 +5,8 @@
 // runs through the caller's RLS-bound client.
 
 import { cache } from "react";
+import type { CostingData } from "@/lib/restaurant/costing";
+import type { IngredientCostEntry } from "@/types/restaurant-costing";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
@@ -44,6 +46,23 @@ export interface DishEconomicsParams {
   locationId?: string | null;
   /** One dish only (the open dish after an edit): no full sales scan. */
   odooProductId?: number | null;
+  /**
+   * Cost as of this day (YYYY-MM-DD): the latest price on or before it and the
+   * approved recipe version in force. Omitted = today's prices.
+   */
+  asOfDate?: string | null;
+}
+
+/** The same costing data with only the price entries dated on or before `asOfDate`. */
+export function costingAsOf(data: CostingData, asOfDate: string): CostingData {
+  const entries = new Map<string, IngredientCostEntry[]>();
+  for (const [id, list] of data.costEntriesByIngredientId) {
+    entries.set(
+      id,
+      list.filter((e) => (e.effective_date || e.cost_date) <= asOfDate)
+    );
+  }
+  return { ...data, costEntriesByIngredientId: entries };
 }
 
 export type DishEconomicsLoad =
@@ -307,10 +326,13 @@ export async function loadDishEconomicsWith(
     if (!contextRes.ok) return { ok: false, error: contextRes.error };
     const ctx = contextRes.context;
 
+    const costingData = params.asOfDate
+      ? costingAsOf(ctx.costing.data, params.asOfDate)
+      : ctx.costing.data;
     const prices = new Map<string, PriceMeta | null>();
     const priceOf = (id: string): PriceMeta | null => {
       if (!prices.has(id)) {
-        prices.set(id, latestPrice(ctx.costing.data, id, ctx.costing.sourceOf));
+        prices.set(id, latestPrice(costingData, id, ctx.costing.sourceOf));
       }
       return prices.get(id) ?? null;
     };
@@ -323,7 +345,8 @@ export async function loadDishEconomicsWith(
       links: listRes.links,
       versions: ctx.versions,
       inputsByVersionId: ctx.inputsByVersionId,
-      costing: ctx.costing.data,
+      costing: costingData,
+      asOfDate: params.asOfDate ?? null,
       evidenceLinesOf,
       priceOf,
       locationId: params.locationId ?? null,

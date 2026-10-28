@@ -22,6 +22,7 @@ import {
   saveFixedCosts,
   type SaveEntry,
 } from "@/lib/restaurant/fixed-costs-server";
+import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import {
   isFixedCostCategory,
   monthStartOf,
@@ -55,6 +56,13 @@ export async function GET(req: NextRequest) {
         locationId: context.selected?.locationId ?? null,
         brandId: context.selected?.brandId ?? null,
         restaurantIds: context.locations.map((l) => l.id),
+        marginRead: await loadMonthMargin({
+          supabase: auth.supabase,
+          companyId: auth.companyId,
+          locationId: context.selected?.locationId ?? null,
+          restaurantIds: context.locations.map((l) => l.id),
+          month,
+        }),
       }
     );
     return NextResponse.json(view);

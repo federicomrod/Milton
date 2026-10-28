@@ -21,6 +21,10 @@ import {
   type CockpitPeriodPreset,
 } from "@/lib/restaurant/cockpit-period";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  RENTABILIDAD_HREF,
+  withShellParams,
+} from "@/lib/restaurant/navigation";
 import type {
   CockpitExecutiveView,
   CockpitExecutivesByPeriod,
@@ -111,6 +115,9 @@ export function CockpitPeriodShell({
               model={executive.kpis}
               lang={lang}
               costSlot={costSlot}
+              rentabilidadHref={withShellParams(RENTABILIDAD_HREF, {
+                locationId: params.get("location"),
+              })}
             />
           ) : null}
 

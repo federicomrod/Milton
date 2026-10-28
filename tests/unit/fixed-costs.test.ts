@@ -9,6 +9,8 @@ import {
   openDaysInMonth,
   planRepeat,
   splitGroupAmount,
+  projectedProfit,
+  taxInSales,
   splitLargestRemainder,
   validateLine,
   lineKey,
@@ -215,28 +217,45 @@ describe("completeness", () => {
 });
 
 describe("break-even", () => {
-  // Sample: fixed $41,600; sales $75,080; margin before fixed costs $50,818
-  // (67.68%) → food cost $24,262; 31 open days.
-  const margin = { sales: 75080, foodCost: 24262 };
+  // Spec sample: Ventas $84,840 (tax included), tasa 13%, fixed $41,600,
+  // 31 open days. Comida y bebida + merma = $24,262.
+  const margin = { sales: 84840, foodCost: 24262 };
   const amounts = {
     planilla: 25000,
     alquiler: 9000,
     servicios: 5000,
     otros: 2600,
   };
+  const TAX = (84840 * 0.13) / 1.13;
 
-  it("gives $1,983 al día with Impuestos 0%", () => {
-    expect(contributionMarginPct(margin, 0)).toBeCloseTo(0.6768, 3);
+  it("13% rate is 11.5% of sales: tax = Ventas × tasa ÷ (1 + tasa)", () => {
+    expect(taxInSales(84840, 13)).toBeCloseTo(TAX, 6);
+    expect(taxInSales(100, 13) / 100).toBeCloseTo(0.115, 3);
+    expect(taxInSales(84840, 0)).toBe(0);
+    expect(taxInSales(84840, null)).toBe(0);
+  });
+
+  it("Margen bruto = Ventas − Impuestos − Comida y bebida − Merma", () => {
+    expect(contributionMarginPct(margin, 13)).toBeCloseTo(
+      (84840 - TAX - 24262) / 84840,
+      10
+    );
+    expect(
+      contributionMarginPct({ ...margin, unplannedWaste: 500 }, 13)
+    ).toBeCloseTo((84840 - TAX - 24262 - 500) / 84840, 10);
+  });
+
+  it("gives $2,240 al día with the spec sample (tasa 13%)", () => {
     const be = breakEvenPerDay({
       amounts,
-      impuestosPct: 0,
+      impuestosPct: 13,
       margin,
       openDays: 31,
     });
-    expect(Math.round(be as number)).toBe(1983);
+    expect(Math.round(be as number)).toBe(2240);
   });
 
-  it("Impuestos 13% lowers the margin, so the break-even is higher", () => {
+  it("subtracts the tax exactly once: a higher rate raises the break-even", () => {
     const be0 = breakEvenPerDay({
       amounts,
       impuestosPct: 0,
@@ -249,22 +268,30 @@ describe("break-even", () => {
       margin,
       openDays: 31,
     }) as number;
-    const cm13 = (75080 - 24262 - 0.13 * 75080) / 75080;
-    expect(contributionMarginPct(margin, 13)).toBeCloseTo(cm13, 10);
-    expect(be13).toBeCloseTo(41600 / (cm13 * 31), 6);
+    const cm = (84840 - TAX - 24262) / 84840;
+    expect(be13).toBeCloseTo(41600 / (cm * 31), 6);
     expect(be13).toBeGreaterThan(be0);
+    // Not added to the fixed costs, and not taken as a plain 13% of sales.
+    const wrongPlain = 41600 / (((84840 * 0.87 - 24262) / 84840) * 31);
+    expect(be13).toBeLessThan(wrongPlain);
   });
 
-  it("Impuestos is never added to the fixed costs", () => {
-    const be13 = breakEvenPerDay({
+  it("projected profit $9,218, and $1,808 more than September ($7,410)", () => {
+    const profit = projectedProfit({
       amounts,
       impuestosPct: 13,
       margin,
-      openDays: 31,
     }) as number;
-    // Treating 13 as a fixed amount would barely move it; as a % it moves it a lot.
-    const wrong = (41600 + 13) / (contributionMarginPct(margin, 0)! * 31);
-    expect(be13).toBeGreaterThan(wrong * 1.1);
+    expect(Math.round(profit)).toBe(9218);
+    const september = 7410;
+    expect(Math.round(profit) - september).toBe(1808);
+    expect(
+      projectedProfit({
+        amounts: { ...amounts, otros: null },
+        impuestosPct: 13,
+        margin,
+      })
+    ).toBeNull();
   });
 
   it("returns null (not 0) when any of the 4 categories is missing", () => {
@@ -288,7 +315,7 @@ describe("break-even", () => {
       openDays: 31,
     });
     expect(be).not.toBeNull();
-    expect(be as number).toBeLessThan(1983);
+    expect(be as number).toBeLessThan(2240);
   });
 
   it("no margin or no open days → null", () => {

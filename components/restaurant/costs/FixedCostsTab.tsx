@@ -1,7 +1,7 @@
 // components/restaurant/costs/FixedCostsTab.tsx
 //
 // Costos › Costos fijos (#398). One row per category (Planilla, Alquiler,
-// Servicios, Otros and Impuestos as a % of sales), the month picker, «repetir
+// Servicios, Otros and Impuestos as a tax rate), the month picker, «repetir
 // cada mes», the history and a live break-even: «Necesitas vender $X al día».
 // The break-even is recomputed on the client on every keystroke from the pure
 // helpers in lib/restaurant/fixed-costs.ts. A missing cost shows ⚑ Falta and
@@ -349,7 +349,9 @@ export function FixedCostsTab({
                       {CATEGORY_LABELS_ES[category]}
                     </label>
                     {isTax ? (
-                      <p className="text-sm text-[#6b7385]">% de tus ventas</p>
+                      <p className="text-sm text-[#6b7385]">
+                        Si tus precios incluyen IVA, escribe tu tasa
+                      </p>
                     ) : share !== null ? (
                       <p className="text-sm text-[#6b7385]">
                         Más {formatMoney(share, view.currency)} del grupo
@@ -498,7 +500,7 @@ export function FixedCostsTab({
               <p className="text-sm text-[#6b7385]">
                 Con {view.openDays} días abiertos al mes
                 {live.costs.impuestosPct === null
-                  ? " y sin % de impuestos (se calcula con 0%)."
+                  ? " y sin tasa de impuestos (se calcula con 0%)."
                   : "."}
               </p>
             ) : null}

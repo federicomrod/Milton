@@ -451,7 +451,7 @@ async function monthSalesByLocation(
 /**
  * This restaurant's share of the group lines of a month: category → amount
  * (largest remainder across the active restaurants, so the shares of every
- * restaurant add up to the group total to the cent) plus a group Impuestos %.
+ * restaurant add up to the group total to the cent) plus a group tax rate.
  */
 export async function groupSharesFor(
   supabase: SupabaseClient,

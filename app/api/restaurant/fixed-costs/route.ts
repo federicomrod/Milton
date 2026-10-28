@@ -7,7 +7,7 @@
 //        { month, location_id: uuid | null, entries: [{ category, value,
 //          label?, repeats?, split_rule? }] } → { lines }
 //        A value (a typed 0 included) is stored; an empty value removes the
-//        line. Impuestos stores a % of sales, the rest an amount.
+//        line. Impuestos stores a tax rate (in pct_of_sales), the rest an amount.
 //
 // Auth: signed-in owner, admin or manager (costs.fixed). The company is
 // resolved from the user, never taken from the client; the location must

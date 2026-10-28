@@ -42,7 +42,10 @@ export interface FixedCostLine {
   label: string | null;
   /** Amount categories only; null for impuestos. */
   amount: number | null;
-  /** impuestos only (0–100); null for the amount categories. */
+  /**
+   * impuestos only (0–100): the tax RATE (13 = 13%), not a % of sales. The
+   * column name is historical. null for the amount categories.
+   */
   pct_of_sales: number | null;
   currency: string;
   source: FixedCostSource;
@@ -296,7 +299,7 @@ export interface EffectiveFixedCosts {
 /**
  * What one restaurant carries for a month: its own lines plus its share of the
  * group lines (`groupShares`: category → amount for THIS restaurant). A
- * category with neither is null. A group impuestos % applies as is.
+ * category with neither is null. A group tax rate applies as is.
  */
 export function effectiveFixedCosts(
   own: readonly Pick<FixedCostLine, "category" | "amount" | "pct_of_sales">[],
@@ -376,27 +379,60 @@ export interface MarginInputs {
 }
 
 /**
- * Contribution margin as a fraction: (sales − food − unplanned waste −
- * impuestos% × sales) ÷ sales. Impuestos is a variable cost: it lowers the
- * margin and is never added to the fixed costs. null with no sales.
+ * Tax contained in sales that already include it: Ventas × tasa ÷ (1 + tasa),
+ * so a 13% rate is 11.5% of sales. `ratePct` is the rate in percent (13).
+ */
+export function taxInSales(sales: number, ratePct: number | null): number {
+  const rate = (ratePct ?? 0) / 100;
+  return (sales * rate) / (1 + rate);
+}
+
+/**
+ * Margen bruto as a fraction of Ventas (tax included, like the Ventas page):
+ * (Ventas − Impuestos − Comida y bebida − Merma no planeada) ÷ Ventas. The tax
+ * is subtracted here, exactly once, and never added to the fixed costs. null
+ * with no sales.
+ *
+ * `ratePct` is the tax RATE (restaurant_fixed_costs.pct_of_sales stores the
+ * rate of an `impuestos` line; the column name is historical).
  */
 export function contributionMarginPct(
   margin: MarginInputs,
-  impuestosPct: number | null
+  ratePct: number | null
 ): number | null {
   if (!Number.isFinite(margin.sales) || margin.sales <= 0) return null;
-  const tax = ((impuestosPct ?? 0) / 100) * margin.sales;
   return (
-    (margin.sales - margin.foodCost - (margin.unplannedWaste ?? 0) - tax) /
+    (margin.sales -
+      taxInSales(margin.sales, ratePct) -
+      margin.foodCost -
+      (margin.unplannedWaste ?? 0)) /
     margin.sales
   );
 }
 
+/** Margen bruto minus the month's fixed costs; null when fixed costs are missing. */
+export function projectedProfit(args: {
+  amounts: Record<AmountCategory, number | null>;
+  impuestosPct: number | null;
+  margin: MarginInputs | null;
+}): number | null {
+  if (!args.margin) return null;
+  let fixed = 0;
+  for (const cat of AMOUNT_CATEGORIES) {
+    const v = args.amounts[cat];
+    if (v === null || !Number.isFinite(v)) return null;
+    fixed += v;
+  }
+  const cm = contributionMarginPct(args.margin, args.impuestosPct);
+  return cm === null ? null : cm * args.margin.sales - fixed;
+}
+
 /**
- * breakEvenPerDay = fixedCosts ÷ (contributionMarginPct × openDays).
+ * breakEvenPerDay = fixedCosts ÷ (Margen bruto % × días que abres); the tax is
+ * already out of the margin, so it is subtracted exactly once.
  * null (never 0) when any of the 4 categories is missing, there is no margin
  * (or it is not positive), or there are no open days. A typed 0 counts as
- * filled. A missing Impuestos % is calculated as 0% (the caller says so).
+ * filled. A missing tax rate is calculated as 0% (the caller says so).
  */
 export function breakEvenPerDay(args: {
   amounts: Record<AmountCategory, number | null>;

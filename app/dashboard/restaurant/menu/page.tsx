@@ -11,7 +11,7 @@ import { loadMenuAreaModel } from "@/lib/restaurant/cockpit-page-data";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import {
@@ -69,7 +69,7 @@ export default async function MenuResumenPage({
                 primary: true,
               },
               {
-                href: `${COSTS_HREF}#${COSTS_FILE_ANCHOR}`,
+                href: costsTabHref("precios", {}, COSTS_FILE_ANCHOR),
                 label: "Sube tus costos",
                 opensCostsPicker: true,
               },

@@ -6,7 +6,7 @@
 // here is made up: this component draws no data at all.
 
 import Link from "next/link";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
 
 export type EmptyReason =
@@ -144,7 +144,7 @@ export function CockpitEmpty({
               Conecta tu POS
             </Link>
             <Link
-              href={COSTS_HREF}
+              href={costsTabHref("precios")}
               className="inline-block rounded-lg border border-[#c6d3f5] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1b40c8] hover:bg-[#eef2fd]"
             >
               Sube tus costos

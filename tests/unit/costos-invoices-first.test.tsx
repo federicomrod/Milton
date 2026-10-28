@@ -377,7 +377,7 @@ describe("the page order", () => {
     const { default: Page } =
       await import("@/app/dashboard/restaurant/costs/page");
     const html = renderToString(
-      await Page({ searchParams: Promise.resolve({}) })
+      await Page({ searchParams: Promise.resolve({ tab: "precios" }) })
     );
     const at = (s: string) => html.indexOf(s);
     expect(at("Precios que subieron")).toBeGreaterThan(at("HEADER-"));

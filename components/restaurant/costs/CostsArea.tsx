@@ -77,10 +77,10 @@ export function CostsKpiCard({
 // ---------------------------------------------------------------------------
 
 const TABS: Array<{ id: CostsTab; en: string; es: string }> = [
+  { id: "costos-fijos", en: "Fixed costs", es: "Costos fijos" },
   { id: "precios", en: "Price changes", es: "Cambios de precio" },
   { id: "compras", en: "Purchases", es: "Compras" },
   { id: "proveedores", en: "Suppliers", es: "Proveedores" },
-  { id: "costos-fijos", en: "Fixed costs", es: "Costos fijos" },
 ];
 
 export function CostsAreaTabs({

@@ -1,19 +1,20 @@
 // lib/restaurant/costs-tabs.ts
 //
-// Costos (R1-09b, A9/D6): three real tabs on one route —
+// Costos (R1-09b, A9/D6): four real tabs on one route —
 // Cambios de precio (default), Compras (?tab=compras), Proveedores
-// (?tab=proveedores). Pure helpers so tabs, redirects and the KPI math are
+// (?tab=proveedores) and Costos fijos (?tab=costos-fijos). Pure helpers so tabs, redirects and the KPI math are
 // unit-testable without React or Supabase.
 
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import type { IngredientPriceTrendRow } from "@/lib/restaurant/profitability-server";
 
-export type CostsTab = "precios" | "compras" | "proveedores";
+export type CostsTab = "precios" | "compras" | "proveedores" | "costos-fijos";
 
 export const COSTS_TABS: readonly CostsTab[] = [
   "precios",
   "compras",
   "proveedores",
+  "costos-fijos",
 ] as const;
 
 /** Anchor on the invoice entry cards inside Compras. */
@@ -21,7 +22,12 @@ export const INVOICE_UPLOAD_ANCHOR = "subir-factura";
 
 export function parseCostsTab(raw: string | string[] | undefined): CostsTab {
   const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === "compras" || value === "proveedores") return value;
+  if (
+    value === "compras" ||
+    value === "proveedores" ||
+    value === "costos-fijos"
+  )
+    return value;
   return "precios";
 }
 

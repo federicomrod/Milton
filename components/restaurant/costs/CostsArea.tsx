@@ -80,6 +80,7 @@ const TABS: Array<{ id: CostsTab; en: string; es: string }> = [
   { id: "precios", en: "Price changes", es: "Cambios de precio" },
   { id: "compras", en: "Purchases", es: "Compras" },
   { id: "proveedores", en: "Suppliers", es: "Proveedores" },
+  { id: "costos-fijos", en: "Fixed costs", es: "Costos fijos" },
 ];
 
 export function CostsAreaTabs({
@@ -95,7 +96,7 @@ export function CostsAreaTabs({
   return (
     <nav
       aria-label={t(lang, "Cost sections", "Secciones de costos")}
-      className="flex gap-7 border-b border-[#dfe3ea]"
+      className="flex flex-wrap gap-x-5 sm:gap-x-7 border-b border-[#dfe3ea]"
     >
       {TABS.map((tab) => (
         <Link

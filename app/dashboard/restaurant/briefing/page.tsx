@@ -25,12 +25,9 @@ export default function AskMiltonPage() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-5xl mx-auto">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Ask Milton</h1>
-        <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          Ask questions about sales, margins, suppliers, invoices, recipes and
-          agent recommendations. Milton answers from your live data — read-only
-          for now.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight">
+          Preguntar a Milton
+        </h1>
       </header>
       <AskMiltonWorkspace />
     </div>

@@ -90,12 +90,6 @@ export function KpiRow({
   const k = view.kpis;
   const short = view.compare.short;
   const dash = "—";
-  const shiftLine = view.shiftCards
-    ? view.shiftCards
-        .filter((c) => !c.other)
-        .map((c) => `${c.name} ${c.tickets}`)
-        .join(" · ")
-    : "";
   return (
     <div
       className="grid grid-cols-2 gap-3 lg:grid-cols-5"
@@ -155,7 +149,6 @@ export function KpiRow({
             ? dash
             : k.tickets.value.toLocaleString("es-MX")
         }
-        sub={shiftLine || undefined}
       >
         <Chips kpi={k.tickets} short={short} />
       </Card>

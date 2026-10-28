@@ -210,11 +210,6 @@ export default async function CostsAreaPage({
                     ? "bad"
                     : "good"
               }
-              help={t(
-                lang,
-                "Supplier cost entries (invoices and cost files) dated in the last 30 days.",
-                "Costos con proveedor (facturas y archivos) con fecha de los últimos 30 días."
-              )}
             />
             <CostsKpiCard
               label={t(lang, "Food cost", "Costo de comida")}
@@ -486,8 +481,7 @@ async function CostosFijosTab({
     console.error("[costs page] fixed-costs load failed:", err);
     return (
       <p className="text-sm text-[#6b7385]">
-        No se pudieron leer los costos fijos. Si es la primera vez, falta
-        aplicar la migración 064 en este ambiente.
+        No se pudieron leer los costos fijos. Recarga la página.
       </p>
     );
   }

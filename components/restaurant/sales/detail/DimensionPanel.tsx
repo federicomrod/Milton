@@ -106,8 +106,9 @@ export function DimensionPanel({
   const noun = DIMS.find((d) => d.key === dim)?.label ?? "";
   const onRow = (r: DimRow, e: React.MouseEvent) =>
     onToggle(r.token, e.metaKey || e.ctrlKey || e.shiftKey);
-  const head = (key: SortKey, label: string, right = true) => (
+  const head = (key: SortKey, label: string, right = true, hint?: string) => (
     <th
+      title={hint}
       className={`px-2 py-1.5 ${right ? "text-right" : "text-left"} text-[11px] font-semibold text-[#8a92a3]`}
     >
       <button
@@ -214,10 +215,7 @@ export function DimensionPanel({
             Ver platos →
           </button>
         ) : null}
-        <span className="ml-auto text-[11.5px] text-[#8a92a3]">
-          clic = filtra · ⌘ = varias ·{" "}
-          {mode === "tabla" ? "clic en columna = ordenar" : "Ventas ▾"}
-        </span>
+        <span className="ml-auto text-[11.5px] text-[#8a92a3]">⌘ = varias</span>
       </div>
 
       {rows.length === 0 ? (
@@ -285,7 +283,12 @@ export function DimensionPanel({
                 {head("tickets", "Tickets")}
                 {head("units", "Unid.")}
                 {head("perUnit", "$/unid.")}
-                {head("delta", `Δ vs ${compareShort}`)}
+                {head(
+                  "delta",
+                  `Δ vs ${compareShort}`,
+                  true,
+                  `Δ coloreado solo si el cambio es notable vs ${view.compare.label}`
+                )}
               </tr>
             </thead>
             <tbody>
@@ -345,9 +348,6 @@ export function DimensionPanel({
             {showAll ? "Ver menos" : `Ver todas (${shown.length})`}
           </button>
         ) : null}
-        <span>
-          Δ coloreado solo si el cambio es notable vs {view.compare.label}
-        </span>
         {view.compare.baseline?.note ? (
           <span>· {view.compare.baseline.note}</span>
         ) : null}

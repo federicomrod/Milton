@@ -136,8 +136,8 @@ describe("each tab shows only its section", () => {
     const b = await html({ tab: "cuenta" });
     expect(a.match(/<h1>/g)).toHaveLength(1);
     expect(a.match(/<h2/g)).toBeNull();
-    expect(a).toContain("De dónde vienen tus ventas");
-    expect(b).toContain("Tu perfil, tu empresa y tus preferencias");
+    expect(a).not.toContain("De dónde vienen tus ventas");
+    expect(b).not.toContain("Tu perfil, tu empresa y tus preferencias");
   });
   it("the older ?seccion=conexiones still opens Conexiones with the upload open", async () => {
     const out = await html({ seccion: "conexiones" });

@@ -334,11 +334,6 @@ export function EmailBriefingCard() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {!timezoneChosen && (
-                    <p className="text-xs text-destructive">
-                      Elige la zona horaria en la que debe llegar el briefing.
-                    </p>
-                  )}
                 </div>
               </>
             )}

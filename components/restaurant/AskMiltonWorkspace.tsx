@@ -751,13 +751,6 @@ function EmptyState() {
           "Pregúntale a Milton sobre tus datos"
         )}
       </p>
-      <p className="text-xs text-muted-foreground max-w-md mt-1">
-        {t(
-          lang,
-          "Try a suggested question above, or type your own. Milton uses your sales, recipes, suppliers and invoices — and tells you when something is missing.",
-          "Usa una pregunta sugerida o escribe la tuya. Milton usa tus ventas, recetas, proveedores y facturas, y te dice cuando falta algo."
-        )}
-      </p>
     </div>
   );
 }

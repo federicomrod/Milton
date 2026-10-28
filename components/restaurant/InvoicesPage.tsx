@@ -356,7 +356,7 @@ function sourceText(inv: InvoiceListItem): string {
 }
 
 const REVIEW_EXPLANATION =
-  "Por revisar: el precio aún no se aplica a tus costos. Ábrela con Revisar, asigna el ingrediente y apruébala.";
+  "Por revisar: el precio aún no cuenta. Ábrela con Revisar y apruébala.";
 
 const STATUS_STYLE: Record<string, string> = {
   draft: "bg-gray-100 text-[#4b5466]",
@@ -2476,8 +2476,7 @@ function AIExtractCard({
       </div>{" "}
       <div className="space-y-3">
         <p className="text-xs text-[#6b7385]">
-          Milton lee los datos de la factura para que los revises. Los costos no
-          cambian hasta que publiques la factura revisada.{" "}
+          Milton lee los datos de la factura para que los revises.{" "}
         </p>
         <form onSubmit={onExtract} className="space-y-2">
           <Input
@@ -2664,8 +2663,8 @@ function ExtractedDraftBody({
       <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 flex items-start gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span>
-          La lectura con IA es un borrador. Revisa todos los campos antes de
-          crear la factura.{" "}
+          Lectura de Milton: revisa cada campo. Tus costos no cambian hasta que
+          publiques la factura.{" "}
           {needsReviewCount > 0 && (
             <span className="ml-1 font-semibold">
               {needsReviewCount}{" "}
@@ -3002,12 +3001,6 @@ function ExtractedDraftBody({
       )}
 
       {error && <p className="text-xs text-red-600">{error}</p>}
-
-      <p className="text-xs text-[#6b7385]">
-        Al crear la factura, las líneas quedan en estado{" "}
-        <strong>Por revisar</strong>. Los costos solo se registran cuando
-        publicas la factura en el panel de revisión de abajo.
-      </p>
     </div>
   );
 }

@@ -227,8 +227,7 @@ export function CockpitV2(props: CockpitV2Props) {
   if (view.empty) {
     return (
       <p className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-6 text-[13px] text-[#6b7385]">
-        Aún no hay ventas para mostrar. Cuando entren, el Cockpit las compara
-        con tus objetivos.
+        Aún no hay ventas para mostrar.
       </p>
     );
   }
@@ -313,20 +312,17 @@ export function CockpitV2(props: CockpitV2Props) {
         <Card
           label="Venta promedio diaria"
           value={view.avgDaily === null ? "—" : money(view.avgDaily)}
-          sub={`${periodLabel}${view.dailyTargetAvg !== null ? ` · objetivo ${money(view.dailyTargetAvg)}` : ""}`}
+          sub={
+            view.dailyTargetAvg !== null
+              ? `objetivo ${money(view.dailyTargetAvg)}`
+              : undefined
+          }
           chips={view.avgChips}
           note={view.baselineNote}
         />
         <Card
           label={`Ventas · ${periodLabel}`}
           value={money(view.sales)}
-          sub={
-            view.salesTarget !== null
-              ? `${Math.round((view.sales / view.salesTarget) * 100)}% del objetivo del periodo`
-              : view.days > 1
-                ? `${view.days} días`
-                : undefined
-          }
           chips={view.salesChips}
         />
         <Card
@@ -352,7 +348,7 @@ export function CockpitV2(props: CockpitV2Props) {
           value={c?.margin != null ? money(c.margin) : "Sin precio"}
           sub={
             c
-              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? ` · objetivo ${view.marginTarget}%` : ""} · sobre ventas con costo`
+              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? ` · objetivo ${view.marginTarget}%` : ""}`
               : undefined
           }
           chips={view.marginChips}
@@ -399,18 +395,7 @@ export function CockpitV2(props: CockpitV2Props) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-1 flex flex-wrap items-baseline gap-2">
-            <h2 className="text-[14px] font-bold">
-              Ventas diarias
-              {view.bars.some((b) => b.target !== null) ? " vs objetivo" : ""}
-              {view.baselineAvgDaily !== null
-                ? ` vs promedio ${view.baselineLabel.replace("vs ", "")}`
-                : ""}
-            </h2>
-            <span className="text-[12px] text-[#8a92a3]">
-              {view.bars.some((b) => b.target !== null)
-                ? "Verde = sobre objetivo · clic en un día para ver el detalle"
-                : "clic en un día para ver el detalle"}
-            </span>
+            <h2 className="text-[14px] font-bold">Ventas diarias</h2>
           </div>
           <DailyBarsChart
             bars={view.bars}
@@ -427,24 +412,13 @@ export function CockpitV2(props: CockpitV2Props) {
                   scope,
                   view.bars.map((b) => b.date)
                 )
-              )}{" "}
-              <a
-                href={OBJECTIVES_HREF}
-                className="font-semibold text-[#1b40c8] underline"
-              >
-                {props.targets.length > 0
-                  ? "Ajusta tus objetivos"
-                  : "Definir objetivos"}
-              </a>
+              )}
             </p>
           ) : null}
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-2 flex items-baseline">
             <h2 className="text-[14px] font-bold">Mezcla de ventas</h2>
-            <span className="ml-auto text-[12px] text-[#8a92a3]">
-              clic = filtrar todo
-            </span>
           </div>
           <MixDonut
             slices={view.mix}
@@ -453,7 +427,6 @@ export function CockpitV2(props: CockpitV2Props) {
             active={category}
             onSlice={setCategory}
             loading={loadingCost}
-            daysLabel={`${view.days} ${view.days === 1 ? "día" : "días"}`}
           />
           {view.uncategorizedPct !== null && view.uncategorizedPct > 0 ? (
             <p className="mt-2 text-[12px] text-[#8a92a3]">
@@ -547,7 +520,7 @@ function missingGoalText(
   if (gap?.reason === "company_only") {
     return "Tu objetivo de ventas es para todos los restaurantes: elige «Todos los restaurantes» o define uno para este restaurante.";
   }
-  return "Sin objetivo de ventas: no hay línea.";
+  return "Sin objetivo de ventas.";
 }
 
 /** One short reading from real numbers only; nothing is said that was not computed. */

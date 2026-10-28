@@ -104,11 +104,12 @@ export function DailyChart({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[11.5px] text-[#8a92a3]">
-          clic en un día = filtra toda la página
-        </span>
       </div>
-      <div className="relative" ref={wrapRef}>
+      <div
+        className="relative"
+        ref={wrapRef}
+        title="Clic en un día para filtrar la página"
+      >
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="h-[190px] w-full"
@@ -219,14 +220,11 @@ export function DailyChart({
           </div>
         ) : null}
       </div>
-      <p className="text-[11.5px] text-[#8a92a3]">
-        {hasTarget && metric === "ventas" && withTarget > 0
-          ? `${above} de ${n} días sobre el objetivo diario (línea punteada). `
-          : ""}
-        {useBars
-          ? "Con menos de 8 días se usan barras."
-          : "Línea recta entre días, sin suavizar."}
-      </p>
+      {hasTarget && metric === "ventas" && withTarget > 0 ? (
+        <p className="text-[11.5px] text-[#8a92a3]">
+          {`${above} de ${n} días sobre el objetivo (línea punteada).`}
+        </p>
+      ) : null}
     </section>
   );
 }

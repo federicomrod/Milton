@@ -331,8 +331,7 @@ export function WeekdayCostChart({
   if (days.every((d) => d.food_cost_pct === null))
     return (
       <p className="py-6 text-center text-[12px] text-[#8a92a3]">
-        Sin precio: aún no hay productos con costo para calcular el costo por
-        día.
+        Sin precio: aún no hay platos con costo.
       </p>
     );
   return (
@@ -395,7 +394,6 @@ export function MixDonut({
   active,
   onSlice,
   loading,
-  daysLabel,
 }: {
   slices: MixSlice[];
   total: number;
@@ -403,7 +401,6 @@ export function MixDonut({
   active: string | null;
   onSlice: (category: string | null) => void;
   loading: boolean;
-  daysLabel: string;
 }) {
   if (loading)
     return (
@@ -486,9 +483,6 @@ export function MixDonut({
           fill="#151c2c"
         >
           {money(total)}
-        </text>
-        <text x="75" y="90" textAnchor="middle" fontSize="11" fill="#8a92a3">
-          {daysLabel}
         </text>
       </svg>
       <ul className="min-w-0 flex-1 space-y-1 text-[13px]">

@@ -270,7 +270,7 @@ export function FixedCostsTab({
     breakEvenText ? (
       <div data-testid="break-even">
         <p className="text-sm font-medium text-[#6b7385]">
-          {compact ? "Punto de equilibrio" : "Punto de equilibrio diario"}
+          Punto de equilibrio
         </p>
         <p className="text-base font-semibold text-[#151c2c]">
           Necesitas vender{" "}
@@ -283,7 +283,7 @@ export function FixedCostsTab({
     ) : (
       <div data-testid="break-even">
         <p className="text-sm font-medium text-[#6b7385]">
-          Punto de equilibrio diario
+          Punto de equilibrio
         </p>
         <p className="text-base font-semibold text-[#151c2c]">
           <span aria-hidden="true">{FLAG}</span> Falta
@@ -472,7 +472,6 @@ export function FixedCostsTab({
             ) : null}
             {isGroup && splitPreview.kind !== "single" ? (
               <div className="basis-full text-xs text-[#6b7385]">
-                <p>Cómo se reparte el total del grupo entre tus restaurantes</p>
                 {splitPreview.kind === "empty" ? (
                   <p data-testid="split-preview">
                     Escribe los montos para ver cuánto le toca a cada

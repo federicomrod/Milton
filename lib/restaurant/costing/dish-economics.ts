@@ -266,6 +266,12 @@ export interface BuildDishEconomicsInput {
   /** R1-10 (045): stored menu dishes and each variant's grouping. */
   storedMenuDishes?: readonly StoredMenuDish[];
   storedVariants?: ReadonlyMap<number, StoredVariant>;
+  /**
+   * Cost the dishes as of this day (YYYY-MM-DD): the approved recipe version
+   * in force that day. Omitted = today. The caller also hands in `costing` /
+   * `priceOf` already limited to the prices on or before that day.
+   */
+  asOfDate?: string | null;
 }
 
 function round2(n: number): number {
@@ -380,6 +386,7 @@ function dishFromProduct(
     productMenuItemId: product.menu_item_id,
     linkMenuItemId: link?.menu_item_id,
     versionsByMenuItem,
+    asOfDate: input.asOfDate,
   });
   const evidence = link?.evidence ?? {};
   const excelTotal = asFiniteNumber(evidence.excel_total);
@@ -686,8 +693,10 @@ export function buildDishEconomics(
     }
     // Same pick as the costing engine (never a second rule for "approved").
     const approved =
-      pickDishVersions(versionsByMenuItem.get(link.menu_item_id) ?? [])
-        .approved !== null;
+      pickDishVersions(
+        versionsByMenuItem.get(link.menu_item_id) ?? [],
+        input.asOfDate
+      ).approved !== null;
     const product: RankedPosProduct = {
       odoo_product_id: id,
       odoo_name: link.odoo_name ?? l.odoo_name,

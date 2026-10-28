@@ -14,6 +14,7 @@ export const SALES_HREF = "/dashboard/restaurant/sales";
 export const SALES_DETAIL_HREF = SALES_HREF;
 export const MENU_HREF = "/dashboard/restaurant/menu";
 export const COSTS_HREF = "/dashboard/restaurant/costs";
+export const RENTABILIDAD_HREF = "/dashboard/restaurant/rentabilidad";
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
 export const DATA_SETTINGS_HREF = "/dashboard/restaurant/data";
 export const OBJECTIVES_HREF = "/dashboard/restaurant/data/objetivos";
@@ -32,6 +33,7 @@ export type PrimaryNavId =
   | "sales"
   | "menu"
   | "costs"
+  | "rentabilidad"
   | "kitchen"
   | "data_settings";
 
@@ -69,6 +71,12 @@ export const PRIMARY_NAV_ITEMS: readonly NavItemConfig[] = [
     match: "prefix",
   },
   {
+    id: "rentabilidad",
+    href: RENTABILIDAD_HREF,
+    group: "main",
+    match: "prefix",
+  },
+  {
     id: "kitchen",
     href: KITCHEN_HREF,
     group: "main",
@@ -95,6 +103,8 @@ export function primaryNavLabel(
       return t(lang, "Menu", "Menú");
     case "costs":
       return t(lang, "Costs", "Costos");
+    case "rentabilidad":
+      return t(lang, "Profitability", "Rentabilidad");
     case "kitchen":
       return t(lang, "Kitchen", "Cocina");
     case "data_settings":

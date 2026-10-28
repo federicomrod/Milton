@@ -357,8 +357,7 @@ export function PreparacionesScreen({
           />
         ) : (
           <Card className="p-4 text-sm text-[#5b6476]">
-            Elige una preparación para revisar sus ingredientes, confirmar
-            cuánto rinde y aprobarla.
+            Elige una preparación.
           </Card>
         )}
       </div>

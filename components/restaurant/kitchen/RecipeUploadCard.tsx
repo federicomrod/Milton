@@ -7,6 +7,7 @@
 // draft to review below; nothing is approved here. Shown only to people with
 // the manage-drafts flag (the server computes it; no role rules here).
 
+import { RECIPE_UPLOAD_INTRO } from "@/lib/restaurant/ui-copy";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -259,10 +260,7 @@ export const RecipeUploadCard = forwardRef<
     <Card data-testid="recipe-upload-card">
       <CardHeader>
         <CardTitle>Sube tus recetas</CardTitle>
-        <CardDescription>
-          Excel, Word, PDF o una foto. Milton prepara los borradores y tú los
-          apruebas.
-        </CardDescription>
+        <CardDescription>{RECIPE_UPLOAD_INTRO}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">{picker}</CardContent>
     </Card>

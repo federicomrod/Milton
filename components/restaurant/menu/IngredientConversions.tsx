@@ -5,6 +5,7 @@
 // that uses the ingredient in that unit; removing one puts them back to
 // «Unidad distinta» (Sin precio), never a guess.
 
+import { NEW_PRICE_KEEPS_HISTORY } from "@/lib/restaurant/ui-copy";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -202,9 +203,7 @@ export function IngredientConversions({
           >
             {saving ? "Guardando…" : "Guardar"}
           </button>
-          <span className="ml-2 text-[#8a92a3]">
-            Se guarda un precio nuevo con fecha; el anterior no se borra.
-          </span>
+          <span className="ml-2 text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</span>
         </div>
       ) : null}
       {adding ? (

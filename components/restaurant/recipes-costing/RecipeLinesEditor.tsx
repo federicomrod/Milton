@@ -1,5 +1,6 @@
 "use client";
 
+import { NEW_PRICE_KEEPS_HISTORY } from "@/lib/restaurant/ui-copy";
 import Link from "next/link";
 import { ingredientHref } from "@/lib/restaurant/menu-links";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -482,7 +483,7 @@ export function RecipeLinesEditor({
           {state.editable
             ? "Elige de tu lista de ingredientes y preparaciones"
             : state.version_id
-              ? "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
+              ? "Receta aprobada · para cambiar cantidades, crea una versión nueva"
               : (state.locked_reason ?? "")}
         </span>
         {state.editable || sourceButtons ? (
@@ -1583,9 +1584,7 @@ function Row({
             >
               Guardar
             </button>
-            <div className="text-[#8a92a3]">
-              Se guarda un precio nuevo con fecha; el anterior no se borra.
-            </div>
+            <div className="text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</div>
           </div>
         ) : null}
         {(priceUnitMismatch || questionForced) &&
@@ -1915,8 +1914,7 @@ function Picker({
       ) : creating === "ingredient" ? (
         <div className="space-y-2">
           <p className="text-[#6b7385]">
-            Esto agrega un ingrediente nuevo a tu lista. Revisa que no esté ya
-            con otro nombre. Sin precio queda pendiente, nunca en $0.
+            Revisa que no esté ya en tu lista con otro nombre.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input
@@ -1989,9 +1987,7 @@ function Picker({
       ) : (
         <div className="space-y-2">
           <p className="text-[#6b7385]">
-            Crea una preparación de tu cocina (una salsa, una masa…). Queda como
-            borrador: luego agregas sus ingredientes en Preparaciones y la
-            puedes usar en otros platos.
+            Queda como borrador; sus ingredientes se agregan en Preparaciones.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <input

@@ -15,7 +15,6 @@ const SALES_REACT = [
   "app/dashboard/restaurant/sales/page.tsx",
   "app/dashboard/restaurant/sales/detalle/page.tsx",
   "components/restaurant/sales/detail/SalesDetailV2.tsx",
-  "components/restaurant/sales/detail/Highlights.tsx",
   "components/restaurant/sales/detail/FilterBar.tsx",
   "components/restaurant/sales/detail/KpiRow.tsx",
   "components/restaurant/sales/detail/DailyChart.tsx",
@@ -96,11 +95,11 @@ describe("One Ventas page", () => {
 
 describe("Spanish completeness for Ventas", () => {
   it("ships the Spanish copy of the ported pieces", () => {
-    const hl = read("components/restaurant/sales/detail/Highlights.tsx");
-    expect(hl).toContain("Lo que destaca");
-    expect(hl).toContain("Análisis de ventas y tickets");
-    expect(hl).not.toContain("Preguntar a Milton");
-    expect(hl).not.toContain("openAskMilton");
+    expect(
+      existsSync(
+        join(process.cwd(), "components/restaurant/sales/detail/Highlights.tsx")
+      )
+    ).toBe(false);
     expect(
       read("components/restaurant/sales/detail/SalesDetailV2.tsx")
     ).toContain("Lo que más pesa:");

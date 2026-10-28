@@ -153,7 +153,7 @@ describe("PUYAZO: lb price, orden line", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
     const note = await screen.findByText(
-      "Las conversiones aún no están activas en este ambiente."
+      "Esto aún no está disponible en tu cuenta."
     );
     expect(note.className).toContain("text-gray-500");
   });

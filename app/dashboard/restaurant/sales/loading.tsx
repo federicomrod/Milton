@@ -1,7 +1,7 @@
 // app/dashboard/restaurant/sales/loading.tsx
 //
-// Skeleton of the Ventas layout: header, filter bar, five KPI cards, the
-// «Lo que destaca» strip, and the chart + heatmap row.
+// Skeleton of the Ventas layout: header, filter bar, five KPI cards, and the
+// chart + heatmap row.
 
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 
@@ -18,7 +18,6 @@ export default function SalesLoading() {
           <PageSkeleton key={i} height="6rem" />
         ))}
       </div>
-      <PageSkeleton height="3.5rem" />
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
         <PageSkeleton height="18rem" />
         <PageSkeleton height="18rem" />

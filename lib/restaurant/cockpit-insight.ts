@@ -1,0 +1,86 @@
+// lib/restaurant/cockpit-insight.ts
+//
+// The Cockpit «✦ Milton» box: up to 3 short lines built from what the Cockpit
+// already loaded (the daily bars). Deterministic, no query, no AI call. A line
+// never restates a number the KPI chips or tiles already show (no period
+// totals, no vs-objetivo chip values): it says what they do not — which weekday
+// is weakest against the objetivo, how many days fell below it, and which
+// weekday sells most. No cause is claimed.
+
+import { weekdayIndex } from "@/lib/restaurant/cockpit-math";
+import type { CockpitView } from "@/lib/restaurant/cockpit-v2";
+
+/** Weekday names for «Los …», Monday = 0. */
+const WEEKDAYS_PLURAL = [
+  "lunes",
+  "martes",
+  "miércoles",
+  "jueves",
+  "viernes",
+  "sábados",
+  "domingos",
+];
+
+export const NO_COCKPIT_SUMMARY =
+  "Todavía no hay suficientes días para un resumen.";
+export const NO_TARGETS_SUMMARY =
+  "Define tus objetivos y Milton te dice cómo vas contra ellos.";
+
+type InsightView = Pick<CockpitView, "bars" | "aboveDays" | "belowDays">;
+
+function listNames(names: string[]): string {
+  return names.length <= 1
+    ? (names[0] ?? "")
+    : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+}
+
+/** 1 to 3 lines, or the one fallback line when there is not enough to say. */
+export function cockpitSummaryLines(
+  view: InsightView,
+  hasTargets: boolean
+): string[] {
+  const lines: string[] = [];
+
+  // Weekdays whose days with a target fall well short of it.
+  const delta = new Map<number, number[]>();
+  const sales = new Map<number, number[]>();
+  for (const b of view.bars) {
+    const wd = weekdayIndex(b.date);
+    sales.set(wd, [...(sales.get(wd) ?? []), b.sales]);
+    if (b.deltaPct !== null)
+      delta.set(wd, [...(delta.get(wd) ?? []), b.deltaPct]);
+  }
+  const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const weak = [...delta.entries()]
+    .map(([wd, v]) => ({ wd, avg: avg(v), n: v.length }))
+    .filter((x) => x.n >= 2 && x.avg <= -10)
+    .sort((a, b) => a.avg - b.avg)
+    .slice(0, 2);
+  if (weak.length > 0)
+    lines.push(
+      `Los ${listNames(weak.map((w) => WEEKDAYS_PLURAL[w.wd]))} son lo más flojo frente al objetivo (${Math.round(weak[0].avg)}% en promedio).`
+    );
+
+  // How many days with a target ended below it.
+  const withTarget = view.aboveDays + view.belowDays;
+  if (withTarget >= 3)
+    lines.push(
+      view.belowDays > 0
+        ? `${view.belowDays} de ${withTarget} días quedaron bajo el objetivo.`
+        : "Ningún día quedó bajo el objetivo."
+    );
+
+  // The weekday that sells most, once at least two weekdays repeat.
+  const strong = [...sales.entries()]
+    .filter(([, v]) => v.length >= 2)
+    .map(([wd, v]) => ({ wd, avg: avg(v) }))
+    .sort((a, b) => b.avg - a.avg);
+  if (strong.length >= 2 && strong[0].avg > strong[1].avg)
+    lines.push(
+      `Los ${WEEKDAYS_PLURAL[strong[0].wd]} son tu día más fuerte del periodo.`
+    );
+
+  if (lines.length === 0)
+    return [hasTargets ? NO_COCKPIT_SUMMARY : NO_TARGETS_SUMMARY];
+  return lines.slice(0, 3);
+}

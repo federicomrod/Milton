@@ -7,6 +7,7 @@
 // dish's variant rows already loaded: no spinner, no request. The grouping
 // itself saves like every other group (optimistic, with «Deshacer»).
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useMemo, useState } from "react";
 import {
   DRILL_DIMENSIONS,
@@ -707,9 +708,6 @@ function Heatmap({
     <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
       <div className="mb-3 flex items-center">
         <h2 className="text-[15px] font-bold">% de ventas del plato</h2>
-        <span className="ml-auto text-[12px] text-[#8a92a3]">
-          Clic en una celda para filtrar
-        </span>
       </div>
       <div
         className="grid gap-1.5 text-[13px]"
@@ -776,7 +774,7 @@ function HeatRow({
             key={cols[i]}
             type="button"
             onClick={() => onCell(cols[i])}
-            title={`${label} · ${cols[i]}`}
+            title={`${label} · ${cols[i]} · clic para filtrar`}
             style={{ background: `rgba(27,64,200,${0.08 + 0.92 * k})` }}
             className={
               "rounded-lg py-2 text-center font-bold " +
@@ -863,7 +861,7 @@ function EditGroupsPanel({
       {!isSaved || !grouping.available ? (
         <p className="mt-3 rounded-lg border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[13px]">
           {!grouping.available
-            ? "Falta aplicar las migraciones 048 y 049 para guardar grupos."
+            ? NOT_AVAILABLE_YET
             : "Primero guarda la agrupación de Milton (botón «Guardar agrupación» en Platos)."}
         </p>
       ) : null}

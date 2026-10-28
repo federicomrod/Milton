@@ -1121,9 +1121,7 @@ export function KitchenRecipeDraftsCard({
                                 {sentenceCase(
                                   stripParenthetical(preparation.name)
                                 )}
-                                ». Por ahora créala en Menú › Preparaciones y
-                                agrégala a la receta allí; aquí elige un
-                                ingrediente.
+                                ». Créala en Menú › Preparaciones.
                               </p>
                             ) : null}
                           </td>

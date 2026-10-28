@@ -118,9 +118,9 @@ describe("DuplicatesBanner", () => {
     for (const label of ["Unir", "No son iguales", "Ahora no"])
       expect(html).toContain(label);
   });
-  it("before 051 it says what is missing and disables the actions", () => {
+  it("before 051 it says it is not available and disables the actions", () => {
     const html = draw(q({ available: false }));
-    expect(html).toContain("falta aplicar las migraciones 050 y 051");
+    expect(html).toContain("Esto aún no está disponible en tu cuenta.");
     expect(html).toMatch(/disabled=""[^>]*>\s*Unir/);
   });
   it("shows nothing at all when there is nothing to show", () => {

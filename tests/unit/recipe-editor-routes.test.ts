@@ -70,8 +70,7 @@ describe("recipe editor route and screen", () => {
     expect(ui).toContain("Preparación · ");
     expect(ui).toContain("¿No está? Agregar ingrediente");
     expect(ui).toContain("Agregar y usar");
-    expect(ui).toContain("Esto agrega un ingrediente nuevo a tu lista");
-    expect(ui).toContain("Sin precio queda pendiente, nunca en $0.");
+    expect(ui).toContain("Revisa que no esté ya en tu lista con otro nombre.");
     expect(ui).toContain("Crear preparación");
     expect(ui).toContain("Crear y usar");
     expect(ui).toContain("Agregar precio");

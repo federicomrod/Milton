@@ -6,6 +6,7 @@
 // suggested (names, same unit family); a person decides what is merged. A
 // merge is one transaction in the database and is always undoable.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -325,8 +326,7 @@ export function useDuplicateQueue({
       );
       if (json.unavailable) {
         show({
-          message:
-            "La IA no está configurada en este ambiente: solo hay sugerencias por nombre.",
+          message: "Solo hay sugerencias por nombre.",
         });
       } else if (!json.sets || json.sets.length === 0) {
         show({ message: "Milton no encontró más duplicados claros." });
@@ -548,10 +548,7 @@ export function DuplicatesBanner({
             </span>
           </div>
           {!q.available ? (
-            <p className="text-[12px] text-[#6b7280]">
-              Para unir falta aplicar las migraciones 050 y 051 en este
-              ambiente.
-            </p>
+            <p className="text-[12px] text-[#6b7280]">{NOT_AVAILABLE_YET}</p>
           ) : null}
         </>
       ) : null}
@@ -770,9 +767,7 @@ export function ManualMergeDialog({
           </p>
         ) : null}
         {!q.available ? (
-          <p className="text-[12px] text-[#6b7280]">
-            Para unir falta aplicar las migraciones 050 y 051 en este ambiente.
-          </p>
+          <p className="text-[12px] text-[#6b7280]">{NOT_AVAILABLE_YET}</p>
         ) : null}
         <div className="flex justify-end gap-2 text-[13px]">
           <button

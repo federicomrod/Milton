@@ -200,7 +200,7 @@ describe("Lean pass", () => {
   it("Resumen de Milton has data-driven lines", () => {
     const box = html.slice(html.indexOf('data-testid="milton-summary"'));
     expect(html).toContain("Resumen de Milton");
-    expect(box).toContain("tu venta de equilibrio");
+    expect(box).toContain("tu punto de equilibrio");
     expect(box).toContain("Si sigues a este ritmo");
     expect(html).not.toMatch(/platillo/i);
   });

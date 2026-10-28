@@ -1,7 +1,7 @@
 // app/dashboard/restaurant/costs/page.tsx
 //
 // Costos (R1-09b, A9/D6): four KPIs and three real tabs on one route —
-// Cambios de precio (default), Compras (?tab=compras, the invoices UI) and
+// Costos fijos (default, first tab), Cambios de precio (?tab=precios), Compras (?tab=compras, the invoices UI) and
 // Proveedores (?tab=proveedores, the suppliers UI). The old /invoices and
 // /suppliers URLs redirect here.
 
@@ -55,7 +55,6 @@ import { monthStartOf } from "@/lib/restaurant/fixed-costs";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
 import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
@@ -280,7 +279,7 @@ export default async function CostsAreaPage({
               text="Aún no tienes costos. Sube un archivo de costos o una factura para empezar."
               actions={[
                 {
-                  href: `${COSTS_HREF}#${COSTS_FILE_ANCHOR}`,
+                  href: costsTabHref("precios", {}, COSTS_FILE_ANCHOR),
                   label: "Subir archivo de costos",
                   primary: true,
                   opensCostsPicker: true,

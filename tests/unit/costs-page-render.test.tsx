@@ -119,7 +119,7 @@ beforeEach(() => {
 });
 
 describe("Costos rendered on the server, all three tabs", () => {
-  for (const tab of [undefined, "compras", "proveedores"]) {
+  for (const tab of ["precios", "compras", "proveedores"]) {
     const name = tab ?? "precios";
     it(`empty company · ${name}: no throw, Compras KPI is «—»`, async () => {
       const t = await drawCosts(tab);

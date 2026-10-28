@@ -31,7 +31,7 @@ import {
 } from "@/lib/restaurant/menu-links";
 import { dishCoverageLabel } from "@/lib/restaurant/costing/dish-coverage";
 import { groupStatusDisplay } from "@/lib/restaurant/costing/rollup";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
@@ -653,7 +653,7 @@ function Pendientes({
         </div>
       </div>
       <Link
-        href={COSTS_HREF}
+        href={costsTabHref("precios")}
         className="mt-2 inline-flex rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
       >
         Ir a Costos →

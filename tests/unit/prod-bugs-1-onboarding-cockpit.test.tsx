@@ -148,7 +148,7 @@ describe("6 · the empty Cockpit is Cockpit v2 with no numbers", () => {
   });
   it("tells you what to do: Conecta tu POS → connect-data, Sube tus costos → Costos", () => {
     expect(html).toContain('href="/dashboard/restaurant/connect-data"');
-    expect(html).toContain('href="/dashboard/restaurant/costs"');
+    expect(html).toContain('href="/dashboard/restaurant/costs?tab=precios"');
     expect(t).toContain("Conecta tu POS");
     expect(t).toContain("Sube tus costos");
   });

@@ -254,7 +254,7 @@ describe("the page: header, 4 KPIs, tabs (file workspace for picker)", () => {
     const { default: Page } =
       await import("@/app/dashboard/restaurant/costs/page");
     const html = renderToString(
-      await Page({ searchParams: Promise.resolve({}) })
+      await Page({ searchParams: Promise.resolve({ tab: "precios" }) })
     );
     const at = (needle: string) => html.indexOf(needle);
     const header = at("HEADER-");

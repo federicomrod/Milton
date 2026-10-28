@@ -418,7 +418,7 @@ export async function listFixedCostHistory(
 // ---------------------------------------------------------------------------
 
 /** Sales per restaurant in a month (tips excluded). Only the `sales` split reads it. */
-async function monthSalesByLocation(
+export async function monthSalesByLocation(
   supabase: SupabaseClient,
   companyId: string,
   month: string

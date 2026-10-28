@@ -89,9 +89,9 @@ function ChipView({ c }: { c: Chip }) {
         : `${arrow} ${Math.round(abs)}% ${c.label}`;
   const tone =
     c.tone === "good"
-      ? "bg-[#e7f6ee] text-[#1f9d55]"
+      ? "bg-[#A7F3D0] text-[#0F172A]"
       : c.tone === "bad"
-        ? "bg-[#fdecec] text-[#d14343]"
+        ? "bg-[#FBCFE8] text-[#0F172A]"
         : "bg-[#f2f3f6] text-[#5b6476]";
   return (
     <span

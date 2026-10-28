@@ -9,6 +9,7 @@ import {
   openDaysInMonth,
   planRepeat,
   splitGroupAmount,
+  previewGroupSplit,
   projectedProfit,
   taxInSales,
   splitLargestRemainder,
@@ -358,5 +359,58 @@ describe("typed field", () => {
     expect(parseTyped("0")).toBe(0);
     expect(parseTyped("1,250.5")).toBe(1250.5);
     expect(parseTyped("abc")).toBeNull();
+  });
+});
+
+describe("previewGroupSplit (Repartir preview)", () => {
+  const targets = [
+    { location_id: "a", sales: 7000 },
+    { location_id: "b", sales: 3000 },
+    { location_id: "c", sales: 0 },
+  ];
+  const cents = (p: ReturnType<typeof previewGroupSplit>) =>
+    p.kind === "ok"
+      ? p.shares.reduce((s, x) => s + Math.round(x.amount * 100), 0)
+      : null;
+
+  it("sales rule: weighted by sales, adds up to the total to the cent", () => {
+    const p = previewGroupSplit([1000, 200.01, null, 100], "sales", targets);
+    expect(p.kind).toBe("ok");
+    if (p.kind !== "ok") return;
+    expect(p.total).toBe(1300.01);
+    expect(p.shares.map((s) => s.amount)).toEqual([910.01, 390, 0]);
+    expect(cents(p)).toBe(130001);
+    expect(p.fellBackToEqual).toBe(false);
+  });
+
+  it("equal rule: equal parts that add up to the cent", () => {
+    const p = previewGroupSplit([100], "equal", targets);
+    if (p.kind !== "ok") throw new Error("expected ok");
+    expect(p.shares.map((s) => s.amount)).toEqual([33.34, 33.33, 33.33]);
+    expect(cents(p)).toBe(10000);
+  });
+
+  it("sales rule with no sales this month falls back to equal and says so", () => {
+    const p = previewGroupSplit(
+      [90],
+      "sales",
+      targets.map((t) => ({ ...t, sales: null }))
+    );
+    if (p.kind !== "ok") throw new Error("expected ok");
+    expect(p.fellBackToEqual).toBe(true);
+    expect(p.rule).toBe("equal");
+    expect(p.shares.map((s) => s.amount)).toEqual([30, 30, 30]);
+  });
+
+  it("no amounts typed → empty, never $0 per restaurant", () => {
+    expect(previewGroupSplit([null, null], "sales", targets)).toEqual({
+      kind: "empty",
+    });
+  });
+
+  it("one restaurant → no preview", () => {
+    expect(previewGroupSplit([100], "equal", [targets[0]])).toEqual({
+      kind: "single",
+    });
   });
 });

@@ -299,6 +299,8 @@ export interface RentabilidadMonth {
   avgSalesPerDay: number | null;
   weekdayAverages: WeekdayAverage[];
   costoPrimo: number | null;
+  /** Planilla ÷ Ventas (tax included, the month's base); null with no planilla or no sales. */
+  planillaPct: number | null;
   cada100: Cada100Part[] | null;
   /** True when the costs are above sales: the bar shows a loss. */
   cada100Loss: boolean;
@@ -468,6 +470,11 @@ export function computeRentabilidad(
       ? null
       : (monthTotals.food + monthTotals.waste + planilla) / monthTotals.sales;
 
+  const planillaPct =
+    planilla === null || monthTotals.sales <= 0
+      ? null
+      : planilla / monthTotals.sales;
+
   let cada100: Cada100Part[] | null = null;
   let cada100Loss = false;
   if (fixedTotal !== null && profit !== null && monthTotals.sales > 0) {
@@ -534,6 +541,7 @@ export function computeRentabilidad(
       : null,
     weekdayAverages,
     costoPrimo,
+    planillaPct,
     cada100,
     cada100Loss,
     days,

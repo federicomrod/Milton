@@ -1,14 +1,13 @@
 // components/restaurant/rentabilidad/RentabilidadPage.tsx
 //
-// Rentabilidad (#400): is the restaurant making money this month? Hero
-// sentence, the two numbers (Ganancia real hasta ayer · Proyección al cierre),
-// the coverage flag, the race chart, the KPIs, «¿A dónde va cada $100?», the
-// ✦ Milton card, the Estado de resultados and the daily table. Every number
-// comes from rentabilidad.ts; this file only lays it out. Spanish only.
+// Rentabilidad (#400): is the restaurant making money this month? The top half
+// uses the same header, controls, cards and chart style as the Cockpit and
+// Ventas; every number comes from rentabilidad.ts. Spanish only.
 //
-// Colors: brand blue #1B40C8 (hover #1533A3, tint #E7EDFD) for what matters,
-// red #b42318 for ⚑ flags and losses, lavender #D8D0F8 ONLY for a Milton
-// estimate. Changing the month keeps the previous view on screen (no spinner).
+// Colours (brand): blue #1B40C8 (hover #1533A3, tint #E7EDFD); Ink #0F172A on
+// mint #A7F3D0 (good), rosa #FBCFE8 (bad) and amarillo #FDE68A (alerts);
+// lavender #D8D0F8 ONLY for a Milton estimate; #E5E7EB for borders only.
+// Changing the month keeps the previous view on screen (no spinner).
 
 "use client";
 
@@ -34,14 +33,27 @@ import {
   weekdayEs,
 } from "@/lib/restaurant/rentabilidad-copy";
 import { RaceChart } from "@/components/restaurant/rentabilidad/RaceChart";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
+import { StatCard } from "@/components/restaurant/ui/StatCard";
 
-const BLUE = "#1B40C8";
-const RED = "#b42318";
-const GREEN = "#12804A";
+// Brand colours: the one place.
+const PRIMARY = "#1B40C8";
+const INK = "#0F172A";
+const GOOD_FILL = "#A7F3D0";
+const BAD_FILL = "#FBCFE8";
+const AI_FILL = "#D8D0F8";
+
 const BTN =
   "inline-flex items-center justify-center rounded-md bg-[#1B40C8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2";
-const BTN_OUTLINE =
-  "inline-flex items-center justify-center rounded-md border border-[#1B40C8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1B40C8] hover:bg-[#E7EDFD]";
+const ALERT_PILL =
+  "inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]";
+const SEGMENT_GROUP =
+  "inline-flex flex-wrap rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold";
+const segmentBtn = (active: boolean) =>
+  "rounded-[9px] px-3.5 py-1.5 " +
+  (active
+    ? "bg-[#1b40c8] text-white shadow-sm"
+    : "text-[#4a5a85] hover:text-[#1b40c8]");
 
 const PART_LABEL: Record<Cada100Part["key"], string> = {
   comida: "Comida y bebida",
@@ -55,14 +67,49 @@ const PART_LABEL: Record<Cada100Part["key"], string> = {
 };
 const PART_COLOR: Record<Cada100Part["key"], string> = {
   comida: "#1B40C8",
-  merma: "#7C93E6",
-  impuestos: "#B6C4F2",
-  planilla: "#0E7C66",
-  alquiler: "#2F9E8A",
-  servicios: "#7CC9B7",
-  otros: "#B9A84A",
-  ganancia: GREEN,
+  impuestos: "#A9B8EE",
+  merma: BAD_FILL,
+  planilla: "#4F6BD6",
+  alquiler: "#7F93E3",
+  servicios: "#C3CEF4",
+  otros: "#E7EDFD",
+  ganancia: GOOD_FILL,
 };
+
+const CHIP_TONE = {
+  good: "bg-[#A7F3D0] text-[#0F172A]",
+  bad: "bg-[#FBCFE8] text-[#0F172A]",
+  neutral: "bg-[#E7EDFD] text-[#1B40C8]",
+} as const;
+
+function ProfitBadges({
+  value,
+  estimate,
+}: {
+  value: number;
+  estimate: boolean;
+}) {
+  return (
+    <>
+      <span
+        className={
+          "rounded-full px-2 py-0.5 text-[12px] font-semibold " +
+          (value >= 0 ? CHIP_TONE.good : CHIP_TONE.bad)
+        }
+      >
+        {value >= 0 ? "Ganancia" : "Pérdida"}
+      </span>
+      {estimate ? (
+        <span
+          className="rounded-full px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
+          style={{ background: AI_FILL }}
+        >
+          Estimado por Milton
+        </span>
+      ) : null}
+    </>
+  );
+}
 
 export function RentabilidadPage({
   data,
@@ -115,29 +162,35 @@ export function RentabilidadPage({
   const findings = data.findings
     .map((f) => findingText(f, m, money))
     .filter(Boolean);
+  const chipNodes = chips.length ? (
+    <>
+      {chips.map((c) => (
+        <span
+          key={c.text}
+          className={
+            "rounded-full px-2 py-0.5 text-[12px] font-semibold " +
+            CHIP_TONE[c.tone]
+          }
+        >
+          {c.text}
+        </span>
+      ))}
+    </>
+  ) : undefined;
+  const be = m.breakEvenDay;
 
   return (
     <div
       className={
-        "w-full space-y-4 px-4 py-3 sm:px-6 lg:px-10 " +
+        "w-full space-y-3 px-6 py-3 lg:px-10 " +
         (pending ? "opacity-70 transition-opacity" : "transition-opacity")
       }
       aria-busy={pending}
     >
-      {/* Header + month picker */}
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-[#0f1b3d]">
-            Rentabilidad
-          </h1>
-          <p className="text-sm text-[#6b7385]">
-            {locationName ? `${locationName} · ` : ""}
-            {m.isCurrentMonth
-              ? `Datos hasta ayer (${dayLabelEs(addDay(data.today, -1))})`
-              : monthLabelEs(m.month)}
-          </p>
-        </div>
-        <nav aria-label="Mes" className="flex flex-wrap items-center gap-2">
+      <OperatingPageHeader title="Rentabilidad" showDateRange={false} />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div role="group" aria-label="Mes" className={SEGMENT_GROUP}>
           {months.map((month) => {
             const active = month === m.month;
             return (
@@ -146,12 +199,7 @@ export function RentabilidadPage({
                 type="button"
                 onClick={() => goto(month)}
                 aria-pressed={active}
-                className={
-                  "rounded-md border px-3 py-1.5 text-sm font-semibold " +
-                  (active
-                    ? "border-[#1B40C8] bg-[#1B40C8] text-white"
-                    : "border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD]")
-                }
+                className={segmentBtn(active)}
               >
                 {month === currentMonth
                   ? `${capitalize(monthNameEs(month))} (este mes)`
@@ -159,50 +207,50 @@ export function RentabilidadPage({
               </button>
             );
           })}
-          <label className={BTN_OUTLINE + " cursor-pointer"}>
-            <span>Elegir mes</span>
-            <input
-              type="month"
-              max={currentMonth.slice(0, 7)}
-              value={m.month.slice(0, 7)}
-              onChange={(e) =>
-                e.target.value ? goto(`${e.target.value}-01`) : undefined
-              }
-              className="ml-2 w-[8.5rem] border-0 bg-transparent p-0 text-sm text-[#1B40C8] focus:outline-none"
-              aria-label="Elegir mes"
-            />
-          </label>
-        </nav>
-      </header>
+        </div>
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px] text-[#4a5a85] hover:bg-[#E7EDFD]">
+          <span>Elegir mes</span>
+          <input
+            type="month"
+            max={currentMonth.slice(0, 7)}
+            value={m.month.slice(0, 7)}
+            onChange={(e) =>
+              e.target.value ? goto(`${e.target.value}-01`) : undefined
+            }
+            className="w-[8.5rem] bg-transparent font-bold text-[#1b2333] outline-none"
+            aria-label="Elegir mes"
+          />
+        </label>
+        <span className="ml-auto text-[12px] text-[#8a92a3]">
+          {locationName ? `${locationName} · ` : ""}
+          {m.isCurrentMonth
+            ? `Datos hasta ayer (${dayLabelEs(addDay(data.today, -1))})`
+            : monthLabelEs(m.month)}
+        </span>
+      </div>
 
       {!m.hasData ? (
-        <section className="rounded-lg border border-[#d8deee] bg-white p-5 text-[15px] text-[#0f1b3d]">
+        <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 text-[14px] font-bold leading-snug text-[#1b2333]">
           {heroSentence(m, money)}
         </section>
       ) : (
         <>
-          {/* Hero sentence */}
-          <p className="text-[17px] font-semibold leading-snug text-[#0f1b3d] sm:text-lg">
+          <p className="text-[14px] font-bold leading-snug text-[#1b2333]">
             {heroSentence(m, money)}
           </p>
 
-          {/* Missing fixed costs (mock 5) */}
           {fixedMissing ? (
             <section
               aria-label="Costos fijos faltantes"
-              className="rounded-lg border-2 border-[#b42318] bg-[#fff5f4] p-4"
+              className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
             >
-              <p className="text-[15px] font-bold" style={{ color: RED }}>
+              <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold text-[#0F172A]">
                 ⚑ Faltan costos fijos: sin ellos no se puede calcular tu
                 ganancia ni tu punto de equilibrio.
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {m.fixed.missing.map((cat) => (
-                  <li
-                    key={cat}
-                    className="rounded-md bg-white px-2.5 py-1 text-sm font-semibold"
-                    style={{ color: RED, border: `1px solid ${RED}` }}
-                  >
+                  <li key={cat} className={ALERT_PILL}>
                     ⚑ Falta {CATEGORY_LABELS_ES[cat]}
                   </li>
                 ))}
@@ -213,7 +261,6 @@ export function RentabilidadPage({
             </section>
           ) : null}
 
-          {/* Coverage flag: always above the profit when coverage < 100% */}
           {showFlag ? (
             <CoverageFlag
               uncoveredPct={m.coverage.uncoveredPct}
@@ -223,26 +270,26 @@ export function RentabilidadPage({
             />
           ) : null}
 
-          {/* The two numbers */}
           {!fixedMissing && m.profit !== null ? (
             <section
               aria-label="Ganancia"
               className="grid grid-cols-1 gap-3 sm:grid-cols-2"
             >
               {m.isCurrentMonth && m.profitToDate !== null ? (
-                <NumberCard
+                <StatCard
                   label={
                     estimada
                       ? "Ganancia estimada hasta ayer"
                       : "Ganancia real hasta ayer"
                   }
                   value={signed(m.profitToDate, money)}
-                  color={m.profitToDate >= 0 ? GREEN : RED}
-                  estimate={estimada}
+                  badge={
+                    <ProfitBadges value={m.profitToDate} estimate={estimada} />
+                  }
                   note="Margen acumulado menos los costos fijos de todo el mes"
                 />
               ) : null}
-              <NumberCard
+              <StatCard
                 label={
                   m.isCurrentMonth
                     ? estimada
@@ -253,52 +300,20 @@ export function RentabilidadPage({
                       : "Ganancia real del mes"
                 }
                 value={signed(m.profit, money)}
-                color={m.isCurrentMonth ? BLUE : m.profit >= 0 ? GREEN : RED}
-                estimate={estimada}
-                note={
+                badge={<ProfitBadges value={m.profit} estimate={estimada} />}
+                sub={
                   m.profitPct === null
                     ? undefined
                     : `${pctText(m.profitPct)} de tus ventas${
                         m.isCurrentMonth ? " · proyección" : ""
                       }`
                 }
+                chips={chipNodes}
               />
             </section>
           ) : null}
 
-          {/* Comparison chips (real numbers only) */}
-          {chips.length > 0 ? (
-            <ul
-              className="flex flex-wrap gap-2"
-              aria-label="Contra el mes pasado"
-            >
-              {chips.map((c) => (
-                <li
-                  key={c.text}
-                  className="rounded-full px-3 py-1 text-sm font-semibold"
-                  style={{
-                    background:
-                      c.tone === "good"
-                        ? "#E5F5EC"
-                        : c.tone === "bad"
-                          ? "#FDE8E6"
-                          : "#E7EDFD",
-                    color:
-                      c.tone === "good" ? GREEN : c.tone === "bad" ? RED : BLUE,
-                  }}
-                >
-                  {c.text}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
-          {/* Tabs */}
-          <div
-            role="tablist"
-            aria-label="Vista"
-            className="flex gap-1 border-b border-[#d8deee]"
-          >
+          <div role="tablist" aria-label="Vista" className={SEGMENT_GROUP}>
             {(
               [
                 ["resumen", "Resumen"],
@@ -311,12 +326,7 @@ export function RentabilidadPage({
                 type="button"
                 aria-selected={tab === id}
                 onClick={() => setTab(id)}
-                className={
-                  "-mb-px border-b-2 px-4 py-2 text-sm font-semibold " +
-                  (tab === id
-                    ? "border-[#1B40C8] text-[#1B40C8]"
-                    : "border-transparent text-[#0f1b3d] hover:text-[#1B40C8]")
-                }
+                className={segmentBtn(tab === id)}
               >
                 {label}
               </button>
@@ -324,18 +334,25 @@ export function RentabilidadPage({
           </div>
 
           {tab === "resumen" ? (
-            <div className="space-y-4">
-              {/* Race chart */}
+            <div className="space-y-3">
               {!fixedMissing ? (
-                <section className="rounded-lg border border-[#d8deee] bg-white p-3 sm:p-4">
-                  <h2 className="mb-2 text-sm font-bold text-[#0f1b3d]">
-                    ¿Ya cubriste tus costos fijos?
-                  </h2>
+                <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
+                  <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
+                    <h2 className="text-[14px] font-bold text-[#1b2333]">
+                      ¿Ya cubriste tus costos fijos?
+                    </h2>
+                    <span className="text-[12px] text-[#8a92a3]">
+                      {be
+                        ? `Equilibrio: ${dayLabelEs(be.date)}${
+                            be.projected ? " (proyección)" : ""
+                          }`
+                        : "Aún no cubres tus costos fijos este mes"}
+                    </span>
+                  </div>
                   <RaceChart month={m} money={money} />
                 </section>
               ) : null}
 
-              {/* KPIs */}
               <section
                 className="grid grid-cols-2 gap-3 lg:grid-cols-4"
                 aria-label="Indicadores"
@@ -368,14 +385,7 @@ export function RentabilidadPage({
                 />
                 <Kpi
                   label="Planilla"
-                  value={
-                    m.fixed.amounts.planilla !== null
-                      ? pctText(
-                          m.fixed.amounts.planilla /
-                            Math.max(m.monthTotals.sales, 1)
-                        )
-                      : "—"
-                  }
+                  value={m.planillaPct !== null ? pctText(m.planillaPct) : "—"}
                   sub={
                     m.fixed.amounts.planilla !== null
                       ? money(m.fixed.amounts.planilla)
@@ -393,28 +403,30 @@ export function RentabilidadPage({
                 />
               </section>
 
-              {/* Cada $100 + Milton card */}
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                <section className="rounded-lg border border-[#d8deee] bg-white p-4 lg:col-span-2">
-                  <h2 className="mb-3 text-sm font-bold text-[#0f1b3d]">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 lg:col-span-2">
+                  <h2 className="mb-3 text-[14px] font-bold text-[#1b2333]">
                     ¿A dónde va cada $100 que vendes?
                   </h2>
                   {m.cada100 ? (
                     <Cada100Bar parts={m.cada100} loss={m.cada100Loss} />
                   ) : (
-                    <p className="text-sm" style={{ color: RED }}>
-                      ⚑ Falta cargar tus costos fijos para repartir tus ventas.
+                    <p className="text-sm">
+                      <span className={ALERT_PILL}>
+                        ⚑ Falta cargar tus costos fijos para repartir tus
+                        ventas.
+                      </span>
                     </p>
                   )}
                 </section>
                 <section
-                  className="rounded-lg p-4"
+                  className="rounded-[14px] p-4"
                   style={{ background: "#E7EDFD" }}
                   aria-label="Milton"
                 >
                   <h2
-                    className="mb-1 text-sm font-bold"
-                    style={{ color: BLUE }}
+                    className="mb-1 text-[14px] font-bold"
+                    style={{ color: PRIMARY }}
                   >
                     ✦ Milton
                   </h2>
@@ -422,13 +434,14 @@ export function RentabilidadPage({
                     findings.map((f) => (
                       <p
                         key={f}
-                        className="text-sm leading-snug text-[#0f1b3d]"
+                        className="text-sm leading-snug"
+                        style={{ color: INK }}
                       >
                         {f}
                       </p>
                     ))
                   ) : (
-                    <p className="text-sm leading-snug text-[#0f1b3d]">
+                    <p className="text-sm leading-snug" style={{ color: INK }}>
                       {m.breakEvenPerDay === null
                         ? "Cuando cargues tus costos fijos te digo qué días te cuestan más."
                         : "Todos tus días venden por encima de lo que necesitas."}
@@ -437,7 +450,6 @@ export function RentabilidadPage({
                 </section>
               </div>
 
-              {/* Estado de resultados */}
               <StatementTable
                 data={data}
                 money={money}
@@ -466,43 +478,6 @@ function signed(n: number, money: (n: number) => string): string {
   return n < 0 ? `−${money(Math.abs(n))}` : money(n);
 }
 
-function NumberCard({
-  label,
-  value,
-  color,
-  note,
-  estimate,
-}: {
-  label: string;
-  value: string;
-  color: string;
-  note?: string;
-  estimate: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-[#d8deee] bg-white p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-[#0f1b3d]">{label}</p>
-        {estimate ? (
-          <span
-            className="rounded-full px-2.5 py-0.5 text-xs font-bold text-[#0f1b3d]"
-            style={{ background: "#D8D0F8" }}
-          >
-            Estimado por Milton
-          </span>
-        ) : null}
-      </div>
-      <p
-        className="mt-1 text-[34px] font-extrabold leading-tight tracking-tight tabular-nums"
-        style={{ color }}
-      >
-        {value}
-      </p>
-      {note ? <p className="mt-0.5 text-xs text-[#6b7385]">{note}</p> : null}
-    </div>
-  );
-}
-
 function Kpi({
   label,
   value,
@@ -515,17 +490,14 @@ function Kpi({
   flag?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-[#d8deee] bg-white p-3">
+    <div className="rounded-[14px] border border-[#dbe3f7] bg-white p-3">
       <p className="text-xs font-semibold text-[#6b7385]">{label}</p>
       <p className="text-2xl font-extrabold tabular-nums text-[#0f1b3d]">
         {value}
       </p>
       {sub ? (
-        <p
-          className={"text-xs " + (flag ? "font-semibold" : "text-[#6b7385]")}
-          style={flag ? { color: RED } : undefined}
-        >
-          {sub}
+        <p className={"text-xs " + (flag ? "" : "text-[#6b7385]")}>
+          {flag ? <span className={ALERT_PILL}>{sub}</span> : sub}
         </p>
       ) : null}
     </div>
@@ -554,10 +526,9 @@ function CoverageFlag({
     <section
       role="alert"
       aria-label="Falta el costo de ingredientes"
-      className="rounded-lg border-2 bg-[#fff5f4] p-4"
-      style={{ borderColor: RED }}
+      className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
     >
-      <p className="text-base font-bold leading-snug" style={{ color: RED }}>
+      <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold leading-snug text-[#0F172A]">
         ⚑ Falta el costo de ingredientes del {pctText(uncoveredPct)} de tus
         ventas: aprueba estas recetas
       </p>
@@ -610,7 +581,7 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
   return (
     <div>
       <div
-        className="flex h-8 w-full overflow-hidden rounded-md"
+        className="flex h-8 w-full gap-[2px] overflow-hidden rounded-md bg-white"
         role="img"
         aria-label="Reparto de cada $100 de ventas"
       >
@@ -645,8 +616,10 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
         ))}
       </ul>
       {loss ? (
-        <p className="mt-2 text-sm font-semibold" style={{ color: RED }}>
-          Tus costos pasan de $100: este mes hay pérdida.
+        <p className="mt-2">
+          <span className="inline-block rounded-full bg-[#FBCFE8] px-2.5 py-0.5 text-sm font-semibold text-[#0F172A]">
+            Tus costos pasan de $100: este mes hay pérdida.
+          </span>
         </p>
       ) : null}
     </div>
@@ -669,7 +642,7 @@ function StatementTable({
   const fx = m.fixed.amounts;
   const cell = (n: number | null, neg = false) =>
     n === null ? (
-      <span style={{ color: RED }}>⚑ Falta</span>
+      <span className={ALERT_PILL}>⚑ Falta</span>
     ) : (
       <span className={neg ? "text-[#0f1b3d]" : ""}>{signed(n, money)}</span>
     );
@@ -729,8 +702,8 @@ function StatementTable({
     },
   ];
   return (
-    <section className="rounded-lg border border-[#d8deee] bg-white">
-      <h2 className="border-b border-[#d8deee] px-4 py-3 text-sm font-bold text-[#0f1b3d]">
+    <section className="rounded-[14px] border border-[#dbe3f7] bg-white">
+      <h2 className="border-b border-[#d8deee] px-4 py-3 text-[14px] font-bold text-[#1b2333]">
         Estado de resultados
       </h2>
       <div className="overflow-hidden">
@@ -860,8 +833,8 @@ function DailyTable({
 }) {
   const m = data.month;
   return (
-    <section className="rounded-lg border border-[#d8deee] bg-white">
-      <h2 className="border-b border-[#d8deee] px-4 py-3 text-sm font-bold text-[#0f1b3d]">
+    <section className="rounded-[14px] border border-[#dbe3f7] bg-white">
+      <h2 className="border-b border-[#d8deee] px-4 py-3 text-[14px] font-bold text-[#1b2333]">
         Por día
       </h2>
       <div className="overflow-hidden">

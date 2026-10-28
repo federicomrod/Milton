@@ -20,6 +20,7 @@ import {
   breakEvenPerDay,
   effectiveFixedCosts,
   fixedCostCompleteness,
+  previewGroupSplit,
   nextMonthStart,
   previousMonthStart,
   type FixedCostCategory,
@@ -95,6 +96,12 @@ export interface FixedCostsTabProps {
   shellParams: Record<string, string | string[] | undefined>;
   /** The current month (YYYY-MM-01), the latest the picker goes to. */
   currentMonth: string;
+  /** Group view only: the restaurants and their month sales, for the «Repartir» preview. */
+  splitTargets?: Array<{
+    location_id: string;
+    name: string;
+    sales: number | null;
+  }>;
 }
 
 export function FixedCostsTab({
@@ -103,6 +110,7 @@ export function FixedCostsTab({
   locationName,
   shellParams,
   currentMonth,
+  splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
   const isGroup = view.locationId === null;
@@ -129,6 +137,19 @@ export function FixedCostsTab({
   );
   const [splitRule, setSplitRule] = useState<SplitRule>(
     view.lines.find((l) => l.split_rule)?.split_rule ?? "sales"
+  );
+  const nameOf = useMemo(
+    () => new Map(splitTargets.map((t) => [t.location_id, t.name])),
+    [splitTargets]
+  );
+  const splitPreview = useMemo(
+    () =>
+      previewGroupSplit(
+        AMOUNT_CATEGORIES.map((c) => parseTyped(values[c])),
+        splitRule,
+        splitTargets
+      ),
+    [values, splitRule, splitTargets]
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
@@ -360,7 +381,7 @@ export function FixedCostsTab({
                   </div>
                   {missing ? (
                     <span
-                      className="text-sm font-semibold text-[#b42318]"
+                      className="rounded-full bg-[#FDE68A] px-2 py-0.5 text-sm font-semibold text-[#0F172A]"
                       data-testid={`falta-${category}`}
                     >
                       <span aria-hidden="true">{FLAG}</span> Falta
@@ -449,6 +470,34 @@ export function FixedCostsTab({
                 </select>
               </label>
             ) : null}
+            {isGroup && splitPreview.kind !== "single" ? (
+              <div className="basis-full text-xs text-[#6b7385]">
+                <p>Cómo se reparte el total del grupo entre tus restaurantes</p>
+                {splitPreview.kind === "empty" ? (
+                  <p data-testid="split-preview">
+                    Escribe los montos para ver cuánto le toca a cada
+                    restaurante
+                  </p>
+                ) : (
+                  <>
+                    <p
+                      data-testid="split-preview"
+                      className="font-medium text-[#151c2c]"
+                    >
+                      {splitPreview.shares
+                        .map(
+                          (sh) =>
+                            `${nameOf.get(sh.location_id) ?? "Restaurante"} ${formatMoney(sh.amount, view.currency)}`
+                        )
+                        .join(" · ")}
+                    </p>
+                    {splitPreview.fellBackToEqual ? (
+                      <p>Sin ventas este mes: se reparte en partes iguales</p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {message ? (
@@ -456,7 +505,9 @@ export function FixedCostsTab({
               role="status"
               className={
                 "text-sm font-medium " +
-                (message.ok ? "text-[#151c2c]" : "text-[#b42318]")
+                (message.ok
+                  ? "text-[#151c2c]"
+                  : "inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[#0F172A]")
               }
             >
               {message.text}

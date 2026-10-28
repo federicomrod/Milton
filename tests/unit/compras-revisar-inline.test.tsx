@@ -332,7 +332,7 @@ describe("Compras: Estado", () => {
     expect(screen.getAllByText("por Telegram")).toHaveLength(1);
     expect(screen.getAllByTestId("review-explanation")).toHaveLength(1);
     expect(screen.getByTestId("review-explanation").textContent).toContain(
-      "el precio aún no se aplica a tus costos"
+      "el precio aún no cuenta"
     );
     const chips = screen.getAllByTestId("invoice-status-chip");
     expect(chips[0].getAttribute("title")).toBe(

@@ -104,9 +104,6 @@ export default function AccountPage() {
             </Link>
           }
         />
-        <p className="mt-0.5 text-[13px] text-[#6b7385]">
-          Tu empresa, tu cuenta y cómo recibes el briefing
-        </p>
       </div>
 
       {/* Profile Overview */}
@@ -152,9 +149,6 @@ export default function AccountPage() {
         <Card>
           <CardHeader>
             <CardTitle>Estado de la cuenta</CardTitle>
-            <CardDescription>
-              Tu suscripción y datos de facturación
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
@@ -211,24 +205,6 @@ export default function AccountPage() {
         {/* Briefing Delivery by email (Email Briefing Extension v1) */}
         <EmailBriefingCard />
       </div>
-
-      {/* Quick Actions */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Acciones rápidas</CardTitle>
-          <CardDescription>Tareas frecuentes de tu cuenta</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/dashboard/settings">
-              <Button variant="outline">Actualizar perfil</Button>
-            </Link>
-            <Link href="/dashboard/restaurant">
-              <Button variant="outline">Ver el Cockpit</Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

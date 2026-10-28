@@ -74,16 +74,16 @@ describe("CockpitV2", () => {
   it("without a target: no line, no chip, and a way to set one", () => {
     const html = draw();
     expect(html).not.toContain("vs objetivo");
-    expect(html).toContain("Sin objetivo de ventas: no hay línea");
+    expect(html).toContain("Sin objetivo de ventas.");
     expect(html).toContain("Definir objetivos");
   });
   it("with a target: the chip, the legend and the chart title say so", () => {
     const html = draw({ targets: [target("revenue", 31000)] });
     expect(html).toContain("vs objetivo");
-    expect(html).toContain("Ventas diarias vs objetivo");
+    expect(html).toContain("Ventas diarias");
     expect(html).toContain("Sobre objetivo");
     expect(html).toContain("Bajo objetivo");
-    expect(html).toContain("del objetivo del periodo");
+    expect(html).not.toContain("del objetivo del periodo");
   });
   it("the comparison chips and the mini range cards are there", () => {
     const html = draw();

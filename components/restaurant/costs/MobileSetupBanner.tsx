@@ -9,6 +9,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { READ_MENU_HREF } from "./CostsSetupSection";
+import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
 
 type SetupStep = {
   id: string;
@@ -128,7 +129,7 @@ export function MobileSetupBanner({
             href={READ_MENU_HREF}
             className="block text-center text-[13px] font-semibold text-[#1B40C8] hover:underline"
           >
-            Leer tu menú →
+            {READ_MENU_LABEL}
           </Link>
         </div>
       ) : null}

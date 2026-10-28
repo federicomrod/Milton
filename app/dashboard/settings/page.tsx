@@ -10,13 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
@@ -146,9 +140,6 @@ export default function SettingsPage() {
     <div className="w-full max-w-3xl px-[26px] pb-10 pt-4">
       <div className="mb-5">
         <OperatingPageHeader title="Ajustes" lang="es" showDateRange={false} />
-        <p className="mt-0.5 text-[13px] text-[#6b7385]">
-          El nombre de tu empresa y el tema de la app
-        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -159,7 +150,6 @@ export default function SettingsPage() {
               <Building2 className="h-5 w-5" />
               Información de la empresa
             </CardTitle>
-            <CardDescription>Datos básicos de tu empresa</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -211,7 +201,6 @@ export default function SettingsPage() {
               <Palette className="h-5 w-5" />
               Apariencia
             </CardTitle>
-            <CardDescription>Cómo se ve la app</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
@@ -235,12 +224,6 @@ export default function SettingsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500">
-                {form.theme === "system" &&
-                  "Cambia entre claro y oscuro según tu sistema"}
-                {form.theme === "light" && "Usar el tema claro en toda la app"}
-                {form.theme === "dark" && "Usar el tema oscuro en toda la app"}
-              </p>
             </div>
           </CardContent>
         </Card>

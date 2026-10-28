@@ -85,7 +85,7 @@ function Grid({
                 title={
                   v === null
                     ? `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}: sin ventas`
-                    : `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}`
+                    : `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}${onCell ? " · clic para filtrar" : ""}`
                 }
                 onClick={() => onCell?.(wd, h)}
                 className={`${cell} rounded-[3px]`}
@@ -188,9 +188,6 @@ export function DetailHeatmap({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[11.5px] text-[#8a92a3]">
-          clic = filtra
-        </span>
       </div>
       {hours.length === 0 ? (
         <p className="py-8 text-center text-[12px] text-[#8a92a3]">

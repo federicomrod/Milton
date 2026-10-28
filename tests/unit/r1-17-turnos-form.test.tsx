@@ -78,7 +78,7 @@ describe("TurnosForm", () => {
   });
   it("without migration 054 it says so and the fields are disabled", () => {
     const html = draw({ available: false });
-    expect(html).toContain("falta aplicar la migración 054");
+    expect(html).toContain("Esto aún no está disponible en tu cuenta.");
     expect(html).toMatch(/aria-label="Nombre del turno"[^>]*disabled/);
   });
   it("a restaurant with no shifts says what that means", () => {

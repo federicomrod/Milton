@@ -7,6 +7,7 @@
 // migration 052). A blank field is "no target": it draws no line and no
 // chip — it is never saved as 0.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -174,8 +175,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     if (!available) {
       setStatus({
         kind: "error",
-        message:
-          "Falta aplicar la migración 052 en este ambiente: todavía no se pueden guardar objetivos.",
+        message: NOT_AVAILABLE_YET,
       });
       return;
     }
@@ -258,8 +258,8 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
             role="status"
             className="mb-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]"
           >
-            Para guardar objetivos falta aplicar la migración 052 en este
-            ambiente. Mientras tanto el Cockpit funciona sin objetivos.
+            {NOT_AVAILABLE_YET} Mientras tanto el Cockpit funciona sin
+            objetivos.
           </p>
         ) : null}
         <table className="w-full text-[13px]">
@@ -290,7 +290,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                   ? `= ${money(flatDaily)} por día (${dim} días)${weights && useSplit ? " · según el reparto por día de la semana" : ""}`
                   : legacyDaily !== null
                     ? `Objetivo diario anterior: ${money(legacyDaily)} por día`
-                    : "Sin objetivo: el Cockpit no dibuja la línea"}
+                    : ""}
               </td>
               <td className="py-3 text-[12px] text-[#6b7385]">
                 {refs.avgMonthly6 !== null ? (
@@ -530,9 +530,6 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
               </option>
             ))}
           </select>
-          <p className="mt-2 text-[12px] text-[#8a92a3]">
-            Promedio diario = ventas del periodo ÷ días del periodo.
-          </p>
         </section>
       </div>
     </div>

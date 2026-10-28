@@ -54,6 +54,18 @@ import {
 import { menuResumenHref } from "@/lib/restaurant/menu-links";
 import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
+
+function progressText(progress: {
+  done: number;
+  total: number | null;
+}): string {
+  return `Preparando tus platos desde el archivo… ${
+    progress.total
+      ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
+      : "empezando por los platos que más venden"
+  }`;
+}
 
 /** localStorage key: the detail is open or closed, per company. */
 export function setupOpenKey(companyId: string | null | undefined): string {
@@ -420,7 +432,7 @@ export function CostsSetupSection({
           href={READ_MENU_HREF}
           className="font-semibold text-[#1b40c8] hover:underline"
         >
-          Leer tu menú →
+          {READ_MENU_LABEL}
         </Link>
       </p>
     </section>
@@ -452,10 +464,7 @@ export function CostsSetupSection({
         ) : null}
         {progress ? (
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-            Preparando tus platos desde el archivo…{" "}
-            {progress.total
-              ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
-              : "empezando por los platos que más venden"}
+            {progressText(progress)}
           </div>
         ) : notice ? (
           <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
@@ -500,7 +509,7 @@ export function CostsSetupSection({
             href={READ_MENU_HREF}
             className="font-semibold text-[#1b40c8] hover:underline"
           >
-            Leer tu menú →
+            {READ_MENU_LABEL}
           </Link>
           <button
             type="button"
@@ -520,15 +529,15 @@ export function CostsSetupSection({
               Mostrar
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() =>
-              setup.complete ? setExpanded(true) : setDetail(true)
-            }
-            className="font-semibold text-[#1b40c8] hover:underline"
-          >
-            Ver detalle ▸
-          </button>
+          {!setup.complete ? (
+            <button
+              type="button"
+              onClick={() => setDetail(true)}
+              className="font-semibold text-[#1b40c8] hover:underline"
+            >
+              Ver detalle ▸
+            </button>
+          ) : null}
           {more}
         </span>
       </section>
@@ -547,10 +556,7 @@ export function CostsSetupSection({
       ) : null}
       {progress ? (
         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-          Preparando tus platos desde el archivo…{" "}
-          {progress.total
-            ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
-            : "empezando por los platos que más venden"}
+          {progressText(progress)}
         </div>
       ) : notice ? (
         <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
@@ -576,7 +582,7 @@ export function CostsSetupSection({
               href={READ_MENU_HREF}
               className="whitespace-nowrap font-semibold text-[#1b40c8] hover:underline"
             >
-              Leer tu menú →
+              {READ_MENU_LABEL}
             </Link>
             {next ? (
               <NextStepButton step={next} onFile={onNext} compact />

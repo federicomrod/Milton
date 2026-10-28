@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 
 export type EmptyReason =
   | "unauthenticated"
@@ -17,27 +18,27 @@ export type EmptyReason =
   | "env_missing";
 
 const REASON_COPY: Record<EmptyReason, string> = {
-  no_sales:
-    "Aún no hay ventas. Conecta tu POS (o sube un archivo de ventas) y el Cockpit se llena con tus números.",
+  no_sales: "Aún no hay ventas. Conecta tu POS o sube un archivo de ventas.",
   unauthenticated: "Entra a tu cuenta para ver tus números.",
   no_company: "Tu cuenta todavía no está ligada a un restaurante.",
   supabase_error:
     "No pudimos leer tus ventas ahora. Recarga la página; si sigue igual, avísanos.",
-  env_missing:
-    "El almacenamiento de ventas no está configurado en este ambiente.",
+  env_missing: NOT_AVAILABLE_YET,
 };
 
 const PERIODS = ["Hoy", "7 d", "30 d", "Trimestre"];
 const NO_DATA = "Sin datos aún";
 
-function Card({ label, sub }: { label: string; sub: string }) {
+function Card({ label, sub }: { label: string; sub?: string }) {
   return (
     <div className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-3.5">
       <div className="text-[12px] text-[#6b7385]">{label}</div>
       <div className="mt-0.5 text-[30px] font-extrabold leading-tight tracking-[-0.5px] text-[#b0b6c3]">
         —
       </div>
-      <div className="mt-0.5 text-[12px] text-[#8a92a3]">{sub}</div>
+      {sub ? (
+        <div className="mt-0.5 text-[12px] text-[#8a92a3]">{sub}</div>
+      ) : null}
     </div>
   );
 }
@@ -101,7 +102,7 @@ export function CockpitEmpty({
         <Card label="Venta promedio diaria" sub={NO_DATA} />
         <Card label="Ventas · 30 d" sub={NO_DATA} />
         <Card label="Costo de comida" sub="Sube tus costos para calcularlo" />
-        <Card label="Margen bruto" sub="Sube tus costos para calcularlo" />
+        <Card label="Margen bruto" />
       </div>
 
       <div
@@ -132,10 +133,7 @@ export function CockpitEmpty({
         <Panel title="Costo de comida por día" />
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
-          <p className="text-[13px] leading-relaxed">
-            Con tus ventas y tus costos, Milton te dice cómo vas. Empieza por
-            aquí:
-          </p>
+          <p className="text-[13px] leading-relaxed">Empieza por aquí:</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               href={CONNECT_DATA_PATH}

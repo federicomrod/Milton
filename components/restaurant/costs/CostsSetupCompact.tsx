@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { READ_MENU_HREF } from "./CostsSetupSection";
+import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
 
 type SetupStep = {
   id: string;
@@ -128,7 +129,7 @@ export function CostsSetupCompact({
         href={READ_MENU_HREF}
         className="block text-center text-[12px] font-semibold text-[#1B40C8] hover:underline"
       >
-        Leer tu menú →
+        {READ_MENU_LABEL}
       </Link>
     </section>
   );

@@ -279,11 +279,10 @@ export function SalesDetailV2({
         className="text-[11.5px] text-[#8a92a3]"
         data-testid="sales-detail-note"
       >
-        {rangeLabelEs(view.range.from, view.range.to)} · {view.days}{" "}
-        {view.days === 1 ? "día" : "días"} · comparado con {view.compare.label}
+        {rangeLabelEs(view.range.from, view.range.to)}
         {view.compare.baseline
-          ? ` (${rangeLabelEs(view.compare.baseline.range.from, view.compare.baseline.range.to)}${view.compare.baseline.note ? `, ${view.compare.baseline.note}` : ""})`
-          : " (sin período comparable: «—»)"}
+          ? ` · vs ${rangeLabelEs(view.compare.baseline.range.from, view.compare.baseline.range.to)}`
+          : ""}
         {lastDay ? ` · datos hasta ${dayLabelEs(lastDay)}` : ""}
         {view.clipped || (resolved && resolved.clipped)
           ? " · el período se recortó a lo que hay cargado"

@@ -82,7 +82,7 @@ describe("ObjetivosForm", () => {
   });
   it("a blank goal is 'sin objetivo', never 0", () => {
     const html = draw();
-    expect(html).toContain("Sin objetivo: el Cockpit no dibuja la línea");
+    expect(html).not.toContain("el Cockpit no dibuja la línea");
     expect(html).not.toContain("= $0 por día");
   });
   it("the derived daily target is shown from the monthly one (30-day month → $1,150)", () => {
@@ -101,7 +101,7 @@ describe("ObjetivosForm", () => {
   });
   it("without migration 052 it says so and the fields are disabled", () => {
     const html = draw({ available: false });
-    expect(html).toContain("falta aplicar la migración 052");
+    expect(html).toContain("Esto aún no está disponible en tu cuenta.");
     expect(html).toMatch(/aria-label="Ventas mensuales"[^>]*disabled/);
   });
   it("the weekday split comes from real sales, or says there is not enough data", () => {

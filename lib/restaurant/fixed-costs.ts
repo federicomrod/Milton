@@ -197,9 +197,10 @@ export function lineKey(
 export function planRepeat(
   sourceLines: readonly FixedCostLine[],
   existingTargetLines: readonly FixedCostLine[],
-  targetMonth: string
+  targetMonth: string,
+  touchedKeys: ReadonlySet<string> = new Set()
 ): FixedCostLine[] {
-  const taken = new Set(existingTargetLines.map(lineKey));
+  const taken = new Set([...existingTargetLines.map(lineKey), ...touchedKeys]);
   const out: FixedCostLine[] = [];
   for (const src of sourceLines) {
     if (!src.repeats) continue;

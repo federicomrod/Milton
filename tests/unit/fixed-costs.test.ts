@@ -92,6 +92,36 @@ describe("monthly repeat", () => {
   });
 });
 
+describe("repeat after the user clears a line", () => {
+  it("a line deleted in the month is not copied back", () => {
+    const feb = [line({ category: "alquiler", amount: 2500 })];
+    // Month M: repeat fills it, the user deletes it (history keeps a row).
+    const filled = applyRepeat([], feb, "2026-03-01");
+    expect(filled).toHaveLength(1);
+    const touched = new Set(filled.map(lineKey));
+    const afterDelete: FixedCostLine[] = [];
+    expect(planRepeat(feb, afterDelete, "2026-03-01", touched)).toEqual([]);
+    // Without the history it would come back (the bug).
+    expect(planRepeat(feb, afterDelete, "2026-03-01")).toHaveLength(1);
+  });
+
+  it("other keys still repeat", () => {
+    const feb = [
+      line({ category: "alquiler", amount: 2500 }),
+      line({ category: "servicios", amount: 300 }),
+    ];
+    const touched = new Set([
+      lineKey({
+        location_id: LOC_A,
+        month: "2026-03-01",
+        category: "alquiler",
+      }),
+    ]);
+    const created = planRepeat(feb, [], "2026-03-01", touched);
+    expect(created.map((l) => l.category)).toEqual(["servicios"]);
+  });
+});
+
 describe("group split, largest remainder", () => {
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 

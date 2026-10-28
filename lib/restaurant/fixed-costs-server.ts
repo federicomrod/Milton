@@ -20,6 +20,7 @@ import {
   effectiveFixedCosts,
   fixedCostCompleteness,
   isFixedCostCategory,
+  lineKey,
   monthStartOf,
   nextMonthStart,
   openDaysInMonth,
@@ -162,7 +163,6 @@ export async function saveFixedCosts(
     args.locationId
   );
   const byCategory = new Map(existing.map((l) => [l.category, l]));
-  const logs: Parameters<typeof writeLog>[1] = [];
 
   for (const entry of args.entries) {
     const prev = byCategory.get(entry.category);
@@ -176,16 +176,18 @@ export async function saveFixedCosts(
         .eq("company_id", ctx.companyId)
         .eq("id", prev.id);
       if (error) return { ok: false, error: error.message };
-      logs.push({
-        fixed_cost_id: prev.id,
-        location_id: args.locationId,
-        month,
-        category: entry.category,
-        action: "delete",
-        old_value: valueOf(prev),
-        new_value: null,
-        source: "manual",
-      });
+      await writeLog(ctx, [
+        {
+          fixed_cost_id: prev.id,
+          location_id: args.locationId,
+          month,
+          category: entry.category,
+          action: "delete",
+          old_value: valueOf(prev),
+          new_value: null,
+          source: "manual",
+        },
+      ]);
       continue;
     }
     const checked = validateLine({
@@ -237,18 +239,19 @@ export async function saveFixedCosts(
           .select("id")
           .single();
     if (result.error) return { ok: false, error: result.error.message };
-    logs.push({
-      fixed_cost_id: (result.data as { id: string }).id,
-      location_id: args.locationId,
-      month,
-      category: v.category,
-      action: prev ? "update" : "create",
-      old_value: valueOf(prev),
-      new_value: { amount: v.amount, pct_of_sales: v.pct_of_sales },
-      source: "manual",
-    });
+    await writeLog(ctx, [
+      {
+        fixed_cost_id: (result.data as { id: string }).id,
+        location_id: args.locationId,
+        month,
+        category: v.category,
+        action: prev ? "update" : "create",
+        old_value: valueOf(prev),
+        new_value: { amount: v.amount, pct_of_sales: v.pct_of_sales },
+        source: "manual",
+      },
+    ]);
   }
-  await writeLog(ctx, logs);
   return {
     ok: true,
     lines: await listFixedCosts(
@@ -277,7 +280,10 @@ export async function repeatFixedCosts(
     listMonthLines(ctx, previousMonthStart(month)),
     listMonthLines(ctx, month),
   ]);
-  const planned = planRepeat(source, target, month);
+  // A key with any history row this month (a delete included) was touched by a
+  // person: repeat never brings it back.
+  const touched = await touchedKeys(ctx, month);
+  const planned = planRepeat(source, target, month, touched);
   if (planned.length === 0) return [];
   const currency = await resolveCompanyCurrency(ctx.supabase, ctx.companyId);
   // One insert per line: the unique index is on an expression (a NULL
@@ -326,6 +332,35 @@ export async function repeatFixedCosts(
     }))
   );
   return created;
+}
+
+/** lineKey of every (scope, category) with a history row in `month`. */
+async function touchedKeys(
+  ctx: FixedCostsContext,
+  month: string
+): Promise<Set<string>> {
+  const { data, error } = await ctx.supabase
+    .from("restaurant_fixed_costs_log")
+    .select("location_id, month, category")
+    .eq("company_id", ctx.companyId)
+    .eq("month", month);
+  if (error) throw new Error(error.message);
+  const out = new Set<string>();
+  for (const r of (data ?? []) as Array<{
+    location_id: string | null;
+    month: string;
+    category: string;
+  }>) {
+    if (isFixedCostCategory(r.category))
+      out.add(
+        lineKey({
+          location_id: r.location_id,
+          month: String(r.month).slice(0, 10),
+          category: r.category,
+        })
+      );
+  }
+  return out;
 }
 
 async function listMonthLines(

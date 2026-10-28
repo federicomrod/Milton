@@ -46,7 +46,7 @@ export function DeltaChip({ delta }: { delta: number | null }) {
   const up = delta > 0;
   return (
     <span
-      className={`rounded-lg px-1.5 py-px text-[10.5px] font-bold ${up ? "bg-[#e7f6ee] text-[#1f9d55]" : "bg-[#fdecec] text-[#d14343]"}`}
+      className={`rounded-lg px-1.5 py-px text-[10.5px] font-bold ${up ? "bg-[#A7F3D0] text-[#0F172A]" : "bg-[#FBCFE8] text-[#0F172A]"}`}
     >
       {pctLabel(delta)}
     </span>

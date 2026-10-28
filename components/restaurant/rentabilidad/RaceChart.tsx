@@ -1,16 +1,24 @@
 // components/restaurant/rentabilidad/RaceChart.tsx
 //
-// The race chart of Rentabilidad: the margin you earn each day, added up,
-// racing the month's fixed costs. Actual days are a solid line, the projection
-// is dotted, and the día de equilibrio is marked. Inline SVG that scales to the
-// width of the card (no horizontal scroll at 390 px).
+// «¿Ya cubriste tus costos fijos?»: the margin you earn each day, added up,
+// against the month's fixed costs. Same plain-SVG pattern as the Cockpit and
+// Ventas charts: real pixel width (useElementWidth), fixed 190 px height,
+// selectTicks for the day labels, a transparent hit rect per day with the dark
+// tooltip, and the legend underneath. No in-plot text, no gridlines.
 
+"use client";
+
+import { useMemo, useRef, useState } from "react";
 import type { RentabilidadMonth } from "@/lib/restaurant/rentabilidad";
 import { dayLabelEs } from "@/lib/restaurant/rentabilidad-copy";
+import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
+import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
+import { ChartLegend } from "@/components/restaurant/cockpit/v2/charts";
 
-const W = 640;
-const H = 220;
-const PAD = { l: 8, r: 8, t: 14, b: 22 };
+const H = 190;
+const PAD = { l: 8, r: 8, t: 14, b: 24 };
+const BLUE = "#1B40C8";
+const INK = "#0F172A";
 
 export function RaceChart({
   month,
@@ -19,17 +27,38 @@ export function RaceChart({
   month: RentabilidadMonth;
   money: (n: number) => string;
 }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const W = useElementWidth(wrapRef);
+  const [hover, setHover] = useState<number | null>(null);
   const fixed = month.fixed.total;
-  if (fixed === null || month.days.length === 0) return null;
   const days = month.days;
   const total = month.daysInMonth;
-  const values = days.map((d) => d.cumMargin);
-  const max = Math.max(fixed, ...values, 1);
-  const min = Math.min(0, ...values);
-  const x = (day: number) =>
-    PAD.l + ((day - 1) / Math.max(total - 1, 1)) * (W - PAD.l - PAD.r);
-  const y = (v: number) =>
-    PAD.t + (1 - (v - min) / Math.max(max - min, 1)) * (H - PAD.t - PAD.b);
+  const geometry = useMemo(() => {
+    if (fixed === null || days.length === 0) return null;
+    const values = days.map((d) => d.cumMargin);
+    const max = Math.max(fixed, ...values, 1);
+    const min = Math.min(0, ...values);
+    const x = (day: number) =>
+      PAD.l + ((day - 1) / Math.max(total - 1, 1)) * (W - PAD.l - PAD.r);
+    const y = (v: number) =>
+      PAD.t + (1 - (v - min) / Math.max(max - min, 1)) * (H - PAD.t - PAD.b);
+    return { x, y };
+  }, [fixed, days, total, W]);
+  const ticks = useMemo(
+    () =>
+      geometry
+        ? selectTicks({
+            count: total,
+            positionOf: (i) => geometry.x(i + 1),
+            labelOf: (i) => String(i + 1),
+            width: W,
+            fontSize: 11,
+          })
+        : [],
+    [geometry, total, W]
+  );
+  if (fixed === null || days.length === 0 || !geometry) return null;
+  const { x, y } = geometry;
   const point = (i: number) =>
     `${x(i + 1).toFixed(1)},${y(days[i].cumMargin).toFixed(1)}`;
   const firstProjected = days.findIndex((d) => d.projected);
@@ -38,108 +67,112 @@ export function RaceChart({
     .slice(0, actualEnd)
     .map((_, i) => `${i === 0 ? "M" : "L"}${point(i)}`)
     .join(" ");
-  // The dotted line starts at the last actual point so the two join.
+  const from = Math.max(firstProjected - 1, 0);
   const projectedPath =
     firstProjected === -1
       ? ""
       : days
-          .slice(Math.max(firstProjected - 1, 0))
-          .map(
-            (_, k) =>
-              `${k === 0 ? "M" : "L"}${point(Math.max(firstProjected - 1, 0) + k)}`
-          )
+          .slice(from)
+          .map((_, k) => `${k === 0 ? "M" : "L"}${point(from + k)}`)
           .join(" ");
   const be = month.breakEvenDay;
-  const beX = be ? x(be.day) : null;
-  const beY = be ? y(days[be.day - 1].cumMargin) : null;
+  const slot = (W - PAD.l - PAD.r) / Math.max(total - 1, 1);
+  const h = hover === null ? null : days[hover];
   return (
-    <figure className="m-0">
+    <div className="relative" ref={wrapRef}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
+        className="h-[190px] w-full"
         role="img"
         aria-label="Margen acumulado contra costos fijos del mes"
-        className="block h-auto w-full"
+        onMouseLeave={() => setHover(null)}
       >
         <line
           x1={PAD.l}
           x2={W - PAD.r}
           y1={y(fixed)}
           y2={y(fixed)}
-          stroke="#b42318"
-          strokeWidth={2}
+          stroke={INK}
+          strokeWidth={1.5}
+          strokeDasharray="5 4"
         />
-        <text
-          x={W - PAD.r}
-          y={y(fixed) - 5}
-          textAnchor="end"
-          fontSize={11}
-          fill="#b42318"
-        >
-          Costos fijos del mes {money(fixed)}
-        </text>
         {actualPath ? (
-          <path d={actualPath} fill="none" stroke="#1B40C8" strokeWidth={2.5} />
+          <path
+            d={actualPath}
+            fill="none"
+            stroke={BLUE}
+            strokeWidth={2}
+            strokeLinejoin="miter"
+          />
         ) : null}
         {projectedPath ? (
           <path
             d={projectedPath}
             fill="none"
-            stroke="#1B40C8"
-            strokeWidth={2.5}
-            strokeDasharray="2 5"
-            strokeLinecap="round"
+            stroke={BLUE}
+            strokeWidth={2}
+            strokeDasharray="5 4"
           />
         ) : null}
-        {be && beX !== null && beY !== null ? (
-          <g>
-            <circle
-              cx={beX}
-              cy={beY}
-              r={6}
-              fill="#fff"
-              stroke="#1B40C8"
-              strokeWidth={3}
-            />
-            <text
-              x={Math.min(Math.max(beX, 70), W - 70)}
-              y={beY + 22}
-              textAnchor="middle"
-              fontSize={11}
-              fontWeight={600}
-              fill="#1B40C8"
-            >
-              Equilibrio {dayLabelEs(be.date)}
-              {be.projected ? " (proyección)" : ""}
-            </text>
-          </g>
+        {be ? (
+          <circle
+            cx={x(be.day)}
+            cy={y(days[be.day - 1].cumMargin)}
+            r={4}
+            fill={BLUE}
+            stroke="#fff"
+            strokeWidth={2}
+          />
         ) : null}
-        <text x={PAD.l} y={H - 5} fontSize={10} fill="#6b7385">
-          1
-        </text>
-        <text
-          x={W - PAD.r}
-          y={H - 5}
-          fontSize={10}
-          fill="#6b7385"
-          textAnchor="end"
-        >
-          {total}
-        </text>
+        {days.map((d, i) => (
+          <rect
+            key={d.date}
+            x={x(i + 1) - slot / 2}
+            y={0}
+            width={Math.max(slot, 1)}
+            height={H - PAD.b}
+            fill="transparent"
+            onMouseEnter={() => setHover(i)}
+          />
+        ))}
+        {ticks.map((t) => (
+          <text
+            key={t.index}
+            x={t.x}
+            y={H - 6}
+            fontSize={11}
+            fill="#8a92a3"
+            textAnchor={t.anchor}
+          >
+            {t.label}
+          </text>
+        ))}
       </svg>
-      <figcaption className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#6b7385]">
-        <span>
-          <span className="font-semibold text-[#1B40C8]">━</span> Margen
-          acumulado
-        </span>
+      {h && hover !== null ? (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-lg bg-[#151c2c] px-3 py-2 text-[12px] text-white shadow-lg"
+          style={{
+            left: `${Math.min(78, Math.max(0, (x(hover + 1) / W) * 100 - 6))}%`,
+          }}
+        >
+          <div className="font-semibold">
+            {dayLabelEs(h.date)} · {money(h.cumMargin)} acumulado
+          </div>
+          {h.projected ? <div>proyección</div> : null}
+          {be && be.day === hover + 1 ? <div>Equilibrio</div> : null}
+        </div>
+      ) : null}
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6b7385]">
+        <ChartLegend color={BLUE} label="Margen acumulado" line />
         {projectedPath ? (
-          <span>
-            <span className="font-semibold text-[#1B40C8]">┅</span> Proyección
-          </span>
+          <ChartLegend color={BLUE} label="Proyección" dashed />
         ) : null}
-        <span>
-          <span className="font-semibold text-[#b42318]">━</span> Costos fijos
-        </span>
-      </figcaption>
-    </figure>
+        <ChartLegend
+          color={INK}
+          label={`Costos fijos del mes ${money(fixed)}`}
+          dashed
+        />
+      </div>
+    </div>
   );
 }

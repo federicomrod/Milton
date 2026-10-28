@@ -285,6 +285,45 @@ export function splitGroupAmount(
   }));
 }
 
+export type GroupSplitPreview =
+  | { kind: "empty" }
+  | { kind: "single" }
+  | {
+      kind: "ok";
+      /** The rule actually applied (`sales` falls back to `equal` with no sales). */
+      rule: SplitRule;
+      fellBackToEqual: boolean;
+      total: number;
+      shares: GroupShare[];
+    };
+
+/**
+ * What each restaurant carries of the group's amounts: the sum of the typed
+ * amount categories (never the tax rate) split with `splitGroupAmount`. Nothing
+ * typed → `empty` (never $0 per restaurant); one restaurant → `single`.
+ */
+export function previewGroupSplit(
+  amounts: ReadonlyArray<number | null>,
+  rule: SplitRule,
+  targets: readonly GroupSplitTarget[]
+): GroupSplitPreview {
+  if (targets.length <= 1) return { kind: "single" };
+  const typed = amounts.filter(
+    (n): n is number => n !== null && Number.isFinite(n)
+  );
+  if (typed.length === 0) return { kind: "empty" };
+  const total = Math.round(typed.reduce((a, b) => a + b, 0) * 100) / 100;
+  const hasSales = targets.some((t) => (t.sales ?? 0) > 0);
+  const applied: SplitRule = rule === "sales" && hasSales ? "sales" : "equal";
+  return {
+    kind: "ok",
+    rule: applied,
+    fellBackToEqual: rule === "sales" && !hasSales,
+    total,
+    shares: splitGroupAmount(total, applied, targets),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Effective costs and completeness
 // ---------------------------------------------------------------------------

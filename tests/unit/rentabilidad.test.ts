@@ -129,6 +129,22 @@ describe("Rentabilidad: the October sample", () => {
   });
 });
 
+describe("Planilla %", () => {
+  it("is planilla ÷ the month's Ventas", () => {
+    const r = sample();
+    expect(r.planillaPct).toBeCloseTo(21400 / r.monthTotals.sales, 8);
+    expect(((r.planillaPct ?? 0) * 100).toFixed(1)).toBe("28.5");
+  });
+  it("is null (never 0%) without planilla or without sales", () => {
+    const f = fixed(0);
+    f.amounts.planilla = null;
+    expect(sample({ fixed: f }).planillaPct).toBeNull();
+    expect(
+      sample({ dailySales: {}, today: "2026-11-05" }).planillaPct
+    ).toBeNull();
+  });
+});
+
 describe("Impuestos is a rate, subtracted once", () => {
   it("13% rate: tax = Ventas × r ÷ (1 + r), fixed costs stay $41,600", () => {
     const base = sample();

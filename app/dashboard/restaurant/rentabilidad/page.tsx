@@ -17,6 +17,7 @@ import {
   type RentabilidadPageData,
 } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
+import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -28,11 +29,11 @@ const first = (v: string | string[] | undefined) =>
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <div className="w-full px-4 py-6 sm:px-6 lg:px-10">
-      <h1 className="text-2xl font-extrabold tracking-tight text-[#0f1b3d]">
-        Rentabilidad
-      </h1>
-      <p className="mt-2 max-w-xl text-[15px] text-[#0f1b3d]">{children}</p>
+    <div className="w-full space-y-3 px-6 py-3 lg:px-10">
+      <OperatingPageHeader title="Rentabilidad" showDateRange={false} />
+      <div className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-3.5 text-[13px] text-[#6b7385]">
+        {children}
+      </div>
     </div>
   );
 }

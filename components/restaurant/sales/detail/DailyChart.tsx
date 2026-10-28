@@ -141,7 +141,15 @@ export function DailyChart({
                     width={bw}
                     height={PAD.t + innerH - top}
                     rx={3}
-                    fill={over || b.target === null ? BLUE : "#c9d2f0"}
+                    fill={
+                      hover === i
+                        ? BLUE
+                        : metric !== "ventas" || b.target === null
+                          ? "#E7EDFD"
+                          : over
+                            ? "#A7F3D0"
+                            : "#FBCFE8"
+                    }
                     opacity={hover === null || hover === i ? 1 : 0.6}
                     pointerEvents="none"
                   />
@@ -184,7 +192,7 @@ export function DailyChart({
             <path
               d={tgtPath}
               fill="none"
-              stroke="#151c2c"
+              stroke="#0F172A"
               strokeWidth={1.5}
               strokeDasharray="5 4"
             />

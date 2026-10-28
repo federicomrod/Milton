@@ -115,7 +115,23 @@ describe("RentabilidadPage", () => {
     expect(html).toContain("Aprobar"); // plato 3 has a draft
     expect(html.indexOf("Plato 2")).toBeLessThan(html.indexOf("Plato 3")); // by share of sales
     expect(html).toContain("Tus platos con receta dejan");
-    expect(html).toContain("#b42318");
+    expect(html).toContain("#FDE68A");
+  });
+
+  it("Ganancia / Pérdida chips use mint and rosa with Ink text", () => {
+    const html = render(data([dish(1, 62000)]));
+    expect(html).toContain("bg-[#A7F3D0] text-[#0F172A]");
+    expect(html).toContain("Ganancia</span>");
+    const loss = render(
+      data([dish(1, 62000)], {
+        planilla: 90000,
+        alquiler: 6500,
+        servicios: 3900,
+        otros: 9800,
+      })
+    );
+    expect(loss).toContain("Pérdida</span>");
+    expect(loss).toContain("bg-[#FBCFE8] text-[#0F172A]");
   });
 
   it("an estimate: «Ganancia estimada» with the lavender chip", () => {
@@ -123,6 +139,7 @@ describe("RentabilidadPage", () => {
     expect(html).toContain("Ganancia estimada hasta ayer");
     expect(html).toContain("Estimado por Milton");
     expect(html).toContain("#D8D0F8");
+    expect(html).not.toMatch(new RegExp("#b4" + "2318|#1280" + "4A", "i"));
   });
 
   it("missing fixed costs: ⚑ Falta, the button, no profit number", () => {
@@ -149,5 +166,13 @@ describe("RentabilidadPage", () => {
     expect(html).toContain("Estado de resultados");
     expect(html).toContain("Disponible pronto");
     expect(html).toContain("Ver →");
+  });
+});
+
+describe("RentabilidadPage chart header", () => {
+  it("states the break-even day in the section header, not in the plot", () => {
+    const html = render(data([dish(1, 62000)]));
+    expect(html).toContain("¿Ya cubriste tus costos fijos?");
+    expect(html).toMatch(/Equilibrio: [a-záéíóú]+ \d+/);
   });
 });

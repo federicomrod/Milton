@@ -49,6 +49,7 @@ import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
 import {
   listFixedCostHistory,
   loadFixedCostsView,
+  monthSalesByLocation,
   repeatFixedCosts,
 } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
@@ -438,6 +439,11 @@ async function CostosFijosTab({
       console.error("[costs page] fixed-costs repeat failed:", err)
     );
     const locationId = context.selected?.locationId ?? null;
+    const splitSales = locationId
+      ? null
+      : await monthSalesByLocation(supabase, companyId, month).catch(
+          () => new Map<string, number>()
+        );
     const marginRead = await loadMonthMargin({
       supabase,
       companyId,
@@ -465,6 +471,15 @@ async function CostosFijosTab({
         }
         shellParams={shellParams}
         currentMonth={currentMonth}
+        splitTargets={
+          splitSales
+            ? context.locations.map((l) => ({
+                location_id: l.id,
+                name: l.name,
+                sales: splitSales.get(l.id) ?? null,
+              }))
+            : []
+        }
       />
     );
   } catch (err) {

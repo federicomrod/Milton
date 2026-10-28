@@ -15,9 +15,10 @@ import type {
 } from "@/lib/restaurant/cockpit-v2";
 import { NO_CATEGORY } from "@/lib/restaurant/cockpit-v2";
 
-const GREEN = "#1f9d55";
-const RED = "#e6a19b";
-const NEUTRAL = "#aebbe6";
+const GOOD = "#A7F3D0";
+const BAD = "#FBCFE8";
+const NO_TARGET = "#E7EDFD";
+const INK = "#0F172A";
 const BLUE = "#1b40c8";
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -110,7 +111,14 @@ export function DailyBarsChart({
       >
         {bars.map((b, i) => {
           const x = i * slot + (slot - bw) / 2;
-          const color = b.above === null ? NEUTRAL : b.above ? GREEN : RED;
+          const color =
+            hover === i
+              ? "#1B40C8"
+              : b.above === null
+                ? NO_TARGET
+                : b.above
+                  ? GOOD
+                  : BAD;
           return (
             <g key={b.date}>
               <rect
@@ -139,7 +147,7 @@ export function DailyBarsChart({
         {targetPath ? (
           <path
             d={targetPath}
-            stroke="#151c2c"
+            stroke={INK}
             strokeDasharray="5 4"
             strokeWidth={1.5}
             fill="none"
@@ -180,9 +188,7 @@ export function DailyBarsChart({
             {dayLabel(h.date)} · {money(h.sales)}
           </div>
           {h.deltaPct !== null ? (
-            <div
-              className={h.deltaPct >= 0 ? "text-[#9fe0b8]" : "text-[#f4b6b0]"}
-            >
+            <div>
               {h.deltaPct >= 0 ? "+" : ""}
               {Math.round(h.deltaPct)}% vs objetivo · clic = detalle
             </div>
@@ -195,14 +201,14 @@ export function DailyBarsChart({
         {hasTarget ? (
           <>
             <Legend
-              color={GREEN}
+              color={GOOD}
               label={`Sobre objetivo · ${bars.filter((b) => b.above === true).length} días`}
             />
             <Legend
-              color={RED}
+              color={BAD}
               label={`Bajo objetivo · ${bars.filter((b) => b.above === false).length} días`}
             />
-            <Legend color="#151c2c" label="Objetivo" line />
+            <Legend color={INK} label="Objetivo" line />
           </>
         ) : null}
         {baselineAvg !== null ? (
@@ -217,30 +223,36 @@ export function DailyBarsChart({
   );
 }
 
-function Legend({
+export function Legend({
   color,
   label,
   line,
+  dashed,
 }: {
   color: string;
   label: string;
   line?: boolean;
+  dashed?: boolean;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5">
       <i
         className="inline-block"
         style={{
-          background: color,
-          width: line ? 14 : 10,
-          height: line ? 3 : 10,
-          borderRadius: line ? 0 : 2,
+          background: dashed
+            ? `repeating-linear-gradient(90deg, ${color} 0 5px, transparent 5px 9px)`
+            : color,
+          width: line || dashed ? 14 : 10,
+          height: line || dashed ? (dashed ? 2 : 3) : 10,
+          borderRadius: line || dashed ? 0 : 2,
         }}
       />
       {label}
     </span>
   );
 }
+
+export { Legend as ChartLegend };
 
 export function WeeksChart({
   weeks,
@@ -277,13 +289,12 @@ export function WeeksChart({
               className="absolute inset-y-0 left-0 rounded"
               style={{
                 width: `${(w.sales / max) * 100}%`,
-                background:
-                  w.above === null ? NEUTRAL : w.above ? GREEN : "#c9ced8",
+                background: w.above === null ? NO_TARGET : w.above ? GOOD : BAD,
               }}
             />
             {w.target !== null ? (
               <span
-                className="absolute -inset-y-[3px] border-l-2 border-dashed border-[#151c2c]"
+                className="absolute -inset-y-[3px] border-l-2 border-dashed border-[#0F172A]"
                 style={{ left: `${(w.target / max) * 100}%` }}
               />
             ) : null}
@@ -341,7 +352,7 @@ export function WeekdayCostChart({
                 style={{
                   height: `${(d.food_cost_pct / max) * 100}%`,
                   background:
-                    d.above === null ? NEUTRAL : d.above ? "#d14343" : GREEN,
+                    d.above === null ? NO_TARGET : d.above ? BAD : GOOD,
                   opacity: 0.85,
                 }}
               />
@@ -350,7 +361,7 @@ export function WeekdayCostChart({
         ))}
         {target !== null ? (
           <div
-            className="absolute inset-x-0 border-t-2 border-dashed border-[#151c2c]"
+            className="absolute inset-x-0 border-t-2 border-dashed border-[#0F172A]"
             style={{ bottom: `${(target / max) * 100}%` }}
           />
         ) : null}

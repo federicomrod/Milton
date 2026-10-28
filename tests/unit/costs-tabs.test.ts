@@ -21,12 +21,19 @@ describe("Costos tabs", () => {
     expect(parseCostsTab("nope")).toBe("precios");
     expect(parseCostsTab("compras")).toBe("compras");
     expect(parseCostsTab(["proveedores"])).toBe("proveedores");
+    expect(parseCostsTab("costos-fijos")).toBe("costos-fijos");
+    expect(parseCostsTab(["costos-fijos"])).toBe("costos-fijos");
   });
 
   it("builds tab hrefs keeping other params", () => {
     expect(costsTabHref("precios")).toBe("/dashboard/restaurant/costs");
     expect(costsTabHref("compras", { location: "l1", tab: "x" })).toBe(
       "/dashboard/restaurant/costs?tab=compras&location=l1"
+    );
+    expect(
+      costsTabHref("costos-fijos", { location: "l1", month: "2026-03" })
+    ).toBe(
+      "/dashboard/restaurant/costs?tab=costos-fijos&location=l1&month=2026-03"
     );
     expect(invoiceUploadHref({ location: "l1" })).toBe(
       "/dashboard/restaurant/costs?tab=compras&location=l1#subir-factura"

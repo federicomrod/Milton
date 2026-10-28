@@ -28,6 +28,7 @@ export type Capability =
   | "kitchen.drafts"
   | "kitchen.qr"
   | "costs.reset"
+  | "costs.fixed"
   | "odoo.sync"
   | "odoo.diagnostics"
   | "imports.run"
@@ -69,6 +70,8 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   "kitchen.qr": ["owner"],
   // "Empezar de nuevo": owner and admin; Milton staff do NOT reset a client.
   "costs.reset": OWNER_ADMIN,
+  // Costos fijos (rent, payroll, utilities, taxes %): owner, admin and manager.
+  "costs.fixed": OWNER_ADMIN_MANAGER,
   // Odoo sync is Milton staff only.
   "odoo.sync": [],
   "odoo.diagnostics": OWNER_ADMIN,
@@ -141,6 +144,7 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "kitchen.drafts": DEFAULT_FORBIDDEN_MESSAGE,
   "kitchen.qr": DEFAULT_FORBIDDEN_MESSAGE,
   "costs.reset": DEFAULT_FORBIDDEN_MESSAGE,
+  "costs.fixed": "Tu rol no puede ver ni cambiar los costos fijos.",
   "odoo.sync": DEFAULT_FORBIDDEN_MESSAGE,
   "odoo.diagnostics": DEFAULT_FORBIDDEN_MESSAGE,
   "imports.run": "Tu rol no puede importar recetas.",

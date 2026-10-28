@@ -45,6 +45,14 @@ import {
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
+import {
+  listFixedCostHistory,
+  loadFixedCostsView,
+  repeatFixedCosts,
+} from "@/lib/restaurant/fixed-costs-server";
+import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
 import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
@@ -289,10 +297,12 @@ export default async function CostsAreaPage({
 
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
-          <CostsFileWorkspace
-            locationId={location ?? null}
-            companyId={companyId}
-          />
+          {tab === "costos-fijos" ? null : (
+            <CostsFileWorkspace
+              locationId={location ?? null}
+              companyId={companyId}
+            />
+          )}
 
           {tab === "precios" ? (
             profitability ? (
@@ -311,6 +321,15 @@ export default async function CostsAreaPage({
             )
           ) : tab === "compras" ? (
             <ComprasTab lang={lang} />
+          ) : tab === "costos-fijos" ? (
+            <CostosFijosTab
+              lang={lang}
+              location={location}
+              month={
+                typeof params.month === "string" ? params.month : undefined
+              }
+              shellParams={shellParams}
+            />
           ) : (
             <ProveedoresTab lang={lang} />
           )}
@@ -378,4 +397,75 @@ async function ProveedoresTab({ lang }: { lang: PreferredLanguage }) {
   ]);
   if (!suppliers) return <SignInNote lang={lang} />;
   return <SuppliersPage suppliers={suppliers} canEditPrices={canEditPrices} />;
+}
+
+async function CostosFijosTab({
+  lang,
+  location,
+  month: monthParam,
+  shellParams,
+}: {
+  lang: PreferredLanguage;
+  location: string | undefined;
+  month: string | undefined;
+  shellParams: SearchParams;
+}) {
+  const user = await getCachedAuthUser();
+  const companyId = user?.id ? await getCachedCompanyId(user.id) : null;
+  if (!user?.id || !companyId) return <SignInNote lang={lang} />;
+  const supabase = await createClient();
+  const actor = await resolveActor(supabase, user.id, { companyId });
+  if (!capabilityFlags(actor)["costs.fixed"])
+    return (
+      <p className="text-sm text-[#6b7385]">
+        Tu rol no puede ver ni cambiar los costos fijos.
+      </p>
+    );
+
+  const currentMonth = monthStartOf(new Date()) as string;
+  const requested = monthParam ? monthStartOf(monthParam) : null;
+  const month =
+    requested && requested <= currentMonth ? requested : currentMonth;
+  const ctx = { supabase, companyId, userId: user.id };
+  try {
+    const context = await resolveRestaurantContext(
+      supabase,
+      companyId,
+      location
+    );
+    // Idempotent: copies «repetir cada mes» lines only where the month is empty.
+    await repeatFixedCosts(ctx, month).catch((err) =>
+      console.error("[costs page] fixed-costs repeat failed:", err)
+    );
+    const locationId = context.selected?.locationId ?? null;
+    const [view, history] = await Promise.all([
+      loadFixedCostsView(ctx, {
+        month,
+        locationId,
+        brandId: context.selected?.brandId ?? null,
+        restaurantIds: context.locations.map((l) => l.id),
+      }),
+      listFixedCostHistory(supabase, companyId, { locationId, month }),
+    ]);
+    return (
+      <FixedCostsTab
+        key={`${month}|${locationId ?? "group"}`}
+        view={view}
+        history={history}
+        locationName={
+          context.locations.find((l) => l.id === locationId)?.name ?? null
+        }
+        shellParams={shellParams}
+        currentMonth={currentMonth}
+      />
+    );
+  } catch (err) {
+    console.error("[costs page] fixed-costs load failed:", err);
+    return (
+      <p className="text-sm text-[#6b7385]">
+        No se pudieron leer los costos fijos. Si es la primera vez, falta
+        aplicar la migración 064 en este ambiente.
+      </p>
+    );
+  }
 }

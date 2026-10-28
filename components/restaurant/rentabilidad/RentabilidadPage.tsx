@@ -25,7 +25,9 @@ import {
   chipTexts,
   dayLabelEs,
   findingText,
-  heroSentence,
+  emptyMonthSentence,
+  NO_SUMMARY_TEXT,
+  PROJECTION_METHOD,
   monthLabelEs,
   monthNameEs,
   pctText,
@@ -114,7 +116,6 @@ function ProfitBadges({
 export function RentabilidadPage({
   data,
   locationId,
-  locationName,
   months,
   currentMonth,
 }: {
@@ -161,7 +162,8 @@ export function RentabilidadPage({
   const chips = chipTexts(data.chips, m.month, money);
   const findings = data.findings
     .map((f) => findingText(f, m, money))
-    .filter(Boolean);
+    .filter(Boolean)
+    .slice(0, 3);
   const chipNodes = chips.length ? (
     <>
       {chips.map((c) => (
@@ -222,7 +224,6 @@ export function RentabilidadPage({
           />
         </label>
         <span className="ml-auto text-[12px] text-[#8a92a3]">
-          {locationName ? `${locationName} · ` : ""}
           {m.isCurrentMonth
             ? `Datos hasta ayer (${dayLabelEs(addDay(data.today, -1))})`
             : monthLabelEs(m.month)}
@@ -231,22 +232,17 @@ export function RentabilidadPage({
 
       {!m.hasData ? (
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 text-[14px] font-bold leading-snug text-[#1b2333]">
-          {heroSentence(m, money)}
+          {emptyMonthSentence(m.month)}
         </section>
       ) : (
         <>
-          <p className="text-[14px] font-bold leading-snug text-[#1b2333]">
-            {heroSentence(m, money)}
-          </p>
-
           {fixedMissing ? (
             <section
               aria-label="Costos fijos faltantes"
               className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
             >
               <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold text-[#0F172A]">
-                ⚑ Faltan costos fijos: sin ellos no se puede calcular tu
-                ganancia ni tu punto de equilibrio.
+                ⚑ Faltan costos fijos para calcular tu ganancia
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {m.fixed.missing.map((cat) => (
@@ -286,7 +282,7 @@ export function RentabilidadPage({
                   badge={
                     <ProfitBadges value={m.profitToDate} estimate={estimada} />
                   }
-                  note="Margen acumulado menos los costos fijos de todo el mes"
+                  note="Ya descuenta los costos fijos de todo el mes"
                 />
               ) : null}
               <StatCard
@@ -301,13 +297,7 @@ export function RentabilidadPage({
                 }
                 value={signed(m.profit, money)}
                 badge={<ProfitBadges value={m.profit} estimate={estimada} />}
-                sub={
-                  m.profitPct === null
-                    ? undefined
-                    : `${pctText(m.profitPct)} de tus ventas${
-                        m.isCurrentMonth ? " · proyección" : ""
-                      }`
-                }
+                labelTitle={m.isCurrentMonth ? PROJECTION_METHOD : undefined}
                 chips={chipNodes}
               />
             </section>
@@ -365,7 +355,7 @@ export function RentabilidadPage({
                   sub={
                     m.breakEvenPerDay === null
                       ? fixedMissing
-                        ? "⚑ Falta cargar tus costos fijos"
+                        ? "⚑ Falta"
                         : "Sin margen para calcularla"
                       : m.avgSalesPerDay !== null
                         ? `vendes ${money(m.avgSalesPerDay)} en promedio`
@@ -387,18 +377,14 @@ export function RentabilidadPage({
                   label="Planilla"
                   value={m.planillaPct !== null ? pctText(m.planillaPct) : "—"}
                   sub={
-                    m.fixed.amounts.planilla !== null
-                      ? money(m.fixed.amounts.planilla)
-                      : "⚑ Falta"
+                    m.fixed.amounts.planilla === null ? "⚑ Falta" : undefined
                   }
                   flag={m.fixed.amounts.planilla === null}
                 />
                 <Kpi
                   label="Costos fijos del mes"
                   value={m.fixed.total !== null ? money(m.fixed.total) : "—"}
-                  sub={
-                    m.fixed.total === null ? "⚑ Faltan costos fijos" : undefined
-                  }
+                  sub={m.fixed.total === null ? "⚑ Falta" : undefined}
                   flag={m.fixed.total === null}
                 />
               </section>
@@ -412,10 +398,7 @@ export function RentabilidadPage({
                     <Cada100Bar parts={m.cada100} loss={m.cada100Loss} />
                   ) : (
                     <p className="text-sm">
-                      <span className={ALERT_PILL}>
-                        ⚑ Falta cargar tus costos fijos para repartir tus
-                        ventas.
-                      </span>
+                      <span className={ALERT_PILL}>⚑ Faltan costos fijos</span>
                     </p>
                   )}
                 </section>
@@ -428,25 +411,21 @@ export function RentabilidadPage({
                     className="mb-1 text-[14px] font-bold"
                     style={{ color: PRIMARY }}
                   >
-                    ✦ Milton
+                    ✦ Resumen de Milton
                   </h2>
-                  {findings.length > 0 ? (
-                    findings.map((f) => (
-                      <p
-                        key={f}
-                        className="text-sm leading-snug"
-                        style={{ color: INK }}
-                      >
-                        {f}
-                      </p>
-                    ))
-                  ) : (
-                    <p className="text-sm leading-snug" style={{ color: INK }}>
-                      {m.breakEvenPerDay === null
-                        ? "Cuando cargues tus costos fijos te digo qué días te cuestan más."
-                        : "Todos tus días venden por encima de lo que necesitas."}
-                    </p>
-                  )}
+                  <ul data-testid="milton-summary" className="space-y-1.5">
+                    {(findings.length > 0 ? findings : [NO_SUMMARY_TEXT]).map(
+                      (f) => (
+                        <li
+                          key={f}
+                          className="text-sm leading-snug"
+                          style={{ color: INK }}
+                        >
+                          {f}
+                        </li>
+                      )
+                    )}
+                  </ul>
                 </section>
               </div>
 
@@ -618,7 +597,7 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
       {loss ? (
         <p className="mt-2">
           <span className="inline-block rounded-full bg-[#FBCFE8] px-2.5 py-0.5 text-sm font-semibold text-[#0F172A]">
-            Tus costos pasan de $100: este mes hay pérdida.
+            Tus costos pasan de $100.
           </span>
         </p>
       ) : null}
@@ -789,10 +768,6 @@ function StatementTable({
         </table>
       </div>
       <div className="space-y-1 border-t border-[#d8deee] px-4 py-3 text-xs text-[#6b7385]">
-        <p>
-          Los costos fijos son los del mes completo
-          {twoCols ? " en las dos columnas" : ""}.
-        </p>
         {m.coverage.uncovered.length === 0 && m.coverage.pct > 0 ? (
           <p>
             <span className="rounded-full bg-[#E7EDFD] px-2 py-0.5 font-semibold text-[#1B40C8]">
@@ -807,12 +782,6 @@ function StatementTable({
               {pctText(m.coverage.coveredMarginPct)}
             </strong>{" "}
             de margen.
-          </p>
-        ) : null}
-        {m.isCurrentMonth ? (
-          <p>
-            La proyección sigue el promedio de cada día de la semana de las
-            últimas 4 semanas.
           </p>
         ) : null}
       </div>
@@ -908,8 +877,7 @@ function DailyTable({
         </table>
       </div>
       <p className="border-t border-[#d8deee] px-4 py-3 text-xs text-[#6b7385]">
-        La comida y bebida de cada día se reparte según sus ventas: el total del
-        mes es el costo real de tus platos con receta.
+        La comida de cada día se reparte según sus ventas.
       </p>
     </section>
   );

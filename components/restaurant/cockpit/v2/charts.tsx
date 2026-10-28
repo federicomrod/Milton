@@ -228,14 +228,16 @@ export function Legend({
   label,
   line,
   dashed,
+  title,
 }: {
   color: string;
   label: string;
   line?: boolean;
   dashed?: boolean;
+  title?: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex items-center gap-1.5" title={title}>
       <i
         className="inline-block"
         style={{

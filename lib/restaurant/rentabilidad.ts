@@ -620,39 +620,78 @@ export { previousMonthStart };
 // ---------------------------------------------------------------------------
 
 export interface MiltonFinding {
-  kind: "below_break_even" | "best_weekday";
-  weekdays: number[];
-  /** The weekday that pays the difference (kind = below_break_even). */
-  payerWeekday?: number;
+  kind: "coverage" | "cost_share_change" | "days_below" | "projection";
+  /** Weekday (ISO) the finding names, if any (days_below: the weakest one). */
+  weekday?: number;
+  /** The month is an estimate (days_below adds «(estimado)»). */
+  estimated?: boolean;
   amounts: Record<string, number>;
 }
 
+const pctWhole = (fraction: number) => Math.round(fraction * 100);
+
 /**
- * Findings from real numbers: the weekdays whose average sales are below the
- * daily break-even, and the weekday that pays the difference.
+ * Template findings for the «Resumen de Milton», in priority order. Only reads
+ * fields that already exist; no profit or break-even number is computed here.
  */
-export function miltonFindings(month: RentabilidadMonth): MiltonFinding[] {
-  const be = month.breakEvenPerDay;
-  if (be === null) return [];
-  const known = month.weekdayAverages.filter(
-    (w): w is WeekdayAverage & { avg: number } => w.avg !== null
-  );
-  if (known.length < 2) return [];
-  const below = known.filter((w) => w.avg < be);
+export function miltonFindings(
+  month: RentabilidadMonth,
+  previous: RentabilidadMonth | null = null
+): MiltonFinding[] {
+  if (!month.hasData) return [];
   const out: MiltonFinding[] = [];
-  if (below.length > 0) {
-    const best = known.reduce((a, b) => (b.avg > a.avg ? b : a));
-    out.push({
-      kind: "below_break_even",
-      weekdays: below.map((w) => w.weekday),
-      payerWeekday: best.avg >= be ? best.weekday : undefined,
-      amounts: {
-        breakEven: be,
-        best: best.avg,
-        lowest: Math.min(...below.map((w) => w.avg)),
-      },
-    });
+  const cov = month.coverage;
+
+  if (cov.uncovered.length > 0 && cov.uncoveredPct >= 0.0005)
+    out.push({ kind: "coverage", amounts: {} });
+
+  if (
+    previous &&
+    previous.actual.sales > 0 &&
+    month.actual.sales > 0 &&
+    cov.uncoveredPct < 0.1 &&
+    previous.coverage.uncoveredPct < 0.1
+  ) {
+    const now = pctWhole(month.actual.food / month.actual.sales);
+    const before = pctWhole(
+      previous.monthTotals.food / previous.monthTotals.sales
+    );
+    if (Math.abs(now - before) >= 1)
+      out.push({ kind: "cost_share_change", amounts: { now, before } });
   }
+
+  const be = month.breakEvenPerDay;
+  if (be !== null) {
+    const sold = month.days.filter((d) => !d.projected && d.sales > 0);
+    if (sold.length > 0) {
+      const weak = month.weekdayAverages
+        .filter(
+          (w): w is WeekdayAverage & { avg: number } =>
+            w.avg !== null && w.days >= 2
+        )
+        .sort((a, b) => a.avg - b.avg);
+      const weakest = weak.length >= 2 ? weak[0] : null;
+      out.push({
+        kind: "days_below",
+        weekday: weakest?.weekday,
+        estimated: month.basis === "estimada",
+        amounts: {
+          total: sold.length,
+          below: sold.filter((d) => d.sales < be).length,
+          breakEven: be,
+          ...(weakest ? { weakestAvg: weakest.avg } : {}),
+        },
+      });
+    }
+  }
+
+  if (
+    month.isCurrentMonth &&
+    month.profit !== null &&
+    month.actualDays < month.daysInMonth
+  )
+    out.push({ kind: "projection", amounts: { profit: month.profit } });
+
   return out;
 }
 

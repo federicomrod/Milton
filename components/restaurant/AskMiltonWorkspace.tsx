@@ -280,7 +280,10 @@ function ExecutiveBriefingPanelSkeleton() {
   );
 }
 
-function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps) {
+function ExecutiveBriefingPanelInner({
+  expanded,
+  onToggle,
+}: BriefingPanelProps) {
   const lang = useMiltonLang();
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -338,7 +341,9 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
       ) ?? data.briefing.headline)
     : null;
   // Generic advice is dropped; what is left must name a number or a thing.
-  const risks = data ? data.briefing.top_risks.filter(isSpecificBriefingItem) : [];
+  const risks = data
+    ? data.briefing.top_risks.filter(isSpecificBriefingItem)
+    : [];
   const opportunities = data
     ? data.briefing.top_opportunities.filter(isSpecificBriefingItem)
     : [];
@@ -449,7 +454,11 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
                   tone="opportunity"
                 />
                 <BriefingList
-                  title={t(lang, "Recommended actions", "Acciones recomendadas")}
+                  title={t(
+                    lang,
+                    "Recommended actions",
+                    "Acciones recomendadas"
+                  )}
                   items={actions}
                   tone="action"
                 />
@@ -467,7 +476,11 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
               href={withLocationParam(COCKPIT_HREF, locationId)}
               className="inline-flex items-center gap-1 text-sm font-semibold text-[#1B40C8] dark:text-[#9fb4f2] hover:underline"
             >
-              {t(lang, "See the numbers in Cockpit", "Ver las cifras en el Cockpit")}
+              {t(
+                lang,
+                "See the numbers in Cockpit",
+                "Ver las cifras en el Cockpit"
+              )}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>

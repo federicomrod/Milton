@@ -86,34 +86,9 @@ export function listPlural(weekdays: readonly number[]): string {
   return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
 }
 
-export function heroSentence(m: RentabilidadMonth, money: Money): string {
-  const name = monthNameEs(m.month);
-  if (!m.hasData)
-    return `Todavía no hay ventas de ${name} para calcular tu ganancia.`;
-  if (m.fixed.total === null || m.profit === null)
-    return `Para calcular tu ganancia de ${name} faltan tus costos fijos.`;
-  const loss = m.profit < 0;
-  const noun = loss
-    ? "una pérdida"
-    : m.basis === "estimada"
-      ? "una ganancia estimada"
-      : "una ganancia";
-  const amount = money(Math.abs(m.profit));
-  const pct =
-    m.profitPct === null
-      ? ""
-      : ` (${pctText(Math.abs(m.profitPct))} de tus ventas)`;
-  const head = m.isCurrentMonth
-    ? `Vas a cerrar ${name} con ${noun} de ${amount}${pct}, según la proyección.`
-    : `Cerraste ${name} con ${noun} de ${amount}${pct}.`;
-  const be = m.breakEvenDay;
-  let tail: string;
-  if (!be) tail = " No alcanzas a cubrir tus costos fijos este mes.";
-  else if (be.projected)
-    tail = ` Cubres tus costos fijos el ${dayLabelEs(be.date)} (proyección).`;
-  else
-    tail = ` ${m.isCurrentMonth ? "Ya cubriste" : "Cubriste"} tus costos fijos el ${dayLabelEs(be.date)}.`;
-  return head + tail;
+/** The only sentence left of the old headline: an empty month. */
+export function emptyMonthSentence(month: string): string {
+  return `Todavía no hay ventas de ${monthNameEs(month)} para calcular tu ganancia.`;
 }
 
 export function chipTexts(
@@ -155,19 +130,38 @@ export function chipTexts(
   return out;
 }
 
-/** The ✦ Milton card: template findings over real numbers. */
+/** Tooltip only: how a projected day is estimated. */
+export const PROJECTION_METHOD =
+  "Proyección: cada día que falta se estima con el promedio de ese día de la semana en las últimas 4 semanas";
+
+export const NO_SUMMARY_TEXT =
+  "Todavía no hay suficientes días para un resumen.";
+
+/** One line of the «Resumen de Milton»: a template over computed numbers. */
 export function findingText(
   f: MiltonFinding,
   m: RentabilidadMonth,
   money: Money
 ): string {
-  if (f.kind === "below_break_even") {
-    const low = listPlural(f.weekdays);
-    const base = `Tus ${low} venden menos de los ${money(f.amounts.breakEven)} que necesitas al día.`;
-    return f.payerWeekday
-      ? `${base} Tus ${weekdayPlural(f.payerWeekday)} (${money(f.amounts.best)} en promedio) pagan la diferencia.`
-      : base;
+  switch (f.kind) {
+    case "coverage":
+      return "Tu ganancia puede ser menor: faltan recetas o precios en algunos platos.";
+    case "cost_share_change": {
+      const { now, before } = f.amounts;
+      return `Comida y bebida ${now > before ? "subió" : "bajó"} de ${before}% a ${now}% de tus ventas frente a ${monthNameEs(previousMonthStart(m.month))}.`;
+    }
+    case "days_below": {
+      const { total, below, breakEven, weakestAvg } = f.amounts;
+      const be = `${money(breakEven)}, tu venta de equilibrio${f.estimated ? " (estimado)" : ""}`;
+      const head =
+        below > 0
+          ? `${below} de ${total} días vendiste menos de ${be}.`
+          : `Ningún día vendiste menos de ${be}.`;
+      return f.weekday !== undefined && weakestAvg !== undefined
+        ? `${head} Los ${weekdayPlural(f.weekday)} son el día más flojo (${money(weakestAvg)} en promedio).`
+        : head;
+    }
+    case "projection":
+      return `Si sigues a este ritmo, cierras el mes con ${f.amounts.profit < 0 ? "pérdida" : "ganancia"}.`;
   }
-  void m;
-  return "";
 }

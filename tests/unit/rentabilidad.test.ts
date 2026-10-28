@@ -363,11 +363,118 @@ describe("Open days", () => {
 });
 
 describe("Findings and business day", () => {
-  it("weekdays below the daily break-even and the one that pays", () => {
-    const f = miltonFindings(sample());
-    expect(f).toHaveLength(1);
-    expect(f[0].weekdays).toContain(1); // lunes avg 1605 < 1983
-    expect(f[0].payerWeekday).toBe(6); // sábado
+  const prevMonth = (foodRate: number, covered = 1) =>
+    computeRentabilidad({
+      month: "2026-09-01",
+      today: "2026-10-27",
+      dailySales: { "2026-09-01": 10000 },
+      food: {
+        cogs: 10000 * foodRate,
+        periodSales: 10000,
+        foodSales: 10000,
+        coveredSales: 10000 * covered,
+        uncovered: [],
+      },
+      fixed: fixed(0),
+      openWeekdays: null,
+      openDays: 30,
+    });
+
+  it("days_below: counts actual days under the venta de equilibrio and the weakest weekday", () => {
+    const f = miltonFindings(sample()).find((x) => x.kind === "days_below")!;
+    expect(f.amounts.total).toBe(26);
+    // break-even $1,983: days under it are the weak ones
+    expect(f.amounts.below).toBe(SALES.filter((v) => v < 1982.6).length);
+    expect(f.weekday).toBe(1); // lunes, the lowest average ($1,605)
+    expect(f.estimated).toBe(false);
+    expect(
+      miltonFindings(sample({ fixedHasEstimate: true })).find(
+        (x) => x.kind === "days_below"
+      )!.estimated
+    ).toBe(true);
+  });
+
+  it("days_below needs a break-even and drops the weekday with fewer than 2 weekdays of data", () => {
+    const f = fixed(0);
+    f.amounts.otros = null;
+    expect(
+      miltonFindings(sample({ fixed: f })).some((x) => x.kind === "days_below")
+    ).toBe(false);
+    const one = miltonFindings(
+      sample({
+        dailySales: { "2026-10-01": 5000 },
+        today: "2026-10-02",
+        unplannedWaste: 0,
+      })
+    ).find((x) => x.kind === "days_below")!;
+    expect(one.weekday).toBeUndefined();
+  });
+
+  it("projection only in the current month, with a profit", () => {
+    expect(miltonFindings(sample()).some((x) => x.kind === "projection")).toBe(
+      true
+    );
+    expect(
+      miltonFindings(sample({ today: "2026-11-02" })).some(
+        (x) => x.kind === "projection"
+      )
+    ).toBe(false);
+  });
+
+  it("coverage shows only when the flag shows", () => {
+    expect(miltonFindings(sample()).some((x) => x.kind === "coverage")).toBe(
+      false
+    );
+    const partial = sample({
+      food: {
+        ...food(),
+        coveredSales: ACTUAL_TOTAL * 0.8,
+        uncovered: [
+          {
+            odooProductId: 1,
+            name: "Plato",
+            share: 0.2,
+            netSales: 1,
+            reason: "sin_receta",
+            hasDraft: false,
+          },
+        ],
+      },
+    });
+    expect(miltonFindings(partial)[0].kind).toBe("coverage");
+  });
+
+  it("cost_share_change: 1-point threshold, whole percents, actual days only", () => {
+    const find = (prev: ReturnType<typeof prevMonth>) =>
+      miltonFindings(sample(), prev).find(
+        (x) => x.kind === "cost_share_change"
+      );
+    expect(find(prevMonth(0.28))?.amounts).toEqual({ now: 31, before: 28 });
+    expect(find(prevMonth(0.325))?.amounts).toEqual({ now: 31, before: 33 });
+    expect(find(prevMonth(0.31))).toBeUndefined();
+    expect(find(prevMonth(0.314))).toBeUndefined(); // rounds to the same %
+  });
+
+  it("cost_share_change is skipped when a recipe gap could explain it", () => {
+    expect(
+      miltonFindings(sample(), prevMonth(0.28, 0.8)).some(
+        (x) => x.kind === "cost_share_change"
+      )
+    ).toBe(false);
+    const partial = sample({
+      food: { ...food(), coveredSales: ACTUAL_TOTAL * 0.8, uncovered: [] },
+    });
+    expect(
+      miltonFindings(partial, prevMonth(0.28)).some(
+        (x) => x.kind === "cost_share_change"
+      )
+    ).toBe(false);
+  });
+
+  it("no data: no findings", () => {
+    expect(
+      miltonFindings(sample({ dailySales: {}, today: "2026-11-05" }))
+    ).toEqual([]);
   });
 
   it("the business date is yesterday before the cutoff", () => {

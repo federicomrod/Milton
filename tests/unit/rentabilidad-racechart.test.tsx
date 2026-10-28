@@ -54,7 +54,8 @@ describe("RaceChart", () => {
   it("shows the legend under the chart", () => {
     expect(html).toContain("Margen acumulado");
     expect(html).toContain("Proyección");
-    expect(html).toContain("Costos fijos del mes $41600");
+    expect(html).toContain("Costos fijos del mes");
+    expect(html).not.toContain("$41600");
   });
 
   it("renders nothing when a fixed cost is missing", () => {

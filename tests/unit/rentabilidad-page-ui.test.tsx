@@ -176,3 +176,79 @@ describe("RentabilidadPage chart header", () => {
     expect(html).toMatch(/Equilibrio: [a-záéíóú]+ \d+/);
   });
 });
+
+describe("Lean pass", () => {
+  const html = render(data([dish(1, 62000)]));
+
+  it("the headline is gone", () => {
+    for (const gone of ["Vas a cerrar", "según la proyección", "Cerraste"])
+      expect(html).not.toContain(gone);
+  });
+
+  it("the removed captions are gone", () => {
+    for (const gone of [
+      "Margen acumulado menos los costos fijos",
+      "· proyección",
+      "Los costos fijos son los del mes completo",
+      "La proyección sigue el promedio",
+      "Todos tus días venden por encima",
+    ])
+      expect(html).not.toContain(gone);
+    expect(html).toContain("Ya descuenta los costos fijos de todo el mes");
+  });
+
+  it("Resumen de Milton has data-driven lines", () => {
+    const box = html.slice(html.indexOf('data-testid="milton-summary"'));
+    expect(html).toContain("Resumen de Milton");
+    expect(box).toContain("tu venta de equilibrio");
+    expect(box).toContain("Si sigues a este ritmo");
+    expect(html).not.toMatch(/platillo/i);
+  });
+
+  it("a food-share change versus last month adds its line", () => {
+    const d = data([dish(1, 62000)]);
+    const prev = computeRentabilidad({
+      month: "2026-09-01",
+      today: "2026-10-27",
+      dailySales: { "2026-09-01": 10000 },
+      food: {
+        cogs: 1000,
+        periodSales: 10000,
+        foodSales: 10000,
+        coveredSales: 10000,
+        uncovered: [],
+      },
+      fixed: {
+        amounts: { planilla: 1, alquiler: 1, servicios: 1, otros: 1 },
+        impuestosPct: 0,
+      },
+      openWeekdays: null,
+      openDays: 30,
+    });
+    const out = render({ ...d, findings: miltonFindings(d.month, prev) });
+    expect(out).toContain("Comida y bebida subió de 10% a");
+  });
+
+  it("no line applies: exactly the short fallback", () => {
+    const d = data([dish(1, 62000)]);
+    const out = render({
+      ...d,
+      findings: [],
+    });
+    expect(out).toContain("Todavía no hay suficientes días para un resumen.");
+  });
+
+  it("missing fixed costs use the short strings", () => {
+    const out = render(
+      data([dish(1, 62000)], {
+        planilla: 21400,
+        alquiler: null,
+        servicios: 3900,
+        otros: 9800,
+      })
+    );
+    expect(out).toContain("⚑ Faltan costos fijos para calcular tu ganancia");
+    expect(out).toContain("⚑ Faltan costos fijos<");
+    expect(out).not.toContain("Falta cargar tus costos fijos");
+  });
+});

@@ -10,7 +10,10 @@
 
 import { useMemo, useRef, useState } from "react";
 import type { RentabilidadMonth } from "@/lib/restaurant/rentabilidad";
-import { dayLabelEs } from "@/lib/restaurant/rentabilidad-copy";
+import {
+  dayLabelEs,
+  PROJECTION_METHOD,
+} from "@/lib/restaurant/rentabilidad-copy";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { ChartLegend } from "@/components/restaurant/cockpit/v2/charts";
@@ -165,13 +168,14 @@ export function RaceChart({
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6b7385]">
         <ChartLegend color={BLUE} label="Margen acumulado" line />
         {projectedPath ? (
-          <ChartLegend color={BLUE} label="Proyección" dashed />
+          <ChartLegend
+            color={BLUE}
+            label="Proyección"
+            dashed
+            title={PROJECTION_METHOD}
+          />
         ) : null}
-        <ChartLegend
-          color={INK}
-          label={`Costos fijos del mes ${money(fixed)}`}
-          dashed
-        />
+        <ChartLegend color={INK} label="Costos fijos del mes" dashed />
       </div>
     </div>
   );

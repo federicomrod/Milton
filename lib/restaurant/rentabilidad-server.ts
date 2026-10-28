@@ -264,7 +264,10 @@ export async function loadRentabilidadPage(args: {
       month,
       previous && previous.hasData ? previous : null
     ),
-    findings: miltonFindings(month),
+    findings: miltonFindings(
+      month,
+      previous && previous.hasData ? previous : null
+    ),
   };
 }
 

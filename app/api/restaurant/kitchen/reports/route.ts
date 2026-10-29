@@ -9,6 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { REPORT_TYPES } from "@/lib/restaurant/telegram/kitchen-reports";
+import {
+  dropColumnFromSelect,
+  errorMentionsColumn,
+} from "@/lib/restaurant/missing-schema-column";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,17 +43,27 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let query = supabase
-      .from("kitchen_reports")
-      .select(
-        "id, location_id, staff_id, report_type, text, media_kind, media_mime, media_duration_s, created_at"
-      )
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(LIMIT);
-    if (locationId) query = query.eq("location_id", locationId);
-    if (type) query = query.eq("report_type", type);
-    const { data: reports, error } = await query;
+    // `channel` comes with migration 068 (the app); until it is applied the
+    // list is read without it, exactly as before.
+    const baseSelect =
+      "id, location_id, staff_id, report_type, text, media_kind, media_mime, media_duration_s, created_at";
+    const readReports = (select: string) => {
+      let query = supabase
+        .from("kitchen_reports")
+        .select(select)
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(LIMIT);
+      if (locationId) query = query.eq("location_id", locationId);
+      if (type) query = query.eq("report_type", type);
+      return query;
+    };
+    let { data: reports, error } = await readReports(`${baseSelect}, channel`);
+    if (error && errorMentionsColumn(error, "channel")) {
+      ({ data: reports, error } = await readReports(
+        dropColumnFromSelect(`${baseSelect}, channel`, "channel")
+      ));
+    }
     if (error) {
       console.error("[kitchen-reports] list failed:", error.message);
       return NextResponse.json(
@@ -79,11 +93,13 @@ export async function GET(req: NextRequest) {
     );
 
     return NextResponse.json({
-      reports: (reports ?? []).map((r) => ({
-        ...r,
-        staff_name: staffNames.get(r.staff_id as string) ?? "",
-        location_name: locNames.get(r.location_id as string) ?? "",
-      })),
+      reports: ((reports ?? []) as unknown as Record<string, unknown>[]).map(
+        (r) => ({
+          ...r,
+          staff_name: staffNames.get(r.staff_id as string) ?? "",
+          location_name: locNames.get(r.location_id as string) ?? "",
+        })
+      ),
     });
   } catch (err) {
     console.error(

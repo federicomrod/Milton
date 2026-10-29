@@ -22,6 +22,8 @@ interface Report {
   report_type: string;
   text: string | null;
   media_kind: "photo" | "voice" | null;
+  /** Where the report came from; absent before migration 068. */
+  channel?: string;
   created_at: string;
   staff_name: string;
   location_name: string;
@@ -153,6 +155,7 @@ export function KitchenReportsCard({
               </span>
               <span className="font-medium">{r.staff_name}</span>
               <span className="text-muted-foreground">· {r.location_name}</span>
+              {r.channel === "app" && <Badge variant="outline">App</Badge>}
               {canManage ? (
                 <select
                   className={selectClass}

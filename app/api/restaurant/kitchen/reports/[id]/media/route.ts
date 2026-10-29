@@ -4,11 +4,14 @@
 // ids are never exposed to the browser: the report is loaded, its
 // company_id is checked against the caller's company (authAndCompany), and
 // lib/restaurant/telegram/files.ts proxies the bytes from Telegram with the
-// stored MIME type and Cache-Control: private, no-store.
+// stored MIME type and Cache-Control: private, no-store. When Milton holds a
+// Storage copy (kitchen_media, P0a) the route redirects to a 5-minute signed
+// URL instead.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createKitchenMediaSignedUrl } from "@/lib/restaurant/kitchen/media-storage";
 import { openTelegramFile } from "@/lib/restaurant/telegram/files";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +50,29 @@ export async function GET(
       !report.telegram_file_id
     ) {
       return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
+    }
+
+    // Prefer Milton's own copy when one exists. Any problem (table or bucket
+    // not created yet, no signed URL) falls through to the Telegram proxy.
+    try {
+      const admin = createAdminClient();
+      const { data: stored } = await admin
+        .from("kitchen_media")
+        .select("storage_path")
+        .eq("kitchen_report_id", id)
+        .eq("company_id", companyId)
+        .limit(1)
+        .maybeSingle();
+      if (stored?.storage_path) {
+        const url = await createKitchenMediaSignedUrl(
+          admin,
+          stored.storage_path as string,
+          300
+        );
+        if (url) return NextResponse.redirect(url, 302);
+      }
+    } catch {
+      console.error("[kitchen-media] storage lookup failed");
     }
 
     const file = await openTelegramFile(report.telegram_file_id as string);

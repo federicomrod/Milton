@@ -66,6 +66,7 @@ import {
 } from "@/lib/restaurant/telegram/kitchen-media";
 import { maybeGuideOwnerChat } from "@/lib/restaurant/telegram/owner-chat-guidance";
 import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
+import { copyTelegramReportMediaToStorage } from "@/lib/restaurant/telegram/media-copy";
 import {
   currencySymbolFor,
   hasPriceNumber,
@@ -566,6 +567,34 @@ async function handleKitchenReport(
   }
 }
 
+// Best-effort Storage copy of a new report's photo or voice note (P0a). Scheduled
+// AFTER the existing work; any error is swallowed and never reaches the cook.
+function scheduleMediaCopy(args: {
+  link: KitchenLink;
+  reportId: string | null;
+  report: ExtractedReport;
+}): void {
+  const { link, reportId, report } = args;
+  if (!reportId || !report.media_kind || !report.telegram_file_id) return;
+  try {
+    after(async () => {
+      try {
+        await copyTelegramReportMediaToStorage({
+          companyId: link.companyId,
+          locationId: link.locationId,
+          staffId: link.staffId,
+          kitchenReportId: reportId,
+          report,
+        });
+      } catch {
+        console.error("[telegram-webhook] media copy failed");
+      }
+    });
+  } catch {
+    console.error("[telegram-webhook] media copy not scheduled");
+  }
+}
+
 // Everything that happens once the restaurant is known: record the report
 // (original chat + message ids) and run the invoice / recipe / price / report
 // path for that link. Used for a single link, a default, and a replay.
@@ -625,6 +654,7 @@ async function processReport(args: {
         markup
       )
     );
+    scheduleMediaCopy({ link, reportId, report });
     return;
   }
 
@@ -665,6 +695,7 @@ async function processReport(args: {
       { markup, link }
     )
   );
+  scheduleMediaCopy({ link, reportId, report });
 }
 
 // `/restaurantes` lists the cook's restaurants; `/restaurante` asks which one

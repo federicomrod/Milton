@@ -42,13 +42,13 @@ export * from "./capabilities";
 export async function resolveActor(
   supabase: SupabaseClient | null,
   userId: string,
-  opts?: { companyId?: string | null }
+  opts?: { companyId?: string | null; isMiltonStaff?: boolean }
 ): Promise<Actor> {
   const companyId =
     opts?.companyId ??
     (supabase ? await resolveCompanyIdForUser(supabase, userId) : null);
   const [isMiltonStaff, role] = await Promise.all([
-    isUserAdminServer(userId),
+    opts?.isMiltonStaff ?? isUserAdminServer(userId),
     companyId ? loadCompanyRole(companyId, userId) : Promise.resolve(null),
   ]);
   return { userId, companyId, role, isMiltonStaff };

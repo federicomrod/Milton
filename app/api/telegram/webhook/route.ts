@@ -24,6 +24,7 @@
 // belongs/belonged to on a failed pairing attempt — every failure branch
 // replies with a generic, bilingual, identity-free message.
 
+import { aiUnavailableFor, runTranscription } from "@/lib/ai/call";
 import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumePairingCode } from "@/lib/restaurant/telegram/pairing";
@@ -66,6 +67,7 @@ import {
 } from "@/lib/restaurant/telegram/kitchen-media";
 import { maybeGuideOwnerChat } from "@/lib/restaurant/telegram/owner-chat-guidance";
 import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
+import { copyTelegramReportMediaToStorage } from "@/lib/restaurant/telegram/media-copy";
 import {
   currencySymbolFor,
   hasPriceNumber,
@@ -566,6 +568,34 @@ async function handleKitchenReport(
   }
 }
 
+// Best-effort Storage copy of a new report's photo or voice note (P0a). Scheduled
+// AFTER the existing work; any error is swallowed and never reaches the cook.
+function scheduleMediaCopy(args: {
+  link: KitchenLink;
+  reportId: string | null;
+  report: ExtractedReport;
+}): void {
+  const { link, reportId, report } = args;
+  if (!reportId || !report.media_kind || !report.telegram_file_id) return;
+  try {
+    after(async () => {
+      try {
+        await copyTelegramReportMediaToStorage({
+          companyId: link.companyId,
+          locationId: link.locationId,
+          staffId: link.staffId,
+          kitchenReportId: reportId,
+          report,
+        });
+      } catch {
+        console.error("[telegram-webhook] media copy failed");
+      }
+    });
+  } catch {
+    console.error("[telegram-webhook] media copy not scheduled");
+  }
+}
+
 // Everything that happens once the restaurant is known: record the report
 // (original chat + message ids) and run the invoice / recipe / price / report
 // path for that link. Used for a single link, a default, and a replay.
@@ -625,6 +655,7 @@ async function processReport(args: {
         markup
       )
     );
+    scheduleMediaCopy({ link, reportId, report });
     return;
   }
 
@@ -665,6 +696,7 @@ async function processReport(args: {
       { markup, link }
     )
   );
+  scheduleMediaCopy({ link, reportId, report });
 }
 
 // `/restaurantes` lists the cook's restaurants; `/restaurante` asks which one
@@ -1274,6 +1306,7 @@ async function processRecipeDraftAsync(
     }
 
     let finalTextContent = textContent;
+    let voiceAiUnavailable = false;
 
     if (mediaKind === "voice" && telegramFileId && !finalTextContent) {
       const { openTelegramFile } =
@@ -1293,21 +1326,17 @@ async function processRecipeDraftAsync(
         const blob = new Blob([uint8Array], { type: "audio/ogg" });
         const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
 
-        try {
-          const { default: OpenAI } = await import("openai");
-          const client = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-            timeout: 20000,
-            maxRetries: 0,
-          });
-          const transcription = await client.audio.transcriptions.create({
-            file,
-            model: "whisper-1",
-            language: "es",
-          });
-          finalTextContent = transcription.text ?? "";
-        } catch (err) {
+        const transcription = await runTranscription({
+          feature: "telegram-voice",
+          companyId: staff.company_id,
+          timeoutMs: 20000,
+          params: { file, model: "whisper-1", language: "es" },
+        });
+        if (transcription.ok) {
+          finalTextContent = transcription.value.text ?? "";
+        } else {
           console.error("[telegram-webhook] voice processing failed");
+          voiceAiUnavailable = aiUnavailableFor(transcription) === "quota";
         }
       }
     }
@@ -1322,7 +1351,13 @@ async function processRecipeDraftAsync(
     const logCtx = { origin, len: finalTextContent.length };
     if (mediaKind === "voice" && !finalTextContent.trim()) {
       logPriceRoute(logCtx, "transcribe_failed", undefined, false);
-      await say(chatId, KITCHEN_COPY.VOICE_UNREADABLE, opts.markup);
+      await say(
+        chatId,
+        voiceAiUnavailable
+          ? KITCHEN_COPY.VOICE_AI_UNAVAILABLE
+          : KITCHEN_COPY.VOICE_UNREADABLE,
+        opts.markup
+      );
       return;
     }
 

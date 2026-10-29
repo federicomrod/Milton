@@ -76,8 +76,8 @@ async function CockpitLiveBody({
         <DataHealthBanner tone="error">
           {t(
             lang,
-            "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read. Try refreshing the page.",
-            "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial. Recarga la página."
+            "Could not load all sales rows, so totals are not shown. Try refreshing the page.",
+            "No se pudieron cargar todas las ventas, así que no mostramos totales. Recarga la página."
           )}
         </DataHealthBanner>
       ) : null}

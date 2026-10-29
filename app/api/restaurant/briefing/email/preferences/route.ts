@@ -17,6 +17,7 @@ import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   normalizeCadence,
   normalizeEmail,
+  normalizeTimezone,
   resolveCadence,
   resolveTimezone,
   resolveTimezoneForCadence,
@@ -54,7 +55,23 @@ export async function GET() {
   }
 
   const row = data as CompanyEmailPrefsRow | null;
+  // The restaurant's own timezone (its POS connection), offered as the default
+  // when delivery is switched on; null when there is none.
+  let defaultTimezone: string | null = null;
+  try {
+    const { data: conn } = await supabase
+      .from("restaurant_pos_connections")
+      .select("timezone")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    defaultTimezone = normalizeTimezone(conn?.timezone) ?? null;
+  } catch {
+    defaultTimezone = null;
+  }
   return NextResponse.json({
+    default_timezone: defaultTimezone,
     cadence: resolveCadence(row?.briefing_email_cadence),
     recipient: row?.briefing_email_recipient ?? null,
     weekday: resolveWeekday(row?.briefing_email_weekday),

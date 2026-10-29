@@ -10,6 +10,7 @@
 // manual cost entry dated today). Local state is updated from the
 // responses; the page is never refreshed.
 
+import { INGREDIENT_UNUSED, NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
@@ -344,7 +345,7 @@ export function IngredientesScreen({
             title={
               archiveAvailable
                 ? "Los oculta de las listas de trabajo; no se borra nada."
-                : "Falta aplicar la migración 050 en este ambiente."
+                : NOT_AVAILABLE_YET
             }
             className="rounded-lg border border-[#c6d3f5] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-50"
           >
@@ -353,7 +354,7 @@ export function IngredientesScreen({
         ) : null}
         {!archiveAvailable && counts.sin_uso > 0 ? (
           <span className="text-[12px]" style={{ color: "#6b7280" }}>
-            Para archivar falta aplicar la migración 050 en este ambiente.
+            {NOT_AVAILABLE_YET}
           </span>
         ) : null}
         {archiveError ? (
@@ -402,7 +403,7 @@ export function IngredientesScreen({
               <span
                 className="font-semibold"
                 style={{ color: "#6b7280" }}
-                title="Ninguna receta activa lo usa: no hace falta precio."
+                title={INGREDIENT_UNUSED}
               >
                 {item.archived ? "Archivado" : "Sin uso"}
               </span>
@@ -821,7 +822,7 @@ function IngredienteDetail({
           {!item.inUse ? (
             <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
               {item.archived ? "Archivado · " : "Sin uso · "}
-              Ninguna receta activa lo usa, así que no hace falta precio.{" "}
+              {INGREDIENT_UNUSED}{" "}
               {canManage ? (
                 <button
                   type="button"

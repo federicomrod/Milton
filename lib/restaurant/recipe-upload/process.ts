@@ -40,6 +40,15 @@ export const OLD_DOC_MESSAGE =
 export const NO_RECIPES_MESSAGE = "No encontré recetas en este archivo.";
 export const READ_FAILED_MESSAGE =
   "No pude leer las recetas de este archivo. Vuelve a intentarlo.";
+export const AI_UNAVAILABLE_UPLOAD_MESSAGE =
+  "Milton no puede leer archivos con IA ahora mismo. Inténtalo más tarde.";
+
+/** Some parts of a file were skipped: say how many, never drop them silently. */
+export function skippedChunksMessage(count: number): string {
+  return count === 1
+    ? "No pude leer 1 parte del archivo; sus recetas no se cargaron. Vuelve a subirlo."
+    : `No pude leer ${count} partes del archivo; sus recetas no se cargaron. Vuelve a subirlo.`;
+}
 
 const EXTENSION_KIND: Record<string, UploadKind> = {
   xlsx: "xlsx",
@@ -142,20 +151,26 @@ export async function processRecipeFile(input: {
     }
     if (chunked.chunks.length === 0) return failure(file, NO_TEXT_MESSAGE);
 
-    const ai = input.ai ?? createOpenAiUploadReader();
+    const ai = input.ai ?? createOpenAiUploadReader(input.companyId);
     const extraction = await extractRecipesFromChunks(chunked.chunks, ai);
 
     const errors = [...chunked.notices];
     if (extraction.recipes.length === 0) {
       errors.push(
-        extraction.failed_chunks > 0 ? READ_FAILED_MESSAGE : NO_RECIPES_MESSAGE
+        extraction.ai_unavailable === "quota"
+          ? AI_UNAVAILABLE_UPLOAD_MESSAGE
+          : extraction.failed_chunks > 0
+            ? READ_FAILED_MESSAGE
+            : NO_RECIPES_MESSAGE
       );
       return {
         ...failure(file, ...errors),
         ignored_sections: extraction.ignored,
       };
     }
-    if (extraction.failed_chunks > 0) errors.push(READ_FAILED_MESSAGE);
+    if (extraction.failed_chunks > 0) {
+      errors.push(skippedChunksMessage(extraction.failed_chunks));
+    }
 
     const saved = await persistRecipes({
       admin: input.admin,

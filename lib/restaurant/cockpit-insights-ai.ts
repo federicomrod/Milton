@@ -6,6 +6,7 @@
 // LRU-bounded so a Sync (new facts hash / data version) refreshes.
 
 import { createHash } from "crypto";
+import { logAiFallback, runChat } from "@/lib/ai/call";
 import {
   applyAiWordingOrFallback,
   wordedFromFacts,
@@ -178,25 +179,7 @@ async function callInsightOpenAI(
   facts: CockpitInsightFact[],
   lang: PreferredLanguage
 ): Promise<Array<{ id?: unknown; title?: unknown; body?: unknown }> | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[cockpit-insights-ai] openai sdk import failed:", err);
-    return null;
-  }
-  if (!OpenAIctor) return null;
-
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({
-    apiKey: process.env.OPENAI_API_KEY,
-    timeout: COCKPIT_INSIGHT_AI_TIMEOUT_MS,
-  });
 
   const payload = facts.map((fact) => ({
     id: fact.id,
@@ -204,8 +187,10 @@ async function callInsightOpenAI(
     facts: fact.facts,
   }));
 
-  try {
-    const completion = await client.chat.completions.create({
+  const result = await runChat({
+    feature: "cockpit-insights",
+    timeoutMs: COCKPIT_INSIGHT_AI_TIMEOUT_MS,
+    params: {
       model,
       temperature: 0.2,
       response_format: { type: "json_object" },
@@ -228,16 +213,21 @@ async function callInsightOpenAI(
           content: JSON.stringify({ language: lang, insights: payload }),
         },
       ],
-    });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    },
+  });
+  if (!result.ok) {
+    if (result.kind !== "not_configured") {
+      console.error("[cockpit-insights-ai] openai call failed:", result.kind);
+    }
+    return null;
+  }
+  try {
+    const raw = result.value.choices?.[0]?.message?.content ?? "";
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { insights?: unknown };
     return Array.isArray(parsed.insights) ? parsed.insights : null;
-  } catch (err) {
-    console.error(
-      "[cockpit-insights-ai] openai call failed:",
-      err instanceof Error ? err.message : err
-    );
+  } catch {
+    logAiFallback({ feature: "cockpit-insights", model, kind: "bad_output" });
     return null;
   }
 }

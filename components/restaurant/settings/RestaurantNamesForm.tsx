@@ -5,6 +5,7 @@
 // server tree refreshes (router.refresh), so the switcher and the shell header
 // show the new name without a full page reload.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
@@ -54,9 +55,7 @@ export function RestaurantNamesForm({
         ))}
       </ul>
       {!archiveAvailable ? (
-        <p className="mt-2 text-[12px] text-[#8a92a3]">
-          Archivar restaurantes estará disponible al aplicar la migración 055.
-        </p>
+        <p className="mt-2 text-[12px] text-[#8a92a3]">{NOT_AVAILABLE_YET}</p>
       ) : null}
     </section>
   );

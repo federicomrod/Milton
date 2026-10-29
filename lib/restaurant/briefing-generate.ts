@@ -23,6 +23,12 @@ import {
   type BriefingContext,
   type BriefingSyncStatus,
 } from "@/lib/restaurant/briefing-context";
+import {
+  aiUnavailableFor,
+  logAiFallback,
+  runChat,
+  type AiUnavailable,
+} from "@/lib/ai/call";
 import type { ProfitabilitySelection } from "@/lib/restaurant/profitability-server";
 import {
   BRIEFING_SYSTEM_PROMPT,
@@ -36,6 +42,8 @@ export interface GeneratedBriefing {
   ctx: BriefingContext;
   briefing: BriefingOutput;
   source: "openai" | "deterministic";
+  /** "quota" when the AI account is out of quota/billing; the UI says so once. */
+  ai_unavailable: AiUnavailable;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,27 +51,14 @@ export interface GeneratedBriefing {
 // ---------------------------------------------------------------------------
 
 async function callOpenAI(
-  ctx: BriefingContext
-): Promise<BriefingOutput | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[briefing-generate] openai sdk import failed:", err);
-    return null;
-  }
-  if (!OpenAIctor) return null;
-
+  ctx: BriefingContext,
+  companyId: string
+): Promise<{ briefing: BriefingOutput | null; unavailable: AiUnavailable }> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
-
-  try {
-    const completion = await client.chat.completions.create({
+  const result = await runChat({
+    feature: "briefing-generate",
+    companyId,
+    params: {
       model,
       messages: [
         { role: "system", content: BRIEFING_SYSTEM_PROMPT },
@@ -71,44 +66,54 @@ async function callOpenAI(
       ],
       temperature: 0.2,
       response_format: { type: "json_object" },
+    },
+  });
+  if (!result.ok) {
+    if (result.kind !== "not_configured") {
+      console.error("[briefing-generate] openai call failed:", result.kind);
+    }
+    return { briefing: null, unavailable: aiUnavailableFor(result) };
+  }
+
+  const fallback = () => {
+    logAiFallback({
+      feature: "briefing-generate",
+      companyId,
+      model,
+      kind: "bad_output",
     });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
-    if (!raw) {
-      console.error("[briefing-generate] openai returned empty content");
-      return null;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      console.error(
-        "[briefing-generate] openai response was not valid JSON:",
-        err
-      );
-      return null;
-    }
-    if (!isBriefingOutput(parsed)) {
-      console.error(
-        "[briefing-generate] openai response failed schema validation"
-      );
-      return null;
-    }
-    // Cap array sizes — defensive, in case the model ignored the prompt limit.
-    return {
+    return { briefing: null, unavailable: null };
+  };
+  const raw = result.value.choices?.[0]?.message?.content ?? "";
+  if (!raw) {
+    console.error("[briefing-generate] openai returned empty content");
+    return fallback();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error("[briefing-generate] openai response was not valid JSON");
+    return fallback();
+  }
+  if (!isBriefingOutput(parsed)) {
+    console.error(
+      "[briefing-generate] openai response failed schema validation"
+    );
+    return fallback();
+  }
+  // Cap array sizes — defensive, in case the model ignored the prompt limit.
+  return {
+    briefing: {
       headline: parsed.headline,
       summary: parsed.summary,
       top_risks: parsed.top_risks.slice(0, 3),
       top_opportunities: parsed.top_opportunities.slice(0, 3),
       recommended_actions: parsed.recommended_actions.slice(0, 3),
       confidence_notes: parsed.confidence_notes.slice(0, 3),
-    };
-  } catch (err) {
-    console.error(
-      "[briefing-generate] openai call failed:",
-      err instanceof Error ? err.message : err
-    );
-    return null;
-  }
+    },
+    unavailable: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -138,10 +143,13 @@ export async function generateBriefing(
     serverTrusted: options?.serverTrusted,
     syncStatus: options?.syncStatus,
   });
-  const aiBriefing = await callOpenAI(ctx);
+  const { briefing: aiBriefing, unavailable } = await callOpenAI(
+    ctx,
+    companyId
+  );
   const briefing = aiBriefing ?? buildDeterministicBriefing(ctx);
   const source: "openai" | "deterministic" = aiBriefing
     ? "openai"
     : "deterministic";
-  return { ctx, briefing, source };
+  return { ctx, briefing, source, ai_unavailable: unavailable };
 }

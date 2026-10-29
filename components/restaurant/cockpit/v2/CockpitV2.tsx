@@ -26,7 +26,7 @@ import {
   explainMissingSalesTarget,
   type TargetRow,
 } from "@/lib/restaurant/objetivos";
-import { weekdayIndex } from "@/lib/restaurant/cockpit-math";
+import { cockpitSummaryLines } from "@/lib/restaurant/cockpit-insight";
 import {
   OBJECTIVES_HREF,
   SALES_DETAIL_HREF,
@@ -60,16 +60,6 @@ type CostState =
 // Kept for the session: coming back to the Cockpit does not read it again.
 const costCache = new Map<string, MixDayRow[]>();
 
-const WEEKDAYS_PLURAL = [
-  "lunes",
-  "martes",
-  "miércoles",
-  "jueves",
-  "viernes",
-  "sábados",
-  "domingos",
-];
-
 function ChipView({ c }: { c: Chip }) {
   const arrow = c.value > 0 ? "▲" : c.value < 0 ? "▼" : "=";
   const abs = Math.abs(c.value);
@@ -89,9 +79,9 @@ function ChipView({ c }: { c: Chip }) {
         : `${arrow} ${Math.round(abs)}% ${c.label}`;
   const tone =
     c.tone === "good"
-      ? "bg-[#e7f6ee] text-[#1f9d55]"
+      ? "bg-[#A7F3D0] text-[#0F172A]"
       : c.tone === "bad"
-        ? "bg-[#fdecec] text-[#d14343]"
+        ? "bg-[#FBCFE8] text-[#0F172A]"
         : "bg-[#f2f3f6] text-[#5b6476]";
   return (
     <span
@@ -227,8 +217,7 @@ export function CockpitV2(props: CockpitV2Props) {
   if (view.empty) {
     return (
       <p className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-6 text-[13px] text-[#6b7385]">
-        Aún no hay ventas para mostrar. Cuando entren, el Cockpit las compara
-        con tus objetivos.
+        Aún no hay ventas para mostrar.
       </p>
     );
   }
@@ -313,20 +302,17 @@ export function CockpitV2(props: CockpitV2Props) {
         <Card
           label="Venta promedio diaria"
           value={view.avgDaily === null ? "—" : money(view.avgDaily)}
-          sub={`${periodLabel}${view.dailyTargetAvg !== null ? ` · objetivo ${money(view.dailyTargetAvg)}` : ""}`}
+          sub={
+            view.dailyTargetAvg !== null
+              ? `objetivo ${money(view.dailyTargetAvg)}`
+              : undefined
+          }
           chips={view.avgChips}
           note={view.baselineNote}
         />
         <Card
           label={`Ventas · ${periodLabel}`}
           value={money(view.sales)}
-          sub={
-            view.salesTarget !== null
-              ? `${Math.round((view.sales / view.salesTarget) * 100)}% del objetivo del periodo`
-              : view.days > 1
-                ? `${view.days} días`
-                : undefined
-          }
           chips={view.salesChips}
         />
         <Card
@@ -352,7 +338,7 @@ export function CockpitV2(props: CockpitV2Props) {
           value={c?.margin != null ? money(c.margin) : "Sin precio"}
           sub={
             c
-              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? ` · objetivo ${view.marginTarget}%` : ""} · sobre ventas con costo`
+              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? ` · objetivo ${view.marginTarget}%` : ""}`
               : undefined
           }
           chips={view.marginChips}
@@ -399,18 +385,7 @@ export function CockpitV2(props: CockpitV2Props) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-1 flex flex-wrap items-baseline gap-2">
-            <h2 className="text-[14px] font-bold">
-              Ventas diarias
-              {view.bars.some((b) => b.target !== null) ? " vs objetivo" : ""}
-              {view.baselineAvgDaily !== null
-                ? ` vs promedio ${view.baselineLabel.replace("vs ", "")}`
-                : ""}
-            </h2>
-            <span className="text-[12px] text-[#8a92a3]">
-              {view.bars.some((b) => b.target !== null)
-                ? "Verde = sobre objetivo · clic en un día para ver el detalle"
-                : "clic en un día para ver el detalle"}
-            </span>
+            <h2 className="text-[14px] font-bold">Ventas diarias</h2>
           </div>
           <DailyBarsChart
             bars={view.bars}
@@ -427,24 +402,13 @@ export function CockpitV2(props: CockpitV2Props) {
                   scope,
                   view.bars.map((b) => b.date)
                 )
-              )}{" "}
-              <a
-                href={OBJECTIVES_HREF}
-                className="font-semibold text-[#1b40c8] underline"
-              >
-                {props.targets.length > 0
-                  ? "Ajusta tus objetivos"
-                  : "Definir objetivos"}
-              </a>
+              )}
             </p>
           ) : null}
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-2 flex items-baseline">
             <h2 className="text-[14px] font-bold">Mezcla de ventas</h2>
-            <span className="ml-auto text-[12px] text-[#8a92a3]">
-              clic = filtrar todo
-            </span>
           </div>
           <MixDonut
             slices={view.mix}
@@ -453,7 +417,6 @@ export function CockpitV2(props: CockpitV2Props) {
             active={category}
             onSlice={setCategory}
             loading={loadingCost}
-            daysLabel={`${view.days} ${view.days === 1 ? "día" : "días"}`}
           />
           {view.uncategorizedPct !== null && view.uncategorizedPct > 0 ? (
             <p className="mt-2 text-[12px] text-[#8a92a3]">
@@ -497,7 +460,14 @@ export function CockpitV2(props: CockpitV2Props) {
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
-          <p className="text-[13px] leading-relaxed">{insight.text}</p>
+          <ul
+            className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed"
+            data-testid="cockpit-milton-summary"
+          >
+            {insight.lines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
           <div className="mt-3">
             <a
               href={OBJECTIVES_HREF}
@@ -547,59 +517,16 @@ function missingGoalText(
   if (gap?.reason === "company_only") {
     return "Tu objetivo de ventas es para todos los restaurantes: elige «Todos los restaurantes» o define uno para este restaurante.";
   }
-  return "Sin objetivo de ventas: no hay línea.";
+  return "Sin objetivo de ventas.";
 }
 
-/** One short reading from real numbers only; nothing is said that was not computed. */
+/** The Milton box: lines from the daily bars; the button follows the days below objetivo. */
 function buildInsight(
   view: ReturnType<typeof computeCockpit>,
   hasTargets: boolean
-): { text: string; action: "days" | "targets" } {
-  const parts: string[] = [];
-  const base = view.avgChips.find((c) => c.key === "baseline");
-  if (base) {
-    const word = base.value >= 0 ? "sobre" : "bajo";
-    parts.push(
-      `Vas ${Math.abs(Math.round(base.value))}% ${word} tu promedio (${view.baselineLabel.replace("vs ", "")}).`
-    );
-  }
-  // Weekdays whose days with a target fall well short of it.
-  const byDay = new Map<number, number[]>();
-  for (const b of view.bars) {
-    if (b.deltaPct === null) continue;
-    const wd = weekdayIndex(b.date);
-    byDay.set(wd, [...(byDay.get(wd) ?? []), b.deltaPct]);
-  }
-  const weak = [...byDay.entries()]
-    .map(([wd, v]) => ({
-      wd,
-      avg: v.reduce((a, b) => a + b, 0) / v.length,
-      n: v.length,
-    }))
-    .filter((x) => x.n >= 2 && x.avg <= -10)
-    .sort((a, b) => a.avg - b.avg)
-    .slice(0, 2);
-  if (weak.length > 0) {
-    const names = weak.map((w) => WEEKDAYS_PLURAL[w.wd]).join(" y ");
-    parts.push(
-      `Los ${names} quedan bajo objetivo (${Math.round(weak[0].avg)}%).`
-    );
-  }
-  const target = view.costChips.find((c) => c.key === "target");
-  if (target && target.value !== 0) {
-    parts.push(
-      `El costo de comida está ${Math.abs(target.value)} pts ${target.value > 0 ? "sobre" : "bajo"} tu objetivo.`
-    );
-  }
-  if (parts.length === 0) {
-    parts.push(
-      hasTargets
-        ? "Aún no hay suficientes datos para una lectura."
-        : "Define tus objetivos y Milton te dice cómo vas contra ellos."
-    );
-  }
+): { lines: string[]; action: "days" | "targets" } {
   return {
-    text: parts.join(" "),
+    lines: cockpitSummaryLines(view, hasTargets),
     action: view.belowDays > 0 ? "days" : "targets",
   };
 }

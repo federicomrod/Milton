@@ -5,6 +5,7 @@
 // button that saves them all (restaurant_shifts_save, migration 054). Every
 // press of «Guardar turnos» answers: saved, nothing to save, or why not.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useMemo, useRef, useState } from "react";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
@@ -98,8 +99,7 @@ export function TurnosForm(props: TurnosFormProps) {
     if (!available) {
       setStatus({
         kind: "error",
-        message:
-          "Falta aplicar la migración 054 en este ambiente: todavía no se pueden guardar turnos.",
+        message: NOT_AVAILABLE_YET,
       });
       return;
     }
@@ -182,16 +182,14 @@ export function TurnosForm(props: TurnosFormProps) {
             role="status"
             className="mb-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]"
           >
-            Para guardar turnos falta aplicar la migración 054 en este ambiente.
-            Mientras tanto Ventas usa el corte de siempre: almuerzo hasta las
-            17:00 y cena desde las 17:00.
+            {NOT_AVAILABLE_YET} Mientras tanto Ventas usa el corte de siempre:
+            almuerzo hasta las 17:00 y cena desde las 17:00.
           </p>
         ) : null}
 
         {rows.length === 0 ? (
           <p className="border-t border-[#eef0f4] py-3 text-[13px] text-[#6b7385]">
-            Este restaurante aún no tiene turnos. Sin turnos, Ventas no muestra
-            tarjetas ni filtro por turno.
+            Este restaurante aún no tiene turnos.
           </p>
         ) : null}
         {rows.map((r) => (
@@ -374,11 +372,6 @@ export function TurnosForm(props: TurnosFormProps) {
             el filtro Turno.
           </li>
           <li>
-            Con un solo turno (por ejemplo, un restaurante solo de cena) no hay
-            tarjetas ni filtro por turno; el mapa hora × día sigue igual.
-          </li>
-          <li>Con ningún turno, igual, y Ventas te invita a definirlos.</li>
-          <li>
             Un pedido pertenece al turno que contiene su hora local y el día de
             ventas en que cayó. Si cambias las horas, el historial se reparte de
             nuevo.
@@ -392,7 +385,7 @@ export function TurnosForm(props: TurnosFormProps) {
           {activeCount === 0
             ? "Ahora: sin turnos activos."
             : activeCount === 1
-              ? "Ahora: 1 turno activo (sin tarjetas por turno)."
+              ? "Ahora: 1 turno activo."
               : `Ahora: ${activeCount} turnos activos.`}
         </p>
       </section>

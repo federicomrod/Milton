@@ -114,7 +114,7 @@ export function KitchenQrResult({
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
-      <div className="font-medium">QR for {locationName}</div>
+      <div className="font-medium">QR de {locationName}</div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={qr.qr_png_data_url}

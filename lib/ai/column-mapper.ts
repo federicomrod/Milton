@@ -5,6 +5,7 @@
 // a thin wrapper.
 
 import { openai } from "@/lib/openai-client";
+import { runChat, unwrapAi } from "./call";
 
 export interface TargetField {
   name: string;
@@ -113,14 +114,20 @@ ${JSON.stringify(sampleRows.slice(0, 3), null, 2)}
 
 Return JSON: { "mappings": [ { "originalColumn": "...", "standardField": "...", "confidence": 0.9, "dataType": "string", "transformation": "none" }, ... ] }`;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.2,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  const completion = unwrapAi(
+    await runChat({
+      feature: "column-mapper",
+      client: openai,
+      params: {
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+    })
+  );
 
   const rawContent = completion?.choices?.[0]?.message?.content ?? "{}";
   const cleanedContent = rawContent
@@ -131,8 +138,8 @@ Return JSON: { "mappings": [ { "originalColumn": "...", "standardField": "...", 
   let parsed: { mappings?: SuggestedMapping[] };
   try {
     parsed = JSON.parse(cleanedContent);
-  } catch (parseErr) {
-    console.error("[column-mapper] Parse error:", rawContent, parseErr);
+  } catch {
+    console.error("[column-mapper] AI response was not valid JSON");
     return emptyMappings(
       targetFields,
       "AI response was invalid JSON; no mapping applied."

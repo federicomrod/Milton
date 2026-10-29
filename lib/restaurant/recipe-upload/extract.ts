@@ -11,6 +11,13 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
+import {
+  AiCallError,
+  aiUnavailableFor,
+  runChat,
+  unwrapAi,
+  type AiUnavailable,
+} from "@/lib/ai/call";
 import type { RecipeChunk } from "./chunks";
 import {
   validateUploadResponse,
@@ -65,7 +72,7 @@ function userIntro(chunk: RecipeChunk): string {
 }
 
 /** The real reader, backed by OpenAI chat completions (JSON mode, temp 0). */
-export function createOpenAiUploadReader(): UploadAi {
+export function createOpenAiUploadReader(companyId?: string | null): UploadAi {
   return async (chunk) => {
     const made = await createOpenAIClient(UPLOAD_AI_TIMEOUT_MS);
     if (!made.ok) throw new Error(made.error);
@@ -94,15 +101,25 @@ export function createOpenAiUploadReader(): UploadAi {
       content = `${userIntro(chunk)}\n\n${chunk.text ?? ""}`;
     }
 
-    const completion = await made.client.chat.completions.create({
-      model: openAiModel(),
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: UPLOAD_EXTRACTION_PROMPT },
-        { role: "user", content },
-      ] as never,
-    });
+    // Throws an AiCallError (with the kind) when the call fails; the chunk
+    // is then skipped and counted by extractRecipesFromChunks.
+    const completion = unwrapAi(
+      await runChat({
+        feature: "recipe-upload",
+        companyId,
+        client: made.client,
+        timeoutMs: UPLOAD_AI_TIMEOUT_MS,
+        params: {
+          model: openAiModel(),
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: UPLOAD_EXTRACTION_PROMPT },
+            { role: "user", content },
+          ] as never,
+        },
+      })
+    );
     const rawText = completion.choices?.[0]?.message?.content ?? "";
     if (!rawText) throw new Error("No content");
     return JSON.parse(rawText);
@@ -114,6 +131,8 @@ export interface ExtractionResult {
   ignored: IgnoredSection[];
   /** Chunks whose model call failed or came back unreadable. */
   failed_chunks: number;
+  /** "quota" when at least one chunk failed because the AI account is out of quota. */
+  ai_unavailable: AiUnavailable;
 }
 
 export async function extractRecipesFromChunks(
@@ -126,6 +145,7 @@ export async function extractRecipesFromChunks(
     ignored: IgnoredSection[];
     failed: boolean;
   }> = new Array(chunks.length);
+  let aiUnavailable: AiUnavailable = null;
 
   let next = 0;
   const worker = async () => {
@@ -141,7 +161,10 @@ export async function extractRecipesFromChunks(
           chunk.label
         );
         results[i] = { ...validated, failed: false };
-      } catch {
+      } catch (err) {
+        if (err instanceof AiCallError && aiUnavailableFor(err.kind)) {
+          aiUnavailable = "quota";
+        }
         console.error("[recipe-upload] chunk read failed");
         results[i] = { recipes: [], ignored: [], failed: true };
       }
@@ -160,5 +183,10 @@ export async function extractRecipesFromChunks(
     ignored.push(...r.ignored);
     if (r.failed) failed += 1;
   }
-  return { recipes, ignored, failed_chunks: failed };
+  return {
+    recipes,
+    ignored,
+    failed_chunks: failed,
+    ai_unavailable: aiUnavailable,
+  };
 }

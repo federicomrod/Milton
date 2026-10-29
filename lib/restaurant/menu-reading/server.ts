@@ -230,7 +230,7 @@ export async function readMenuIntoDrafts(
   const read = await loadOrReadDishes(supabase, {
     companyId: params.companyId,
     menu,
-    ai: params.ai ?? createOpenAiMenuReader(),
+    ai: params.ai ?? createOpenAiMenuReader(params.companyId),
     createdBy: params.createdBy ?? null,
   });
   if (read.dishes.length === 0) {

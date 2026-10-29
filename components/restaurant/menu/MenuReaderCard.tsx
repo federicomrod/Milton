@@ -17,7 +17,7 @@ import { NoRecipeEditNotice } from "./EstimateWithMilton";
 
 export const MENU_READER_TITLE = "Lee tu menú y estima costos";
 export const MENU_READER_INTRO =
-  "Pega el enlace o el texto de tu menú. Milton prepara borradores de receta y estima el costo de los platos sin receta. Las estimaciones no cambian tus números reales.";
+  "Pega el enlace o el texto de tu menú. Milton prepara borradores y estima costos; nada cambia tus números hasta que lo apruebes.";
 
 export function noRecipeDishesLabel(n: number): string {
   return n === 1 ? "1 plato sin receta" : `${n} platos sin receta`;

@@ -51,6 +51,7 @@ import { generateBriefing } from "@/lib/restaurant/briefing-generate";
 import { renderBriefingEmail } from "@/lib/restaurant/email/briefing-email-formatter";
 import { autoSyncOdooCompany } from "@/lib/restaurant/odoo/auto-sync";
 import { sendBriefingEmail } from "@/lib/restaurant/email/send";
+import { runDailyAiCostCheck } from "@/lib/ai/daily-cost-check";
 import {
   normalizeEmail,
   resolveCadence,
@@ -209,6 +210,9 @@ export async function GET(req: NextRequest) {
       // Never let one company's failure abort the batch — continue.
     }
   }
+
+  // Yesterday's AI cost and errors; alerts the admin when over the threshold.
+  await runDailyAiCostCheck();
 
   return NextResponse.json({ processed: rows.length, sent, skipped, failed });
 }

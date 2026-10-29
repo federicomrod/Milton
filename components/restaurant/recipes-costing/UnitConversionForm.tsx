@@ -5,6 +5,7 @@
 // guessed (no density tables). Used on a «Unidad distinta» line, on the price
 // error of a dish line, and on the ingredient detail.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useState } from "react";
 import { clearEditors } from "@/lib/restaurant/recipe-costing/editor-cache";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
@@ -189,7 +190,7 @@ export function UnitConversionForm({
           className="text-[12px] text-gray-500"
           data-testid="conversion-unavailable"
         >
-          Las conversiones aún no están activas en este ambiente.
+          {NOT_AVAILABLE_YET}
         </p>
       ) : null}
       {error ? (

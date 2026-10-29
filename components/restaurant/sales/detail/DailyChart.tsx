@@ -104,11 +104,12 @@ export function DailyChart({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-[11.5px] text-[#8a92a3]">
-          clic en un día = filtra toda la página
-        </span>
       </div>
-      <div className="relative" ref={wrapRef}>
+      <div
+        className="relative"
+        ref={wrapRef}
+        title="Clic en un día para filtrar la página"
+      >
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="h-[190px] w-full"
@@ -141,7 +142,15 @@ export function DailyChart({
                     width={bw}
                     height={PAD.t + innerH - top}
                     rx={3}
-                    fill={over || b.target === null ? BLUE : "#c9d2f0"}
+                    fill={
+                      hover === i
+                        ? BLUE
+                        : metric !== "ventas" || b.target === null
+                          ? "#E7EDFD"
+                          : over
+                            ? "#A7F3D0"
+                            : "#FBCFE8"
+                    }
                     opacity={hover === null || hover === i ? 1 : 0.6}
                     pointerEvents="none"
                   />
@@ -184,7 +193,7 @@ export function DailyChart({
             <path
               d={tgtPath}
               fill="none"
-              stroke="#151c2c"
+              stroke="#0F172A"
               strokeWidth={1.5}
               strokeDasharray="5 4"
             />
@@ -211,14 +220,11 @@ export function DailyChart({
           </div>
         ) : null}
       </div>
-      <p className="text-[11.5px] text-[#8a92a3]">
-        {hasTarget && metric === "ventas" && withTarget > 0
-          ? `${above} de ${n} días sobre el objetivo diario (línea punteada). `
-          : ""}
-        {useBars
-          ? "Con menos de 8 días se usan barras."
-          : "Línea recta entre días, sin suavizar."}
-      </p>
+      {hasTarget && metric === "ventas" && withTarget > 0 ? (
+        <p className="text-[11.5px] text-[#8a92a3]">
+          {`${above} de ${n} días sobre el objetivo (línea punteada).`}
+        </p>
+      ) : null}
     </section>
   );
 }

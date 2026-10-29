@@ -39,6 +39,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  AI_UNAVAILABLE_COPY,
+  AI_UNAVAILABLE_COPY_EN,
+} from "@/lib/ai/unavailable-copy";
 import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 import {
   ASK_MILTON_MAX_FOLLOWUPS,
@@ -125,6 +129,7 @@ function suggestedQuestions(lang: PreferredLanguage): string[] {
 
 interface BriefingPayload {
   source: "openai" | "deterministic";
+  ai_unavailable?: "quota" | null;
   generated_at: string;
   context_summary: {
     restaurant_name: string;
@@ -175,6 +180,7 @@ interface SuggestedActionLocal {
 
 interface AnswerPayload {
   source: "openai" | "deterministic";
+  ai_unavailable?: "quota" | null;
   generated_at: string;
   answer: string;
   supporting_facts: SupportingFact[];
@@ -280,7 +286,21 @@ function ExecutiveBriefingPanelSkeleton() {
   );
 }
 
-function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps) {
+function AiUnavailableNote({ lang }: { lang: PreferredLanguage }) {
+  return (
+    <p
+      className="mt-1 text-xs text-muted-foreground"
+      data-testid="ai-unavailable-note"
+    >
+      {t(lang, AI_UNAVAILABLE_COPY_EN, AI_UNAVAILABLE_COPY)}
+    </p>
+  );
+}
+
+function ExecutiveBriefingPanelInner({
+  expanded,
+  onToggle,
+}: BriefingPanelProps) {
   const lang = useMiltonLang();
   const [data, setData] = useState<BriefingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -338,7 +358,9 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
       ) ?? data.briefing.headline)
     : null;
   // Generic advice is dropped; what is left must name a number or a thing.
-  const risks = data ? data.briefing.top_risks.filter(isSpecificBriefingItem) : [];
+  const risks = data
+    ? data.briefing.top_risks.filter(isSpecificBriefingItem)
+    : [];
   const opportunities = data
     ? data.briefing.top_opportunities.filter(isSpecificBriefingItem)
     : [];
@@ -430,6 +452,9 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
               <p className="text-sm text-foreground leading-relaxed mt-1">
                 {data.briefing.summary}
               </p>
+              {data.ai_unavailable === "quota" && (
+                <AiUnavailableNote lang={lang} />
+              )}
             </div>
 
             {hasLists && (
@@ -449,7 +474,11 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
                   tone="opportunity"
                 />
                 <BriefingList
-                  title={t(lang, "Recommended actions", "Acciones recomendadas")}
+                  title={t(
+                    lang,
+                    "Recommended actions",
+                    "Acciones recomendadas"
+                  )}
                   items={actions}
                   tone="action"
                 />
@@ -467,7 +496,11 @@ function ExecutiveBriefingPanelInner({ expanded, onToggle }: BriefingPanelProps)
               href={withLocationParam(COCKPIT_HREF, locationId)}
               className="inline-flex items-center gap-1 text-sm font-semibold text-[#1B40C8] dark:text-[#9fb4f2] hover:underline"
             >
-              {t(lang, "See the numbers in Cockpit", "Ver las cifras en el Cockpit")}
+              {t(
+                lang,
+                "See the numbers in Cockpit",
+                "Ver las cifras en el Cockpit"
+              )}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -738,13 +771,6 @@ function EmptyState() {
           "Pregúntale a Milton sobre tus datos"
         )}
       </p>
-      <p className="text-xs text-muted-foreground max-w-md mt-1">
-        {t(
-          lang,
-          "Try a suggested question above, or type your own. Milton uses your sales, recipes, suppliers and invoices — and tells you when something is missing.",
-          "Usa una pregunta sugerida o escribe la tuya. Milton usa tus ventas, recetas, proveedores y facturas, y te dice cuando falta algo."
-        )}
-      </p>
     </div>
   );
 }
@@ -763,6 +789,7 @@ function MessageBubble({
   // otherwise following one silently drops back to consolidated. Read
   // unconditionally, before any early return (rules of hooks).
   const locationId = useSearchParams().get("location");
+  const lang = useMiltonLang();
 
   if (turn.role === "user") {
     return (
@@ -791,6 +818,7 @@ function MessageBubble({
         <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
           {turn.content}
         </div>
+        {a?.ai_unavailable === "quota" && <AiUnavailableNote lang={lang} />}
 
         {a && a.related_links.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

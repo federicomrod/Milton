@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   filterFeed,
   type KitchenFeedItem,
@@ -222,30 +222,6 @@ export function KitchenPageLive({
           <KitchenConnectCard {...connectProps} />
         </KitchenRightColumn>
       </KitchenPageLayout>
-      <div
-        data-testid="kitchen-legend"
-        className="flex flex-wrap items-center gap-4 text-[12px] text-muted-foreground rounded-md border border-border bg-background px-3 py-2"
-      >
-        <span className="font-semibold text-foreground">
-          {t(lang, "Legend", "Leyenda")}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <i className="inline-block w-2.5 h-2.5 rounded-sm bg-[#1B40C8]" />
-          {t(
-            lang,
-            "Kitchen reports already captured: alerts, waste, drafts",
-            "Con reportes de cocina ya capturados: avisos, merma, borradores"
-          )}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <i className="inline-block w-2.5 h-2.5 rounded-sm border border-dashed border-muted-foreground bg-muted" />
-          {t(
-            lang,
-            "Depends on recipes/costs: waste value",
-            "Depende de recetas/costos: valor de la merma"
-          )}
-        </span>
-      </div>
     </>
   );
 }

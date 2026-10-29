@@ -24,6 +24,7 @@ import {
   ChefHat,
   Flame,
   Menu,
+  TrendingUp,
 } from "lucide-react";
 import { LogoutButton } from "@/components/dashboard/logout-button";
 import { AddRestaurantDialog } from "@/components/restaurant/AddRestaurantDialog";
@@ -71,6 +72,7 @@ const NAV_ICONS: Record<
   sales: Flame,
   menu: BookOpen,
   costs: Receipt,
+  rentabilidad: TrendingUp,
   kitchen: ChefHat,
   data_settings: Settings,
 };
@@ -363,6 +365,7 @@ function SidebarNav({
   };
   lang: PreferredLanguage;
 }) {
+  const canSeeRentabilidad = useCan("costs.fixed");
   return (
     <nav
       aria-label={t(
@@ -373,17 +376,20 @@ function SidebarNav({
       className="flex-1 overflow-y-auto px-3 py-3"
     >
       <ul className="space-y-0.5">
-        {PRIMARY_NAV_ITEMS.filter((item) => item.group === "main").map(
-          (item) => (
-            <SidebarLink
-              key={item.id}
-              item={item}
-              pathname={pathname}
-              shellParams={shellParams}
-              lang={lang}
-            />
-          )
-        )}
+        {PRIMARY_NAV_ITEMS.filter(
+          (item) =>
+            item.group === "main" &&
+            // Rentabilidad shows the fixed costs: owner, admin and manager only.
+            (item.id !== "rentabilidad" || canSeeRentabilidad)
+        ).map((item) => (
+          <SidebarLink
+            key={item.id}
+            item={item}
+            pathname={pathname}
+            shellParams={shellParams}
+            lang={lang}
+          />
+        ))}
       </ul>
     </nav>
   );
@@ -533,6 +539,11 @@ function SidebarLink({
       >
         <Icon className="h-4 w-4 shrink-0" />
         <span className="truncate">{label}</span>
+        {item.id === "rentabilidad" ? (
+          <span className="ml-auto rounded-full bg-[#E7EDFD] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1B40C8]">
+            {t(lang, "New", "Nuevo")}
+          </span>
+        ) : null}
       </Link>
       {item.id === "menu" ? (
         // Menú › Platos is where people land from the list: prefetched in full

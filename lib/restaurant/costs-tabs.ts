@@ -1,28 +1,39 @@
 // lib/restaurant/costs-tabs.ts
 //
-// Costos (R1-09b, A9/D6): three real tabs on one route —
-// Cambios de precio (default), Compras (?tab=compras), Proveedores
-// (?tab=proveedores). Pure helpers so tabs, redirects and the KPI math are
+// Costos (R1-09b, A9/D6): four real tabs on one route —
+// Costos fijos (default, first), Cambios de precio (?tab=precios), Compras
+// (?tab=compras) and Proveedores (?tab=proveedores). Old ?tab=costos-fijos
+// links still work. Pure helpers so tabs, redirects and the KPI math are
 // unit-testable without React or Supabase.
 
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import type { IngredientPriceTrendRow } from "@/lib/restaurant/profitability-server";
 
-export type CostsTab = "precios" | "compras" | "proveedores";
+export type CostsTab = "precios" | "compras" | "proveedores" | "costos-fijos";
 
 export const COSTS_TABS: readonly CostsTab[] = [
+  "costos-fijos",
   "precios",
   "compras",
   "proveedores",
 ] as const;
+
+/** The tab Costos opens on when no ?tab= is given. */
+export const DEFAULT_COSTS_TAB: CostsTab = "costos-fijos";
 
 /** Anchor on the invoice entry cards inside Compras. */
 export const INVOICE_UPLOAD_ANCHOR = "subir-factura";
 
 export function parseCostsTab(raw: string | string[] | undefined): CostsTab {
   const value = Array.isArray(raw) ? raw[0] : raw;
-  if (value === "compras" || value === "proveedores") return value;
-  return "precios";
+  if (
+    value === "precios" ||
+    value === "compras" ||
+    value === "proveedores" ||
+    value === "costos-fijos"
+  )
+    return value;
+  return DEFAULT_COSTS_TAB;
 }
 
 type Params = Record<string, string | string[] | undefined>;
@@ -37,7 +48,7 @@ export function costsTabHref(
   hash?: string
 ): string {
   const next = new URLSearchParams();
-  if (tab !== "precios") next.set("tab", tab);
+  if (tab !== DEFAULT_COSTS_TAB) next.set("tab", tab);
   for (const [key, value] of Object.entries(params)) {
     if (key === "tab" || value === undefined) continue;
     for (const v of Array.isArray(value) ? value : [value]) next.append(key, v);

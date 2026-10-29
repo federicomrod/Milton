@@ -390,16 +390,6 @@ export function computeCockpit(input: CockpitInput): CockpitView {
       true
     )
   );
-  add(
-    salesChips,
-    chip(
-      "month",
-      "vs mes pasado",
-      pctChange(now.avg, month?.avg ?? null),
-      "pct",
-      true
-    )
-  );
 
   // Cost.
   let cost: CostFigures | null = null;

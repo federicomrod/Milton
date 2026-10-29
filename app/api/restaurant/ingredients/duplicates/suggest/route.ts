@@ -9,6 +9,7 @@
 import { requireCapability } from "@/lib/auth/permissions";
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai-client";
+import { runChat, unwrapAi } from "@/lib/ai/call";
 import {
   aiDuplicatePrompt,
   pairKey,
@@ -77,15 +78,21 @@ export async function POST(req: NextRequest) {
   );
   try {
     const { system, user } = aiDuplicatePrompt(sent);
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+    const result = await runChat({
+      feature: "ingredient-duplicates",
+      companyId,
+      client: openai,
+      params: {
+        model: "gpt-4o-mini",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      },
     });
+    const completion = unwrapAi(result);
     let parsed: unknown = {};
     try {
       parsed = JSON.parse(completion?.choices?.[0]?.message?.content ?? "{}");

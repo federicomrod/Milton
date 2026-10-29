@@ -3,35 +3,18 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useUserProfile } from "@/lib/hooks/useUserProfile";
-import { getUserCompany } from "@/lib/profile-service";
 import { createClient } from "@/lib/supabase/client";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { TelegramConnectionCard } from "@/components/restaurant/TelegramConnectionCard";
 import { EmailBriefingCard } from "@/components/restaurant/EmailBriefingCard";
-import {
-  Building2,
-  MapPin,
-  CreditCard,
-  Mail,
-  Calendar,
-  Edit,
-} from "lucide-react";
-import { Company } from "@/lib/profile-service";
+import { CreditCard, Mail, Calendar, Edit } from "lucide-react";
 
 export default function AccountPage() {
   const { profile, loading, error } = useUserProfile();
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [company, setCompany] = useState<Company | null>(null);
-  const [companyLoading, setCompanyLoading] = useState(true);
 
   // Get email from auth.users (not from profiles)
   useEffect(() => {
@@ -43,21 +26,6 @@ export default function AccountPage() {
       setUserEmail(user?.email || null);
     };
     fetchEmail();
-  }, []);
-
-  // Get company data from companies table (not from profiles)
-  useEffect(() => {
-    const fetchCompany = async () => {
-      try {
-        const companyData = await getUserCompany();
-        setCompany(companyData);
-      } catch (err) {
-        console.error("Failed to load company:", err);
-      } finally {
-        setCompanyLoading(false);
-      }
-    };
-    fetchCompany();
   }, []);
 
   if (loading) {
@@ -104,57 +72,14 @@ export default function AccountPage() {
             </Link>
           }
         />
-        <p className="mt-0.5 text-[13px] text-[#6b7385]">
-          Tu empresa, tu cuenta y cómo recibes el briefing
-        </p>
       </div>
 
       {/* Profile Overview */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {/* Company Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Información de la empresa</CardTitle>
-            <CardDescription>Datos del perfil de tu empresa</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-start gap-3">
-              <Building2 className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Nombre de la empresa
-                </p>
-                <p className="text-base text-foreground">
-                  {companyLoading
-                    ? "Cargando..."
-                    : company?.name || "Sin definir"}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <MapPin className="h-5 w-5 text-muted-foreground mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Industria
-                </p>
-                <p className="text-base text-foreground">
-                  {companyLoading
-                    ? "Cargando..."
-                    : company?.industry || "Sin definir"}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Account Status */}
         <Card>
           <CardHeader>
             <CardTitle>Estado de la cuenta</CardTitle>
-            <CardDescription>
-              Tu suscripción y datos de facturación
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
@@ -211,24 +136,6 @@ export default function AccountPage() {
         {/* Briefing Delivery by email (Email Briefing Extension v1) */}
         <EmailBriefingCard />
       </div>
-
-      {/* Quick Actions */}
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Acciones rápidas</CardTitle>
-          <CardDescription>Tareas frecuentes de tu cuenta</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/dashboard/settings">
-              <Button variant="outline">Actualizar perfil</Button>
-            </Link>
-            <Link href="/dashboard/restaurant">
-              <Button variant="outline">Ver el Cockpit</Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

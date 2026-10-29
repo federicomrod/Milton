@@ -19,12 +19,13 @@ import {
 } from "@/lib/restaurant/navigation";
 
 describe("primary restaurant navigation (#128)", () => {
-  it("lists Cockpit, Sales, Menu, Costs, Kitchen, then Settings", () => {
+  it("lists Cockpit, Sales, Menu, Costs, Profitability, Kitchen, then Settings", () => {
     expect(PRIMARY_NAV_ITEMS.map((item) => item.id)).toEqual([
       "cockpit",
       "sales",
       "menu",
       "costs",
+      "rentabilidad",
       "kitchen",
       "data_settings",
     ]);
@@ -33,6 +34,7 @@ describe("primary restaurant navigation (#128)", () => {
       "Sales",
       "Menu",
       "Costs",
+      "Profitability",
       "Kitchen",
       "Settings",
     ]);
@@ -41,6 +43,7 @@ describe("primary restaurant navigation (#128)", () => {
       "Ventas",
       "Menú",
       "Costos",
+      "Rentabilidad",
       "Cocina",
       "Configuración",
     ]);

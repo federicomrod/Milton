@@ -70,7 +70,7 @@ describe("the card", () => {
     expect(screen.getByText("Sube tus recetas")).toBeTruthy();
     expect(
       screen.getByText(
-        "Excel, Word, PDF o una foto. Milton prepara los borradores y tú los apruebas."
+        "Sube tus recetas en Excel, Word, PDF o foto. Milton prepara los borradores y tú los apruebas."
       )
     ).toBeTruthy();
     expect(

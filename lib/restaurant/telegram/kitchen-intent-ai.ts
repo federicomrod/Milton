@@ -29,6 +29,7 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
+import { runChat } from "@/lib/ai/call";
 import {
   currencyCodeFromText,
   extractNumberTokens,
@@ -253,8 +254,11 @@ export const askKitchenIntentAi: KitchenIntentAi = async (text, context) => {
   const made = await createOpenAIClient(KITCHEN_INTENT_TIMEOUT_MS);
   if (!made.ok) return null;
 
-  try {
-    const completion = await made.client.chat.completions.create({
+  const result = await runChat({
+    feature: "kitchen-intent",
+    client: made.client,
+    timeoutMs: KITCHEN_INTENT_TIMEOUT_MS,
+    params: {
       model: openAiModel(),
       temperature: 0,
       max_tokens: 3000,
@@ -263,9 +267,14 @@ export const askKitchenIntentAi: KitchenIntentAi = async (text, context) => {
         { role: "system", content: buildSystemPrompt(context) },
         { role: "user", content: buildUserPrompt(text, context) },
       ],
-    });
-
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    },
+  });
+  if (!result.ok) {
+    console.error("[kitchen-intent-ai] call failed");
+    return null;
+  }
+  try {
+    const raw = result.value.choices?.[0]?.message?.content ?? "";
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {

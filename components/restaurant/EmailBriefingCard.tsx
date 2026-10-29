@@ -40,6 +40,7 @@ interface Preferences {
   recipient: string | null;
   weekday: number;
   timezone: string;
+  default_timezone?: string | null;
 }
 
 const WEEKDAY_LABELS = [
@@ -93,6 +94,8 @@ export function EmailBriefingCard() {
   // placeholder rather than a value. Never defaults to "UTC" implicitly;
   // see handleCadenceChange() below for why.
   const [timezone, setTimezone] = useState("");
+  // The restaurant's timezone, used when delivery is switched on.
+  const [defaultTimezone, setDefaultTimezone] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState<{
@@ -128,6 +131,7 @@ export function EmailBriefingCard() {
         setRecipient(loaded.recipient ?? "");
         setWeekday(loaded.weekday);
         setTimezone(loaded.timezone);
+        setDefaultTimezone(loaded.default_timezone ?? "");
       } catch {
         setLoadError("No se pudieron cargar las preferencias de entrega.");
       } finally {
@@ -149,7 +153,7 @@ export function EmailBriefingCard() {
   // an already-configured company, never clears an existing valid choice.
   function handleCadenceChange(next: Cadence) {
     if (cadence === "off" && next !== "off") {
-      setTimezone("");
+      setTimezone(defaultTimezone);
     }
     setCadence(next);
   }
@@ -334,11 +338,6 @@ export function EmailBriefingCard() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {!timezoneChosen && (
-                    <p className="text-xs text-destructive">
-                      Elige la zona horaria en la que debe llegar el briefing.
-                    </p>
-                  )}
                 </div>
               </>
             )}
@@ -350,6 +349,11 @@ export function EmailBriefingCard() {
             >
               {saving ? "Guardando…" : "Guardar"}
             </Button>
+            {cadence !== "off" && !timezoneChosen ? (
+              <p className="text-xs text-muted-foreground">
+                Falta la zona horaria: elígela arriba.
+              </p>
+            ) : null}
 
             {saveFeedback && (
               <Alert

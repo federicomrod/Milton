@@ -78,7 +78,7 @@ describe("an approved recipe with a line that has no price", () => {
     // one calm line
     expect(
       screen.getByText(
-        "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
+        "Receta aprobada · para cambiar cantidades, crea una versión nueva"
       )
     ).toBeTruthy();
     // no red box, no orange banner

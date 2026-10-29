@@ -57,15 +57,11 @@ export function AskMiltonDrawer({
             >
               {t(lang, "Ask Milton", "Preguntar a Milton")}
             </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {pageLabel
-                ? t(lang, `Viewing ${pageLabel}`, `Viendo ${pageLabel}`)
-                : t(
-                    lang,
-                    "Ask about sales, menu, costs or the kitchen.",
-                    "Pregúntale sobre ventas, menú, costos o la cocina."
-                  )}
-            </p>
+            {pageLabel ? (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {t(lang, `Viewing ${pageLabel}`, `Viendo ${pageLabel}`)}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

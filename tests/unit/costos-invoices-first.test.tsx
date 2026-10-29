@@ -314,14 +314,15 @@ describe("setup line", () => {
     expect(await screen.findByTestId("costs-setup-banner")).toBeTruthy();
   });
 
-  it("complete: «Costos configurados · archivo de hace N días · Subir nuevo · Ver detalle»", async () => {
+  it("complete: «Costos configurados · archivo de hace N días · Subir nuevo» (one way in)", async () => {
     current = workspace(true);
     draw();
     const folded = await screen.findByTestId("costs-setup-folded");
     expect(folded.textContent).toContain("Costos configurados");
     expect(folded.textContent).toContain("archivo de hace");
     expect(screen.getByRole("button", { name: "Subir nuevo" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Ver detalle/ }));
+    expect(screen.queryByRole("button", { name: /Ver detalle/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Subir nuevo" }));
     expect(
       (await screen.findByTestId("costs-setup-detail")).textContent
     ).toContain("Último archivo");
@@ -377,7 +378,7 @@ describe("the page order", () => {
     const { default: Page } =
       await import("@/app/dashboard/restaurant/costs/page");
     const html = renderToString(
-      await Page({ searchParams: Promise.resolve({}) })
+      await Page({ searchParams: Promise.resolve({ tab: "precios" }) })
     );
     const at = (s: string) => html.indexOf(s);
     expect(at("Precios que subieron")).toBeGreaterThan(at("HEADER-"));

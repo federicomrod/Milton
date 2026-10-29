@@ -108,3 +108,52 @@ describe("POST /api/restaurant/ask-milton — best_sales_day AI path", () => {
     );
   });
 });
+
+describe("POST /api/restaurant/ask-milton — AI unavailable", () => {
+  const ask = () =>
+    POST(
+      new NextRequest("http://localhost/api/restaurant/ask-milton", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "¿Qué día de la semana vendimos más en julio?",
+        }),
+      })
+    );
+
+  beforeEach(() => {
+    createCompletion.mockReset();
+    process.env.OPENAI_API_KEY = "test-key";
+    vi.mocked(buildAskMiltonContext).mockResolvedValue(
+      salesContext(july2026UnevenRows(), "es")
+    );
+  });
+
+  it("returns ai_unavailable: quota and the basic answer when OpenAI is out of quota", async () => {
+    createCompletion.mockRejectedValue(
+      Object.assign(new Error("quota"), {
+        status: 429,
+        code: "insufficient_quota",
+      })
+    );
+    const body = (await (await ask()).json()) as {
+      source: string;
+      ai_unavailable: string | null;
+    };
+    expect(createCompletion).toHaveBeenCalledOnce();
+    expect(body.source).toBe("deterministic");
+    expect(body.ai_unavailable).toBe("quota");
+  });
+
+  it("returns ai_unavailable: null for any other failure", async () => {
+    createCompletion.mockRejectedValue(
+      Object.assign(new Error("slow"), { status: 429, code: "rate_limit" })
+    );
+    const body = (await (await ask()).json()) as {
+      source: string;
+      ai_unavailable: string | null;
+    };
+    expect(body.source).toBe("deterministic");
+    expect(body.ai_unavailable).toBeNull();
+  });
+});

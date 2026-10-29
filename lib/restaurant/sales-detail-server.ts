@@ -5,6 +5,8 @@
 // exist. Everything after this is computed in the browser.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { accessTokenOf, cacheClientFor } from "@/lib/restaurant/cache-client";
+import { cachedForCompany, salesTag } from "@/lib/restaurant/cache-tags";
 import {
   buildDetailCube,
   type DetailCube,
@@ -94,4 +96,32 @@ export async function loadSalesDetail(
     noShifts: config.available && counts.every((c) => c === 0),
     shiftsAvailable: config.available,
   };
+}
+
+/**
+ * The payload of Ventas › Detalle through the cross-request cache (5 min,
+ * expired by a POS sync / upload, a shift, a goal or a restaurant change).
+ * The cache name, key parts and tag are the ones of GET /api/restaurant/sales-detail,
+ * so Ventas and Rentabilidad share this one entry and read the same cube.
+ */
+export async function loadSalesDetailCached(
+  supabase: SupabaseClient,
+  companyId: string,
+  locationId: string | null
+): Promise<SalesDetailPayload> {
+  const token = await accessTokenOf(supabase);
+  if (!token) return loadSalesDetail(supabase, companyId, locationId);
+  return cachedForCompany(
+    {
+      name: "sales-detail",
+      companyId,
+      parts: { location: locationId },
+      tags: [salesTag(companyId)],
+    },
+    async () =>
+      loadSalesDetail(await cacheClientFor(token), companyId, locationId, {
+        failOnReadError: true,
+      }),
+    () => loadSalesDetail(supabase, companyId, locationId)
+  );
 }

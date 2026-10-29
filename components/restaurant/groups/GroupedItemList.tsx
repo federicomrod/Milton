@@ -6,6 +6,7 @@
 // and the dark action bar. The screens give the rows; no cost or price is
 // computed here.
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useMemo, useState, type ReactNode } from "react";
 import { Pencil } from "lucide-react";
 import {
@@ -509,7 +510,7 @@ export function useGroupedItemList<T extends GroupableItem>({
     <div data-testid="grouped-item-list-rows">
       {!grouping.available ? (
         <p className="mb-2 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-xs">
-          Para agrupar falta aplicar las migraciones 048 y 049 en este ambiente.
+          {NOT_AVAILABLE_YET}
         </p>
       ) : null}
       {picker ? (

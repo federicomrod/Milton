@@ -25,14 +25,11 @@ import { ShiftCards } from "./ShiftCards";
 import { DetailHeatmap } from "./DetailHeatmap";
 import { DimensionPanel } from "./DimensionPanel";
 import { PlatosTab } from "./PlatosTab";
-import { dayLabelEs, hourLabel, moneyFmt, rangeLabelEs } from "./format";
-import { Highlights } from "./Highlights";
+import { dayLabelEs, moneyFmt, rangeLabelEs } from "./format";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   dimensionLeader,
   leaderLabel,
-  salesFacts,
-  salesRead,
 } from "@/lib/restaurant/sales-detail-insights";
 
 const PAGE_KEYS = [
@@ -135,18 +132,6 @@ export function SalesDetailV2({
     [prepared, data, state, scope]
   );
 
-  // «Lo que destaca» and the one-paragraph read: deterministic, from the same
-  // view (so they follow every filter). No AI call on load.
-  const insights = useMemo(() => {
-    if (!view || !data) return null;
-    const m = moneyFmt(data.currency);
-    const fmt = {
-      money: (n: number) => m(n),
-      day: dayLabelEs,
-      hour: hourLabel,
-    };
-    return { facts: salesFacts(view, fmt), read: salesRead(view, fmt) };
-  }, [view, data]);
   // The leader of each dimension, on top of the Desglose (computed only there).
   const leaders = useMemo(() => {
     if (!prepared || !data || state.tab !== "desglose") return null;
@@ -279,11 +264,10 @@ export function SalesDetailV2({
         className="text-[11.5px] text-[#8a92a3]"
         data-testid="sales-detail-note"
       >
-        {rangeLabelEs(view.range.from, view.range.to)} · {view.days}{" "}
-        {view.days === 1 ? "día" : "días"} · comparado con {view.compare.label}
+        {rangeLabelEs(view.range.from, view.range.to)}
         {view.compare.baseline
-          ? ` (${rangeLabelEs(view.compare.baseline.range.from, view.compare.baseline.range.to)}${view.compare.baseline.note ? `, ${view.compare.baseline.note}` : ""})`
-          : " (sin período comparable: «—»)"}
+          ? ` · vs ${rangeLabelEs(view.compare.baseline.range.from, view.compare.baseline.range.to)}`
+          : ""}
         {lastDay ? ` · datos hasta ${dayLabelEs(lastDay)}` : ""}
         {view.clipped || (resolved && resolved.clipped)
           ? " · el período se recortó a lo que hay cargado"
@@ -293,9 +277,6 @@ export function SalesDetailV2({
       {state.tab === "tendencia" ? (
         <>
           <KpiRow view={view} currency={data.currency} />
-          {insights ? (
-            <Highlights facts={insights.facts} read={insights.read} />
-          ) : null}
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.25fr_1fr]">
             <div className="space-y-3">
               <DailyChart

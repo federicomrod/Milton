@@ -6,6 +6,8 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { localeForCurrency } from "@/lib/restaurant/currency";
 import {
@@ -18,12 +20,16 @@ export function CockpitKpiStrip({
   model,
   lang,
   costSlot,
+  rentabilidadHref,
 }: {
   model: CockpitKpiStripModel;
   lang: PreferredLanguage;
+  /** The gross-margin card links here (Rentabilidad) instead of repeating its numbers. */
+  rentabilidadHref?: string;
   /** When set, replaces the two cost KPI cells (used to stream them in). */
   costSlot?: ReactNode;
 }) {
+  const canSeeRentabilidad = useCan("costs.fixed");
   const locale = localeForCurrency(model.currency);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
@@ -100,6 +106,8 @@ export function CockpitKpiStrip({
               "on covered net sales",
               "sobre ventas netas cubiertas"
             )}
+            href={canSeeRentabilidad ? rentabilidadHref : undefined}
+            hrefLabel={t(lang, "See Profitability →", "Ver Rentabilidad →")}
           />
         ) : (
           <NotAvailableYet
@@ -173,6 +181,8 @@ function Kpi({
   valueClass,
   delta,
   lang,
+  href,
+  hrefLabel,
 }: {
   label: string;
   value: string;
@@ -180,6 +190,8 @@ function Kpi({
   valueClass?: string;
   delta?: number | null;
   lang?: PreferredLanguage;
+  href?: string;
+  hrefLabel?: string;
 }) {
   const deltaClass =
     delta == null
@@ -189,7 +201,7 @@ function Kpi({
         : delta < 0
           ? "text-gray-700 dark:text-gray-400"
           : "text-muted-foreground";
-  return (
+  const card = (
     <div className="rounded-md border border-border bg-background px-2.5 py-1.5 min-h-[4.5rem]">
       <p
         className="text-[12px] font-medium text-muted-foreground truncate"
@@ -221,5 +233,17 @@ function Kpi({
         </p>
       ) : null}
     </div>
+  );
+  if (!href) return card;
+  return (
+    <Link
+      href={href}
+      className="block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+    >
+      {card}
+      <span className="mt-0.5 block text-[12px] font-semibold text-[#1B40C8] underline">
+        {hrefLabel}
+      </span>
+    </Link>
   );
 }

@@ -21,7 +21,7 @@ import { ConfirmHowDialog } from "./ConfirmHowDialog";
 import { RecipeLinesEditor } from "./RecipeLinesEditor";
 import { Card, Chip, GhostBtn } from "./ui";
 import { EmptyActionLink } from "@/components/restaurant/shell/EmptyActionLink";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import {
   useGroupedItemList,
@@ -319,7 +319,7 @@ export function PreparacionesScreen({
               Todavía no hay preparaciones. Se crean al subir tu Excel de
               costos, o desde un plato con «Crear preparación».{" "}
               <EmptyActionLink
-                href={`${COSTS_HREF}#${COSTS_FILE_ANCHOR}`}
+                href={costsTabHref("precios", {}, COSTS_FILE_ANCHOR)}
                 opensCostsPicker
                 className="font-semibold text-[#1B40C8] hover:underline"
               >
@@ -357,8 +357,7 @@ export function PreparacionesScreen({
           />
         ) : (
           <Card className="p-4 text-sm text-[#5b6476]">
-            Elige una preparación para revisar sus ingredientes, confirmar
-            cuánto rinde y aprobarla.
+            Elige una preparación.
           </Card>
         )}
       </div>

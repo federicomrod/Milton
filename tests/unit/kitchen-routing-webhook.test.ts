@@ -37,6 +37,7 @@ const {
   classify: vi.fn(),
 }));
 let transcript = "";
+let transcribeError: unknown = null;
 let questionId = 1000;
 
 vi.mock("next/server", async (importOriginal) => {
@@ -106,7 +107,14 @@ vi.mock("@/lib/restaurant/telegram/kitchen-recipe-drafts", async (orig) => {
 });
 vi.mock("openai", () => {
   class FakeOpenAI {
-    audio = { transcriptions: { create: async () => ({ text: transcript }) } };
+    audio = {
+      transcriptions: {
+        create: async () => {
+          if (transcribeError) throw transcribeError;
+          return { text: transcript };
+        },
+      },
+    };
   }
   return { default: FakeOpenAI, OpenAI: FakeOpenAI };
 });
@@ -310,6 +318,7 @@ beforeEach(() => {
   edits.length = 0;
   consoleCalls.length = 0;
   transcript = "";
+  transcribeError = null;
   resetOwnerChatGuidance();
   resetRoutingState();
   process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
@@ -812,6 +821,28 @@ describe("voice and text use the same question", () => {
     expect(invoices()[0].company_id).toBe("co-demo");
     expect(logged()).not.toContain("VOICE-SECRET");
     expect(logged()).not.toContain("tomate");
+  });
+
+  it("a voice note with the AI out of quota gets its own reply, not VOICE_UNREADABLE", async () => {
+    transcribeError = Object.assign(new Error("quota"), {
+      status: 429,
+      code: "insufficient_quota",
+    });
+    await msg({ voice: { file_id: "VOICE-SECRET", duration: 3 } });
+    await tap(optionData(0));
+    const texts = sent.map((s) => s.text);
+    expect(texts).toContain(KITCHEN_COPY.VOICE_AI_UNAVAILABLE);
+    expect(texts).not.toContain(KITCHEN_COPY.VOICE_UNREADABLE);
+    expect(invoices()).toHaveLength(0);
+  });
+
+  it("a voice note that fails for another reason still says it could not be heard", async () => {
+    transcribeError = new Error("boom");
+    await msg({ voice: { file_id: "VOICE-SECRET", duration: 3 } });
+    await tap(optionData(0));
+    const texts = sent.map((s) => s.text);
+    expect(texts).toContain(KITCHEN_COPY.VOICE_UNREADABLE);
+    expect(texts).not.toContain(KITCHEN_COPY.VOICE_AI_UNAVAILABLE);
   });
 
   it("a plain report word gets the ACK for the chosen local", async () => {

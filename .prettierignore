@@ -39,6 +39,9 @@ coverage
 # Generated files
 next-env.d.ts
 
+# The Expo app has its own package.json, tooling and checks
+apps/mobile
+
 # Playwright
 playwright-report
 test-results

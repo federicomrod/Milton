@@ -41,6 +41,10 @@ export const ALLOW: Record<string, string> = {
     "a cook redeems a single-use invite; the invite secret is the authority",
   "mobile/v1/kitchen/media/route.ts":
     "a cook uploads to their own location; the device token is the authority",
+  "mobile/v1/kitchen/uploads/route.ts":
+    "a cook asks to upload to their own location; the device token is the authority",
+  "mobile/v1/kitchen/uploads/complete/route.ts":
+    "a cook registers their own upload; the device token is the authority",
   "mobile/v1/kitchen/text/route.ts":
     "a cook reports to their own location; the device token is the authority",
   "mobile/v1/kitchen/logout/route.ts":

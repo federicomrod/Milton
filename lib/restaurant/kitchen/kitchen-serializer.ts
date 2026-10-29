@@ -37,6 +37,11 @@ const FREE_TEXT_KEYS = new Set([
   "invitee_name",
   "error",
   "message",
+  // Authored recipe text (steps, notes, descriptions).
+  "steps",
+  "note",
+  "notes",
+  "description",
 ]);
 
 // A string that IS an amount: «$12.50», «€ 3», «12,50 €», «3 USD». Anchored on
@@ -241,5 +246,64 @@ export function serializeKitchenDevice(row: Row, staffName: string | null) {
     lastSeenAt: strOrNull(p.last_seen_at),
     revokedAt: strOrNull(p.revoked_at),
     createdAt: str(p.created_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Direct uploads and recipes (mobile P1, #431)
+// ---------------------------------------------------------------------------
+
+export function serializeKitchenUploadTicket(input: {
+  reportId: string;
+  uploadUrl: string | null;
+  uploadToken: string | null;
+  path: string;
+  expiresInS: number;
+  duplicate: boolean;
+}) {
+  return {
+    reportId: input.reportId,
+    uploadUrl: input.uploadUrl,
+    uploadToken: input.uploadToken,
+    path: input.path,
+    expiresInS: input.expiresInS,
+    duplicate: input.duplicate,
+  };
+}
+
+/**
+ * A recipe as the cook sees it: name, category, yield, ingredients (name,
+ * quantity, unit) and steps. Whatever else the source rows carry (selling
+ * price, unit cost, cost source…) is dropped here.
+ */
+export function serializeKitchenRecipe(input: {
+  id: string;
+  name: string;
+  category: string | null;
+  description: string | null;
+  yield: { quantity: number; unit: string } | null;
+  ingredients: Array<{
+    name: string;
+    quantity: number;
+    unit: string;
+    note: string | null;
+  }>;
+  steps: string[];
+}) {
+  return {
+    id: str(input.id),
+    name: str(input.name),
+    category: strOrNull(input.category),
+    description: strOrNull(input.description),
+    yield: input.yield
+      ? { quantity: Number(input.yield.quantity), unit: str(input.yield.unit) }
+      : null,
+    ingredients: input.ingredients.map((i) => ({
+      name: str(i.name),
+      quantity: Number(i.quantity),
+      unit: str(i.unit),
+      note: strOrNull(i.note),
+    })),
+    steps: input.steps.map((s) => str(s)),
   };
 }

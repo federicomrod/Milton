@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     });
     if (!result.ok) {
       const r = REASON_RESPONSE[result.reason];
-      return kitchenJson({ error: r.error }, r.status);
+      return kitchenJson({ error: r.error, reason: result.reason }, r.status);
     }
     return kitchenJson(
       serializeKitchenRedeem({

@@ -6,6 +6,10 @@
 // channel "app". The same clientRef again returns the existing report and
 // stores nothing twice. AI processing of app items is a later PR.
 //
+// The app does NOT use this route: it sends files straight to Storage with
+// kitchen/uploads + kitchen/uploads/complete (mobile P1). This multipart route
+// stays for small files and tests.
+//
 // Size and type are checked before the bytes are handed to Storage. The
 // platform may cap request bodies below 25 MB; the app should send
 // compressed photos and short voice notes.
@@ -22,6 +26,7 @@ import { ingestKitchenMedia } from "@/lib/restaurant/kitchen/pipeline/ingest";
 import {
   KITCHEN_MEDIA_MAX_BYTES,
   KITCHEN_MEDIA_MIMES,
+  mimeMatchesKind,
 } from "@/lib/restaurant/kitchen/media-storage";
 import { serializeKitchenUpload } from "@/lib/restaurant/kitchen/kitchen-serializer";
 import { kitchenJson } from "@/lib/restaurant/kitchen/mobile-response";
@@ -32,14 +37,6 @@ export const runtime = "nodejs";
 // Room for the multipart envelope around a file at the size cap.
 const BODY_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_DURATION_S = 60 * 60;
-
-type MediaKind = "photo" | "voice" | "document";
-
-function mimeMatchesKind(kind: MediaKind, mime: string): boolean {
-  if (kind === "photo") return mime.startsWith("image/");
-  if (kind === "voice") return mime.startsWith("audio/");
-  return mime === "application/pdf";
-}
 
 export async function POST(request: NextRequest) {
   const auth = await authKitchenDevice(request);

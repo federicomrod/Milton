@@ -89,3 +89,104 @@ export async function createKitchenMediaSignedUrl(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Direct uploads from the app (mobile P1, #431)
+// ---------------------------------------------------------------------------
+// The phone PUTs the file straight to Storage with a signed upload URL, so the
+// bytes never go through our server (hosting caps request bodies far below
+// 25 MB). The server only hands out the URL and, afterwards, registers the
+// object it finds at that path.
+
+/** Supabase signed upload URLs are valid for two hours. */
+export const KITCHEN_MEDIA_SIGNED_UPLOAD_TTL_S = 2 * 60 * 60;
+
+export type KitchenMediaKind = "photo" | "voice" | "document";
+
+/** Does the mime type fit the kind of item the cook says they are sending? */
+export function mimeMatchesKind(kind: KitchenMediaKind, mime: string): boolean {
+  if (kind === "photo") return mime.startsWith("image/");
+  if (kind === "voice") return mime.startsWith("audio/");
+  return mime === "application/pdf";
+}
+
+const MEDIA_PATH_RE =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/\d{4}\/\d{2}\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([a-z0-9]{2,5})$/i;
+
+/** Splits a path built by buildKitchenMediaPath, or null if it is anything else. */
+export function parseKitchenMediaPath(
+  path: string
+): { companyId: string; locationId: string; mediaId: string } | null {
+  const m = MEDIA_PATH_RE.exec(path);
+  if (!m) return null;
+  return { companyId: m[1], locationId: m[2], mediaId: m[3] };
+}
+
+export type SignedUploadResult =
+  | { ok: true; signedUrl: string; token: string; path: string }
+  | { ok: false };
+
+/** One-shot signed upload URL for `path`. The URL and token are never logged. */
+export async function createKitchenMediaSignedUploadUrl(
+  admin: SupabaseClient,
+  path: string
+): Promise<SignedUploadResult> {
+  try {
+    // upsert: a retry after a dropped connection may PUT the same object again.
+    const { data, error } = await admin.storage
+      .from(KITCHEN_MEDIA_BUCKET)
+      .createSignedUploadUrl(path, { upsert: true });
+    if (error || !data?.signedUrl || !data.token) return { ok: false };
+    return {
+      ok: true,
+      signedUrl: data.signedUrl,
+      token: data.token,
+      path: data.path ?? path,
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+export type MediaObjectResult =
+  | { ok: true; exists: false }
+  | { ok: true; exists: true; sizeBytes: number | null }
+  | { ok: false };
+
+/** Does an object exist at `path`, and how big is it? */
+export async function getKitchenMediaObject(
+  admin: SupabaseClient,
+  path: string
+): Promise<MediaObjectResult> {
+  try {
+    const slash = path.lastIndexOf("/");
+    const folder = path.slice(0, slash);
+    const name = path.slice(slash + 1);
+    const { data, error } = await admin.storage
+      .from(KITCHEN_MEDIA_BUCKET)
+      .list(folder, { limit: 5, search: name });
+    if (error) return { ok: false };
+    const hit = (data ?? []).find((o) => o.name === name);
+    if (!hit) return { ok: true, exists: false };
+    const size = (hit.metadata as { size?: unknown } | null)?.size;
+    return {
+      ok: true,
+      exists: true,
+      sizeBytes: typeof size === "number" ? size : null,
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Best-effort delete of an object that must not stay (for example too big). */
+export async function removeKitchenMediaObject(
+  admin: SupabaseClient,
+  path: string
+): Promise<void> {
+  try {
+    await admin.storage.from(KITCHEN_MEDIA_BUCKET).remove([path]);
+  } catch {
+    console.error("[kitchen-media] remove failed");
+  }
+}

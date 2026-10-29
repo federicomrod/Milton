@@ -13,6 +13,10 @@ export interface FakeDb {
   tables: Record<string, Row[]>;
   writes: Array<{ table: string; op: string; payload: unknown }>;
   uploads: Array<{ path: string; bytes: number; contentType?: string }>;
+  /** Objects "already in Storage": path -> size in bytes. */
+  objects: Map<string, number>;
+  /** Paths a signed upload URL was issued for. */
+  signedUploads: string[];
   client: any;
 }
 
@@ -21,6 +25,8 @@ const UNIQUE: Record<string, string[][]> = {
   kitchen_invites: [["secret_hash"]],
   kitchen_devices: [["token_hash"]],
   kitchen_reports: [["staff_id", "client_ref"]],
+  // 067: storage_path UNIQUE and the partial (channel, source_ref) index.
+  kitchen_media: [["storage_path"], ["channel", "source_ref"]],
 };
 
 export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
@@ -30,6 +36,8 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
     ),
     writes: [],
     uploads: [],
+    objects: new Map(),
+    signedUploads: [],
     client: null,
   };
   const rowsOf = (t: string) => (db.tables[t] ??= []);
@@ -42,6 +50,7 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
     private max: number | null = null;
     private returning = false;
     private mode: "many" | "single" | "maybe" = "many";
+    private window: [number, number] | null = null;
 
     constructor(private table: string) {}
 
@@ -99,6 +108,34 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
     }
     lte(col: string, v: any) {
       this.filters.push((r) => r[col] != null && r[col] <= v);
+      return this;
+    }
+    // «a.eq.X,b.is.null» as PostgREST writes it; eq / is only.
+    or(expr: string) {
+      const parts = expr.split(",").map((p) => {
+        const [col, op, ...rest] = p.split(".");
+        const val = rest.join(".");
+        return (r: Row) =>
+          op === "is"
+            ? val === "null"
+              ? r[col] == null
+              : r[col] === val
+            : r[col] === val;
+      });
+      this.filters.push((r) => parts.some((f) => f(r)));
+      return this;
+    }
+    ilike(col: string, pattern: string) {
+      const needle = pattern.replace(/%/g, "").toLowerCase();
+      this.filters.push((r) =>
+        String(r[col] ?? "")
+          .toLowerCase()
+          .includes(needle)
+      );
+      return this;
+    }
+    range(from: number, to: number) {
+      this.window = [from, to];
       return this;
     }
     order(col: string, o?: { ascending?: boolean }) {
@@ -192,6 +229,8 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
         }
       }
 
+      if (this.window)
+        affected = affected.slice(this.window[0], this.window[1] + 1);
       if (this.max != null) affected = affected.slice(0, this.max);
       const isRead = this.op === "select";
       if (!isRead && !this.returning) return { data: null, error: null };
@@ -223,7 +262,34 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
           });
           return { data: { path }, error: null };
         },
-        remove: async () => ({ data: [], error: null }),
+        remove: async (paths: string[]) => {
+          for (const p of paths) db.objects.delete(p);
+          return { data: [], error: null };
+        },
+        createSignedUploadUrl: async (path: string) => {
+          db.signedUploads.push(path);
+          return {
+            data: {
+              signedUrl: `https://storage.example/upload/sign/${path}?token=SIGNED-TOKEN`,
+              token: "SIGNED-TOKEN",
+              path,
+            },
+            error: null,
+          };
+        },
+        list: async (folder: string, opts?: { search?: string }) => ({
+          data: [...db.objects.entries()]
+            .filter(
+              ([p]) =>
+                p.startsWith(`${folder}/`) &&
+                (!opts?.search || p.endsWith(opts.search))
+            )
+            .map(([p, size]) => ({
+              name: p.slice(folder.length + 1),
+              metadata: { size },
+            })),
+          error: null,
+        }),
         createSignedUrl: async () => ({
           data: { signedUrl: "https://signed.example/x" },
           error: null,

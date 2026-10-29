@@ -13,6 +13,7 @@ export default typescriptEslint.config(
       "build/**",
       ".turbo/**",
       "dist/**",
+      "apps/mobile/**",
     ],
   },
   js.configs.recommended,

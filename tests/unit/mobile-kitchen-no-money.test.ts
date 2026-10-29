@@ -90,6 +90,9 @@ import * as media from "@/app/api/mobile/v1/kitchen/media/route";
 import * as text from "@/app/api/mobile/v1/kitchen/text/route";
 import * as history from "@/app/api/mobile/v1/kitchen/history/route";
 import * as logout from "@/app/api/mobile/v1/kitchen/logout/route";
+import * as uploads from "@/app/api/mobile/v1/kitchen/uploads/route";
+import * as uploadsComplete from "@/app/api/mobile/v1/kitchen/uploads/complete/route";
+import * as recipes from "@/app/api/mobile/v1/kitchen/recipes/route";
 import * as invites from "@/app/api/mobile/v1/kitchen/invites/route";
 import * as inviteById from "@/app/api/mobile/v1/kitchen/invites/[id]/route";
 import * as devices from "@/app/api/mobile/v1/kitchen/devices/route";
@@ -166,6 +169,55 @@ const CASES: Record<string, () => Promise<Response[]>> = {
   ],
   "history/route.ts": async () => [
     await history.GET(jsonReq("history", "GET", DEVICE_TOKEN)),
+  ],
+  "uploads/route.ts": async () => [
+    await uploads.POST(
+      jsonReq("uploads", "POST", DEVICE_TOKEN, {
+        kind: "photo",
+        mime: "image/jpeg",
+        sizeBytes: 1000,
+        clientRef: "client-ref-upload-1",
+        text: "se acabó el limón",
+      })
+    ),
+    await uploads.POST(
+      jsonReq("uploads", "POST", DEVICE_TOKEN, {
+        kind: "photo",
+        mime: "image/jpeg",
+        sizeBytes: 1000,
+        clientRef: "client-ref-upload-1",
+      })
+    ),
+  ],
+  "uploads/complete/route.ts": async () => {
+    const ticket = await (
+      await uploads.POST(
+        jsonReq("uploads", "POST", DEVICE_TOKEN, {
+          kind: "photo",
+          mime: "image/jpeg",
+          sizeBytes: 1000,
+          clientRef: "client-ref-upload-2",
+        })
+      )
+    ).json();
+    h.state.db.objects.set(ticket.path, 1000);
+    const body = {
+      reportId: ticket.reportId,
+      clientRef: "client-ref-upload-2",
+      path: ticket.path,
+    };
+    return [
+      await uploadsComplete.POST(
+        jsonReq("uploads/complete", "POST", DEVICE_TOKEN, body)
+      ),
+      await uploadsComplete.POST(
+        jsonReq("uploads/complete", "POST", DEVICE_TOKEN, body)
+      ),
+    ];
+  },
+  "recipes/route.ts": async () => [
+    await recipes.GET(jsonReq("recipes", "GET", DEVICE_TOKEN)),
+    await recipes.GET(jsonReq("recipes?q=tacos", "GET", DEVICE_TOKEN)),
   ],
   "logout/route.ts": async () => [
     await logout.POST(jsonReq("logout", "POST", DEVICE_TOKEN)),
@@ -333,6 +385,55 @@ beforeEach(() => {
       },
     ],
     kitchen_media: [],
+    menu_items: [
+      {
+        id: "99990000-0000-4000-8000-000000000001",
+        company_id: CO,
+        location_id: LOC,
+        name: "Tacos al pastor",
+        category: "Platos",
+        description: null,
+        status: "active",
+        ...MONEY_ROW,
+      },
+    ],
+    recipe_versions: [
+      {
+        id: "99990000-0000-4000-8000-000000000002",
+        company_id: CO,
+        menu_item_id: "99990000-0000-4000-8000-000000000001",
+        version_number: 1,
+        status: "approved",
+        effective_date: null,
+        serving_quantity: 4,
+        serving_unit: "porciones",
+        notes: "Asar 8 minutos.",
+        ...MONEY_ROW,
+      },
+    ],
+    recipe_version_inputs: [
+      {
+        id: "99990000-0000-4000-8000-000000000003",
+        company_id: CO,
+        recipe_version_id: "99990000-0000-4000-8000-000000000002",
+        input_type: "ingredient",
+        ingredient_id: "99990000-0000-4000-8000-000000000004",
+        component_id: null,
+        quantity: 12,
+        unit: "pza",
+        notes: null,
+        ...MONEY_ROW,
+      },
+    ],
+    ingredients: [
+      {
+        id: "99990000-0000-4000-8000-000000000004",
+        company_id: CO,
+        name: "Tortilla",
+        ...MONEY_ROW,
+      },
+    ],
+    prepared_components: [],
   });
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});

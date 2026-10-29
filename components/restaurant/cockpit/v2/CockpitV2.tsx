@@ -26,7 +26,7 @@ import {
   explainMissingSalesTarget,
   type TargetRow,
 } from "@/lib/restaurant/objetivos";
-import { weekdayIndex } from "@/lib/restaurant/cockpit-math";
+import { cockpitSummaryLines } from "@/lib/restaurant/cockpit-insight";
 import {
   OBJECTIVES_HREF,
   SALES_DETAIL_HREF,
@@ -59,16 +59,6 @@ type CostState =
 
 // Kept for the session: coming back to the Cockpit does not read it again.
 const costCache = new Map<string, MixDayRow[]>();
-
-const WEEKDAYS_PLURAL = [
-  "lunes",
-  "martes",
-  "miércoles",
-  "jueves",
-  "viernes",
-  "sábados",
-  "domingos",
-];
 
 function ChipView({ c }: { c: Chip }) {
   const arrow = c.value > 0 ? "▲" : c.value < 0 ? "▼" : "=";
@@ -470,7 +460,14 @@ export function CockpitV2(props: CockpitV2Props) {
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
-          <p className="text-[13px] leading-relaxed">{insight.text}</p>
+          <ul
+            className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed"
+            data-testid="cockpit-milton-summary"
+          >
+            {insight.lines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
           <div className="mt-3">
             <a
               href={OBJECTIVES_HREF}
@@ -523,56 +520,13 @@ function missingGoalText(
   return "Sin objetivo de ventas.";
 }
 
-/** One short reading from real numbers only; nothing is said that was not computed. */
+/** The Milton box: lines from the daily bars; the button follows the days below objetivo. */
 function buildInsight(
   view: ReturnType<typeof computeCockpit>,
   hasTargets: boolean
-): { text: string; action: "days" | "targets" } {
-  const parts: string[] = [];
-  const base = view.avgChips.find((c) => c.key === "baseline");
-  if (base) {
-    const word = base.value >= 0 ? "sobre" : "bajo";
-    parts.push(
-      `Vas ${Math.abs(Math.round(base.value))}% ${word} tu promedio (${view.baselineLabel.replace("vs ", "")}).`
-    );
-  }
-  // Weekdays whose days with a target fall well short of it.
-  const byDay = new Map<number, number[]>();
-  for (const b of view.bars) {
-    if (b.deltaPct === null) continue;
-    const wd = weekdayIndex(b.date);
-    byDay.set(wd, [...(byDay.get(wd) ?? []), b.deltaPct]);
-  }
-  const weak = [...byDay.entries()]
-    .map(([wd, v]) => ({
-      wd,
-      avg: v.reduce((a, b) => a + b, 0) / v.length,
-      n: v.length,
-    }))
-    .filter((x) => x.n >= 2 && x.avg <= -10)
-    .sort((a, b) => a.avg - b.avg)
-    .slice(0, 2);
-  if (weak.length > 0) {
-    const names = weak.map((w) => WEEKDAYS_PLURAL[w.wd]).join(" y ");
-    parts.push(
-      `Los ${names} quedan bajo objetivo (${Math.round(weak[0].avg)}%).`
-    );
-  }
-  const target = view.costChips.find((c) => c.key === "target");
-  if (target && target.value !== 0) {
-    parts.push(
-      `El costo de comida está ${Math.abs(target.value)} pts ${target.value > 0 ? "sobre" : "bajo"} tu objetivo.`
-    );
-  }
-  if (parts.length === 0) {
-    parts.push(
-      hasTargets
-        ? "Aún no hay suficientes datos para una lectura."
-        : "Define tus objetivos y Milton te dice cómo vas contra ellos."
-    );
-  }
+): { lines: string[]; action: "days" | "targets" } {
   return {
-    text: parts.join(" "),
+    lines: cockpitSummaryLines(view, hasTargets),
     action: view.belowDays > 0 ? "days" : "targets",
   };
 }

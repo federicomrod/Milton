@@ -72,12 +72,13 @@ describe("Cuenta and Ajustes pages", () => {
   const settings = read("app/dashboard/settings/page.tsx");
   it("keep their content and drop the two buttons that were disabled forever", () => {
     for (const heading of [
-      "Información de la empresa",
       "Estado de la cuenta",
       "TelegramConnectionCard",
       "EmailBriefingCard",
     ])
       expect(account).toContain(heading);
+    expect(account).not.toContain("Información de la empresa");
+    expect(settings).toContain("Información de la empresa");
     expect(account).not.toContain("Administrar facturación");
     expect(account).not.toContain('href="/dashboard">');
   });

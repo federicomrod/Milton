@@ -96,7 +96,7 @@ describe("Resumen is the menu's cockpit", () => {
       "Ir a Costos →",
     ])
       expect(t).toContain(l);
-    expect(t).toContain("sobre ventas con costo · 2 de 20 platos");
+    expect(t).toContain("solo ventas con costo");
     expect(t).toContain("2 de 20 platos costeados");
     expect(t).not.toContain("Canal"); // channel per dish is not in the existing read
   });
@@ -126,10 +126,7 @@ describe("Resumen is the menu's cockpit", () => {
   });
   it("with 2 costed dishes: both margin cards show the empty state and «margen de 2 de 20 platos»; no $0 / 0% for a missing price", () => {
     expect(t).toContain("margen de 2 de 20 platos");
-    expect(t).toContain(
-      "Necesitas al menos 3 platos con costo para ver el top 3. Hoy solo hay 2."
-    );
-    expect(t).toContain("Sin ranking hasta que haya más platos costeados");
+    expect(t).toContain("Sin ranking hasta tener al menos 3 platos con costo.");
     expect(t).toContain("margen —");
     expect(partial).not.toMatch(/\$0(?![.,\d])/);
     expect(t).not.toContain(" 0%");
@@ -137,7 +134,7 @@ describe("Resumen is the menu's cockpit", () => {
   it("with 3+ costed dishes the rankings appear, only costed dishes", () => {
     const html = draw(dataWith(6, 20));
     const s = text(html);
-    expect(s).not.toContain("Necesitas al menos 3");
+    expect(s).not.toContain("Sin ranking hasta");
     expect(s).toContain("margen de 6 de 20 platos");
     // 3 + 3 ranked rows are costed dishes (Plato 0..5), never an uncosted one
     const best = text(

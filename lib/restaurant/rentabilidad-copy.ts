@@ -152,7 +152,7 @@ export function findingText(
     }
     case "days_below": {
       const { total, below, breakEven, weakestAvg } = f.amounts;
-      const be = `${money(breakEven)}, tu venta de equilibrio${f.estimated ? " (estimado)" : ""}`;
+      const be = `${money(breakEven)}, tu punto de equilibrio${f.estimated ? " (estimado)" : ""}`;
       const head =
         below > 0
           ? `${below} de ${total} días vendiste menos de ${be}.`

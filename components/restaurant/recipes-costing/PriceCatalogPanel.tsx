@@ -485,7 +485,7 @@ export const PriceCatalogPanel = forwardRef<
 
       {draftName ? (
         <p className="text-[12px] text-[#6b7385]">
-          Archivo: <b>{draftName}</b> · tus decisiones se guardan solas.
+          Archivo: <b>{draftName}</b>
         </p>
       ) : null}
 

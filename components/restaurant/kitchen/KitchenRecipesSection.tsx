@@ -6,6 +6,7 @@
 // the section opens the existing upload. The file input is never inside a
 // display:none ancestor.
 
+import { RECIPE_UPLOAD_INTRO } from "@/lib/restaurant/ui-copy";
 import { useRef, useState, type DragEvent } from "react";
 import { KitchenRecipeDraftsCard } from "./KitchenRecipeDraftsCard";
 import {
@@ -57,10 +58,7 @@ export function KitchenRecipesSection({
           </button>
         ) : null}
       </div>
-      <p className="text-sm text-muted-foreground">
-        Sube tus recetas en Excel, Word, PDF o foto. Milton prepara los
-        borradores y tú los apruebas.
-      </p>
+      <p className="text-sm text-muted-foreground">{RECIPE_UPLOAD_INTRO}</p>
       <RecipeUploadCard
         ref={uploadRef}
         embedded

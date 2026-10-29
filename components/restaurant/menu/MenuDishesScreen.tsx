@@ -7,6 +7,7 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
+import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
@@ -612,7 +613,7 @@ export function MenuDishesScreen({
               value={
                 k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"
               }
-              sub="sobre ventas con costo"
+              sub="solo ventas con costo"
               href={platosHref(["aprobado"])}
             />
             <Kpi
@@ -649,7 +650,7 @@ export function MenuDishesScreen({
             title={
               menu.stored
                 ? "Milton agrupó los productos del POS en platos del menú. Corrige con ⋯ › Mover variante."
-                : "Agrupación de Milton en pantalla. Para guardar cambios falta aplicar la migración 045 en este ambiente."
+                : NOT_AVAILABLE_YET
             }
           >
             ✦ Agrupado por Milton ·{" "}
@@ -824,8 +825,7 @@ export function MenuDishesScreen({
               </tbody>
             </table>
             <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
-              Doble clic en un plato para ver su desglose por tamaño,
-              acompañante, punto y canal
+              Doble clic en un plato para ver su desglose
             </p>
           </section>
         ) : null}

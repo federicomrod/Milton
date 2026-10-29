@@ -348,7 +348,7 @@ export function RentabilidadPage({
                 aria-label="Indicadores"
               >
                 <Kpi
-                  label="Venta de equilibrio por día"
+                  label="Punto de equilibrio por día"
                   value={
                     m.breakEvenPerDay !== null ? money(m.breakEvenPerDay) : "—"
                   }

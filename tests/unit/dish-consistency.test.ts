@@ -692,7 +692,7 @@ describe("«Crear versión nueva» on an approved recipe", () => {
     );
     expect(src).toContain("Crear versión nueva");
     expect(src).toContain(
-      "Receta aprobada · los precios se pueden cambiar; para cambiar cantidades crea una versión nueva"
+      "Receta aprobada · para cambiar cantidades, crea una versión nueva"
     );
   });
 });

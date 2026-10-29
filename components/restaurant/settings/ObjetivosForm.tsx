@@ -290,7 +290,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                   ? `= ${money(flatDaily)} por día (${dim} días)${weights && useSplit ? " · según el reparto por día de la semana" : ""}`
                   : legacyDaily !== null
                     ? `Objetivo diario anterior: ${money(legacyDaily)} por día`
-                    : ""}
+                    : "—"}
               </td>
               <td className="py-3 text-[12px] text-[#6b7385]">
                 {refs.avgMonthly6 !== null ? (

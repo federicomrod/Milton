@@ -90,7 +90,7 @@ describe("Rentabilidad copy", () => {
         { weekday: 2 }
       )
     ).toBe(
-      "7 de 26 días vendiste menos de $905, tu venta de equilibrio. Los martes son el día más flojo ($640 en promedio)."
+      "7 de 26 días vendiste menos de $905, tu punto de equilibrio. Los martes son el día más flojo ($640 en promedio)."
     );
     expect(
       t(
@@ -98,7 +98,7 @@ describe("Rentabilidad copy", () => {
         { total: 26, below: 0, breakEven: 905, weakestAvg: 1240 },
         { weekday: 2 }
       )
-    ).toMatch(/^Ningún día vendiste menos de \$905, tu venta de equilibrio\./);
+    ).toMatch(/^Ningún día vendiste menos de \$905, tu punto de equilibrio\./);
     expect(
       t(
         "days_below",
@@ -106,7 +106,7 @@ describe("Rentabilidad copy", () => {
         { estimated: true }
       )
     ).toBe(
-      "3 de 26 días vendiste menos de $905, tu venta de equilibrio (estimado)."
+      "3 de 26 días vendiste menos de $905, tu punto de equilibrio (estimado)."
     );
     expect(t("projection", { profit: 100 })).toBe(
       "Si sigues a este ritmo, cierras el mes con ganancia."

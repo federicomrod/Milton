@@ -6,6 +6,7 @@
 // «Equipo de cocina» (linked). Reuses the existing QR create endpoint and
 // KitchenQrResult / KitchenStaffCard / KitchenQrCard.
 
+import { KITCHEN_TELEGRAM_INTRO } from "@/lib/restaurant/ui-copy";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -356,10 +357,7 @@ export function KitchenConnectCard({
             <DialogHeader>
               <DialogTitle>Conecta tu cocina</DialogTitle>
               {qr ? (
-                <DialogDescription>
-                  Tu equipo escanea este código con Telegram y ya puede mandarte
-                  reportes y recetas por nota de voz.
-                </DialogDescription>
+                <DialogDescription>{KITCHEN_TELEGRAM_INTRO}</DialogDescription>
               ) : null}
             </DialogHeader>
             {qrBlock}
@@ -370,8 +368,8 @@ export function KitchenConnectCard({
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
             <DialogHeader>
               <DialogTitle>Equipo de cocina</DialogTitle>
-              <DialogDescription>
-                Personal de cocina que se unió escaneando un QR.
+              <DialogDescription className="sr-only">
+                Equipo de cocina
               </DialogDescription>
             </DialogHeader>
             <KitchenStaffCard canManage={canManage} locations={locations} />
@@ -403,10 +401,7 @@ export function KitchenConnectCard({
         </div>
       ) : null}
       {qr ? (
-        <p className="text-sm text-[#0D1117]">
-          Tu equipo escanea este código con Telegram y ya puede mandarte
-          reportes y recetas por nota de voz.
-        </p>
+        <p className="text-sm text-[#0D1117]">{KITCHEN_TELEGRAM_INTRO}</p>
       ) : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {qr ? (

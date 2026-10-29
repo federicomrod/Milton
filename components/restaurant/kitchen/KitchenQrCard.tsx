@@ -106,9 +106,9 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
               <div className="font-medium">{loc.name}</div>
               <div className="text-xs text-muted-foreground">
                 {loc.has_active_qr
-                  ? `QR activo desde ${new Date(loc.qr_created_at ?? "").toLocaleDateString("es-MX")}`
-                  : "Aún no hay QR"}{" "}
-                · {loc.active_staff_count}{" "}
+                  ? `Desde ${new Date(loc.qr_created_at ?? "").toLocaleDateString("es-MX")} · `
+                  : ""}
+                {loc.active_staff_count}{" "}
                 {loc.active_staff_count === 1
                   ? "cocinero activo"
                   : "cocineros activos"}
@@ -129,9 +129,7 @@ export function KitchenQrCard({ canManage }: { canManage: boolean }) {
                       : void createOrRotate(loc)
                   }
                 >
-                  {loc.has_active_qr
-                    ? "Rotar QR (la hoja vieja deja de servir)"
-                    : "Crear QR"}
+                  {loc.has_active_qr ? "Rotar QR" : "Crear QR"}
                 </Button>
               )}
             </div>

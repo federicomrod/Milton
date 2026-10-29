@@ -276,9 +276,7 @@ function Kpis({
         k.food_cost_pct !== null
           ? `${Math.round(k.food_cost_pct)}%`
           : "Sin precio",
-      sub: allCosted
-        ? "sobre el 100% de ventas"
-        : `sobre ventas con costo · ${costed} de ${k.dish_count} platos`,
+      sub: allCosted ? "sobre el 100% de ventas" : "solo ventas con costo",
       href: platosHref(["aprobado"]),
     },
     {
@@ -392,14 +390,13 @@ function TopPlatos({ view }: { view: ResumenView }) {
     >
       <div className="flex items-baseline">
         <h2 className="text-[13px] font-bold">Top platos por ventas</h2>
-        <span className="ml-auto text-[12px] text-[#8a92a3]">
-          % de ventas · clic para abrir el plato
-        </span>
+        <span className="ml-auto text-[12px] text-[#8a92a3]">% de ventas</span>
       </div>
       {view.top.map((d) => (
         <Link
           key={d.id}
           href={dishHrefOf(d)}
+          title="Abrir el plato"
           className="flex items-center gap-2 border-t border-[#f2f3f6] py-1.5 text-[13px] first:mt-1 hover:bg-[#f7f9ff]"
         >
           <span className="w-[190px] shrink-0 truncate">{d.name}</span>
@@ -485,9 +482,7 @@ function MarginCard({
       </div>
       {!r.enough ? (
         <div className="rounded-[10px] border border-dashed border-[#d5dae3] px-2.5 py-2 text-[12.5px] text-[#6b7385]">
-          {kind === "best"
-            ? `Necesitas al menos ${MIN} platos con costo para ver el top ${MIN}. Hoy ${r.costed === 1 ? "solo hay 1" : `solo hay ${r.costed}`}.`
-            : "Sin ranking hasta que haya más platos costeados. Los platos sin costo nunca cuentan como $0."}
+          {`Sin ranking hasta tener al menos ${MIN} platos con costo.`}
           <br />
           <Link
             href={missingLink.href}

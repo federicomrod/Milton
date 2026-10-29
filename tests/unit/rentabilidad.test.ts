@@ -71,7 +71,7 @@ describe("Rentabilidad: the October sample", () => {
     expect((r.monthTotals.marginPct ?? 0) * 100).toBeCloseTo(67.7, 1);
   });
 
-  it("Ganancia hasta ayer, proyección, venta de equilibrio, costo primo", () => {
+  it("Ganancia hasta ayer, proyección, punto de equilibrio, costo primo", () => {
     expect(r.profitToDate).toBeCloseTo(800.5, 1);
     expect(Math.round(r.profitToDate ?? 0)).toBe(801);
     expect(Math.round(r.profit ?? 0)).toBe(9218);
@@ -380,7 +380,7 @@ describe("Findings and business day", () => {
       openDays: 30,
     });
 
-  it("days_below: counts actual days under the venta de equilibrio and the weakest weekday", () => {
+  it("days_below: counts actual days under the punto de equilibrio and the weakest weekday", () => {
     const f = miltonFindings(sample()).find((x) => x.kind === "days_below")!;
     expect(f.amounts.total).toBe(26);
     // break-even $1,983: days under it are the weak ones

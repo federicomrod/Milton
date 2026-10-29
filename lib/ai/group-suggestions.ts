@@ -3,6 +3,7 @@
 // against what was sent (lib/restaurant/groups/ai-clusters.ts).
 
 import { openai } from "@/lib/openai-client";
+import { runChat, unwrapAi } from "./call";
 import {
   MAX_AI_ITEMS,
   aiPrompt,
@@ -26,15 +27,21 @@ export async function suggestGroupsWithAi(input: {
   const items = input.items.slice(0, MAX_AI_ITEMS);
   if (items.length < 4) return { ok: true, clusters: [] };
   const { system, user } = aiPrompt(input.scope, items);
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
+  const completion = unwrapAi(
+    await runChat({
+      feature: "group-suggestions",
+      client: openai,
+      params: {
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      },
+    })
+  );
   const raw = completion?.choices?.[0]?.message?.content ?? "{}";
   let parsed: unknown = {};
   try {

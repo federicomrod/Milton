@@ -17,6 +17,7 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
+import { runChat } from "@/lib/ai/call";
 import {
   currencyCodeFromText,
   hasCurrencyMention,
@@ -59,8 +60,11 @@ Reglas estrictas:
 export const askPriceAi: PriceAi = async (text) => {
   const made = await createOpenAIClient(PRICE_AI_TIMEOUT_MS);
   if (!made.ok) return null;
-  try {
-    const completion = await made.client.chat.completions.create({
+  const result = await runChat({
+    feature: "price-update",
+    client: made.client,
+    timeoutMs: PRICE_AI_TIMEOUT_MS,
+    params: {
       model: openAiModel(),
       temperature: 0,
       max_tokens: 2000,
@@ -69,8 +73,14 @@ export const askPriceAi: PriceAi = async (text) => {
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: text.slice(0, PRICE_AI_TEXT_CHARS) },
       ],
-    });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    },
+  });
+  if (!result.ok) {
+    console.error("[price-update-ai] call failed");
+    return null;
+  }
+  try {
+    const raw = result.value.choices?.[0]?.message?.content ?? "";
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {

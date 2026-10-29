@@ -4,6 +4,7 @@
 // imports can classify a sheet without an HTTP hop.
 
 import { openai } from "@/lib/openai-client";
+import { runChat, unwrapAi } from "./call";
 
 export interface DatasetClassification {
   detectedTable: string;
@@ -49,14 +50,20 @@ Sample rows (first 3):
 ${JSON.stringify(sampleRows.slice(0, 3), null, 2)}
 `;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0.3,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  const completion = unwrapAi(
+    await runChat({
+      feature: "dataset-classifier",
+      client: openai,
+      params: {
+        model: "gpt-4o-mini",
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+    })
+  );
 
   const rawContent = completion?.choices?.[0]?.message?.content ?? "{}";
   const cleanedContent = rawContent
@@ -77,8 +84,8 @@ ${JSON.stringify(sampleRows.slice(0, 3), null, 2)}
         : [],
       notes: typeof result.notes === "string" ? result.notes : undefined,
     };
-  } catch (parseErr) {
-    console.error("Failed to parse classifier output:", rawContent, parseErr);
+  } catch {
+    console.error("[dataset-classifier] AI output was not valid JSON");
     return {
       detectedTable: "unknown",
       confidence: 0,

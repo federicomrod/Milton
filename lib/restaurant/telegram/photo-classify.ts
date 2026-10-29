@@ -4,6 +4,8 @@
 // from the kitchen is: a supplier invoice, a paper recipe, or something else.
 // Never throws. Never logs the image, the model output or any content.
 
+import { runChat } from "@/lib/ai/call";
+
 export type KitchenPhotoKind = "invoice" | "recipe" | "other";
 export type KitchenPhotoConfidence = "high" | "medium" | "low";
 
@@ -30,16 +32,11 @@ export async function classifyKitchenPhoto(
   }, timeoutMs);
 
   try {
-    const mod = await import("openai");
-    const Ctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-    const client = new Ctor({
-      apiKey: process.env.OPENAI_API_KEY,
-      maxRetries: 0,
-    });
-    const completion = await client.chat.completions.create(
-      {
+    const result = await runChat({
+      feature: "photo-classify",
+      signal: controller.signal,
+      timeoutMs,
+      params: {
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
         temperature: 0,
         max_tokens: 40,
@@ -55,9 +52,15 @@ export async function classifyKitchenPhoto(
           },
         ],
       },
-      { signal: controller.signal }
-    );
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    });
+    if (!result.ok) {
+      console.error("[photo-classify] failed:", result.kind);
+      return {
+        ok: false,
+        reason: timedOut || result.kind === "timeout" ? "timeout" : "upstream",
+      };
+    }
+    const raw = result.value.choices?.[0]?.message?.content ?? "";
     const parsed = JSON.parse(raw) as { kind?: unknown; confidence?: unknown };
     const kind = parsed.kind;
     const confidence = parsed.confidence;

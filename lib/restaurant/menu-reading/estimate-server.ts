@@ -17,6 +17,7 @@
 // version stays in review. A Sin receta plato with no draft gets the same
 // empty menu-draft shell «Leer tu menú» writes, then the lines.
 
+import { runChat, unwrapAi } from "@/lib/ai/call";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { latestCostEntry } from "@/lib/restaurant/costing";
 import {
@@ -123,43 +124,37 @@ export interface EstimateAiInput {
 }
 export type EstimateAi = (input: EstimateAiInput) => Promise<unknown>;
 
-export function createOpenAiEstimator(): EstimateAi {
-  // One client for the whole run (the calls run a few at a time).
-  let clientPromise: Promise<import("openai").OpenAI> | null = null;
-  const getClient = () =>
-    (clientPromise ??= import("openai").then((mod) => {
-      const OpenAI =
-        mod.OpenAI ??
-        (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-      // One try per call: the single retry (without the photo) is ours.
-      return new OpenAI({
-        apiKey: process.env.OPENAI_API_KEY,
-        timeout: AI_TIMEOUT_MS,
-        maxRetries: 0,
-      });
-    }));
+export function createOpenAiEstimator(companyId?: string | null): EstimateAi {
+  // One try per call (the wrapper never retries): the single retry (without
+  // the photo) is ours.
   return async ({ system, user, imageUrl }) => {
-    const client = await getClient();
-    const completion = await client.chat.completions.create({
-      model: MENU_AI_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: imageUrl
-            ? [
-                { type: "text", text: user },
-                {
-                  type: "image_url",
-                  image_url: { url: imageUrl, detail: "low" },
-                },
-              ]
-            : user,
+    const completion = unwrapAi(
+      await runChat({
+        feature: "menu-estimate",
+        companyId,
+        timeoutMs: AI_TIMEOUT_MS,
+        params: {
+          model: MENU_AI_MODEL,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            {
+              role: "user",
+              content: imageUrl
+                ? [
+                    { type: "text", text: user },
+                    {
+                      type: "image_url",
+                      image_url: { url: imageUrl, detail: "low" },
+                    },
+                  ]
+                : user,
+            },
+          ],
         },
-      ],
-    });
+      })
+    );
     return completion.choices?.[0]?.message?.content ?? "";
   };
 }
@@ -1036,7 +1031,7 @@ export async function estimateDishes(
       supabase,
       companyId: params.companyId,
       userId: params.userId,
-      ai: params.ai ?? createOpenAiEstimator(),
+      ai: params.ai ?? createOpenAiEstimator(params.companyId),
       catalog,
       context: { country, currency: currency || "USD" },
       catalogNames: catalog.ingredients.map((i) => ({

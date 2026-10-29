@@ -2,6 +2,8 @@
 // says: dish names, prices, sizes, and what the description puts on the
 // plate. Never quantities, never costs. Its answer is checked here.
 
+import { runChat, unwrapAi } from "@/lib/ai/call";
+
 export const MENU_AI_MODEL = "gpt-4o-mini";
 /** Characters of menu text per AI call. */
 export const MENU_CHUNK_CHARS = 12_000;
@@ -161,25 +163,24 @@ function dedupe(dishes: MenuDish[]): MenuDish[] {
   });
 }
 
-export function createOpenAiMenuReader(): MenuAi {
+export function createOpenAiMenuReader(companyId?: string | null): MenuAi {
   return async (chunk) => {
-    const mod = await import("openai");
-    const OpenAI =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-    const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 90_000,
-    });
-    const completion = await client.chat.completions.create({
-      model: MENU_AI_MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `Menú:\n${chunk}` },
-      ],
-    });
+    const completion = unwrapAi(
+      await runChat({
+        feature: "menu-read",
+        companyId,
+        timeoutMs: 90_000,
+        params: {
+          model: MENU_AI_MODEL,
+          temperature: 0,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: `Menú:\n${chunk}` },
+          ],
+        },
+      })
+    );
     return completion.choices?.[0]?.message?.content ?? "";
   };
 }

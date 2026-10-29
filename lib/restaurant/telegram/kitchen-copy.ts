@@ -85,6 +85,8 @@ export const KITCHEN_COPY = {
     "Procesé los primeros {n} precios. No procesé: {productos}. Mándalos en otro mensaje.",
   /** The voice note could not be transcribed (download, key, timeout or empty). */
   VOICE_UNREADABLE: "No pude escuchar el audio. Mándalo otra vez o escríbelo.",
+  VOICE_AI_UNAVAILABLE:
+    "Milton no puede escuchar audios ahora mismo. Escríbelo o inténtalo más tarde.",
   /** The price was understood but could not be saved to the database. */
   PRICE_SAVE_FAILED:
     "No pude guardar el precio. Vuelve a mandarlo en un momento.",

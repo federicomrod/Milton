@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 import { openai } from "@/lib/openai-client";
+import { runChat, unwrapAi } from "@/lib/ai/call";
 import { nameKey, parseCostImportNumber } from "@/lib/restaurant/cost-import";
 import type { GroupedRecipe, RecipeLineCandidate } from "./types";
 
@@ -293,14 +294,20 @@ ${JSON.stringify(dishes)}
 
 Responde JSON o exactamente: sin sugerencia`;
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  });
+  const completion = unwrapAi(
+    await runChat({
+      feature: "cost-workbook-propose",
+      client: openai,
+      params: {
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      },
+    })
+  );
   const content = completion?.choices?.[0]?.message?.content?.trim() ?? "";
   if (!content || content === SIN_SUGERENCIA) return SIN_SUGERENCIA;
   const parsed = parseAiJson(content);

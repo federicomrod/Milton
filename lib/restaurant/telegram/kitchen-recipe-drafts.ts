@@ -13,6 +13,7 @@ import {
   createOpenAIClient,
   openAiModel,
 } from "@/lib/restaurant/openai-client";
+import { runChat, runTranscription } from "@/lib/ai/call";
 import { mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
 import {
   findExactIngredient,
@@ -275,15 +276,20 @@ function buildExtractionUserPrompt(
 
 async function callOpenAIVision(
   imageDataUrl: string,
-  caption: string | null
+  caption: string | null,
+  companyId: string
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
   const made = await createOpenAIClient(30000);
   if (!made.ok) return { ok: false, error: made.error };
   const client = made.client;
   const model = openAiModel();
 
-  try {
-    const completion = await client.chat.completions.create({
+  const result = await runChat({
+    feature: "recipe-draft-vision",
+    companyId,
+    client,
+    timeoutMs: 30000,
+    params: {
       model,
       temperature: 0,
       response_format: { type: "json_object" },
@@ -300,7 +306,14 @@ async function callOpenAIVision(
           ],
         },
       ],
-    });
+    },
+  });
+  if (!result.ok) {
+    console.error("[recipe-drafts] vision call failed");
+    return { ok: false, error: "Vision call failed" };
+  }
+  try {
+    const completion = result.value;
     const raw = completion.choices?.[0]?.message?.content ?? "";
     if (!raw) {
       return { ok: false, error: "No content" };
@@ -317,38 +330,45 @@ async function callOpenAIVision(
 }
 
 async function transcribeVoice(
-  audioBytes: Buffer
+  audioBytes: Buffer,
+  companyId: string
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const made = await createOpenAIClient(20000);
   if (!made.ok) return { ok: false, error: made.error };
   const client = made.client;
 
-  try {
-    const uint8Array = new Uint8Array(audioBytes);
-    const blob = new Blob([uint8Array], { type: "audio/ogg" });
-    const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
-    const transcription = await client.audio.transcriptions.create({
-      file,
-      model: "whisper-1",
-      language: "es",
-    });
-    return { ok: true, text: transcription.text };
-  } catch (err) {
+  const uint8Array = new Uint8Array(audioBytes);
+  const blob = new Blob([uint8Array], { type: "audio/ogg" });
+  const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
+  const transcription = await runTranscription({
+    feature: "recipe-draft-voice",
+    companyId,
+    client,
+    timeoutMs: 20000,
+    params: { file, model: "whisper-1", language: "es" },
+  });
+  if (!transcription.ok) {
     console.error("[recipe-drafts] voice processing failed");
     return { ok: false, error: "Transcription failed" };
   }
+  return { ok: true, text: transcription.value.text };
 }
 
 async function extractFromText(
-  text: string
+  text: string,
+  companyId: string
 ): Promise<{ ok: true; data: ExtractedRecipe } | { ok: false; error: string }> {
   const made = await createOpenAIClient(20000);
   if (!made.ok) return { ok: false, error: made.error };
   const client = made.client;
   const model = openAiModel();
 
-  try {
-    const completion = await client.chat.completions.create({
+  const result = await runChat({
+    feature: "recipe-draft-text",
+    companyId,
+    client,
+    timeoutMs: 20000,
+    params: {
       model,
       temperature: 0,
       response_format: { type: "json_object" },
@@ -359,7 +379,14 @@ async function extractFromText(
           content: `${buildExtractionUserPrompt(text, false)}\n\n${text}`,
         },
       ],
-    });
+    },
+  });
+  if (!result.ok) {
+    console.error("[recipe-drafts] extraction failed");
+    return { ok: false, error: "Text extraction failed" };
+  }
+  try {
+    const completion = result.value;
     const raw = completion.choices?.[0]?.message?.content ?? "";
     if (!raw) {
       return { ok: false, error: "No content" };
@@ -744,7 +771,11 @@ export async function extractAndCreateRecipeDraft(
       }
       const buffer = Buffer.concat(chunks);
       const dataUrl = `data:image/jpeg;base64,${buffer.toString("base64")}`;
-      const result = await callOpenAIVision(dataUrl, input.text);
+      const result = await callOpenAIVision(
+        dataUrl,
+        input.text,
+        input.companyId
+      );
       if (result.ok) {
         extracted = result.data;
         if (parsedPortions !== null) {
@@ -755,7 +786,7 @@ export async function extractAndCreateRecipeDraft(
   } else if (input.text) {
     // Voice is transcribed once in the webhook after() work and passed here
     // as text, so we must not transcribe again.
-    const result = await extractFromText(input.text);
+    const result = await extractFromText(input.text, input.companyId);
     if (result.ok) {
       extracted = result.data;
       if (extracted.portions == null && parsedPortions !== null) {
@@ -776,9 +807,12 @@ export async function extractAndCreateRecipeDraft(
         done = readerDone;
       }
       const buffer = Buffer.concat(chunks);
-      const transcription = await transcribeVoice(buffer);
+      const transcription = await transcribeVoice(buffer, input.companyId);
       if (transcription.ok && transcription.text) {
-        const result = await extractFromText(transcription.text);
+        const result = await extractFromText(
+          transcription.text,
+          input.companyId
+        );
         if (result.ok) {
           extracted = result.data;
           const fromTranscript = parsePortions(transcription.text);

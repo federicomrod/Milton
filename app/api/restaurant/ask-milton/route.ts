@@ -42,6 +42,12 @@ import {
 } from "@/lib/restaurant/ask-milton-prompt";
 import { resolveAskMiltonAnswer } from "@/lib/restaurant/ask-milton-ground";
 import { generateSuggestedActions } from "@/lib/restaurant/ask-milton-actions";
+import {
+  aiUnavailableFor,
+  logAiFallback,
+  runChat,
+  type AiUnavailable,
+} from "@/lib/ai/call";
 import { ASK_MILTON_MAX_FOLLOWUPS } from "@/lib/restaurant/ask-milton-limits";
 
 export const dynamic = "force-dynamic";
@@ -77,32 +83,24 @@ function parseConversation(raw: unknown): AskMiltonChatTurn[] {
 // OpenAI caller — isolated so any failure cleanly falls back.
 // ---------------------------------------------------------------------------
 
+interface OpenAICallOutcome {
+  answer: AskMiltonAnswer | null;
+  unavailable: AiUnavailable;
+}
+
 async function callOpenAI(
+  companyId: string,
   ctx: AskMiltonContext,
   message: string,
   conversation: AskMiltonChatTurn[],
   intent: AskMiltonIntent,
   resolved: ResolvedEntities
-): Promise<AskMiltonAnswer | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch (err) {
-    console.error("[ask-milton] openai sdk import failed:", err);
-    return null;
-  }
-  if (!OpenAIctor) return null;
-
+): Promise<OpenAICallOutcome> {
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
-
-  try {
-    const completion = await client.chat.completions.create({
+  const result = await runChat({
+    feature: "ask-milton",
+    companyId,
+    params: {
       model,
       messages: [
         { role: "system", content: ASK_MILTON_SYSTEM_PROMPT },
@@ -119,24 +117,42 @@ async function callOpenAI(
       ],
       temperature: 0.2,
       response_format: { type: "json_object" },
+    },
+  });
+  if (!result.ok) {
+    if (result.kind !== "not_configured") {
+      console.error("[ask-milton] openai call failed:", result.kind);
+    }
+    return { answer: null, unavailable: aiUnavailableFor(result) };
+  }
+
+  const fallback = (): OpenAICallOutcome => {
+    logAiFallback({
+      feature: "ask-milton",
+      companyId,
+      model,
+      kind: "bad_output",
     });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
-    if (!raw) {
-      console.error("[ask-milton] openai returned empty content");
-      return null;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      console.error("[ask-milton] openai response was not valid JSON:", err);
-      return null;
-    }
-    if (!isAskMiltonAnswer(parsed)) {
-      console.error("[ask-milton] openai response failed schema validation");
-      return null;
-    }
-    return {
+    return { answer: null, unavailable: null };
+  };
+  const raw = result.value.choices?.[0]?.message?.content ?? "";
+  if (!raw) {
+    console.error("[ask-milton] openai returned empty content");
+    return fallback();
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error("[ask-milton] openai response was not valid JSON");
+    return fallback();
+  }
+  if (!isAskMiltonAnswer(parsed)) {
+    console.error("[ask-milton] openai response failed schema validation");
+    return fallback();
+  }
+  return {
+    answer: {
       answer: parsed.answer,
       supporting_facts: parsed.supporting_facts.slice(0, 6),
       related_links: sanitizeRelatedLinks(parsed.related_links),
@@ -145,14 +161,9 @@ async function callOpenAI(
         ASK_MILTON_MAX_FOLLOWUPS
       ),
       confidence_notes: parsed.confidence_notes.slice(0, 3),
-    };
-  } catch (err) {
-    console.error(
-      "[ask-milton] openai call failed:",
-      err instanceof Error ? err.message : err
-    );
-    return null;
-  }
+    },
+    unavailable: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -227,7 +238,8 @@ export async function POST(req: NextRequest) {
   // Resolve follow-up references now that we have the context.
   const resolved = resolveFollowupReferences(message, conversation, ctx);
 
-  const aiAnswer = await callOpenAI(
+  const { answer: aiAnswer, unavailable } = await callOpenAI(
+    companyId,
     ctx,
     message,
     conversation,
@@ -253,5 +265,6 @@ export async function POST(req: NextRequest) {
     generated_at: new Date().toISOString(),
     ...answer,
     suggested_actions,
+    ai_unavailable: unavailable,
   });
 }

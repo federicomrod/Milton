@@ -17,6 +17,7 @@
 // Nothing here writes ingredient_cost_entries: the invoice always lands in
 // status 'needs_review' and a human approves it in the normal flow.
 
+import { runChat } from "@/lib/ai/call";
 import {
   findExactIngredient,
   findSynonymIngredient,
@@ -81,6 +82,8 @@ export interface ExtractInvoiceOptions {
   signal?: AbortSignal;
   /** Own timeout. Default 40 s. */
   timeoutMs?: number;
+  /** For the AI usage log only. */
+  companyId?: string | null;
   /** Language of the model's free-text notes (default: as the invoice is written). */
   notesLanguage?: "es";
 }
@@ -96,30 +99,7 @@ export async function extractInvoiceFromImage(
     };
   }
 
-  let OpenAIctor: typeof import("openai").OpenAI;
-  try {
-    const mod = await import("openai");
-    OpenAIctor =
-      mod.OpenAI ??
-      (mod as unknown as { default: typeof import("openai").OpenAI }).default;
-  } catch {
-    console.error("[invoice-draft] openai sdk import failed");
-    return {
-      ok: false,
-      reason: "sdk_unavailable",
-      message: "Could not load OpenAI SDK on the server.",
-    };
-  }
-  if (!OpenAIctor) {
-    return {
-      ok: false,
-      reason: "sdk_unavailable",
-      message: "OpenAI SDK is unavailable.",
-    };
-  }
-
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const client = new OpenAIctor({ apiKey: process.env.OPENAI_API_KEY });
 
   const controller = new AbortController();
   let timedOut = false;
@@ -134,8 +114,12 @@ export async function extractInvoiceFromImage(
   }
 
   try {
-    const completion = await client.chat.completions.create(
-      {
+    const result = await runChat({
+      feature: "invoice-extract",
+      companyId: opts.companyId,
+      signal: controller.signal,
+      timeoutMs: opts.timeoutMs ?? DEFAULT_VISION_TIMEOUT_MS,
+      params: {
         model,
         temperature: 0,
         response_format: { type: "json_object" },
@@ -159,8 +143,24 @@ export async function extractInvoiceFromImage(
           },
         ],
       },
-      { signal: controller.signal }
-    );
+    });
+    if (!result.ok) {
+      if (timedOut || result.kind === "timeout") {
+        console.error("[invoice-draft] openai call timed out");
+        return {
+          ok: false,
+          reason: "timeout",
+          message: "OpenAI call failed: request timed out",
+        };
+      }
+      console.error("[invoice-draft] openai call failed:", result.kind);
+      return {
+        ok: false,
+        reason: "upstream",
+        message: `OpenAI call failed: ${result.message ?? result.kind}`,
+      };
+    }
+    const completion = result.value;
     const raw = completion.choices?.[0]?.message?.content ?? "";
     if (!raw) {
       return {

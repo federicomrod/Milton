@@ -24,6 +24,7 @@
 // belongs/belonged to on a failed pairing attempt — every failure branch
 // replies with a generic, bilingual, identity-free message.
 
+import { aiUnavailableFor, runTranscription } from "@/lib/ai/call";
 import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumePairingCode } from "@/lib/restaurant/telegram/pairing";
@@ -1274,6 +1275,7 @@ async function processRecipeDraftAsync(
     }
 
     let finalTextContent = textContent;
+    let voiceAiUnavailable = false;
 
     if (mediaKind === "voice" && telegramFileId && !finalTextContent) {
       const { openTelegramFile } =
@@ -1293,21 +1295,17 @@ async function processRecipeDraftAsync(
         const blob = new Blob([uint8Array], { type: "audio/ogg" });
         const file = new File([blob], "voice.ogg", { type: "audio/ogg" });
 
-        try {
-          const { default: OpenAI } = await import("openai");
-          const client = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-            timeout: 20000,
-            maxRetries: 0,
-          });
-          const transcription = await client.audio.transcriptions.create({
-            file,
-            model: "whisper-1",
-            language: "es",
-          });
-          finalTextContent = transcription.text ?? "";
-        } catch (err) {
+        const transcription = await runTranscription({
+          feature: "telegram-voice",
+          companyId: staff.company_id,
+          timeoutMs: 20000,
+          params: { file, model: "whisper-1", language: "es" },
+        });
+        if (transcription.ok) {
+          finalTextContent = transcription.value.text ?? "";
+        } else {
           console.error("[telegram-webhook] voice processing failed");
+          voiceAiUnavailable = aiUnavailableFor(transcription) === "quota";
         }
       }
     }
@@ -1322,7 +1320,13 @@ async function processRecipeDraftAsync(
     const logCtx = { origin, len: finalTextContent.length };
     if (mediaKind === "voice" && !finalTextContent.trim()) {
       logPriceRoute(logCtx, "transcribe_failed", undefined, false);
-      await say(chatId, KITCHEN_COPY.VOICE_UNREADABLE, opts.markup);
+      await say(
+        chatId,
+        voiceAiUnavailable
+          ? KITCHEN_COPY.VOICE_AI_UNAVAILABLE
+          : KITCHEN_COPY.VOICE_UNREADABLE,
+        opts.markup
+      );
       return;
     }
 

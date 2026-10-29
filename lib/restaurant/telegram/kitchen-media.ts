@@ -383,6 +383,7 @@ export async function processInvoicePhoto(
 
   const extracted = await extractInvoiceFromImage({
     dataUrl,
+    companyId: staff.company_id,
     timeoutMs: 45_000,
     notesLanguage: "es",
   });

@@ -96,8 +96,9 @@ export async function GET(req: NextRequest) {
   let ctx: BriefingContext;
   let briefing: Awaited<ReturnType<typeof generateBriefing>>["briefing"];
   let source: "openai" | "deterministic";
+  let ai_unavailable: "quota" | null;
   try {
-    ({ ctx, briefing, source } = await generateBriefing(
+    ({ ctx, briefing, source, ai_unavailable } = await generateBriefing(
       supabase,
       companyId,
       selected
@@ -113,6 +114,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     source,
+    ai_unavailable,
     generated_at: new Date().toISOString(),
     context_summary: buildContextSummary(ctx),
     briefing,

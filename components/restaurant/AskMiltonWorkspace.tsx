@@ -39,6 +39,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { withLocationParam } from "@/components/restaurant/RestaurantShell";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  AI_UNAVAILABLE_COPY,
+  AI_UNAVAILABLE_COPY_EN,
+} from "@/lib/ai/unavailable-copy";
 import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 import {
   ASK_MILTON_MAX_FOLLOWUPS,
@@ -125,6 +129,7 @@ function suggestedQuestions(lang: PreferredLanguage): string[] {
 
 interface BriefingPayload {
   source: "openai" | "deterministic";
+  ai_unavailable?: "quota" | null;
   generated_at: string;
   context_summary: {
     restaurant_name: string;
@@ -175,6 +180,7 @@ interface SuggestedActionLocal {
 
 interface AnswerPayload {
   source: "openai" | "deterministic";
+  ai_unavailable?: "quota" | null;
   generated_at: string;
   answer: string;
   supporting_facts: SupportingFact[];
@@ -277,6 +283,17 @@ function ExecutiveBriefingPanelSkeleton() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function AiUnavailableNote({ lang }: { lang: PreferredLanguage }) {
+  return (
+    <p
+      className="mt-1 text-xs text-muted-foreground"
+      data-testid="ai-unavailable-note"
+    >
+      {t(lang, AI_UNAVAILABLE_COPY_EN, AI_UNAVAILABLE_COPY)}
+    </p>
   );
 }
 
@@ -435,6 +452,9 @@ function ExecutiveBriefingPanelInner({
               <p className="text-sm text-foreground leading-relaxed mt-1">
                 {data.briefing.summary}
               </p>
+              {data.ai_unavailable === "quota" && (
+                <AiUnavailableNote lang={lang} />
+              )}
             </div>
 
             {hasLists && (
@@ -769,6 +789,7 @@ function MessageBubble({
   // otherwise following one silently drops back to consolidated. Read
   // unconditionally, before any early return (rules of hooks).
   const locationId = useSearchParams().get("location");
+  const lang = useMiltonLang();
 
   if (turn.role === "user") {
     return (
@@ -797,6 +818,7 @@ function MessageBubble({
         <div className="rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
           {turn.content}
         </div>
+        {a?.ai_unavailable === "quota" && <AiUnavailableNote lang={lang} />}
 
         {a && a.related_links.length > 0 && (
           <div className="flex flex-wrap gap-1.5">

@@ -105,7 +105,10 @@ export async function POST(req: NextRequest) {
   const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
 
   // ---- Extract (vision call + enrichment live in lib/restaurant/invoice-draft) ----
-  const result = await extractInvoiceFromImage({ dataUrl });
+  const result = await extractInvoiceFromImage({
+    dataUrl,
+    companyId: auth.companyId,
+  });
   if (!result.ok) {
     return NextResponse.json({ error: result.message }, { status: 502 });
   }

@@ -12,6 +12,7 @@ import {
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
+import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 
 export type AuthAndCompanyResult =
   | { ok: true; supabase: SupabaseClient; companyId: string; userId: string }
@@ -52,4 +53,151 @@ async function authAndCompanyUncached(): Promise<AuthAndCompanyResult> {
     };
   }
   return { ok: true, supabase, companyId, userId: user.id };
+}
+
+// ---------------------------------------------------------------------------
+// Bearer auth for the mobile API (/api/mobile/v1, mobile P0b #430)
+// ---------------------------------------------------------------------------
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const NO_STORE = { "Cache-Control": "no-store" } as const;
+
+/** `Authorization: Bearer <token>` -> the token, or null. Never logged. */
+export function readBearerToken(request: Request): string | null {
+  const header = request.headers.get("authorization");
+  if (!header) return null;
+  const match = /^Bearer\s+(\S+)\s*$/i.exec(header);
+  return match ? match[1] : null;
+}
+
+export type BearerUserResult =
+  | {
+      ok: true;
+      supabase: SupabaseClient;
+      userId: string;
+      email: string | null;
+    }
+  | { ok: false; response: NextResponse };
+
+function bearerError(error: string, status: number, extra?: object) {
+  return NextResponse.json({ error, ...extra }, { status, headers: NO_STORE });
+}
+
+/**
+ * Validates a Supabase access token sent as a bearer (managers and owners in
+ * the app). The returned client carries that token, so RLS applies exactly as
+ * it does on the web; the service role is never used here.
+ */
+export async function authUserFromBearer(
+  request: Request
+): Promise<BearerUserResult> {
+  const token = readBearerToken(request);
+  if (!token) {
+    return {
+      ok: false,
+      response: bearerError("Inicia sesión de nuevo.", 401),
+    };
+  }
+  try {
+    const supabase = await createClient(undefined, token);
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user) {
+      return {
+        ok: false,
+        response: bearerError("Inicia sesión de nuevo.", 401),
+      };
+    }
+    return {
+      ok: true,
+      supabase,
+      userId: data.user.id,
+      email: data.user.email ?? null,
+    };
+  } catch (err) {
+    console.error(
+      "[mobile-auth] unexpected:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
+    return {
+      ok: false,
+      response: bearerError("Inicia sesión de nuevo.", 401),
+    };
+  }
+}
+
+export type BearerAuthAndCompanyResult =
+  | {
+      ok: true;
+      supabase: SupabaseClient;
+      companyId: string;
+      userId: string;
+      email: string | null;
+    }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Sibling of authAndCompany() for bearer requests. A company may be asked for
+ * with `?companyId=` or the `X-Company-Id` header (or opts.companyId), but it
+ * is only ever a REQUEST: it must be one of the caller's memberships (read
+ * through the caller's own RLS client), else 403. Without it the company is
+ * resolved exactly like the cookie path (resolveCompanyIdForUser).
+ */
+export async function authAndCompanyFromBearer(
+  request: Request,
+  opts?: { companyId?: string | null }
+): Promise<BearerAuthAndCompanyResult> {
+  const user = await authUserFromBearer(request);
+  if (!user.ok) return user;
+  const { supabase, userId, email } = user;
+
+  try {
+    const requested =
+      opts?.companyId ??
+      new URL(request.url).searchParams.get("companyId") ??
+      request.headers.get("x-company-id");
+
+    if (requested) {
+      if (!UUID_RE.test(requested)) {
+        return {
+          ok: false,
+          response: bearerError("La empresa no es válida.", 400),
+        };
+      }
+      const { data, error } = await supabase
+        .from("company_memberships")
+        .select("company_id")
+        .eq("user_id", userId)
+        .eq("company_id", requested)
+        .maybeSingle();
+      if (error || !data) {
+        return {
+          ok: false,
+          response: bearerError("No tienes acceso a esta empresa.", 403),
+        };
+      }
+      return { ok: true, supabase, companyId: requested, userId, email };
+    }
+
+    const companyId = await resolveCompanyIdForUser(supabase, userId);
+    if (!companyId) {
+      return {
+        ok: false,
+        response: bearerError("No company resolved for user", 404, {
+          user_id: userId,
+        }),
+      };
+    }
+    return { ok: true, supabase, companyId, userId, email };
+  } catch (err) {
+    console.error(
+      "[mobile-auth] company lookup failed:",
+      err instanceof Error ? err.name : "Unknown error"
+    );
+    return {
+      ok: false,
+      response: bearerError("No pude cargar tu cuenta.", 500),
+    };
+  }
 }

@@ -6,7 +6,8 @@
 // lib/restaurant/telegram/files.ts proxies the bytes from Telegram with the
 // stored MIME type and Cache-Control: private, no-store. When Milton holds a
 // Storage copy (kitchen_media, P0a) the route redirects to a 5-minute signed
-// URL instead.
+// URL instead. Reports sent from the app (mobile P0b) have no Telegram file id,
+// only that Storage copy.
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -43,12 +44,7 @@ export async function GET(
       .eq("id", id)
       .maybeSingle();
     // Same 404 for "missing" and "someone else's" — no existence leak.
-    if (
-      !report ||
-      report.company_id !== companyId ||
-      !report.media_kind ||
-      !report.telegram_file_id
-    ) {
+    if (!report || report.company_id !== companyId) {
       return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
     }
 
@@ -73,6 +69,10 @@ export async function GET(
       }
     } catch {
       console.error("[kitchen-media] storage lookup failed");
+    }
+
+    if (!report.media_kind || !report.telegram_file_id) {
+      return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
     }
 
     const file = await openTelegramFile(report.telegram_file_id as string);

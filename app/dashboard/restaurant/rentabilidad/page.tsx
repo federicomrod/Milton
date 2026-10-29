@@ -5,8 +5,9 @@
 // Visible only with the `costs.fixed` capability (owner, admin, manager).
 
 import { RentabilidadPage } from "@/components/restaurant/rentabilidad/RentabilidadPage";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -49,15 +50,13 @@ export default async function RentabilidadRoute({
   if (!user?.id || !companyId)
     return <Note>Inicia sesión para ver tu rentabilidad.</Note>;
   const supabase = await createClient();
-  const actor = await resolveActor(supabase, user.id, { companyId });
+  // The role check and the restaurant list do not depend on each other.
+  const [actor, context] = await Promise.all([
+    getCachedActor(user.id, companyId),
+    resolveRestaurantContext(supabase, companyId, first(params.location)),
+  ]);
   if (!capabilityFlags(actor)["costs.fixed"])
     return <Note>Tu rol no puede ver la rentabilidad.</Note>;
-
-  const context = await resolveRestaurantContext(
-    supabase,
-    companyId,
-    first(params.location)
-  );
   // One restaurant: the selected one, or the only one the company has.
   const selected =
     context.selected?.locationId ??

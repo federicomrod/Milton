@@ -5,9 +5,20 @@
 
 "use client";
 
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { MessageSquareText, X } from "lucide-react";
-import { AskMiltonWorkspace } from "@/components/restaurant/AskMiltonWorkspace";
+
+// The chat is loaded the first time the drawer opens (not with every page),
+// then stays mounted so the conversation survives close / reopen.
+const AskMiltonWorkspace = dynamic(
+  () =>
+    import("@/components/restaurant/AskMiltonWorkspace").then(
+      (m) => m.AskMiltonWorkspace
+    ),
+  { ssr: false }
+);
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   COCKPIT_HREF,
@@ -29,6 +40,8 @@ export function AskMiltonDrawer({
 }) {
   const pathname = usePathname() ?? "";
   const pageLabel = pageContextLabel(pathname, lang);
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
 
   return (
     <div
@@ -73,7 +86,7 @@ export function AskMiltonDrawer({
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
-          <AskMiltonWorkspace lang={lang} />
+          {opened ? <AskMiltonWorkspace lang={lang} /> : null}
         </div>
       </aside>
     </div>

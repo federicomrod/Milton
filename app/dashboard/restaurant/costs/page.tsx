@@ -5,7 +5,10 @@
 // Proveedores (?tab=proveedores, the suppliers UI). The old /invoices and
 // /suppliers URLs redirect here.
 
+import { Suspense } from "react";
+import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -56,7 +59,7 @@ import { monthStartOf } from "@/lib/restaurant/fixed-costs";
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { ingredientesHref } from "@/lib/restaurant/menu-links";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
@@ -76,8 +79,7 @@ async function canEditPricesForUser(): Promise<boolean> {
     if (!user?.id) return false;
     const companyId = await getCachedCompanyId(user.id);
     if (!companyId) return false;
-    const supabase = await createClient();
-    const actor = await resolveActor(supabase, user.id, { companyId });
+    const actor = await getCachedActor(user.id, companyId);
     return capabilityFlags(actor)["prices.edit"];
   } catch {
     return false;
@@ -315,19 +317,32 @@ export default async function CostsAreaPage({
                 linkLabel={t(lang, "Add prices →", "Agregar precios →")}
               />
             )
-          ) : tab === "compras" ? (
-            <ComprasTab lang={lang} />
-          ) : tab === "costos-fijos" ? (
-            <CostosFijosTab
-              lang={lang}
-              location={location}
-              month={
-                typeof params.month === "string" ? params.month : undefined
-              }
-              shellParams={shellParams}
-            />
           ) : (
-            <ProveedoresTab lang={lang} />
+            // The slow tab reads stream in behind the header and KPI cards.
+            <Suspense
+              fallback={
+                <PageSkeleton
+                  height="16rem"
+                  width="100%"
+                  label="cost tab content"
+                />
+              }
+            >
+              {tab === "compras" ? (
+                <ComprasTab lang={lang} />
+              ) : tab === "costos-fijos" ? (
+                <CostosFijosTab
+                  lang={lang}
+                  location={location}
+                  month={
+                    typeof params.month === "string" ? params.month : undefined
+                  }
+                  shellParams={shellParams}
+                />
+              ) : (
+                <ProveedoresTab lang={lang} />
+              )}
+            </Suspense>
           )}
 
           <CostsTabletCardsRow
@@ -410,7 +425,7 @@ async function CostosFijosTab({
   const companyId = user?.id ? await getCachedCompanyId(user.id) : null;
   if (!user?.id || !companyId) return <SignInNote lang={lang} />;
   const supabase = await createClient();
-  const actor = await resolveActor(supabase, user.id, { companyId });
+  const actor = await getCachedActor(user.id, companyId);
   if (!capabilityFlags(actor)["costs.fixed"])
     return (
       <p className="text-sm text-[#6b7385]">
@@ -429,23 +444,29 @@ async function CostosFijosTab({
       companyId,
       location
     );
-    // Idempotent: copies «repetir cada mes» lines only where the month is empty.
-    await repeatFixedCosts(ctx, month).catch((err) =>
+    const locationId = context.selected?.locationId ?? null;
+    const restaurantIds = context.locations.map((l) => l.id);
+    // The margin read (sales + food cost) and the group split do not depend on
+    // the «repetir cada mes» copy, so they run while it writes.
+    const repeated = repeatFixedCosts(ctx, month).catch((err) =>
       console.error("[costs page] fixed-costs repeat failed:", err)
     );
-    const locationId = context.selected?.locationId ?? null;
-    const splitSales = locationId
-      ? null
-      : await monthSalesByLocation(supabase, companyId, month).catch(
+    const splitSalesP = locationId
+      ? Promise.resolve(null)
+      : monthSalesByLocation(supabase, companyId, month).catch(
           () => new Map<string, number>()
         );
-    const marginRead = await loadMonthMargin({
-      supabase,
-      companyId,
-      locationId,
-      restaurantIds: context.locations.map((l) => l.id),
-      month,
-    });
+    const [, splitSales, marginRead] = await Promise.all([
+      repeated,
+      splitSalesP,
+      loadMonthMargin({
+        supabase,
+        companyId,
+        locationId,
+        restaurantIds,
+        month,
+      }),
+    ]);
     const [view, history] = await Promise.all([
       loadFixedCostsView(ctx, {
         month,

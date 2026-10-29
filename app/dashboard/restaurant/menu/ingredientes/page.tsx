@@ -6,9 +6,10 @@
 // comes from loadIngredientUsage (one list for the counters and the detail).
 
 import { createClient } from "@/lib/supabase/server";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import type { Capability } from "@/lib/auth/capabilities";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -68,7 +69,7 @@ async function loadIngredientes(
       loadDuplicateState(supabase, companyId),
     ]);
   const capabilities = capabilityFlags(
-    await resolveActor(supabase, user.id, { companyId })
+    await getCachedActor(user.id, companyId)
   );
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);

@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
     ]);
     if (!economics.ok) {
       return NextResponse.json(
-        { error: "No pude calcular los platos." },
+        { error: (await apiDictionary()).sales.api.dishesCalcFailed },
         { status: 500 }
       );
     }
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[menu-resumen-days]", err);
     return NextResponse.json(
-      { error: "No pude cargar el resumen del menú." },
+      { error: (await apiDictionary()).sales.api.menuSummaryFailed },
       { status: 500 }
     );
   }

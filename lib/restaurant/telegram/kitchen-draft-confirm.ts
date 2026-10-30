@@ -15,6 +15,7 @@
 // for new dishes, so it is no longer called. The function is still in the
 // database (no migration); it is unused and can be dropped later.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createSupabaseCostWorkbookRepo,
@@ -136,7 +137,11 @@ export async function confirmKitchenDraftAsVersion(
           .eq("recipe_id", String(recipe.id))
           .limit(1);
         if (legacy && legacy.length > 0) {
-          return { ok: false, status: 409, error: LEGACY_RECIPE_MESSAGE };
+          return {
+            ok: false,
+            status: 409,
+            error: (await apiDictionary()).kitchen.api.legacyRecipe,
+          };
         }
       }
     }
@@ -179,13 +184,17 @@ export async function confirmKitchenDraftAsVersion(
     )
     .select("id");
   if (claimError) {
-    return { ok: false, status: 500, error: "No pude confirmar la receta." };
+    return {
+      ok: false,
+      status: 500,
+      error: (await apiDictionary()).kitchen.api.confirmFailed,
+    };
   }
   if (!claimed || claimed.length === 0) {
     return {
       ok: false,
       status: 409,
-      error: "Esta receta ya no está pendiente de revisar.",
+      error: (await apiDictionary()).kitchen.api.draftNotPending,
     };
   }
 
@@ -382,7 +391,11 @@ export async function confirmKitchenDraftAsVersion(
         .eq("id", createdMenuItemId)
         .eq("company_id", companyId);
     }
-    return { ok: false, status: 500, error: "No pude confirmar la receta." };
+    return {
+      ok: false,
+      status: 500,
+      error: (await apiDictionary()).kitchen.api.confirmFailed,
+    };
   }
 }
 

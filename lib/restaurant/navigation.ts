@@ -6,7 +6,7 @@
 // in primary navigation labels.
 
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import { t } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 
 export const COCKPIT_HREF = "/dashboard/restaurant";
 export const SALES_HREF = "/dashboard/restaurant/sales";
@@ -94,21 +94,22 @@ export function primaryNavLabel(
   id: PrimaryNavId,
   lang: PreferredLanguage
 ): string {
+  const nav = getDictionary(lang).shell.nav;
   switch (id) {
     case "cockpit":
-      return t(lang, "Cockpit", "Cockpit");
+      return nav.cockpit;
     case "sales":
-      return t(lang, "Sales", "Ventas");
+      return nav.sales;
     case "menu":
-      return t(lang, "Menu", "Menú");
+      return nav.menu;
     case "costs":
-      return t(lang, "Costs", "Costos");
+      return nav.costs;
     case "rentabilidad":
-      return t(lang, "Profitability", "Rentabilidad");
+      return nav.rentabilidad;
     case "kitchen":
-      return t(lang, "Kitchen", "Cocina");
+      return nav.kitchen;
     case "data_settings":
-      return t(lang, "Settings", "Configuración");
+      return nav.settings;
   }
 }
 
@@ -117,9 +118,8 @@ export function navGroupLabel(
   group: NavGroupId,
   lang: PreferredLanguage
 ): string {
-  return group === "main"
-    ? t(lang, "Main", "Principal")
-    : t(lang, "Data & Settings", "Datos y configuración");
+  const nav = getDictionary(lang).shell.nav;
+  return group === "main" ? nav.main : nav.dataAndSettings;
 }
 
 export function isPrimaryNavActive(
@@ -377,76 +377,37 @@ export function dataSettingsSectionLabel(
   section: DataSettingsSectionId,
   lang: PreferredLanguage
 ): string {
-  switch (section) {
-    case "restaurant":
-      return t(lang, "Restaurant", "Restaurante");
-    case "connections":
-      return t(lang, "Connections", "Conexiones");
-    case "objectives":
-      return t(lang, "Goals", "Objetivos");
-    case "shifts":
-      return t(lang, "Shifts", "Turnos");
-    case "team":
-      return t(lang, "Team", "Equipo");
-    case "account":
-      return t(lang, "Account", "Cuenta");
-  }
+  return getDictionary(lang).shell.section[section];
 }
+
+type LinkKey = keyof ReturnType<typeof getDictionary>["shell"]["link"];
+
+const LINK_KEYS = {
+  "connect-data": "connectData",
+  "pos-sales": "posSales",
+  "odoo-admin": "odooAdmin",
+  objectives: "objectives",
+  shifts: "shifts",
+  restaurant: "restaurant",
+  invitations: "invitations",
+  account: "account",
+  settings: "settings",
+  "ask-milton": "askMilton",
+  targets: "targets",
+  "menu-recipes": "menuRecipes",
+  ingredients: "ingredients",
+  "import-costs": "importCosts",
+  suppliers: "suppliers",
+  "supplier-invoices": "supplierInvoices",
+  agents: "agents",
+} as const;
 
 export function dataSettingsLinkLabel(
   id: MappedLegacyRoute["id"],
   lang: PreferredLanguage
 ): string {
-  switch (id) {
-    case "connect-data":
-      return t(lang, "Connect your POS", "Conectar tu punto de venta");
-    case "pos-sales":
-      return t(lang, "Upload sales (file)", "Subir ventas (archivo)");
-    case "odoo-admin":
-      return t(lang, "Odoo connection (admin)", "Conexión con Odoo (admin)");
-    case "objectives":
-      return t(lang, "Set your goals", "Definir tus objetivos");
-    case "shifts":
-      return t(lang, "Set your shifts", "Definir tus turnos");
-    case "restaurant":
-      return t(
-        lang,
-        "Rename your restaurant",
-        "Cambiar el nombre de tu restaurante"
-      );
-    case "invitations":
-      return t(lang, "Invitations", "Invitaciones");
-    case "account":
-      return t(
-        lang,
-        "Account: profile, company and alerts",
-        "Cuenta: perfil, empresa y avisos"
-      );
-    case "settings":
-      return t(
-        lang,
-        "Settings: time zone, currency and format",
-        "Ajustes: zona horaria, moneda y formato"
-      );
-    case "ask-milton":
-      return t(lang, "Ask Milton", "Preguntar a Milton");
-    case "targets":
-      return t(lang, "Targets", "Metas");
-    case "menu-recipes":
-      return t(lang, "Menu & Recipes", "Menú y recetas");
-    case "ingredients":
-      return t(lang, "Ingredients", "Ingredientes");
-    case "import-costs":
-      return t(lang, "Upload cost file", "Subir Excel de costos");
-    case "suppliers":
-      return t(lang, "Suppliers", "Proveedores");
-    case "supplier-invoices":
-      return t(lang, "Supplier Invoices", "Facturas de proveedores");
-    case "agents":
-      return t(lang, "Agents", "Agentes");
-    default:
-      return id;
-  }
+  const key = (LINK_KEYS as Record<string, LinkKey>)[id];
+  return key ? getDictionary(lang).shell.link[key] : id;
 }
 
 export function isDataSettingsLinkListed(

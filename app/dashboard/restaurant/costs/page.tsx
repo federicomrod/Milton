@@ -48,6 +48,7 @@ import {
 import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
 import {
   listFixedCostHistory,
@@ -139,6 +140,7 @@ export default async function CostsAreaPage({
     );
   }
 
+  const dict = getDictionary(lang);
   const kpis = profitability?.kpis ?? null;
   const currency = kpis?.currency ?? extras?.currency ?? "USD";
   const trends = Array.isArray(profitability?.ingredientPriceTrends)
@@ -176,7 +178,7 @@ export default async function CostsAreaPage({
   return (
     <CostsPageLayout>
       <OperatingPageHeader
-        title={t(lang, "Costs", "Costos")}
+        title={t(lang, "Costs", "Costos", "Kosten")}
         lang={lang}
         showDateRange={false}
         titleAction={
@@ -184,7 +186,7 @@ export default async function CostsAreaPage({
             href={invoiceUploadHref(shellParams)}
             className="inline-flex h-8 items-center rounded-lg border border-[#1B40C8] bg-white px-3 text-sm font-semibold text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
           >
-            {t(lang, "Upload invoice", "Subir factura")}
+            {dict.costs.page.uploadInvoice}
           </Link>
         }
       />
@@ -194,15 +196,26 @@ export default async function CostsAreaPage({
           {/* KPIs: 2x2 on mobile, 4 in a row on desktop */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <CostsKpiCard
-              label={t(lang, "Purchases · 30 days", "Compras · 30 días")}
-              value={formatMoney(purchases.last30, currency)}
+              label={t(
+                lang,
+                "Purchases · 30 days",
+                "Compras · 30 días",
+                "Einkäufe · 30 Tage"
+              )}
+              value={formatMoney(purchases.last30, currency, lang)}
               delta={
                 purchasesDelta === null
-                  ? t(lang, "No prior month to compare", "Sin mes anterior")
+                  ? t(
+                      lang,
+                      "No prior month to compare",
+                      "Sin mes anterior",
+                      "Kein Vormonat zum Vergleich"
+                    )
                   : t(
                       lang,
                       `${purchasesDelta >= 0 ? "+" : ""}${purchasesDelta.toFixed(0)}% vs previous 30 days`,
-                      `${purchasesDelta >= 0 ? "+" : ""}${purchasesDelta.toFixed(0)}% vs. 30 días anteriores`
+                      `${purchasesDelta >= 0 ? "+" : ""}${purchasesDelta.toFixed(0)}% vs. 30 días anteriores`,
+                      `${purchasesDelta >= 0 ? "+" : ""}${purchasesDelta.toFixed(0)} % ggü. den vorherigen 30 Tagen`
                     )
               }
               deltaTone={
@@ -214,10 +227,10 @@ export default async function CostsAreaPage({
               }
             />
             <CostsKpiCard
-              label={t(lang, "Food cost", "Costo de comida")}
+              label={t(lang, "Food cost", "Costo de comida", "Wareneinsatz")}
               value={
                 foodCost === null || !Number.isFinite(foodCost)
-                  ? t(lang, "No price", "Sin precio")
+                  ? t(lang, "No price", "Sin precio", "Kein Preis")
                   : `${foodCost.toFixed(1)}%`
               }
               delta={
@@ -225,18 +238,30 @@ export default async function CostsAreaPage({
                   ? t(
                       lang,
                       `${coveragePct.toFixed(0)}% of sales costed`,
-                      `${coveragePct.toFixed(0)}% de las ventas con costo`
+                      `${coveragePct.toFixed(0)}% de las ventas con costo`,
+                      `${coveragePct.toFixed(0)} % des Umsatzes mit Kosten`
                     )
-                  : t(lang, "No sales yet", "Aún sin ventas")
+                  : t(
+                      lang,
+                      "No sales yet",
+                      "Aún sin ventas",
+                      "Noch kein Umsatz"
+                    )
               }
               help={t(
                 lang,
                 "Recipe cost ÷ sales, only for dishes with a full cost.",
-                "Costo de receta ÷ ventas, solo platos con costo completo."
+                "Costo de receta ÷ ventas, solo platos con costo completo.",
+                "Rezeptkosten ÷ Umsatz, nur für Gerichte mit vollständigen Kosten."
               )}
             />
             <CostsKpiCard
-              label={t(lang, "Prices that went up", "Precios que subieron")}
+              label={t(
+                lang,
+                "Prices that went up",
+                "Precios que subieron",
+                "Gestiegene Preise"
+              )}
               value={profitability ? String(increases) : "—"}
               delta={
                 ingredientsCount === null
@@ -244,23 +269,30 @@ export default async function CostsAreaPage({
                   : t(
                       lang,
                       `of ${ingredientsCount} ingredients`,
-                      `de ${ingredientsCount} ingredientes`
+                      `de ${ingredientsCount} ingredientes`,
+                      `von ${ingredientsCount} Zutaten`
                     )
               }
               deltaTone={increases > 0 ? "bad" : "neutral"}
             />
             <CostsKpiCard
-              label={t(lang, "Suppliers", "Proveedores")}
+              label={t(lang, "Suppliers", "Proveedores", "Lieferanten")}
               value={supplierCount === null ? "—" : String(supplierCount)}
               delta={
                 pendingSuppliers === null
                   ? "—"
                   : pendingSuppliers === 0
-                    ? t(lang, "No pending invoices", "Sin facturas pendientes")
+                    ? t(
+                        lang,
+                        "No pending invoices",
+                        "Sin facturas pendientes",
+                        "Keine offenen Rechnungen"
+                      )
                     : t(
                         lang,
                         `${pendingSuppliers} with pending invoices`,
-                        `${pendingSuppliers} con facturas pendientes`
+                        `${pendingSuppliers} con facturas pendientes`,
+                        `${pendingSuppliers} mit offenen Rechnungen`
                       )
               }
               deltaTone={pendingSuppliers ? "bad" : "neutral"}
@@ -275,17 +307,17 @@ export default async function CostsAreaPage({
           {nothingYet ? (
             <EmptyState
               testId="costs-empty"
-              text="Aún no tienes costos. Sube un archivo de costos o una factura para empezar."
+              text={dict.costs.page.emptyText}
               actions={[
                 {
                   href: costsTabHref("precios", {}, COSTS_FILE_ANCHOR),
-                  label: "Subir archivo de costos",
+                  label: dict.costs.page.uploadCostsFile,
                   primary: true,
                   opensCostsPicker: true,
                 },
                 {
                   href: invoiceUploadHref(shellParams),
-                  label: "Subir factura",
+                  label: dict.costs.page.uploadInvoice,
                 },
               ]}
             />
@@ -311,10 +343,16 @@ export default async function CostsAreaPage({
                 reason={t(
                   lang,
                   "Ingredient prices required",
-                  "Hacen falta precios de ingredientes"
+                  "Hacen falta precios de ingredientes",
+                  "Zutatenpreise erforderlich"
                 )}
                 href={ingredientesHref()}
-                linkLabel={t(lang, "Add prices →", "Agregar precios →")}
+                linkLabel={t(
+                  lang,
+                  "Add prices →",
+                  "Agregar precios →",
+                  "Preise ergänzen →"
+                )}
               />
             )
           ) : (
@@ -377,7 +415,8 @@ function SignInNote({ lang }: { lang: PreferredLanguage }) {
       {t(
         lang,
         "Sign in and pick a company.",
-        "Inicia sesión y elige una empresa."
+        "Inicia sesión y elige una empresa.",
+        "Melden Sie sich an und wählen Sie ein Unternehmen."
       )}
     </p>
   );
@@ -429,7 +468,7 @@ async function CostosFijosTab({
   if (!capabilityFlags(actor)["costs.fixed"])
     return (
       <p className="text-sm text-[#6b7385]">
-        Tu rol no puede ver ni cambiar los costos fijos.
+        {getDictionary(lang).costs.fixed.roleDenied}
       </p>
     );
 
@@ -465,6 +504,7 @@ async function CostosFijosTab({
         locationId,
         restaurantIds,
         month,
+        lang,
       }),
     ]);
     const [view, history] = await Promise.all([
@@ -502,7 +542,7 @@ async function CostosFijosTab({
     console.error("[costs page] fixed-costs load failed:", err);
     return (
       <p className="text-sm text-[#6b7385]">
-        No se pudieron leer los costos fijos. Recarga la página.
+        {getDictionary(lang).costs.fixed.loadFailed}
       </p>
     );
   }

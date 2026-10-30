@@ -3,6 +3,7 @@
 // comes from auth, never from the request.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { loadPosProductList } from "@/lib/restaurant/pos-product-list-server";
@@ -38,6 +39,8 @@ export async function loadPreparationsOverview(
   supabase: SupabaseClient,
   input: {
     companyId: string;
+    /** Language of the impact labels (default Spanish). */
+    lang?: PreferredLanguage;
     locationId?: string | null;
     /** The product list the caller already built (R1-13): not read again. */
     list?: PosProductListResult;
@@ -148,7 +151,7 @@ export async function loadPreparationsOverview(
       open_note: open?.note ?? null,
       yield_to_confirm: open?.yieldOpen ?? false,
       impact: im,
-      impact_label: impactLabel(im),
+      impact_label: impactLabel(im, input.lang),
     };
   });
 

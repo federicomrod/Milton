@@ -6,6 +6,7 @@ import type { CostResetStepResult } from "@/lib/restaurant/cost-workbook/types";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import { Card, GhostBtn } from "./ui";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 /**
  * "Empezar de nuevo": a destructive, owner/admin-only action that clears
@@ -26,6 +27,8 @@ export function ResetPanel({
   initiallyOpen?: boolean;
   onCancel?: () => void;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor.reset;
   const [open, setOpen] = useState(initiallyOpen);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,7 +55,7 @@ export function ResetPanel({
         setError(
           json.steps?.length
             ? formatResetPartialFailureEs(json.steps)
-            : userErrorMessage(json, "No se pudo empezar de nuevo.")
+            : userErrorMessage(json, d.failed)
         );
       } else {
         setDone(true);
@@ -62,7 +65,7 @@ export function ResetPanel({
         onDone();
       }
     } catch {
-      setError("No se pudo empezar de nuevo.");
+      setError(d.failed);
     } finally {
       setBusy(false);
     }
@@ -71,33 +74,21 @@ export function ResetPanel({
   return (
     <Card className="border-[#f1c0c0] p-3 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-[13px] font-semibold text-[#c03535]">
-          Empezar de nuevo
-        </h2>
+        <h2 className="text-[13px] font-semibold text-[#c03535]">{d.title}</h2>
         {!open ? (
           <GhostBtn className="ml-auto" onClick={() => setOpen(true)}>
-            Empezar de nuevo
+            {d.start}
           </GhostBtn>
         ) : null}
       </div>
-      {done ? (
-        <p className="mt-2 text-[#1f7a45]">
-          Listo. Tus ventas del POS siguen igual; sube tu Excel de costos para
-          empezar.
-        </p>
-      ) : null}
+      {done ? <p className="mt-2 text-[#1f7a45]">{d.done}</p> : null}
       {open ? (
         <div className="mt-2 space-y-2">
           <p>
-            <b>Se borra:</b> ingredientes y precios, preparaciones, recetas y
-            todas sus versiones (también las aprobadas), los vínculos y
-            tratamientos de los productos del POS, los nombres recordados, las
-            filas por revisar y los platos que creó el costeo. Tus cargas quedan
-            archivadas y no se vuelven a usar.
+            <b>{d.deletedLabel}</b> {d.deletedBody}
           </p>
           <p>
-            <b>No se toca:</b> las ventas del POS, la conexión con Odoo ni los
-            platos que no creó el costeo.
+            <b>{d.keptLabel}</b> {d.keptBody}
           </p>
           {reset.warning ? (
             <p className="font-semibold text-[#c03535]">{reset.warning}</p>
@@ -123,7 +114,7 @@ export function ResetPanel({
               onClick={() => void run()}
               className="rounded-md border border-[#c03535] bg-[#c03535] px-2.5 py-1 text-[12.5px] font-semibold text-white disabled:opacity-45"
             >
-              {busy ? "Borrando…" : "Borrar todo y empezar de nuevo"}
+              {busy ? d.deleting : d.confirm}
             </button>
             <GhostBtn
               disabled={busy}
@@ -132,7 +123,7 @@ export function ResetPanel({
                 onCancel?.();
               }}
             >
-              Cancelar
+              {d.cancel}
             </GhostBtn>
           </div>
         </div>

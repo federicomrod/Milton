@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   const to = q.get("to");
   if (!from || !to || !DATE.test(from) || !DATE.test(to)) {
     return NextResponse.json(
-      { error: "Faltan las fechas del período." },
+      { error: (await apiDictionary()).sales.api.missingDates },
       { status: 400 }
     );
   }
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
   ]);
   if (!load.ok) {
     return NextResponse.json(
-      { error: "No pude cargar los platos." },
+      { error: (await apiDictionary()).sales.api.dishesLoadFailed },
       { status: 500 }
     );
   }

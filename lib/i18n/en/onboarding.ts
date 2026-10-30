@@ -1,0 +1,108 @@
+import type { Dictionary } from "../types";
+
+export const onboarding: Dictionary["onboarding"] = {
+  fallbackName: "your restaurant",
+  step1: {
+    title: "Your restaurant",
+    subtitle: "Let's set up {restaurantName}.",
+    conceptLabel: "What describes it best?",
+    countryLabel: "Where is it?",
+    countryPlaceholder: "Choose a country",
+    languageLabel: "Which language should Milton speak to you?",
+  },
+  step2: {
+    title: "Your operation",
+    locationsLabel: "How many locations do you have?",
+    posLabel: "Which point-of-sale system do you use?",
+  },
+  step3: {
+    title: "How can Milton help you?",
+    subtitle: "Choose up to {max}.",
+  },
+  step4: {
+    heading: "Milton is ready for {restaurantName}.",
+    subtitle: "A good place to start:",
+    recommended: "Recommended",
+    goToCockpit: "Go to the Cockpit",
+  },
+  nav: {
+    back: "Back",
+    next: "Next",
+    skip: "Skip",
+    finish: "Let's go",
+    saving: "Setting up…",
+  },
+  concept: {
+    restaurant: "Restaurant",
+    bar: "Bar",
+    cafe: "Café",
+    bakery: "Bakery",
+    fastCasual: "Fast casual",
+    other: "Other",
+  },
+  pos: {
+    other: "Other",
+    unknown: "I don't know",
+  },
+  priority: {
+    margins: "Understand my margins",
+    foodCost: "Control food cost",
+    sales: "Understand my sales",
+    inventory: "Keep track of my inventory",
+    waste: "Reduce waste",
+    forecast: "Forecast demand",
+  },
+  country: {
+    MX: "Mexico",
+    US: "United States",
+    CA: "Canada",
+    AR: "Argentina",
+    BR: "Brazil",
+    CL: "Chile",
+    CO: "Colombia",
+    SV: "El Salvador",
+    GT: "Guatemala",
+    ES: "Spain",
+    DE: "Germany",
+    IT: "Italy",
+    CH: "Switzerland",
+    PE: "Peru",
+    GB: "United Kingdom",
+    PT: "Portugal",
+    OTHER: "Other",
+  },
+  nextSteps: {
+    connectPosTitle: "Connect your POS",
+    connectPosOdooDescription:
+      "Connect Odoo or upload a sales file to start today.",
+    connectPosOdooCta: "Upload sales",
+    connectPosDescription: "Bring in your sales to see real numbers.",
+    connectPosCta: "Get started",
+    uploadSalesTitle: "Upload your sales",
+    uploadSalesDescription:
+      "Import a POS file and see your Cockpit with real data.",
+    uploadSalesCta: "Upload now",
+    addRecipesTitle: "Add recipes and costs",
+    addRecipesDescription:
+      "Build your recipes so Milton can calculate real margins.",
+    addRecipesCta: "Add recipes",
+  },
+  errors: {
+    finishFailed: "We could not finish the setup. Please try again.",
+    finishFailedShort: "We could not finish the setup.",
+  },
+  addRestaurant: {
+    title: "Add a restaurant",
+    description:
+      "Add another restaurant to your account. You can switch between them any time.",
+    nameLabel: "Restaurant name",
+    namePlaceholder: "e.g. Casa Centro",
+    conceptLabel: "What best describes it?",
+    countryLabel: "Country",
+    countryPlaceholder: "Select a country",
+    posLabel: "POS system",
+    adding: "Adding…",
+    submit: "Add restaurant",
+    failed: "Could not add the restaurant. Please try again.",
+  },
+};

@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useT } from "@/lib/i18n/client";
+import { t } from "@/lib/restaurant/language";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,6 +33,7 @@ export function KitchenStaffCard({
   canManage: boolean;
   locations: { id: string; name: string }[];
 }) {
+  const { lang, locale } = useT();
   const [cooks, setCooks] = useState<Cook[]>([]);
   const [error, setError] = useState<string | null>(null);
   const names = new Map(locations.map((l) => [l.id, l.name]));
@@ -47,7 +50,14 @@ export function KitchenStaffCard({
         .order("joined_at", { ascending: false });
       if (cancelled) return;
       if (loadError) {
-        setError("No se pudieron cargar los cocineros.");
+        setError(
+          t(
+            lang,
+            "Could not load the cooks.",
+            "No se pudieron cargar los cocineros.",
+            "Die Köche konnten nicht geladen werden."
+          )
+        );
         return;
       }
       setCooks((data ?? []) as Cook[]);
@@ -55,6 +65,7 @@ export function KitchenStaffCard({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
   const remove = async (id: string) => {
@@ -62,22 +73,42 @@ export function KitchenStaffCard({
     const res = await fetch(`/api/restaurant/kitchen/staff/${id}`, {
       method: "DELETE",
     });
-    if (!res.ok) setError("No se pudo quitar al cocinero.");
+    if (!res.ok)
+      setError(
+        t(
+          lang,
+          "Could not remove the cook.",
+          "No se pudo quitar al cocinero.",
+          "Der Koch konnte nicht entfernt werden."
+        )
+      );
     setReloadKey((k) => k + 1);
   };
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cocineros</CardTitle>
+        <CardTitle>{t(lang, "Cooks", "Cocineros", "Köche")}</CardTitle>
         <CardDescription>
-          Personal de cocina que se unió escaneando un QR.
+          {t(
+            lang,
+            "Kitchen staff who joined by scanning a QR.",
+            "Personal de cocina que se unió escaneando un QR.",
+            "Küchenpersonal, das per QR-Code beigetreten ist."
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {error && <p className="text-sm text-destructive">{error}</p>}
         {cooks.length === 0 && (
-          <p className="text-sm text-muted-foreground">Aún no hay cocineros.</p>
+          <p className="text-sm text-muted-foreground">
+            {t(
+              lang,
+              "There are no cooks yet.",
+              "Aún no hay cocineros.",
+              "Es gibt noch keine Köche."
+            )}
+          </p>
         )}
         {cooks.map((c) => (
           <div
@@ -87,13 +118,20 @@ export function KitchenStaffCard({
             <div>
               <div className="font-medium">{c.display_name}</div>
               <div className="text-xs text-muted-foreground">
-                {names.get(c.location_id) ?? "Ubicación desconocida"} · se unió{" "}
-                {new Date(c.joined_at).toLocaleDateString("es-MX")}
+                {names.get(c.location_id) ??
+                  t(
+                    lang,
+                    "Unknown location",
+                    "Ubicación desconocida",
+                    "Unbekannter Standort"
+                  )}{" "}
+                · {t(lang, "joined", "se unió", "beigetreten am")}{" "}
+                {new Date(c.joined_at).toLocaleDateString(locale)}
               </div>
             </div>
             {canManage && (
               <Button size="sm" variant="outline" onClick={() => remove(c.id)}>
-                Quitar
+                {t(lang, "Remove", "Quitar", "Entfernen")}
               </Button>
             )}
           </div>

@@ -7,7 +7,13 @@
 // text, how many dishes use the ingredient. Clicking outside (or Esc) closes it.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
+import { useT } from "@/lib/i18n/client";
+import { t } from "@/lib/restaurant/language";
+import {
+  KITCHEN_UNITS,
+  kitchenUnitLabel,
+  mapKitchenUnit,
+} from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
@@ -39,6 +45,7 @@ export function PricePopover({
   draftId?: string;
   onSaved: () => void;
 }) {
+  const { lang } = useT();
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState("");
   const [unit, setUnit] = useState("kg");
@@ -123,13 +130,30 @@ export function PricePopover({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError(userErrorMessage(json, "No pude guardar el precio."));
+        setError(
+          userErrorMessage(
+            json,
+            t(
+              lang,
+              "I could not save the price.",
+              "No pude guardar el precio.",
+              "Ich konnte den Preis nicht speichern."
+            )
+          )
+        );
         return;
       }
       setOpen(false);
       onSaved();
     } catch {
-      setError("No pude guardar el precio. Inténtalo de nuevo.");
+      setError(
+        t(
+          lang,
+          "I could not save the price. Try again.",
+          "No pude guardar el precio. Inténtalo de nuevo.",
+          "Ich konnte den Preis nicht speichern. Bitte versuchen Sie es erneut."
+        )
+      );
     } finally {
       setBusy(false);
     }
@@ -149,22 +173,32 @@ export function PricePopover({
       {open ? (
         <div
           role="dialog"
-          aria-label={`Precio de ${sentenceCase(ingredient.name)}`}
+          aria-label={t(
+            lang,
+            `Price of ${sentenceCase(ingredient.name)}`,
+            `Precio de ${sentenceCase(ingredient.name)}`,
+            `Preis von ${sentenceCase(ingredient.name)}`
+          )}
           data-testid="price-popover"
           className="absolute right-0 z-50 mt-1 w-64 space-y-2 rounded-md border border-[#dfe3ea] bg-white p-3 text-left text-[13px] shadow-lg"
         >
           <div className="flex items-end gap-2">
             <label className="flex-1 text-[12px] text-[#4a5a85]">
-              Precio por
+              {t(lang, "Price per", "Precio por", "Preis pro")}
               <select
-                aria-label={`Unidad del precio de ${sentenceCase(ingredient.name)}`}
+                aria-label={t(
+                  lang,
+                  `Price unit of ${sentenceCase(ingredient.name)}`,
+                  `Unidad del precio de ${sentenceCase(ingredient.name)}`,
+                  `Preiseinheit von ${sentenceCase(ingredient.name)}`
+                )}
                 className="ml-1 h-8 rounded-md border border-[#e3e7ee] bg-white px-1 text-[13px] text-[#151c2c] focus:border-[#1B40C8] focus:outline-none"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
               >
                 {KITCHEN_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
-                    {u.label}
+                    {kitchenUnitLabel(u, lang)}
                   </option>
                 ))}
               </select>
@@ -174,7 +208,12 @@ export function PricePopover({
               min="0"
               step="0.0001"
               autoFocus
-              aria-label={`Precio de ${sentenceCase(ingredient.name)}`}
+              aria-label={t(
+                lang,
+                `Price of ${sentenceCase(ingredient.name)}`,
+                `Precio de ${sentenceCase(ingredient.name)}`,
+                `Preis von ${sentenceCase(ingredient.name)}`
+              )}
               className="h-8 w-24 rounded-md border border-[#e3e7ee] bg-white px-2 text-[13px] focus:border-[#1B40C8] focus:outline-none"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
@@ -189,13 +228,25 @@ export function PricePopover({
             onClick={() => void save()}
             className="h-8 w-full rounded-md bg-[#1B40C8] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:bg-[#b9c7f0]"
           >
-            {busy ? "Guardando…" : "Guardar"}
+            {busy
+              ? t(lang, "Saving…", "Guardando…", "Wird gespeichert …")
+              : t(lang, "Save", "Guardar", "Speichern")}
           </button>
           {dishes !== null && dishes > 0 ? (
             <p className="text-[12px] text-[#8a92a3]">
               {dishes === 1
-                ? "Se actualiza en el plato que usa este ingrediente."
-                : `Se actualiza en los ${dishes} platos que usan este ingrediente.`}
+                ? t(
+                    lang,
+                    "Updates in the dish that uses this ingredient.",
+                    "Se actualiza en el plato que usa este ingrediente.",
+                    "Wird im Gericht aktualisiert, das diese Zutat verwendet."
+                  )
+                : t(
+                    lang,
+                    `Updates in the ${dishes} dishes that use this ingredient.`,
+                    `Se actualiza en los ${dishes} platos que usan este ingrediente.`,
+                    `Wird in den ${dishes} Gerichten aktualisiert, die diese Zutat verwenden.`
+                  )}
             </p>
           ) : null}
           {error ? (

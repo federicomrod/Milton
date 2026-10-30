@@ -577,7 +577,7 @@ describe("cost reset server and UI copy", () => {
     expect(src).toContain("formatResetPartialFailureEs");
     expect(src).toContain("disabled={busy || !typed.trim()}");
     expect(src).toContain("/api/restaurant/costs/reset");
-    expect(src).toContain("No se toca:");
+    expect(read("lib/i18n/es/menu-editor.ts")).toContain("No se toca:");
     expect(src).not.toContain("t(lang");
     expect(src).not.toContain("error_en");
     const server = read("lib/restaurant/recipe-costing/workspace-server.ts");

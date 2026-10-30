@@ -13,16 +13,10 @@ import {
   GhostBtn,
   PrimaryBtn,
 } from "@/components/restaurant/recipes-costing/ui";
-import {
-  ESTIMATE_BUTTON,
-  ESTIMATE_HELP,
-  ESTIMATE_MISSING_TABLE,
-  ESTIMATE_NOTHING_TO_DO,
-  ESTIMATE_NO_ROLE_HINT,
-  ESTIMATE_PROBE_FAILED,
-  ESTIMATE_RETRY,
-  ESTIMATE_UNAVAILABLE,
-} from "./estimate-overlay";
+import { estimateCopy } from "./estimate-overlay";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
@@ -53,14 +47,26 @@ export interface EstimateRunState {
   summary: string | null;
 }
 
-export function estimateSummary(estimated: number, skipped: number): string {
-  const base = `Listo: ${estimated} ${estimated === 1 ? "plato estimado" : "platos estimados"}.`;
+export function estimateSummary(
+  estimated: number,
+  skipped: number,
+  lang: PreferredLanguage = "es"
+): string {
+  const c = estimateCopy(lang);
+  const base = fmt(estimated === 1 ? c.doneOne : c.doneOther, { n: estimated });
   if (skipped <= 0) return base;
-  return `${base} ${skipped} ${skipped === 1 ? "plato quedó" : "platos quedaron"} sin estimar.`;
+  return `${base} ${fmt(skipped === 1 ? c.skippedOne : c.skippedOther, { n: skipped })}`;
 }
 
-export function progressText(processed: number, total: number): string {
-  return `Estimando ${Math.min(processed + 1, total)} de ${total} platos (los que más venden primero)…`;
+export function progressText(
+  processed: number,
+  total: number,
+  lang: PreferredLanguage = "es"
+): string {
+  return fmt(estimateCopy(lang).progress, {
+    current: Math.min(processed + 1, total),
+    total,
+  });
 }
 
 /** The run loop. `onDone` runs after a run that estimated something. */
@@ -71,6 +77,7 @@ export function useEstimateRun({
   locationId: string | null;
   onDone: () => void;
 }) {
+  const { lang } = useT();
   const [state, setState] = useState<EstimateRunState>({
     running: false,
     processed: 0,
@@ -109,10 +116,10 @@ export function useEstimateRun({
           status = res.status;
           json = (await res.json().catch(() => ({}))) as ChunkResponse;
           if (!res.ok)
-            throw new Error(userErrorMessage(json, "No pude estimar."));
+            throw new Error(userErrorMessage(json, estimateCopy(lang).failed));
         } catch {
           if (status === 503) {
-            note = ESTIMATE_MISSING_TABLE;
+            note = estimateCopy(lang).missingTable;
             break;
           }
           failedInARow += 1;
@@ -142,7 +149,7 @@ export function useEstimateRun({
         processed: seen.size,
         total,
         note,
-        summary: note ? null : estimateSummary(estimated, skipped),
+        summary: note ? null : estimateSummary(estimated, skipped, lang),
       });
     }
     if (estimated > 0) onDone();
@@ -153,12 +160,13 @@ export function useEstimateRun({
 
 /** Why the person cannot edit recipes: the shared message plus what to do. */
 export function NoRecipeEditNotice({ className = "" }: { className?: string }) {
+  const { lang } = useT();
   return (
     <p
       className={"text-[12px] text-[var(--brand-muted)] " + className}
       data-testid="recipes-edit-denied"
     >
-      {CAPABILITY_MESSAGES["recipes.edit"]} {ESTIMATE_NO_ROLE_HINT}
+      {CAPABILITY_MESSAGES["recipes.edit"]} {estimateCopy(lang).noRoleHint}
     </p>
   );
 }
@@ -198,6 +206,8 @@ export function EstimateWithMilton({
   onVisibleChange?: (live: boolean) => void;
   hideNoRoleNotice?: boolean;
 }) {
+  const { lang } = useT();
+  const c = estimateCopy(lang);
   const [probe, setProbe] = useState<Probe>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const { state, start } = useEstimateRun({ locationId, onDone });
@@ -255,7 +265,7 @@ export function EstimateWithMilton({
     if (probe.status === "failed") {
       reason = (
         <p className="text-[12px] text-[var(--brand-muted)]">
-          {ESTIMATE_PROBE_FAILED}{" "}
+          {c.probeFailed}{" "}
           <button
             type="button"
             onClick={() => {
@@ -265,27 +275,23 @@ export function EstimateWithMilton({
             }}
             className="font-semibold text-[var(--brand-blue)] hover:underline"
           >
-            {ESTIMATE_RETRY}
+            {c.retry}
           </button>
         </p>
       );
     } else if (probe.status === "ok" && !probe.available) {
       reason = (
-        <p className="text-[12px] text-[var(--brand-muted)]">
-          {ESTIMATE_UNAVAILABLE}
-        </p>
+        <p className="text-[12px] text-[var(--brand-muted)]">{c.unavailable}</p>
       );
     } else if (probe.status === "ok") {
       reason = (
-        <p className="text-[12px] text-[var(--brand-muted)]">
-          {ESTIMATE_NOTHING_TO_DO}
-        </p>
+        <p className="text-[12px] text-[var(--brand-muted)]">{c.nothingToDo}</p>
       );
     }
   }
 
   const disabled = !live || state.running || busyExternal;
-  const label = state.running ? "Estimando…" : ESTIMATE_BUTTON;
+  const label = state.running ? c.running : c.button;
   const Btn = variant === "primary" ? PrimaryBtn : GhostBtn;
   return (
     <div className="space-y-1.5" data-testid="estimate-with-milton">
@@ -311,16 +317,14 @@ export function EstimateWithMilton({
             {label}
           </Btn>
           {live ? (
-            <p className="text-[12px] text-[var(--brand-muted)]">
-              {ESTIMATE_HELP}
-            </p>
+            <p className="text-[12px] text-[var(--brand-muted)]">{c.help}</p>
           ) : null}
         </>
       )}
       {reason}
       {state.running ? (
         <p role="status" className="text-[12px] text-[var(--brand-muted)]">
-          {progressText(state.processed, state.total)}
+          {progressText(state.processed, state.total, lang)}
         </p>
       ) : null}
       {state.note ? (

@@ -1191,9 +1191,14 @@ describe("RecipeLinesEditor · estimate badge and price message", () => {
   );
   it("badges flagged lines and keeps the estimate out of the line cost", () => {
     expect(src).toContain("FLAG_MILTON_ESTIMATE");
-    expect(src).toContain("Estimado por Milton");
+    expect(src).toContain("d.lines.miltonEstimate");
+    expect(read("lib/i18n/es/menu-editor.ts")).toContain(
+      'miltonEstimate: "Estimado por Milton"'
+    );
     expect(src).toContain("milton_price_estimate");
-    expect(src).toMatch(/"Sin precio"/);
+    expect(read("lib/i18n/es/menu-editor.ts")).toContain(
+      'noPrice: "Sin precio"'
+    );
   });
   it("words the estimated price in the company currency", () => {
     expect(

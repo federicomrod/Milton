@@ -8,12 +8,16 @@ import type {
 } from "@/lib/restaurant/recipe-costing/workspace";
 import {
   clearIngredientOptionsCache,
+  kitchenUnitLabel,
   loadIngredientOptions,
   type IngredientOption,
 } from "./ingredient-options";
 import { KITCHEN_UNITS } from "@/lib/restaurant/kitchen-units";
 import { PrimaryBtn } from "./ui";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import { formatTypedNumber, inputNumber } from "@/lib/restaurant/locale-number";
+import { fmt } from "@/lib/i18n";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
 
@@ -40,12 +44,16 @@ export function TreatmentControl({
   busy: boolean;
   onPost: PostFn;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor.treatment;
   const current = product.treatment;
   const hint =
     current === "por_clasificar"
       ? product.suggested_treatment_reason
-        ? `Sin clasificar. Milton sugiere: ${product.suggested_treatment_reason.toLowerCase()}.`
-        : "Sin clasificar."
+        ? fmt(d.unclassifiedSuggest, {
+            reason: product.suggested_treatment_reason.toLowerCase(),
+          })
+        : d.unclassified
       : (options.find((o) => o.id === current)?.hint ?? "");
   const needsResalePick = current === "reventa" && !product.menu_item_id;
 
@@ -54,7 +62,7 @@ export function TreatmentControl({
     <div className="text-[13px]">
       {canEdit ? (
         <select
-          aria-label="Cómo se costea"
+          aria-label={d.howCosted}
           title={hint}
           disabled={busy}
           value={current}
@@ -76,7 +84,7 @@ export function TreatmentControl({
           className="rounded-md border border-[#d5dae3] bg-white px-2 py-1 text-[13px]"
         >
           {current === "por_clasificar" ? (
-            <option value="por_clasificar">Por clasificar</option>
+            <option value="por_clasificar">{d.toClassify}</option>
           ) : null}
           {options.map((option) => (
             <option key={option.id} value={option.id}>
@@ -123,6 +131,8 @@ function ResalePicker({
   canEditPrices: boolean;
   onPriceSaved?: () => void;
 }) {
+  const { d: dict, lang } = useT();
+  const d = dict.menu.editor.treatment;
   const [ingredients, setIngredients] = useState<IngredientOption[] | null>(
     null
   );
@@ -143,12 +153,12 @@ function ResalePicker({
         if (!cancelled) setIngredients(rows);
       })
       .catch(() => {
-        if (!cancelled) setError("No pude cargar tu lista de ingredientes.");
+        if (!cancelled) setError(d.loadFailed);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [d]);
 
   const picked = useMemo(
     () => ingredients?.find((row) => row.id === ingredientId) ?? null,
@@ -173,12 +183,12 @@ function ResalePicker({
           cost_date: new Date().toISOString().slice(0, 10),
           quantity: 1,
           unit: priceUnit,
-          total_cost: Number(priceAmount),
+          total_cost: inputNumber(priceAmount, lang),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setPriceError(userErrorMessage(json, "No pude guardar el precio."));
+        setPriceError(userErrorMessage(json, d.priceSaveFailed));
         return;
       }
       clearIngredientOptionsCache();
@@ -186,7 +196,7 @@ function ResalePicker({
       setPriceAmount("");
       onPriceSaved?.();
     } catch {
-      setPriceError("No pude guardar el precio.");
+      setPriceError(d.priceSaveFailed);
     } finally {
       setSavingPrice(false);
     }
@@ -194,11 +204,11 @@ function ResalePicker({
 
   return (
     <div className="mt-2 border-t border-[#eef0f4] pt-2">
-      <div className="mb-1 font-semibold">¿Qué compras para venderlo?</div>
+      <div className="mb-1 font-semibold">{d.whatYouBuy}</div>
       {error ? (
         <p className="text-[#c03535]">{error}</p>
       ) : !ingredients ? (
-        <p className="text-[#8a92a3]">Cargando tu lista…</p>
+        <p className="text-[#8a92a3]">{d.loadingList}</p>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
           <select
@@ -215,7 +225,7 @@ function ResalePicker({
             }}
             className="min-w-0 flex-1 rounded-md border border-[#d5dae3] bg-white px-1.5 py-1"
           >
-            <option value="">Elige de tu lista…</option>
+            <option value="">{d.chooseFromList}</option>
             {ingredients.map((row) => (
               <option key={row.id} value={row.id}>
                 {row.name}
@@ -226,17 +236,17 @@ function ResalePicker({
             value={qty}
             onChange={(event) => setQty(event.target.value)}
             className="w-14 rounded-md border border-[#d5dae3] px-1.5 py-1 text-right"
-            aria-label="Cantidad por venta"
+            aria-label={d.quantityPerSale}
           />
           <select
-            aria-label="Unidad de la cantidad"
+            aria-label={d.quantityUnit}
             value={unit}
             onChange={(event) => setUnit(event.target.value)}
             className="rounded-md border border-[#d5dae3] bg-white px-1.5 py-1 text-[#5b6476]"
           >
             {KITCHEN_UNITS.map((u) => (
               <option key={u.value} value={u.value}>
-                {u.label}
+                {kitchenUnitLabel(u, dict.menu.editor.units)}
               </option>
             ))}
           </select>
@@ -246,26 +256,24 @@ function ResalePicker({
                 ? "border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe]"
                 : undefined
             }
-            disabled={busy || !ingredientId || !(Number(qty) > 0)}
+            disabled={busy || !ingredientId || !(inputNumber(qty, lang) > 0)}
             onClick={() =>
               onPost("/api/restaurant/pos/links/resale", {
                 odoo_product_id: product.odoo_product_id,
                 odoo_name: product.odoo_name,
                 ingredient_id: ingredientId,
-                quantity: Number(qty),
+                quantity: inputNumber(qty, lang),
                 unit,
               })
             }
           >
-            Usar como costo
+            {d.useAsCost}
           </PrimaryBtn>
         </div>
       )}
       {missingPrice ? (
         <div className="mt-2" data-testid="resale-price">
-          <div className="text-[12px] text-[#6b7280]">
-            Sin precio: este producto aún no tiene precio.
-          </div>
+          <div className="text-[12px] text-[#6b7280]">{d.noPriceNote}</div>
           {canEditPrices ? (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <input
@@ -273,31 +281,31 @@ function ResalePicker({
                 inputMode="decimal"
                 onChange={(event) => setPriceAmount(event.target.value)}
                 className="w-20 rounded-md border border-[#d5dae3] px-1.5 py-1 text-right"
-                aria-label="Precio"
-                placeholder="Precio"
+                aria-label={d.price}
+                placeholder={d.price}
               />
-              <span className="text-[#5b6476]">por</span>
+              <span className="text-[#5b6476]">{d.per}</span>
               <select
-                aria-label="Unidad del precio"
+                aria-label={d.priceUnit}
                 value={priceUnit}
                 onChange={(event) => setPriceUnit(event.target.value)}
                 className="rounded-md border border-[#d5dae3] bg-white px-1.5 py-1 text-[#5b6476]"
               >
                 {KITCHEN_UNITS.map((u) => (
                   <option key={u.value} value={u.value}>
-                    {u.label}
+                    {kitchenUnitLabel(u, dict.menu.editor.units)}
                   </option>
                 ))}
               </select>
               <PrimaryBtn
                 disabled={
                   savingPrice ||
-                  !(Number(priceAmount) >= 0) ||
+                  !(inputNumber(priceAmount, lang) >= 0) ||
                   !priceAmount.trim()
                 }
                 onClick={() => void savePrice()}
               >
-                Guardar precio
+                {d.savePrice}
               </PrimaryBtn>
             </div>
           ) : null}
@@ -308,10 +316,7 @@ function ResalePicker({
           ) : null}
         </div>
       ) : (
-        <div className="mt-1 text-[12px] text-[#8a92a3]">
-          Queda como borrador: confirma el vínculo y apruébalo como cualquier
-          receta.
-        </div>
+        <div className="mt-1 text-[12px] text-[#8a92a3]">{d.draftNote}</div>
       )}
     </div>
   );

@@ -4,6 +4,7 @@
 // every kitchen (cook-facing) response goes through the no-money guard.
 
 import { NextResponse } from "next/server";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { assertNoMoneyFields } from "@/lib/restaurant/kitchen/kitchen-serializer";
 
 export const NO_STORE_HEADERS = { "Cache-Control": "no-store" } as const;
@@ -28,4 +29,20 @@ export function kitchenJson(body: unknown, status = 200): NextResponse {
     return mobileJson({ error: "No pude responder ahora." }, 500);
   }
   return mobileJson(body, status);
+}
+
+/**
+ * The language of a mobile API response: the app sends the device language in
+ * Accept-Language ("de-DE,de;q=0.9"). Anything else answers in Spanish, the
+ * cockpit default. No database read.
+ */
+export function mobileLanguage(request: {
+  headers: { get(name: string): string | null };
+}): PreferredLanguage {
+  const header = request.headers.get("accept-language") ?? "";
+  for (const part of header.split(",")) {
+    const base = part.trim().split(";")[0].toLowerCase().split("-")[0];
+    if (base === "de" || base === "en" || base === "es") return base;
+  }
+  return "es";
 }

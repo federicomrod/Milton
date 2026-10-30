@@ -6,6 +6,9 @@ import {
   loadRecipeCostingWorkspace,
   parseCostingView,
 } from "@/lib/restaurant/recipe-costing/workspace-server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,7 +23,7 @@ export async function GET(req: NextRequest) {
   if ((startParam && !endParam) || (!startParam && endParam)) {
     return NextResponse.json(
       {
-        error: "start_date y end_date deben ir juntas, con formato YYYY-MM-DD.",
+        error: (await apiMsg()).datesTogether,
       },
       { status: 400 }
     );
@@ -29,8 +32,7 @@ export async function GET(req: NextRequest) {
     if (!DATE_RE.test(startParam) || !DATE_RE.test(endParam)) {
       return NextResponse.json(
         {
-          error:
-            "start_date y end_date deben ir juntas, con formato YYYY-MM-DD.",
+          error: (await apiMsg()).datesTogether,
         },
         { status: 400 }
       );

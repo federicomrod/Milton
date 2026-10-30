@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { useT } from "@/lib/i18n/client";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
 import {
   computeResumen,
@@ -46,13 +47,31 @@ import { useResumenData } from "./use-resumen-data";
 const BLUE = "#1b40c8";
 const pctOf = (n: number, digits = 1) => `${(n * 100).toFixed(digits)}%`;
 
+/** «Junio 2026»: Spanish keeps the shared label; other languages use Intl. */
+function localMonthLabel(
+  lastDay: string,
+  lang: string,
+  locale: string
+): string {
+  if (lang === "es") return monthLabel(lastDay);
+  const month = new Date(
+    Date.UTC(+lastDay.slice(0, 4), +lastDay.slice(5, 7) - 1, 1)
+  );
+  const name = new Intl.DateTimeFormat(locale, {
+    month: "long",
+    timeZone: "UTC",
+  }).format(month);
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)} ${lastDay.slice(0, 4)}`;
+}
+
 function IaChip() {
+  const { d } = useT();
   return (
     <span
-      title="Costo estimado por IA: revísalo en Platos"
+      title={d.menu.workspace.resumen.iaTitle}
       className="ml-1 rounded-md bg-[#f2ecff] px-1 py-px text-[10px] font-bold text-[#6b3fc9]"
     >
-      IA
+      {d.menu.workspace.resumen.ia}
     </span>
   );
 }
@@ -68,6 +87,8 @@ export function ResumenScreen({
   estimates?: DishEstimateRow[];
 }) {
   const router = useRouter();
+  const { d, lang, locale } = useT();
+  const w = d.menu.workspace.resumen;
   const { data: days, failed, retry } = useResumenData(locationId);
   const [period, setPeriod] = useState<ResumenPeriod>("month");
   const [now] = useState(() => Date.now());
@@ -92,13 +113,13 @@ export function ResumenScreen({
         role="alert"
         className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-6 text-[13px]"
       >
-        <p className="text-[#c03535]">No pude cargar el resumen del menú.</p>
+        <p className="text-[#c03535]">{w.loadFailed}</p>
         <button
           type="button"
           onClick={retry}
           className="mt-2 rounded-lg bg-[#1b40c8] px-3 py-1.5 text-[12.5px] font-semibold text-white"
         >
-          Reintentar
+          {w.retry}
         </button>
       </div>
     );
@@ -108,7 +129,11 @@ export function ResumenScreen({
       currency={data.currency}
       period={period}
       onPeriod={setPeriod}
-      monthText={days?.last_day ? monthLabel(days.last_day) : "Mes"}
+      monthText={
+        days?.last_day
+          ? localMonthLabel(days.last_day, lang, locale)
+          : w.monthFallback
+      }
       missingPriceIngredients={summary.missing_price_ingredients}
       latestUpload={data.latest_upload}
       now={now}
@@ -156,20 +181,22 @@ export function ResumenCockpit({
   latestUpload: { filename: string; created_at: string | null } | null;
   now: number;
 }) {
-  const money = (n: number, d = 0) =>
-    formatMoneyEs(n, currency, { decimals: d });
+  const { d, lang } = useT();
+  const w = d.menu.workspace.resumen;
+  const money = (n: number, dec = 0) =>
+    formatMoneyEs(n, currency, { decimals: dec }, lang);
   return (
     <div className="space-y-3" data-testid="menu-resumen">
       <div
         role="group"
-        aria-label="Rango"
+        aria-label={w.rangeAria}
         className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
       >
         {(
           [
-            ["7d", "7 días"],
+            ["7d", w.range7d],
             ["month", monthText],
-            ["90d", "90 días"],
+            ["90d", w.range90d],
           ] as const
         ).map(([key, label]) => (
           <button
@@ -194,7 +221,7 @@ export function ResumenCockpit({
         <>
           {menuReader}
           <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#6b7385]">
-            Todavía no hay ventas de platos en este rango.
+            {w.noSales}
           </p>
         </>
       ) : (
@@ -260,6 +287,8 @@ function Kpis({
   view: ResumenView;
   money: (n: number, d?: number) => string;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.resumen;
   const k = view.kpis;
   const allCosted = k.all_costed;
   const costed = k.covered_dishes;
@@ -271,28 +300,28 @@ function Kpis({
     tone?: "bad" | "good";
   }> = [
     {
-      label: "Costo de comida",
+      label: w.foodCost,
       value:
         k.food_cost_pct !== null
           ? `${Math.round(k.food_cost_pct)}%`
-          : "Sin precio",
-      sub: allCosted ? "sobre el 100% de ventas" : "solo ventas con costo",
+          : w.noPrice,
+      sub: allCosted ? w.subAllSales : w.subOnlyCosted,
       href: platosHref(["aprobado"]),
     },
     {
-      label: "Margen bruto",
+      label: w.grossMargin,
       value:
         k.gross_margin !== null
           ? money(k.gross_margin, allCosted ? 0 : 2)
           : "—",
-      sub: allCosted ? "en el rango" : "solo ventas con costo",
+      sub: allCosted ? w.subInRange : w.subOnlyCosted,
       href: platosHref(["aprobado"]),
     },
     {
-      label: "Ventas con costo",
+      label: w.salesWithCost,
       value: `${Math.round(k.coverage_pct)}%`,
       sub: allCosted
-        ? `${costed} de ${k.dish_count} platos`
+        ? fmt(w.subDishesOf, { costed, total: k.dish_count })
         : dishCoverageLabel({
             covered: costed,
             partial: k.partial_dishes,
@@ -303,16 +332,16 @@ function Kpis({
     },
     allCosted
       ? {
-          label: "Platos bajo objetivo",
+          label: w.lowMarginTitle,
           value: String(k.low_margin_count),
-          sub: "margen < 60%",
+          sub: w.lowMarginSub,
           href: platosHref(["aprobado"]),
           tone: k.low_margin_count > 0 ? "bad" : undefined,
         }
       : {
-          label: "Platos con problema",
+          label: w.problemTitle,
           value: String(k.problem_count),
-          sub: `de ${k.dish_count}`,
+          sub: fmt(w.problemSub, { total: k.dish_count }),
           href: platosHref(["falta_precio", "borrador", "sin_receta"]),
           tone: k.problem_count > 0 ? "bad" : undefined,
         },
@@ -350,9 +379,11 @@ function Kpis({
   );
 }
 
-function marginChip(d: DishRow) {
-  const g = groupStatusDisplay(d);
-  if (g.mixed && d.approved_margin_pct !== null) {
+function MarginChip({ d: dish }: { d: DishRow }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.resumen;
+  const g = groupStatusDisplay(dish);
+  if (g.mixed && dish.approved_margin_pct !== null) {
     return (
       <span
         className="inline-flex items-center"
@@ -360,58 +391,70 @@ function marginChip(d: DishRow) {
         data-testid="margen-parcial"
       >
         <span className="rounded-md bg-[#eef2fd] px-1.5 py-0.5 text-[12px] font-semibold text-[#1b40c8]">
-          {Math.round(d.approved_margin_pct)}% · {d.approved_count} de{" "}
-          {d.variant_count} tamaños
+          {fmt(w.partialSizes, {
+            pct: Math.round(dish.approved_margin_pct),
+            approved: dish.approved_count,
+            total: dish.variant_count,
+          })}
         </span>
       </span>
     );
   }
-  if (d.margin_pct === null)
-    return <span className="text-[12px] text-[#8a92a3]">margen —</span>;
-  if (d.cost_status === "aprobado" || d.cost_status === "estimado") {
+  if (dish.margin_pct === null)
+    return <span className="text-[12px] text-[#8a92a3]">{w.marginDash}</span>;
+  if (dish.cost_status === "aprobado" || dish.cost_status === "estimado") {
     return (
       <span className="inline-flex items-center">
         <span className="rounded-md bg-[#e7f6ee] px-1.5 py-0.5 text-[12px] font-semibold text-[#1f7a45]">
-          {Math.round(d.margin_pct)}%
+          {Math.round(dish.margin_pct)}%
         </span>
-        {d.cost_status === "estimado" ? <IaChip /> : null}
+        {dish.cost_status === "estimado" ? <IaChip /> : null}
       </span>
     );
   }
-  return <span className="text-[12px] text-[#8a92a3]">margen —</span>;
+  return <span className="text-[12px] text-[#8a92a3]">{w.marginDash}</span>;
 }
 
 function TopPlatos({ view }: { view: ResumenView }) {
-  const max = Math.max(...view.top.map((d) => d.share), 0.0001);
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.resumen;
+  const max = Math.max(...view.top.map((row) => row.share), 0.0001);
   return (
     <section
       className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3"
       data-testid="menu-resumen-top"
     >
       <div className="flex items-baseline">
-        <h2 className="text-[13px] font-bold">Top platos por ventas</h2>
-        <span className="ml-auto text-[12px] text-[#8a92a3]">% de ventas</span>
+        <h2 className="text-[13px] font-bold">{w.topTitle}</h2>
+        <span className="ml-auto text-[12px] text-[#8a92a3]">
+          {w.pctOfSales}
+        </span>
       </div>
-      {view.top.map((d) => (
+      {view.top.map((row) => (
         <Link
-          key={d.id}
-          href={dishHrefOf(d)}
-          title="Abrir el plato"
+          key={row.id}
+          href={dishHrefOf(row)}
+          title={w.openDish}
           className="flex items-center gap-2 border-t border-[#f2f3f6] py-1.5 text-[13px] first:mt-1 hover:bg-[#f7f9ff]"
         >
-          <span className="w-[190px] shrink-0 truncate">{d.name}</span>
+          <span className="w-[190px] shrink-0 truncate">{row.name}</span>
           <span className="h-2.5 flex-1 rounded-full bg-[#eef0f4]">
             <span
               className="block h-full rounded-full"
-              style={{ width: `${(d.share / max) * 100}%`, background: BLUE }}
+              style={{ width: `${(row.share / max) * 100}%`, background: BLUE }}
             />
           </span>
-          <b className="w-[52px] text-right tabular-nums">{pctOf(d.share)}</b>
-          <span className="w-[84px] text-right">{marginChip(d)}</span>
+          <b className="w-[52px] text-right tabular-nums">{pctOf(row.share)}</b>
+          <span className="w-[84px] text-right">
+            <MarginChip d={row} />
+          </span>
         </Link>
       ))}
       <p className="mt-1 text-[12px] text-[#8a92a3]">
-        Top {view.top.length} = {pctOf(view.top_share)} de tus ventas
+        {fmt(w.topSummary, {
+          n: view.top.length,
+          pct: pctOf(view.top_share),
+        })}
       </p>
     </section>
   );
@@ -431,31 +474,33 @@ function MarginCard({
   view: ResumenView;
   money: (n: number, d?: number) => string;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.resumen;
   const r = view.ranking;
   const list = kind === "best" ? r.best : r.worst;
-  const title = kind === "best" ? "Mejor margen" : "Peor margen";
+  const title = kind === "best" ? w.bestMargin : w.worstMargin;
   const missingLink =
     kind === "best"
       ? {
           href: ingredientesHref("falta_precio"),
           text:
             view.counts.falta_precio.dishes > 0
-              ? `Completa los precios en Costos →`
-              : "Revisa tus costos →",
+              ? w.completePrices
+              : w.reviewCosts,
         }
       : view.counts.sin_receta.dishes > 0
         ? {
             href: platosHref(["sin_receta"]),
-            text: `Ver ${view.counts.sin_receta.dishes} platos sin receta →`,
+            text: fmt(w.seeNoRecipe, { n: view.counts.sin_receta.dishes }),
           }
         : {
             href: platosHref(["falta_precio"]),
-            text: "Ver platos sin precio →",
+            text: w.seeNoPrice,
           };
-  const topNames = new Set(view.top.map((d) => d.id));
+  const topNames = new Set(view.top.map((row) => row.id));
   const flagged =
     kind === "worst"
-      ? list.find((d) => d.id !== null && topNames.has(d.id))
+      ? list.find((row) => row.id !== null && topNames.has(row.id))
       : undefined;
   return (
     <section
@@ -465,12 +510,12 @@ function MarginCard({
       <div className="flex items-baseline">
         <h2 className="text-[13px] font-bold">{title}</h2>
         <span className="ml-auto text-[12px] text-[#8a92a3]">
-          margen de {r.costed} de {r.total} platos
+          {fmt(w.marginOf, { costed: r.costed, total: r.total })}
         </span>
       </div>
       <div
         className="my-1.5 h-1.5 rounded-full bg-[#eef0f4]"
-        aria-label={`Cobertura ${Math.round(r.coverage * 100)}%`}
+        aria-label={fmt(w.coverageAria, { pct: Math.round(r.coverage * 100) })}
       >
         <div
           className="h-full rounded-full"
@@ -482,7 +527,7 @@ function MarginCard({
       </div>
       {!r.enough ? (
         <div className="rounded-[10px] border border-dashed border-[#d5dae3] px-2.5 py-2 text-[12.5px] text-[#6b7385]">
-          {`Sin ranking hasta tener al menos ${MIN} platos con costo.`}
+          {fmt(w.noRanking, { min: MIN })}
           <br />
           <Link
             href={missingLink.href}
@@ -493,17 +538,17 @@ function MarginCard({
         </div>
       ) : (
         <>
-          {list.map((d) => (
+          {list.map((row) => (
             <RankRow
-              key={d.id ?? d.name}
-              d={d}
+              key={row.id ?? row.name}
+              d={row}
               money={money}
               tone={kind === "best" ? "good" : "bad"}
             />
           ))}
           {flagged ? (
             <p className="mt-1 text-[12px] text-[#8a92a3]">
-              {flagged.name} vende mucho con margen bajo → revisa precio
+              {fmt(w.flagged, { name: flagged.name })}
             </p>
           ) : null}
         </>
@@ -523,6 +568,7 @@ function RankRow({
   money: (n: number, d?: number) => string;
   tone: "good" | "bad";
 }) {
+  const { d: dict, fmt } = useT();
   return (
     <div className="flex items-center gap-2 border-t border-[#f2f3f6] py-1.5 text-[13px]">
       <span className="min-w-0 flex-1 truncate">
@@ -530,7 +576,9 @@ function RankRow({
         {d.ai ? <IaChip /> : null}
       </span>
       <span className="text-[12px] text-[#8a92a3]">
-        {money(d.net_sales)} ventas
+        {fmt(dict.menu.workspace.resumen.salesSuffix, {
+          amount: money(d.net_sales),
+        })}
       </span>
       <b
         className={
@@ -544,12 +592,21 @@ function RankRow({
   );
 }
 
-function ageText(createdAt: string | null, now: number): string | null {
+function ageText(
+  createdAt: string | null,
+  now: number,
+  w: { ageToday: string; ageOne: string; ageMany: string },
+  fmt: (template: string, vars: Record<string, string | number>) => string
+): string | null {
   if (!createdAt) return null;
   const t = Date.parse(createdAt);
   if (Number.isNaN(t)) return null;
   const days = Math.max(0, Math.floor((now - t) / 86_400_000));
-  return days === 0 ? "Hoy" : days === 1 ? "Hace 1 día" : `Hace ${days} días`;
+  return days === 0
+    ? w.ageToday
+    : days === 1
+      ? w.ageOne
+      : fmt(w.ageMany, { n: days });
 }
 
 function Pendientes({
@@ -563,7 +620,9 @@ function Pendientes({
   latestUpload: { filename: string; created_at: string | null } | null;
   now: number;
 }) {
-  const sharePct = (n: number) => `${Math.round(n * 100)}% de ventas`;
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.resumen;
+  const sharePct = (n: number) => fmt(w.sharePct, { pct: Math.round(n * 100) });
   const items: Array<{
     key: string;
     count: number;
@@ -575,16 +634,21 @@ function Pendientes({
     items.push({
       key: "precios",
       count: missing,
-      label:
-        missing === 1 ? "Ingrediente sin precio" : "Ingredientes sin precio",
-      sub: `afecta ${view.counts.falta_precio.dishes} ${view.counts.falta_precio.dishes === 1 ? "plato" : "platos"} · ${sharePct(view.counts.falta_precio.share)}`,
+      label: missing === 1 ? w.ingredientNoPriceOne : w.ingredientNoPriceMany,
+      sub: fmt(
+        view.counts.falta_precio.dishes === 1 ? w.affectsOne : w.affectsMany,
+        {
+          n: view.counts.falta_precio.dishes,
+          share: sharePct(view.counts.falta_precio.share),
+        }
+      ),
       href: ingredientesHref("falta_precio"),
     });
   if (view.counts.sin_receta.dishes > 0)
     items.push({
       key: "receta",
       count: view.counts.sin_receta.dishes,
-      label: "Platos sin receta",
+      label: w.dishesNoRecipe,
       sub: sharePct(view.counts.sin_receta.share),
       href: platosHref(["sin_receta"]),
     });
@@ -592,11 +656,11 @@ function Pendientes({
     items.push({
       key: "ia",
       count: view.counts.estimado.dishes,
-      label: "Costos estimados por IA",
-      sub: `${sharePct(view.counts.estimado.share)} · revisa`,
+      label: w.aiCosts,
+      sub: fmt(w.aiSub, { share: sharePct(view.counts.estimado.share) }),
       href: platosHref(["estimado"]),
     });
-  const age = ageText(latestUpload?.created_at ?? null, now);
+  const age = ageText(latestUpload?.created_at ?? null, now, w, fmt);
   const complete = items.length === 0;
   return (
     <section
@@ -604,7 +668,7 @@ function Pendientes({
       data-testid="menu-resumen-pendientes"
     >
       <div className="flex items-baseline">
-        <h2 className="text-[13px] font-bold">Pendientes</h2>
+        <h2 className="text-[13px] font-bold">{w.pendingTitle}</h2>
         {!complete ? (
           <span className="ml-auto text-[12px] text-[#8a92a3]">
             {items.length}
@@ -615,8 +679,8 @@ function Pendientes({
         <div className="flex gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px]">
           <b className="w-[26px] text-[#1b40c8]">✓</b>
           <div>
-            Menú completo
-            <div className="text-[12px] text-[#8a92a3]">Costos al día</div>
+            {w.menuComplete}
+            <div className="text-[12px] text-[#8a92a3]">{w.costsUpToDate}</div>
           </div>
         </div>
       ) : (
@@ -637,13 +701,13 @@ function Pendientes({
       <div className="flex gap-2.5 border-t border-[#f2f3f6] py-2 text-[13px]">
         <b className="w-[26px] text-[#1b40c8]">↑</b>
         <div>
-          Sube tus costos más recientes
+          {w.uploadLatest}
           <div className="text-[12px] text-[#8a92a3]">
             {latestUpload
               ? age
                 ? `${age} · ${latestUpload.filename}`
-                : `Último: ${latestUpload.filename}`
-              : "Aún no subes un archivo"}
+                : fmt(w.lastFile, { filename: latestUpload.filename })
+              : w.noFile}
           </div>
         </div>
       </div>
@@ -651,7 +715,7 @@ function Pendientes({
         href={costsTabHref("precios")}
         className="mt-2 inline-flex rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
       >
-        Ir a Costos →
+        {w.goCosts}
       </Link>
     </section>
   );

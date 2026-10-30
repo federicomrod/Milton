@@ -11,6 +11,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
 import { confirmPlato } from "@/lib/restaurant/recipe-costing/plato-server";
+import { apiDictionary, apiLanguage } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -24,14 +27,14 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: (await apiMsg()).bodyNotJson },
       { status: 400 }
     );
   }
   const odooProductId = Number(body.odoo_product_id);
   if (!Number.isInteger(odooProductId) || odooProductId <= 0) {
     return NextResponse.json(
-      { error: "Falta el producto de Odoo." },
+      { error: (await apiMsg()).platoMissingProduct },
       { status: 400 }
     );
   }
@@ -57,6 +60,7 @@ export async function POST(req: NextRequest) {
       confirmedHow:
         typeof body.confirmed_how === "string" ? body.confirmed_how : null,
       yieldConfirmed: body.yield_confirmed === true,
+      lang: await apiLanguage(),
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -68,7 +72,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[recipes/plato/confirm]", err);
     return NextResponse.json(
-      { error: "No pude guardar este plato." },
+      { error: (await apiMsg()).platoSaveFailed },
       { status: 500 }
     );
   }

@@ -23,7 +23,8 @@ describe("cockpit step-1 review nits", () => {
     expect(strip).toContain("Ventas netas");
     expect(strip).not.toContain("all loaded data");
     expect(strip).not.toContain("todos los datos cargados");
-    expect(explorer).toContain("Ventas netas");
+    expect(explorer).toContain("k0.net");
+    expect(read("lib/i18n/es/sales.ts")).toContain('net: "Ventas netas"');
   });
 
   it("keeps the Cockpit strip to 4 KPIs (R1-09b, wireframe 0)", () => {

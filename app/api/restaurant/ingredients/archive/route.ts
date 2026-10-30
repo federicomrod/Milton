@@ -6,6 +6,8 @@
 // Company and user come from auth.
 
 import { NextRequest, NextResponse } from "next/server";
+import { fmt } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
@@ -18,16 +20,14 @@ const MAX_IDS = 500;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   let body: { ids?: unknown; archived?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const ids = Array.isArray(body.ids)
     ? [
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     : [];
   if (ids.length === 0 || ids.length > MAX_IDS) {
     return NextResponse.json(
-      { error: `Elige entre 1 y ${MAX_IDS} ingredientes.` },
+      { error: fmt(api.chooseIdsArchive, { max: MAX_IDS }) },
       { status: 400 }
     );
   }
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "ingredients.manage", {
-    message: "Tu rol no puede archivar ingredientes.",
+    message: api.roleArchive,
   });
   if (denied) return denied;
 
@@ -61,8 +61,7 @@ export async function POST(req: NextRequest) {
     if (!usage.ok) {
       return NextResponse.json(
         {
-          error:
-            "No pude leer las recetas para comprobar el uso. Inténtalo de nuevo.",
+          error: api.readRecipesUse,
         },
         { status: 503 }
       );
@@ -85,15 +84,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           unavailable: true,
-          error:
-            "Para archivar falta aplicar la migración 050 en este ambiente.",
+          error: api.migration050,
         },
         { status: 409 }
       );
     }
     const failure = actionableError(
       error,
-      "No pude archivar los ingredientes.",
+      api.archiveFailed,
       "ingredients-archive"
     );
     return NextResponse.json(

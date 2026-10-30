@@ -4,6 +4,8 @@
 // Kept separate from the summary helpers so the double-submit tests stay
 // focused on one module.
 
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+
 export type SyncDatePreset =
   | "yesterday"
   | "last_7_days"
@@ -19,6 +21,23 @@ export const SYNC_DATE_PRESETS: Array<{
   { id: "this_month", label: "Este mes" },
   { id: "last_month", label: "Mes pasado" },
 ];
+
+/** The preset's label in the person's language (Spanish by default). */
+export function syncPresetLabel(
+  id: SyncDatePreset,
+  lang: PreferredLanguage = "es"
+): string {
+  switch (id) {
+    case "yesterday":
+      return t(lang, "Yesterday", "Ayer", "Gestern");
+    case "last_7_days":
+      return t(lang, "Last 7 days", "Últimos 7 días", "Letzte 7 Tage");
+    case "this_month":
+      return t(lang, "This month", "Este mes", "Dieser Monat");
+    default:
+      return t(lang, "Last month", "Mes pasado", "Letzter Monat");
+  }
+}
 
 export const DEFAULT_SYNC_PRESET: SyncDatePreset = "last_7_days";
 

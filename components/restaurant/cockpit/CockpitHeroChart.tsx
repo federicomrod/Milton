@@ -5,6 +5,7 @@
 
 "use client";
 
+import { moneyLocale } from "@/lib/restaurant/cockpit-format";
 import {
   ResponsiveContainer,
   LineChart,
@@ -14,8 +15,11 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { localeForCurrency } from "@/lib/restaurant/currency";
+import {
+  t,
+  localeFor,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import type { DailyNetPoint } from "@/lib/restaurant/cockpit-executive";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
@@ -29,8 +33,8 @@ export function CockpitHeroChart({
   currency: string;
   points: DailyNetPoint[];
 }) {
-  const locale = localeForCurrency(currency);
-  const dateLocale = lang === "es" ? "es" : "en-US";
+  const locale = moneyLocale(currency, lang);
+  const dateLocale = localeFor(lang);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
@@ -52,12 +56,14 @@ export function CockpitHeroChart({
       ? t(
           lang,
           "No daily net sales in this period.",
-          "No hay ventas netas diarias en este periodo."
+          "No hay ventas netas diarias en este periodo.",
+          "Kein täglicher Nettoumsatz in diesem Zeitraum."
         )
       : t(
           lang,
           `Daily net sales from ${points[0].date} to ${points[points.length - 1].date}.`,
-          `Ventas netas diarias del ${points[0].date} al ${points[points.length - 1].date}.`
+          `Ventas netas diarias del ${points[0].date} al ${points[points.length - 1].date}.`,
+          `Täglicher Nettoumsatz vom ${points[0].date} bis ${points[points.length - 1].date}.`
         );
 
   return (
@@ -67,13 +73,19 @@ export function CockpitHeroChart({
       className="rounded-md border border-border px-3 py-2.5 min-h-[220px]"
     >
       <h2 className="text-sm font-semibold">
-        {t(lang, "Net sales by day", "Ventas netas por día")}
+        {t(
+          lang,
+          "Net sales by day",
+          "Ventas netas por día",
+          "Nettoumsatz pro Tag"
+        )}
       </h2>
       <p className="text-[12px] text-muted-foreground mb-1.5">
         {t(
           lang,
           "Solid = this period. Dashed = previous period. Tips excluded.",
-          "Línea continua = este periodo. Punteada = periodo anterior. Sin propinas."
+          "Línea continua = este periodo. Punteada = periodo anterior. Sin propinas.",
+          "Durchgezogen = dieser Zeitraum. Gestrichelt = Vorperiode. Ohne Trinkgeld."
         )}
       </p>
       {data.length === 0 ? (
@@ -82,7 +94,8 @@ export function CockpitHeroChart({
           reason={t(
             lang,
             "No daily sales in this period.",
-            "No hay ventas diarias en este periodo."
+            "No hay ventas diarias en este periodo.",
+            "Kein Tagesumsatz in diesem Zeitraum."
           )}
         />
       ) : (
@@ -91,10 +104,12 @@ export function CockpitHeroChart({
             <caption>{summary}</caption>
             <thead>
               <tr>
-                <th>{t(lang, "Date", "Fecha")}</th>
-                <th>{t(lang, "Net sales", "Ventas netas")}</th>
-                <th>{t(lang, "Previous period", "Periodo anterior")}</th>
-                <th>{t(lang, "Tickets", "Tickets")}</th>
+                <th>{t(lang, "Date", "Fecha", "Datum")}</th>
+                <th>{t(lang, "Net sales", "Ventas netas", "Nettoumsatz")}</th>
+                <th>
+                  {t(lang, "Previous period", "Periodo anterior", "Vorperiode")}
+                </th>
+                <th>{t(lang, "Tickets", "Tickets", "Bons")}</th>
               </tr>
             </thead>
             <tbody>
@@ -104,7 +119,7 @@ export function CockpitHeroChart({
                   <td>{money.format(point.current_net)}</td>
                   <td>
                     {point.previous_net == null
-                      ? t(lang, "n/a", "n/d")
+                      ? t(lang, "n/a", "n/d", "k. A.")
                       : money.format(point.previous_net)}
                   </td>
                   <td>{point.current_tickets}</td>
@@ -133,24 +148,35 @@ export function CockpitHeroChart({
                     };
                     const vs =
                       point.vs_previous_pct == null
-                        ? t(lang, "no previous day", "sin día anterior")
+                        ? t(
+                            lang,
+                            "no previous day",
+                            "sin día anterior",
+                            "kein Vortag"
+                          )
                         : `${point.vs_previous_pct > 0 ? "+" : ""}${point.vs_previous_pct.toFixed(1)}%`;
                     return (
                       <div className="rounded-md border border-border bg-background px-2.5 py-2 text-xs shadow-sm">
                         <p className="font-medium mb-1">{point.label}</p>
                         <p>
-                          {t(lang, "Net sales", "Ventas netas")}{" "}
+                          {t(lang, "Net sales", "Ventas netas", "Nettoumsatz")}{" "}
                           {money.format(point.current_net)}
                         </p>
                         <p>
-                          {t(lang, "vs previous", "vs anterior")} {vs}
+                          {t(
+                            lang,
+                            "vs previous",
+                            "vs anterior",
+                            "ggü. Vorperiode"
+                          )}{" "}
+                          {vs}
                         </p>
                         <p>
-                          {t(lang, "Tickets", "Tickets")}{" "}
+                          {t(lang, "Tickets", "Tickets", "Bons")}{" "}
                           {point.current_tickets}
                         </p>
                         <p>
-                          {t(lang, "Avg ticket", "Ticket promedio")}{" "}
+                          {t(lang, "Avg ticket", "Ticket promedio", "Ø Bon")}{" "}
                           {money.format(point.current_avg_ticket)}
                         </p>
                       </div>

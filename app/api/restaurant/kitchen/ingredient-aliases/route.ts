@@ -6,6 +6,7 @@
 // repointed; the answer is { saved: false, existing }.
 // The ingredient must belong to the caller's company. Owner / Milton staff.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
@@ -22,6 +23,7 @@ import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-g
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const body = (await req.json().catch(() => null)) as {
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
     typeof body?.ingredient_id === "string" ? body.ingredient_id : "";
   if (!rawName || rawName.length > 120 || !ingredientId) {
     return NextResponse.json(
-      { error: "Falta el nombre o el ingrediente." },
+      { error: d.kitchen.api.aliasFieldsMissing },
       { status: 400 }
     );
   }
@@ -51,14 +53,14 @@ export async function POST(req: NextRequest) {
   ).find((row) => row.id === ingredientId);
   if (!ingredient) {
     return NextResponse.json(
-      { error: "Ese ingrediente no está en tu lista." },
+      { error: d.kitchen.api.ingredientNotInList },
       { status: 400 }
     );
   }
   // A merged-away / archived ingredient is never the target of a name.
   if (!isActiveIngredient(ingredient)) {
     return NextResponse.json(
-      { error: "Ese ingrediente ya no está activo." },
+      { error: d.kitchen.api.ingredientInactive },
       { status: 400 }
     );
   }
@@ -125,7 +127,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.message : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude recordar ese nombre." },
+      { error: d.kitchen.api.aliasSaveFailed },
       { status: 500 }
     );
   }

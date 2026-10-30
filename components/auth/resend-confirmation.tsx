@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
+import { useT } from "@/lib/i18n/client";
 import {
   RESEND_COOLDOWN_SECONDS,
   resendConfirmation,
@@ -12,7 +13,7 @@ import {
 
 export function ResendConfirmation({
   email,
-  label = "Reenviar correo",
+  label,
   variant = "outline",
   startCooldown = false,
 }: {
@@ -22,6 +23,8 @@ export function ResendConfirmation({
   /** The email was JUST sent (signup): the button starts cooling down. */
   startCooldown?: boolean;
 }) {
+  const { d, lang, fmt } = useT();
+  const shownLabel = label ?? d.auth.resend.label;
   const [left, setLeft] = useState(startCooldown ? RESEND_COOLDOWN_SECONDS : 0);
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -35,10 +38,10 @@ export function ResendConfirmation({
   async function resend() {
     setSending(true);
     setNote(null);
-    const result = await resendConfirmation(createClient(), email);
+    const result = await resendConfirmation(createClient(), email, lang);
     setSending(false);
     if (result.ok) {
-      setNote({ ok: true, text: `Listo: te reenviamos el correo a ${email}.` });
+      setNote({ ok: true, text: fmt(d.auth.resend.done, { email }) });
       setLeft(RESEND_COOLDOWN_SECONDS);
     } else {
       setNote({ ok: false, text: result.message });
@@ -54,7 +57,11 @@ export function ResendConfirmation({
         disabled={sending || left > 0}
         onClick={() => void resend()}
       >
-        {sending ? "Enviando…" : left > 0 ? `${label} (${left} s)` : label}
+        {sending
+          ? d.auth.resend.sending
+          : left > 0
+            ? `${shownLabel} (${left} s)`
+            : shownLabel}
       </Button>
       {note ? (
         <p

@@ -23,6 +23,7 @@
 //   }
 
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { upsertPosItemMapping } from "@/lib/restaurant/pos-item-mappings-server";
@@ -36,6 +37,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -50,7 +52,7 @@ export async function GET() {
   if (error) {
     console.error("[menu-items GET]", error.message);
     return NextResponse.json(
-      { error: "No pude leer.", details: error.message },
+      { error: api.readFailed, details: error.message },
       { status: 500 }
     );
   }
@@ -68,6 +70,7 @@ interface CreateBody {
 }
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const actor = await resolveActor(auth.supabase, auth.userId, {
@@ -80,18 +83,12 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json(
-      { error: "El nombre es obligatorio." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.nameRequired }, { status: 400 });
   }
   const category =
     typeof body.category === "string" && body.category.trim() !== ""
@@ -136,10 +133,7 @@ export async function POST(req: NextRequest) {
       .eq("company_id", auth.companyId)
       .maybeSingle();
     if (!brand) {
-      return NextResponse.json(
-        { error: "Esa marca no es de esta empresa." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: api.brandNotCompany }, { status: 400 });
     }
     brandId = brand.id;
   }
@@ -153,7 +147,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!location) {
       return NextResponse.json(
-        { error: "Ese restaurante no es de esta empresa." },
+        { error: api.restaurantNotCompany },
         { status: 400 }
       );
     }
@@ -185,7 +179,7 @@ export async function POST(req: NextRequest) {
     console.error("[menu-items POST]", insertErr?.message);
     return NextResponse.json(
       {
-        error: "No se pudo crear.",
+        error: api.createFailed,
         details: insertErr?.message ?? "no row returned",
       },
       { status: 500 }

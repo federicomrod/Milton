@@ -20,8 +20,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useT } from "@/lib/i18n/client";
 import {
-  CONNECT_DATA_COPY as COPY,
   CONNECT_OPTIONS,
   DASHBOARD_PATH,
   MAX_REQUEST_DETAILS,
@@ -36,10 +36,16 @@ type RequestAction = Extract<ConnectAction, { kind: "request" }>;
 function RequestControl({
   action,
   withPicks,
+  label,
+  sentMessage,
 }: {
+  label: string;
+  sentMessage: string;
   action: RequestAction;
   withPicks?: boolean;
 }) {
+  const { d } = useT();
+  const COPY = d.connect;
   const [open, setOpen] = useState(!!withPicks);
   const [note, setNote] = useState("");
   const [pick, setPick] = useState<"square" | "toast" | "other">("other");
@@ -67,27 +73,25 @@ function RequestControl({
   };
 
   if (state === "sent") {
-    return (
-      <p className="text-sm text-green-700">
-        {action.sentMessage ?? COPY.requestSent}
-      </p>
-    );
+    return <p className="text-sm text-green-700">{sentMessage}</p>;
   }
 
   return (
     <div className="space-y-2">
-      {action.badge && <Badge variant="secondary">{action.badge}</Badge>}
+      {action.comingSoon && (
+        <Badge variant="secondary">{COPY.comingSoon}</Badge>
+      )}
       {withPicks && (
         <div className="flex flex-wrap gap-2">
           {OTHER_QUICK_PICKS.map((p) => (
             <Button
-              key={p.value}
+              key={p}
               type="button"
               size="sm"
-              variant={pick === p.value ? "default" : "outline"}
-              onClick={() => setPick(p.value)}
+              variant={pick === p ? "default" : "outline"}
+              onClick={() => setPick(p)}
             >
-              {p.label}
+              {COPY.picks[p]}
             </Button>
           ))}
         </div>
@@ -119,12 +123,12 @@ function RequestControl({
         }}
       >
         {state === "sending"
-          ? "Sending…"
+          ? COPY.sending
           : withPicks
             ? COPY.otherSubmit
             : action.note && open
               ? COPY.sendRequest
-              : action.label}
+              : label}
       </Button>
     </div>
   );
@@ -137,27 +141,50 @@ function OptionCard({
   option: ConnectOption;
   highlighted: boolean;
 }) {
+  const { d } = useT();
+  const COPY = d.connect;
+  const texts = COPY.options[option.key];
+  const labelFor = (id: string): string => {
+    switch (id) {
+      case "spreadsheet_upload":
+        return COPY.options.spreadsheet.upload;
+      case "revel_export":
+        return COPY.options.revel.export;
+      case "revel_live":
+        return COPY.options.revel.request;
+      case "odoo_setup":
+        return COPY.options.odoo.connect;
+      default:
+        return COPY.options.other.send;
+    }
+  };
   return (
     <Card className={cn(highlighted && "border-primary ring-1 ring-primary")}>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-lg">{option.title}</CardTitle>
+          <CardTitle className="text-lg">{texts.title}</CardTitle>
           {highlighted && <Badge>{COPY.recommended}</Badge>}
         </div>
-        <CardDescription>{option.description}</CardDescription>
+        <CardDescription>{texts.description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {option.actions.map((action) =>
           action.kind === "link" ? (
             <div key={action.id}>
               <Button asChild>
-                <Link href={action.href}>{action.label}</Link>
+                <Link href={action.href}>{labelFor(action.id)}</Link>
               </Button>
             </div>
           ) : (
             <RequestControl
               key={action.id}
               action={action}
+              label={labelFor(action.id)}
+              sentMessage={
+                action.ownSentMessage
+                  ? COPY.options.odoo.sent
+                  : COPY.requestSent
+              }
               withPicks={option.key === "other"}
             />
           )
@@ -172,6 +199,7 @@ export function ConnectDataOptions({
 }: {
   highlightedKey: ConnectOption["key"] | null;
 }) {
+  const COPY = useT().d.connect;
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-8">
       <div>

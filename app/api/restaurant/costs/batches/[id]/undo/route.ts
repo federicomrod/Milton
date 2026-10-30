@@ -1,3 +1,4 @@
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -21,6 +22,7 @@ export async function POST(
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
 
   try {
     const result = await undoCostImportBatch(
@@ -39,7 +41,7 @@ export async function POST(
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[costs/batches/undo]", message);
     return NextResponse.json(
-      { error: "No pude deshacer.", details: message },
+      { error: a.undoFailed, details: message },
       { status: 500 }
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -13,7 +14,14 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
-import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
+import { useT } from "@/lib/i18n/client";
+import { getDictionary } from "@/lib/i18n";
+import { setLanguageCookie } from "@/lib/i18n/cookie";
+import {
+  LANGUAGE_OPTIONS,
+  normalizePreferredLanguage,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import {
   browserTimeZone,
@@ -24,7 +32,7 @@ import {
   updateCompany,
 } from "@/lib/profile-service";
 import { useUserPreferences } from "@/lib/context/UserPreferencesContext";
-import { Palette, Building2 } from "lucide-react";
+import { Palette, Building2, Languages } from "lucide-react";
 
 // Zona horaria, formato de fecha and formato de número are still loaded and
 // saved back unchanged (Auth user metadata) but hidden: nothing in the app
@@ -36,6 +44,8 @@ const themes = ["light", "dark", "system"];
 
 export default function SettingsPage() {
   const { setPrefs, refreshPrefs } = useUserPreferences();
+  const { d, lang } = useT();
+  const router = useRouter();
   const canEditCompany = useCan("company.edit");
   const [form, setForm] = useState({
     timezone: browserTimeZone(),
@@ -53,6 +63,12 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageOk, setMessageOk] = useState(false);
+  const [langSaving, setLangSaving] = useState(false);
+  const [langNote, setLangNote] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -92,10 +108,50 @@ export default function SettingsPage() {
     setForm({ ...form, [key]: value });
   };
 
+  // Saves the company language, remembers it in the browser (so signed-out
+  // pages follow it) and refreshes the server tree: no full page reload.
+  const handleLanguage = async (next: PreferredLanguage) => {
+    if (next === lang || langSaving || !canEditCompany) return;
+    setLangSaving(true);
+    setLangNote(null);
+    try {
+      const res = await fetch("/api/restaurant/company", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ preferred_language: next }),
+      });
+      const json = (await res.json().catch(() => null)) as {
+        error?: string;
+        company?: { preferred_language?: unknown };
+      } | null;
+      if (!res.ok) {
+        setLangNote({
+          ok: false,
+          text: json?.error || d.settings.language.saveFailed,
+        });
+        return;
+      }
+      const saved =
+        normalizePreferredLanguage(json?.company?.preferred_language) ?? next;
+      setLanguageCookie(saved);
+      setLangNote({
+        ok: true,
+        text: getDictionary(saved).settings.language.saved,
+      });
+      router.refresh();
+    } catch {
+      setLangNote({ ok: false, text: d.settings.language.saveFailed });
+    } finally {
+      setLangSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setMessage("");
+    setMessageOk(false);
     try {
       const nameChanged =
         canEditCompany &&
@@ -112,13 +168,14 @@ export default function SettingsPage() {
       setPrefs(form);
       await refreshPrefs();
 
-      setMessage("¡Listo! Guardamos tus cambios.");
+      setMessage(d.settings.page.saved);
+      setMessageOk(true);
       setTimeout(() => setMessage(""), 3000);
     } catch (error) {
       setMessage(
         error instanceof CompanySaveError
           ? error.message
-          : "No pudimos guardar tus cambios. Inténtalo de nuevo."
+          : d.settings.page.saveFailed
       );
       console.error(error);
     } finally {
@@ -139,25 +196,31 @@ export default function SettingsPage() {
   return (
     <div className="w-full max-w-3xl px-[26px] pb-10 pt-4">
       <div className="mb-5">
-        <OperatingPageHeader title="Ajustes" lang="es" showDateRange={false} />
+        <OperatingPageHeader
+          title={d.settings.title}
+          lang={lang}
+          showDateRange={false}
+        />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Información de la empresa */}
+        {/* Company information */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Building2 className="h-5 w-5" />
-              Información de la empresa
+              {d.settings.page.companyInfo}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="company_name">Nombre de la empresa</Label>
+              <Label htmlFor="company_name">
+                {d.settings.page.companyName}
+              </Label>
               <Input
                 id="company_name"
                 name="company_name"
-                placeholder="Escribe el nombre de la empresa"
+                placeholder={d.settings.page.companyNamePlaceholder}
                 disabled={!canEditCompany}
                 value={companyForm.name || ""}
                 onChange={(e) =>
@@ -168,27 +231,83 @@ export default function SettingsPage() {
 
             {/* Read-only: the company API only renames; industry is not saved. */}
             <div className="space-y-2">
-              <Label htmlFor="industry">Industria</Label>
+              <Label htmlFor="industry">{d.settings.page.industry}</Label>
               <div id="industry" aria-readonly="true" className={READ_ONLY_BOX}>
-                {companyForm.industry || "Sin definir"}
+                {companyForm.industry || d.settings.page.notSet}
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="currency">Moneda</Label>
+              <Label htmlFor="currency">{d.settings.page.currency}</Label>
               <div id="currency" aria-readonly="true" className={READ_ONLY_BOX}>
                 {companyCurrency
                   ? `${companyCurrency} - ${getCurrencySymbol(companyCurrency)}`
-                  : "Sin definir"}
+                  : d.settings.page.notSet}
               </div>
               <p className="text-xs text-gray-500">
-                Sale de los datos de tu restaurante.
+                {d.settings.page.currencyHint}
               </p>
             </div>
 
             {!canEditCompany && (
               <p className="text-[13px] text-[#6b7280]">
-                {CAPABILITY_MESSAGES["company.edit"]}
+                {d.settings.noEditCompany}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Language */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Languages className="h-5 w-5" />
+              {d.settings.language.title}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div
+              role="radiogroup"
+              aria-label={d.settings.language.label}
+              data-testid="language-switcher"
+              className="inline-flex flex-wrap gap-2"
+            >
+              {LANGUAGE_OPTIONS.map((opt) => {
+                const selected = opt.value === lang;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    disabled={langSaving || !canEditCompany}
+                    onClick={() => void handleLanguage(opt.value)}
+                    className={
+                      "rounded-md border px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:opacity-60 " +
+                      (selected
+                        ? "border-[#1B40C8] bg-[#1B40C8] text-white"
+                        : "border-input bg-white hover:bg-muted")
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-500">{d.settings.language.hint}</p>
+            {langNote && (
+              <p
+                role={langNote.ok ? "status" : "alert"}
+                className={
+                  "text-sm " + (langNote.ok ? "text-green-700" : "text-red-700")
+                }
+              >
+                {langNote.text}
+              </p>
+            )}
+            {!canEditCompany && (
+              <p className="text-[13px] text-[#6b7280]">
+                {d.settings.noEditCompany}
               </p>
             )}
           </CardContent>
@@ -199,12 +318,12 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Palette className="h-5 w-5" />
-              Apariencia
+              {d.settings.page.appearance}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="theme">Tema</Label>
+              <Label htmlFor="theme">{d.settings.page.theme}</Label>
               <Select
                 value={form.theme}
                 onValueChange={(v) => handleChange("theme", v)}
@@ -213,13 +332,13 @@ export default function SettingsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {themes.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t === "light"
-                        ? "Claro"
-                        : t === "dark"
-                          ? "Oscuro"
-                          : "Sistema"}
+                  {themes.map((theme) => (
+                    <SelectItem key={theme} value={theme}>
+                      {theme === "light"
+                        ? d.settings.page.themeLight
+                        : theme === "dark"
+                          ? d.settings.page.themeDark
+                          : d.settings.page.themeSystem}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -231,7 +350,7 @@ export default function SettingsPage() {
         {/* Success/Error Message */}
         {message && (
           <div
-            className={`p-4 rounded-lg ${message.startsWith("¡Listo") ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
+            className={`p-4 rounded-lg ${messageOk ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}
           >
             {message}
           </div>
@@ -239,7 +358,7 @@ export default function SettingsPage() {
 
         {/* Submit Button */}
         <Button type="submit" disabled={saving} className="w-full" size="lg">
-          {saving ? "Guardando…" : "Guardar"}
+          {saving ? d.common.saving : d.common.save}
         </Button>
       </form>
     </div>

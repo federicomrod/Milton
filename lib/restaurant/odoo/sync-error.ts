@@ -143,12 +143,80 @@ const EN_TO_ES: Array<[RegExp | string, string]> = [
   ],
 ];
 
+const EN_TO_DE: Array<[RegExp | string, string]> = [
+  [
+    "Check the date range. Use YYYY-MM-DD and stay within 92 days.",
+    "Prüfen Sie den Zeitraum. Verwenden Sie JJJJ-MM-TT und höchstens 92 Tage.",
+  ],
+  [
+    /capped at 92|spans \d+ days|92 days/i,
+    "Dieser Zeitraum umfasst mehr als 92 Tage. Wählen Sie einen kürzeren Zeitraum.",
+  ],
+  [
+    /start_date and end_date are required/i,
+    "Geben Sie ein Start- und ein Enddatum ein.",
+  ],
+  [
+    /start_date must be on or before/i,
+    "Das Startdatum muss vor dem Enddatum liegen oder mit ihm übereinstimmen.",
+  ],
+  [
+    "Could not sign in to Odoo. Check the connection and API key.",
+    "Die Anmeldung bei Odoo ist fehlgeschlagen. Prüfen Sie die Verbindung und den API-Schlüssel.",
+  ],
+  [
+    "You need admin access to sync Odoo sales.",
+    "Zum Synchronisieren der Umsätze benötigen Sie Administratorrechte.",
+  ],
+  [
+    "This workspace is missing an Odoo API key. Save the connection first.",
+    "Der Odoo-API-Schlüssel fehlt. Speichern Sie zuerst die Verbindung.",
+  ],
+  [
+    "No Odoo connection is set up for this workspace.",
+    "Für diesen Arbeitsbereich ist noch keine Odoo-Verbindung eingerichtet.",
+  ],
+  [
+    "Odoo is not fully set up for this workspace.",
+    "Odoo ist für diesen Arbeitsbereich noch nicht vollständig eingerichtet.",
+  ],
+  [
+    "Odoo sync is not ready. Finish company selection and location mapping.",
+    "Die Odoo-Synchronisierung ist noch nicht bereit. Schließen Sie die Auswahl der Unternehmen und die Zuordnung der Standorte ab.",
+  ],
+  [
+    "Could not reach Odoo. Try again in a few minutes.",
+    "Odoo ist nicht erreichbar. Versuchen Sie es in einigen Minuten erneut.",
+  ],
+  [
+    "Network error. Check your connection and try again.",
+    "Netzwerkfehler. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  ],
+  [
+    "Sync failed. Try again. If it keeps happening, check the Odoo connection.",
+    "Die Synchronisierung ist fehlgeschlagen. Versuchen Sie es erneut. Besteht das Problem weiterhin, prüfen Sie die Odoo-Verbindung.",
+  ],
+  [
+    "Map every selected Odoo company to a Milton location before syncing.",
+    "Ordnen Sie vor der Synchronisierung jedes ausgewählte Odoo-Unternehmen einem Milton-Standort zu.",
+  ],
+  [
+    "Choose which Odoo companies this workspace should sync, then try again.",
+    "Wählen Sie, welche Odoo-Unternehmen dieser Arbeitsbereich synchronisieren soll, und versuchen Sie es erneut.",
+  ],
+  [
+    "The selected Odoo companies are no longer available. Re-select them in the company list.",
+    "Die ausgewählten Odoo-Unternehmen sind nicht mehr verfügbar. Wählen Sie sie in der Unternehmensliste erneut aus.",
+  ],
+];
+
 export function localizeSyncError(
   lang: PreferredLanguage,
   english: string
 ): string {
-  if (lang !== "es") return english;
-  for (const [match, es] of EN_TO_ES) {
+  if (lang === "en") return english;
+  const table = lang === "de" ? EN_TO_DE : EN_TO_ES;
+  for (const [match, es] of table) {
     if (typeof match === "string") {
       if (english === match || english.includes(match)) return es;
     } else if (match.test(english)) {
@@ -182,6 +250,7 @@ export function rangeRequiredCopy(lang: PreferredLanguage): string {
   return t(
     lang,
     "Enter a start and end date.",
-    "Escribe una fecha de inicio y una de fin."
+    "Escribe una fecha de inicio y una de fin.",
+    "Geben Sie ein Start- und ein Enddatum ein."
   );
 }

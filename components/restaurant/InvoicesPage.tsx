@@ -15,6 +15,9 @@
 
 "use client";
 
+import { useT } from "@/lib/i18n/client";
+import { getDictionary, type Dictionary } from "@/lib/i18n";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTabsStale } from "@/lib/restaurant/recipe-costing/menu-tab-cache";
@@ -90,12 +93,14 @@ function Chevron() {
 }
 
 function PriceUpdateLabel() {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   return (
     <span
       data-testid="price-update-label"
       className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#4b5466]"
     >
-      Actualización de precio
+      {iv.priceUpdate}
     </span>
   );
 }
@@ -196,7 +201,13 @@ function MissingBadge({ children }: { children: React.ReactNode }) {
 }
 
 /** «Líneas sin precio …: a, b» sections of the notes, shown as small lists. */
-export function parseMissingSections(notes: string | null | undefined): {
+type IV = Dictionary["costs"]["invoices"];
+const ES_IV: IV = getDictionary("es").costs.invoices;
+
+export function parseMissingSections(
+  notes: string | null | undefined,
+  iv: IV = ES_IV
+): {
   label: string;
   items: string[];
 }[] {
@@ -211,7 +222,7 @@ export function parseMissingSections(notes: string | null | undefined): {
       .map((x) => x.trim().replace(/\.$/, ""))
       .filter(Boolean);
     out.push({
-      label: m[2].toLowerCase() === "precio" ? "Sin precio" : "Sin cantidad",
+      label: m[2].toLowerCase() === "precio" ? iv.noPrice : iv.noQuantity,
       items,
     });
   }
@@ -235,18 +246,20 @@ function lineTotalOrNull(l: {
 function totalText(
   total: number | null | undefined,
   currency: string,
-  lines?: { unit_cost: number | null; line_total: number | null }[]
+  lines: { unit_cost: number | null; line_total: number | null }[] | undefined,
+  iv: IV,
+  lang: PreferredLanguage
 ): string {
   const missing = lines?.some((l) => lineTotalOrNull(l) === null) ?? false;
   if (typeof total === "number" && Number.isFinite(total)) {
-    if (total <= 0) return missing ? "Incompleto" : "Sin precio";
-    return fmtMoney(total, currency);
+    if (total <= 0) return missing ? iv.incomplete : iv.noPrice;
+    return fmtMoney(total, currency, lang);
   }
   if (lines && lines.length > 0 && !missing) {
     const sum = lines.reduce((a, l) => a + (lineTotalOrNull(l) ?? 0), 0);
-    return sum > 0 ? fmtMoney(sum, currency) : "Sin precio";
+    return sum > 0 ? fmtMoney(sum, currency, lang) : iv.noPrice;
   }
-  return lines && lines.length > 0 ? "Incompleto" : "Sin precio";
+  return lines && lines.length > 0 ? iv.incomplete : iv.noPrice;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,20 +300,20 @@ interface SupplierLite {
   name: string;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Borrador",
-  needs_review: "Por revisar",
-  approved: "Aprobada",
-  rejected: "Rechazada",
-  posted: "Publicada",
-};
-const SOURCE_LABEL: Record<string, string> = {
+const statusLabelMap = (iv: IV): Record<string, string> => ({
+  draft: iv.statusDraft,
+  needs_review: iv.statusNeedsReview,
+  approved: iv.statusApproved,
+  rejected: iv.statusRejected,
+  posted: iv.statusPosted,
+});
+const sourceLabelMap = (iv: IV): Record<string, string> => ({
   csv: "CSV",
   xlsx: "Excel",
-  manual: "Manual",
-  image: "Foto",
+  manual: iv.sourceManual,
+  image: iv.sourcePhoto,
   pdf: "PDF",
-};
+});
 /** One mapping of where an invoice came from: «Origen» (panel) and the list's
  *  small source text both derive from it. */
 type SourceKind = "telegram" | "photo" | "csv" | "manual" | "other";
@@ -319,44 +332,43 @@ function sourceKind(inv: InvoiceListItem): SourceKind {
       return "other";
   }
 }
-const ORIGIN_LABEL: Record<SourceKind, string> = {
-  telegram: "Telegram",
-  photo: "Foto",
-  csv: "CSV / Excel",
-  manual: "Manual",
-  other: "",
-};
-function originLabel(inv: InvoiceListItem): string {
+function originLabel(inv: InvoiceListItem, iv: IV): string {
   const k = sourceKind(inv);
+  const origin: Record<SourceKind, string> = {
+    telegram: "Telegram",
+    photo: iv.sourcePhoto,
+    csv: "CSV / Excel",
+    manual: iv.sourceManual,
+    other: "",
+  };
   return k === "other"
-    ? (SOURCE_LABEL[inv.source_type] ?? inv.source_type)
-    : ORIGIN_LABEL[k];
+    ? (sourceLabelMap(iv)[inv.source_type] ?? inv.source_type)
+    : origin[k];
 }
-const statusLabel = (st: string) => STATUS_LABEL[st] ?? st;
+const statusLabel = (st: string, iv: IV) => statusLabelMap(iv)[st] ?? st;
 
-const STATUS_TITLE: Record<string, string> = {
-  needs_review: "El precio no se aplica hasta que alguien lo apruebe.",
-  posted: "Los precios ya están aplicados a tus costos y platos.",
-};
+const statusTitle = (st: string, iv: IV): string | undefined =>
+  st === "needs_review"
+    ? iv.statusTitleNeedsReview
+    : st === "posted"
+      ? iv.statusTitlePosted
+      : undefined;
 
 /** Small secondary text under the status chip: where the invoice came from. */
-function sourceText(inv: InvoiceListItem): string {
+function sourceText(inv: InvoiceListItem, iv: IV): string {
   switch (sourceKind(inv)) {
     case "telegram":
-      return "por Telegram";
+      return iv.byTelegram;
     case "photo":
-      return "por foto";
+      return iv.byPhoto;
     case "csv":
-      return "por CSV / Excel";
+      return iv.byCsv;
     case "manual":
-      return "a mano";
+      return iv.byHand;
     default:
       return "";
   }
 }
-
-const REVIEW_EXPLANATION =
-  "Por revisar: el precio aún no cuenta. Ábrela con Revisar y apruébala.";
 
 const STATUS_STYLE: Record<string, string> = {
   draft: "bg-gray-100 text-[#4b5466]",
@@ -368,13 +380,13 @@ const STATUS_STYLE: Record<string, string> = {
 
 export function fmtMoney(
   n: number | null | undefined,
-  currency: string
+  currency: string,
+  lang: PreferredLanguage = "es"
 ): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  const locale = "es-MX";
   try {
-    return new Intl.NumberFormat(locale, {
+    return new Intl.NumberFormat(localeFor(lang), {
       style: "currency",
       currency: safe,
       maximumFractionDigits: 2,
@@ -384,9 +396,9 @@ export function fmtMoney(
   }
 }
 
-function fmtDate(iso: string): string {
+function fmtDate(iso: string, lang: PreferredLanguage = "es"): string {
   try {
-    return new Date(iso).toLocaleDateString("es-MX", {
+    return new Date(iso).toLocaleDateString(localeFor(lang), {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -414,6 +426,8 @@ export function InvoicesPage({
   /** The server's can("prices.edit") answer; false = read-only. */
   canEditPrices?: boolean;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   const [invoices, setInvoices] = useState<InvoiceListItem[]>(
     initialInvoices.filter(keepInList)
   );
@@ -551,7 +565,7 @@ export function InvoicesPage({
             <RefreshCw
               className={"h-3.5 w-3.5 " + (refreshing ? "animate-spin" : "")}
             />
-            Actualizar
+            {iv.refresh}
           </Button>
         </div>
 
@@ -615,9 +629,9 @@ export function InvoicesPage({
               >
                 ▸
               </span>
-              Agregar factura
+              {iv.addInvoice}
               <span className="font-normal text-[#4b5466]">
-                · CSV / Excel, foto o a mano
+                {iv.addInvoiceHint}
               </span>
             </summary>
             <div className="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -653,6 +667,8 @@ function UploadCard({
 }: {
   onUploaded: () => Promise<void> | void;
 }) {
+  const { d, fmt: f } = useT();
+  const iv = d.costs.invoices;
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -685,18 +701,13 @@ function UploadCard({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            body,
-            "No se pudo subir el archivo. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(body, iv.uploadFailed));
         return;
       }
       setSummary(body.summary);
       await onUploaded();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setBusy(false);
     }
@@ -706,14 +717,11 @@ function UploadCard({
     <Card>
       <div className="mb-2.5">
         <CardTitle>
-          <Upload className="h-4 w-4 text-[#1B40C8]" /> Subir CSV / Excel{" "}
+          <Upload className="h-4 w-4 text-[#1B40C8]" /> {iv.uploadCsvTitle}{" "}
         </CardTitle>{" "}
       </div>{" "}
       <div className="space-y-3">
-        <p className="text-xs text-[#6b7385]">
-          Sube un archivo con tus facturas de proveedores. Se crean como
-          borradores para que las revises.{" "}
-        </p>
+        <p className="text-xs text-[#6b7385]">{iv.uploadCsvDesc} </p>
         <form onSubmit={onSubmit} className="space-y-2">
           <Input
             type="file"
@@ -722,17 +730,18 @@ function UploadCard({
             disabled={busy}
           />
           <Button type="submit" disabled={!file || busy}>
-            {busy ? "Subiendo…" : "Subir facturas"}
+            {busy ? iv.uploading : iv.uploadInvoices}
           </Button>
         </form>
         <details className="group text-xs">
           <summary className={SUMMARY_CLS}>
             <Chevron />
-            Columnas esperadas
+            {iv.expectedColumns}
           </summary>
           <div className="mt-2 space-y-1 text-[#6b7385]">
             <p>
-              Obligatorias: <span className="font-mono">supplier_name</span>,{" "}
+              {iv.requiredColumns}{" "}
+              <span className="font-mono">supplier_name</span>,{" "}
               <span className="font-mono">invoice_number</span>,{" "}
               <span className="font-mono">invoice_date</span>,{" "}
               <span className="font-mono">description</span>,{" "}
@@ -741,7 +750,7 @@ function UploadCard({
               <span className="font-mono">line_total</span>.
             </p>
             <p>
-              Opcionales: <span className="font-mono">due_date</span>,{" "}
+              {iv.optionalColumns} <span className="font-mono">due_date</span>,{" "}
               <span className="font-mono">supplier_item_name</span>,{" "}
               <span className="font-mono">supplier_sku</span>,{" "}
               <span className="font-mono">ingredient_name</span>,{" "}
@@ -751,13 +760,12 @@ function UploadCard({
               <span className="font-mono">notes</span>.
             </p>
             <p>
-              Las filas con el mismo{" "}
+              {iv.groupBefore}{" "}
               <span className="font-mono">
                 supplier_name + invoice_number + invoice_date
               </span>{" "}
-              se agrupan en una sola factura. Las facturas nuevas quedan en
-              estado <strong>Por revisar</strong>. Los nombres de las columnas
-              van en inglés porque el archivo los necesita así.
+              {iv.groupMiddle} <strong>{iv.statusNeedsReview}</strong>
+              {iv.groupAfter}
             </p>
           </div>
         </details>
@@ -765,24 +773,31 @@ function UploadCard({
         {summary && (
           <div className="rounded-lg border border-[#eef0f4] bg-[#f9fafc] p-3 text-xs space-y-1">
             <p>
-              <strong>{summary.invoices_created}</strong>{" "}
-              {summary.invoices_created === 1
-                ? "factura creada"
-                : "facturas creadas"}{" "}
-              con <strong>{summary.lines_inserted}</strong>{" "}
-              {summary.lines_inserted === 1 ? "línea" : "líneas"}.
+              {f(iv.summaryCreated, {
+                n: summary.invoices_created,
+                invoices:
+                  summary.invoices_created === 1
+                    ? iv.invoicesCreatedOne
+                    : iv.invoicesCreatedOther,
+                m: summary.lines_inserted,
+                lines: summary.lines_inserted === 1 ? iv.lineOne : iv.lineOther,
+              })}
             </p>
             <p className="text-[#6b7385]">
-              {summary.suppliers_created}{" "}
-              {summary.suppliers_created === 1
-                ? "proveedor nuevo"
-                : "proveedores nuevos"}{" "}
-              · {summary.auto_matched_lines} con coincidencia automática ·{" "}
-              {summary.unmatched_lines} sin coincidencia
-              {summary.default_currency
-                ? ` · moneda ${summary.default_currency}`
-                : ""}
-              .
+              {f(iv.summaryDetail, {
+                suppliers: summary.suppliers_created,
+                supplierWord:
+                  summary.suppliers_created === 1
+                    ? iv.suppliersCreatedOne
+                    : iv.suppliersCreatedOther,
+                auto: summary.auto_matched_lines,
+                unmatched: summary.unmatched_lines,
+                currency: summary.default_currency
+                  ? f(iv.summaryCurrency, {
+                      currency: summary.default_currency,
+                    })
+                  : "",
+              })}
             </p>
             {summary.warning && (
               <p className="text-[#6b7385]">{summary.warning}</p>
@@ -793,14 +808,14 @@ function UploadCard({
                   <Chevron />
                   {summary.failed_rows.length}{" "}
                   {summary.failed_rows.length === 1
-                    ? "fila con error"
-                    : "filas con error"}
+                    ? iv.failedRowsOne
+                    : iv.failedRowsOther}
                 </summary>
                 <ul className="mt-1 space-y-0.5">
-                  {summary.failed_rows.slice(0, 8).map((f) => (
-                    <li key={f.rowIndex} className="text-[#6b7385]">
-                      Fila {f.rowIndex}: {f.reason}
-                      {f.description ? ` — ${f.description}` : ""}
+                  {summary.failed_rows.slice(0, 8).map((x) => (
+                    <li key={x.rowIndex} className="text-[#6b7385]">
+                      {f(iv.failedRow, { row: x.rowIndex, reason: x.reason })}
+                      {x.description ? ` — ${x.description}` : ""}
                     </li>
                   ))}
                 </ul>
@@ -824,6 +839,8 @@ function ManualCreateCard({
   companyCurrency: string;
   onCreated: (id: string) => Promise<void> | void;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   const today = new Date().toISOString().slice(0, 10);
   const [supplierId, setSupplierId] = useState("");
   const [supplierName, setSupplierName] = useState("");
@@ -859,12 +876,7 @@ function ManualCreateCard({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            j,
-            "No se pudo crear la factura. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(j, iv.createFailed));
         return;
       }
       // Reset and surface the new id.
@@ -873,7 +885,7 @@ function ManualCreateCard({
       setNotes("");
       await onCreated(j.invoice.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setBusy(false);
     }
@@ -883,20 +895,20 @@ function ManualCreateCard({
     <Card>
       <div className="mb-2.5">
         <CardTitle>
-          <Plus className="h-4 w-4 text-[#1B40C8]" /> Crear factura a mano{" "}
+          <Plus className="h-4 w-4 text-[#1B40C8]" /> {iv.manualTitle}{" "}
         </CardTitle>{" "}
       </div>{" "}
       <div>
         <form onSubmit={submit} className="grid grid-cols-2 gap-2">
           <label className="col-span-2 text-xs">
-            <span className={LABEL_CLS}>Proveedor</span>
+            <span className={LABEL_CLS}>{iv.supplier}</span>
             <select
               className={`mt-1 ${SELECT_CLS}`}
               value={supplierId}
               onChange={(e) => setSupplierId(e.target.value)}
               disabled={busy}
             >
-              <option value="">— Proveedor nuevo —</option>
+              <option value="">{iv.newSupplierOption}</option>
               {suppliers.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -906,7 +918,7 @@ function ManualCreateCard({
             {!supplierId && (
               <Input
                 className="mt-1 h-8 text-xs"
-                placeholder="Nombre del proveedor nuevo"
+                placeholder={iv.newSupplierPlaceholder}
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
                 disabled={busy}
@@ -915,7 +927,7 @@ function ManualCreateCard({
           </label>
 
           <label className="text-xs">
-            <span className={LABEL_CLS}>Nº de factura</span>
+            <span className={LABEL_CLS}>{iv.invoiceNumber}</span>
             <Input
               className="mt-1 h-8 text-xs"
               value={invoiceNumber}
@@ -924,7 +936,7 @@ function ManualCreateCard({
             />
           </label>
           <label className="text-xs">
-            <span className={LABEL_CLS}>Fecha</span>
+            <span className={LABEL_CLS}>{iv.date}</span>
             <Input
               type="date"
               className="mt-1 h-8 text-xs"
@@ -936,7 +948,7 @@ function ManualCreateCard({
           </label>
 
           <label className="text-xs">
-            <span className={LABEL_CLS}>Moneda</span>
+            <span className={LABEL_CLS}>{iv.currency}</span>
             <Input
               className="mt-1 h-8 text-xs uppercase"
               value={currency}
@@ -948,7 +960,7 @@ function ManualCreateCard({
             />
           </label>
           <label className="text-xs">
-            <span className={LABEL_CLS}>Total</span>
+            <span className={LABEL_CLS}>{iv.total}</span>
             <Input
               type="number"
               step="0.01"
@@ -960,7 +972,7 @@ function ManualCreateCard({
           </label>
 
           <label className="col-span-2 text-xs">
-            <span className={LABEL_CLS}>Notas</span>
+            <span className={LABEL_CLS}>{iv.notes}</span>
             <Input
               className="mt-1 h-8 text-xs"
               value={notes}
@@ -971,15 +983,12 @@ function ManualCreateCard({
 
           <div className="col-span-2 flex items-center gap-2">
             <Button type="submit" disabled={busy}>
-              {busy ? "Guardando…" : "Crear factura"}
+              {busy ? iv.saving : iv.createInvoice}
             </Button>
             {error && <span className="text-xs text-red-600">{error}</span>}
           </div>
         </form>
-        <p className="text-xs text-[#6b7385] mt-2">
-          Crea el encabezado como borrador. Agrega las líneas desde el panel de
-          revisión que aparece abajo.{" "}
-        </p>{" "}
+        <p className="text-xs text-[#6b7385] mt-2">{iv.manualHint} </p>{" "}
       </div>
     </Card>
   );
@@ -999,6 +1008,8 @@ function ProductItem({
   item: InvoiceLinePreview;
   currency: string;
 }) {
+  const { d, lang } = useT();
+  const iv = d.costs.invoices;
   const qty =
     item.quantity !== null
       ? `${formatPreviewQuantity(item.quantity)}${item.unit ? ` ${item.unit}` : ""}`
@@ -1008,7 +1019,7 @@ function ProductItem({
       {item.name}
       {!item.matched && (
         <span className="ml-1 text-xs font-semibold text-[#1B40C8]">
-          sin asignar
+          {iv.unassigned}
         </span>
       )}
       {qty ? ` · ${qty}` : ""}
@@ -1016,18 +1027,20 @@ function ProductItem({
       {item.unit_cost === null ||
       !Number.isFinite(item.unit_cost) ||
       item.unit_cost <= 0 ? (
-        <MissingBadge>Sin precio</MissingBadge>
+        <MissingBadge>{iv.noPrice}</MissingBadge>
       ) : (
-        fmtMoney(item.unit_cost, currency)
+        fmtMoney(item.unit_cost, currency, lang)
       )}
     </div>
   );
 }
 
 function ProductsCell({ inv }: { inv: InvoiceListItem }) {
+  const { d, fmt: f } = useT();
+  const iv = d.costs.invoices;
   const preview = inv.line_preview ?? [];
   if (inv.line_counts.total === 0 || preview.length === 0) {
-    return <span className="italic text-[#4b5466]">Sin productos</span>;
+    return <span className="italic text-[#4b5466]">{iv.noProducts}</span>;
   }
   const more = inv.line_counts.total - preview.length;
   return (
@@ -1036,7 +1049,9 @@ function ProductsCell({ inv }: { inv: InvoiceListItem }) {
         <ProductItem key={i} item={item} currency={inv.currency} />
       ))}
       {more > 0 && (
-        <div className="text-xs font-semibold text-[#1B40C8]">+{more} más</div>
+        <div className="text-xs font-semibold text-[#1B40C8]">
+          {f(iv.moreItems, { n: more })}
+        </div>
       )}
     </div>
   );
@@ -1073,6 +1088,8 @@ function InvoiceListCard({
   onReview: (id: string | null) => void;
   renderReview: (id: string) => React.ReactNode;
 }) {
+  const { d, lang, fmt: f } = useT();
+  const iv = d.costs.invoices;
   const { sort, toggle } = useTableSort("compras-facturas");
   const sorted = sortRows(invoices, sort, invoiceValue);
   if (invoices.length === 0) {
@@ -1081,11 +1098,10 @@ function InvoiceListCard({
         <div className="px-6 py-8 text-center">
           <Receipt className="h-8 w-8 text-[#b9c7f0] mx-auto mb-3" />{" "}
           <p className="text-[13px] font-bold text-[#151c2c]">
-            Aún no hay facturas{" "}
+            {iv.noInvoices}{" "}
           </p>{" "}
           <p className="text-xs text-[#6b7385] mt-1">
-            Sube un archivo o crea una factura a mano para empezar a registrar
-            los costos de tus proveedores.{" "}
+            {iv.noInvoicesHint}{" "}
           </p>{" "}
         </div>{" "}
       </Card>
@@ -1102,7 +1118,7 @@ function InvoiceListCard({
           data-testid="review-explanation"
           className="border-b border-[#eef0f4] px-4 py-2.5 text-xs text-[#151c2c]"
         >
-          {REVIEW_EXPLANATION}
+          {iv.reviewExplanation}
         </p>
       )}
       <div className="overflow-x-auto">
@@ -1115,16 +1131,16 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Proveedor
+                {iv.supplier}
               </SortTh>
-              <th className="px-4 py-3 font-medium">Productos</th>
+              <th className="px-4 py-3 font-medium">{iv.products}</th>
               <SortTh
                 sortKey="number"
                 sort={sort}
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Nº de factura{" "}
+                {iv.invoiceNumber}{" "}
               </SortTh>
               <SortTh
                 sortKey="date"
@@ -1132,7 +1148,7 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Fecha{" "}
+                {iv.date}{" "}
               </SortTh>
               <SortTh
                 sortKey="total"
@@ -1141,7 +1157,7 @@ function InvoiceListCard({
                 align="right"
                 className="px-4 py-3 font-medium"
               >
-                Total
+                {iv.total}
               </SortTh>
               <SortTh
                 sortKey="status"
@@ -1149,7 +1165,7 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Estado{" "}
+                {iv.status}{" "}
               </SortTh>
               <SortTh
                 sortKey="lines"
@@ -1157,7 +1173,7 @@ function InvoiceListCard({
                 onSort={toggle}
                 className="px-4 py-3 font-medium"
               >
-                Asignadas{" "}
+                {iv.assigned}{" "}
               </SortTh>
               <th className="px-4 py-3 font-medium" />
             </tr>
@@ -1180,7 +1196,7 @@ function InvoiceListCard({
                     <td className="px-4 py-3 align-top text-[#151c2c]">
                       {inv.supplier_name ?? (
                         <span className="italic text-[#4b5466]">
-                          (sin proveedor)
+                          {iv.noSupplier}
                         </span>
                       )}
                     </td>
@@ -1191,11 +1207,17 @@ function InvoiceListCard({
                       {inv.invoice_number ?? "—"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 align-top text-[#4b5466]">
-                      {fmtDate(inv.invoice_date)}
+                      {fmtDate(inv.invoice_date, lang)}
                     </td>
                     <td className="px-4 py-3 text-right align-top tabular-nums text-[#151c2c]">
                       {isPurchaseInvoice(inv) ? (
-                        totalText(inv.total_amount, inv.currency)
+                        totalText(
+                          inv.total_amount,
+                          inv.currency,
+                          undefined,
+                          iv,
+                          lang
+                        )
                       ) : (
                         <PriceUpdateLabel />
                       )}
@@ -1203,25 +1225,30 @@ function InvoiceListCard({
                     <td className="px-4 py-3 align-top">
                       <span
                         data-testid="invoice-status-chip"
-                        title={STATUS_TITLE[inv.status]}
+                        title={statusTitle(inv.status, iv)}
                         className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}
                       >
-                        {statusLabel(inv.status)}
+                        {statusLabel(inv.status, iv)}
                       </span>
-                      {sourceText(inv) && (
+                      {sourceText(inv, iv) && (
                         <div
                           data-testid="invoice-source"
                           className="mt-0.5 text-xs text-[#4b5466]"
                         >
-                          {sourceText(inv)}
+                          {sourceText(inv, iv)}
                         </div>
                       )}
                     </td>
                     <td className="px-4 py-3 align-top text-xs text-[#151c2c]">
-                      {inv.line_counts.matched} de {inv.line_counts.total}
+                      {f(iv.matchedOf, {
+                        matched: inv.line_counts.matched,
+                        total: inv.line_counts.total,
+                      })}
                       {inv.line_counts.unmatched > 0 && (
                         <span className="ml-1 text-[#1B40C8]">
-                          · {inv.line_counts.unmatched} sin asignar
+                          {f(iv.unassignedCount, {
+                            n: inv.line_counts.unmatched,
+                          })}
                         </span>
                       )}
                     </td>
@@ -1233,7 +1260,7 @@ function InvoiceListCard({
                         aria-controls={reviewPanelId(inv.id)}
                         onClick={() => onReview(open ? null : inv.id)}
                       >
-                        {open ? "Ocultar" : "Revisar"}
+                        {open ? iv.hide : iv.review}
                       </Button>
                     </td>
                   </tr>
@@ -1303,6 +1330,8 @@ function ReviewDetail({
   onChanged: () => Promise<void> | void;
   canEdit?: boolean;
 }) {
+  const { d, lang, locale, fmt: f } = useT();
+  const iv = d.costs.invoices;
   const router = useRouter();
   const [data, setData] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1321,21 +1350,16 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            body,
-            "No se pudo cargar la factura. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(body, iv.loadFailed));
         return;
       }
       setData(body as ReviewData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setLoading(false);
     }
-  }, [invoiceId]);
+  }, [invoiceId, iv.loadFailed, iv.networkError]);
 
   useEffect(() => {
     void load();
@@ -1360,12 +1384,7 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(
-          userErrorMessage(
-            body,
-            "No se pudieron guardar las líneas. Inténtalo de nuevo."
-          )
-        );
+        alert(userErrorMessage(body, iv.saveLinesFailed));
         return false;
       }
       // Optimistic merge; also reload events for the timeline.
@@ -1401,7 +1420,7 @@ function ReviewDetail({
       void onChanged();
       return true;
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Error de red");
+      alert(err instanceof Error ? err.message : iv.networkError);
       return false;
     }
   };
@@ -1420,12 +1439,7 @@ function ReviewDetail({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(
-          userErrorMessage(
-            body,
-            "No se pudo registrar la factura. Inténtalo de nuevo."
-          )
-        );
+        alert(userErrorMessage(body, iv.postFailed));
         return;
       }
       setPostResult({
@@ -1440,7 +1454,7 @@ function ReviewDetail({
       void onChanged();
       router.refresh();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Error de red");
+      alert(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setPostingBusy(false);
     }
@@ -1449,7 +1463,7 @@ function ReviewDetail({
   if (loading) {
     return (
       <Card>
-        <div className="text-[13px] text-[#6b7385]">Cargando factura…</div>{" "}
+        <div className="text-[13px] text-[#6b7385]">{iv.loading}</div>{" "}
       </Card>
     );
   }
@@ -1457,7 +1471,7 @@ function ReviewDetail({
     return (
       <Card>
         <div className="text-[13px] text-red-600">
-          {error ?? "No se pudo cargar la factura"}{" "}
+          {error ?? iv.loadFailedShort}{" "}
         </div>{" "}
       </Card>
     );
@@ -1479,10 +1493,10 @@ function ReviewDetail({
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle>
             <FileText className="h-4 w-4 text-[#1B40C8]" />
-            {inv.supplier_name ?? "(sin proveedor)"} ·{" "}
+            {inv.supplier_name ?? iv.noSupplier} ·{" "}
             <span className="font-mono">{inv.invoice_number ?? "—"}</span>
             <span className={`${BADGE_CLS} ${STATUS_STYLE[inv.status] ?? ""}`}>
-              {statusLabel(inv.status)}{" "}
+              {statusLabel(inv.status, iv)}{" "}
             </span>
             {isTelegramInvoice(inv) && <TelegramLabel />}
             {isPriceUpdateNote(inv.notes) && <PriceUpdateLabel />}
@@ -1498,10 +1512,10 @@ function ReviewDetail({
               ) : (
                 <ChevronDown className="h-3.5 w-3.5" />
               )}
-              Historial{" "}
+              {iv.history}{" "}
             </Button>{" "}
             <Button size="sm" variant="secondary" onClick={onClose}>
-              Cerrar{" "}
+              {iv.close}{" "}
             </Button>{" "}
           </div>{" "}
         </div>{" "}
@@ -1510,24 +1524,24 @@ function ReviewDetail({
         {/* Header summary */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
           <div>
-            <div className="text-[#6b7385]">Fecha</div>
-            <div>{fmtDate(inv.invoice_date)}</div>
+            <div className="text-[#6b7385]">{iv.date}</div>
+            <div>{fmtDate(inv.invoice_date, lang)}</div>
           </div>
           <div>
-            <div className="text-[#6b7385]">Vencimiento</div>
-            <div>{inv.due_date ? fmtDate(inv.due_date) : "—"}</div>
+            <div className="text-[#6b7385]">{iv.dueDate}</div>
+            <div>{inv.due_date ? fmtDate(inv.due_date, lang) : "—"}</div>
           </div>
           {isPurchaseInvoice(inv) ? (
             <div>
-              <div className="text-[#6b7385]">Total</div>
+              <div className="text-[#6b7385]">{iv.total}</div>
               <div className="font-mono">
-                {totalText(inv.total_amount, inv.currency, lines)}
+                {totalText(inv.total_amount, inv.currency, lines, iv, lang)}
               </div>
             </div>
           ) : null}
           <div>
-            <div className="text-[#6b7385]">Origen</div>{" "}
-            <div data-testid="invoice-origin">{originLabel(inv)}</div>
+            <div className="text-[#6b7385]">{iv.origin}</div>{" "}
+            <div data-testid="invoice-origin">{originLabel(inv, iv)}</div>
           </div>
         </div>
         {inv.notes && inv.notes.trim() && (
@@ -1536,7 +1550,7 @@ function ReviewDetail({
             className="rounded-lg border border-[#e3e7ee] bg-[#f9fafc] p-3 text-xs text-[#6b7280]"
           >
             <div className="mb-1 font-semibold text-[#151c2c]">
-              Notas de Milton
+              {iv.miltonNotes}
             </div>
             <p className="whitespace-pre-wrap break-words">{inv.notes}</p>
             {parseMissingSections(inv.notes).map((sec, i) => (
@@ -1564,25 +1578,25 @@ function ReviewDetail({
           disabled={inv.status === "posted" || !canEdit}
         />
         {lines.length === 0 ? (
-          <p className="text-[13px] text-[#6b7385] italic">
-            Aún no hay líneas. Agrega una arriba o sube un CSV / Excel.
-          </p>
+          <p className="text-[13px] text-[#6b7385] italic">{iv.noLines}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="border-b border-[#eef0f4] bg-[#f9fafc] text-left text-xs text-[#6b7385]">
                 <tr>
-                  <th className="px-2 py-2 font-medium">Descripción</th>
-                  <th className="px-2 py-2 font-medium">Ingrediente</th>
-                  <th className="px-2 py-2 font-medium text-right">Cant. </th>
-                  <th className="px-2 py-2 font-medium">Unidad</th>
+                  <th className="px-2 py-2 font-medium">{iv.description}</th>
+                  <th className="px-2 py-2 font-medium">{iv.ingredient}</th>
                   <th className="px-2 py-2 font-medium text-right">
-                    Costo unitario{" "}
+                    {iv.qty}{" "}
+                  </th>
+                  <th className="px-2 py-2 font-medium">{iv.unit}</th>
+                  <th className="px-2 py-2 font-medium text-right">
+                    {iv.unitCost}{" "}
                   </th>{" "}
                   <th className="px-2 py-2 font-medium text-right">
-                    Total de línea{" "}
+                    {iv.lineTotal}{" "}
                   </th>{" "}
-                  <th className="px-2 py-2 font-medium">Revisión</th>
+                  <th className="px-2 py-2 font-medium">{iv.reviewCol}</th>
                   <th className="px-2 py-2 font-medium" />
                 </tr>
               </thead>
@@ -1605,28 +1619,29 @@ function ReviewDetail({
         {/* Post invoice CTA */}
         <div className="flex items-center justify-between gap-2 flex-wrap pt-2 border-t border-[#eef0f4]">
           <div className="text-xs text-[#6b7385]">
-            {approvedMatched.length} de {lines.length}{" "}
-            {lines.length === 1 ? "línea lista" : "líneas listas"} para
-            publicar.
+            {f(lines.length === 1 ? iv.readyOne : iv.readyOther, {
+              ready: approvedMatched.length,
+              total: lines.length,
+            })}
           </div>
           <Button
             onClick={postInvoice}
             disabled={!canPost || postingBusy || !canEdit}
             title={
               !canPost
-                ? "Primero aprueba y asigna al menos una línea"
+                ? iv.postHintNone
                 : isPriceUpdate
-                  ? "Actualiza el precio de cada ingrediente"
-                  : "Registra los costos de los ingredientes y marca la factura como publicada"
+                  ? iv.postHintPriceUpdate
+                  : iv.postHintInvoice
             }
           >
             {postingBusy
               ? isPriceUpdate
-                ? "Aprobando…"
-                : "Publicando…"
+                ? iv.approving
+                : iv.publishing
               : isPriceUpdate
-                ? "Aprobar precios"
-                : "Publicar factura"}
+                ? iv.approvePrices
+                : iv.publishInvoice}
           </Button>
         </div>
         {postResult && (
@@ -1636,27 +1651,24 @@ function ReviewDetail({
               className="font-semibold text-green-800"
             >
               {isPriceUpdate ? (
-                "Precios actualizados. Los ves en Menú › Ingredientes."
+                iv.pricesUpdated
               ) : (
                 <>
                   {postResult.posted_lines === 1
-                    ? "Se publicó"
-                    : "Se publicaron"}{" "}
-                  {postResult.posted_lines}{" "}
-                  {postResult.posted_lines === 1
-                    ? "registro de costo"
-                    : "registros de costo"}
-                  .
+                    ? iv.postedOne
+                    : f(iv.postedOther, { n: postResult.posted_lines })}
                 </>
               )}
             </p>
             {postResult.skipped_lines.length > 0 && (
               <details>
                 <summary className="cursor-pointer text-gray-700">
-                  {postResult.skipped_lines.length}{" "}
-                  {postResult.skipped_lines.length === 1
-                    ? "línea omitida"
-                    : "líneas omitidas"}
+                  {f(
+                    postResult.skipped_lines.length === 1
+                      ? iv.skippedOne
+                      : iv.skippedOther,
+                    { n: postResult.skipped_lines.length }
+                  )}
                 </summary>
                 <ul className="mt-1 space-y-0.5">
                   {postResult.skipped_lines.map((s, i) => (
@@ -1676,12 +1688,10 @@ function ReviewDetail({
         {showEvents && (
           <div className="rounded-lg border border-[#eef0f4] bg-[#f9fafc] p-3 space-y-1.5 text-xs">
             <p className="text-xs font-semibold text-[#6b7385]">
-              Historial de eventos
+              {iv.eventsTitle}
             </p>
             {data.events.length === 0 ? (
-              <p className="text-[#6b7385]">
-                Esta factura aún no tiene eventos.
-              </p>
+              <p className="text-[#6b7385]">{iv.noEvents}</p>
             ) : (
               <ol className="border-l-2 border-[#eef0f4] pl-3 space-y-1.5">
                 {data.events.map((e) => (
@@ -1689,7 +1699,7 @@ function ReviewDetail({
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-medium">{e.event_type}</span>
                       <span className="text-xs text-[#6b7385] ml-auto">
-                        {new Date(e.created_at).toLocaleString("es-MX", {
+                        {new Date(e.created_at).toLocaleString(locale, {
                           day: "2-digit",
                           month: "2-digit",
                           year: "numeric",
@@ -1721,11 +1731,6 @@ const REVIEW_STYLE: Record<string, string> = {
   approved: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-700",
 };
-const REVIEW_LABEL: Record<string, string> = {
-  pending: "Pendiente",
-  approved: "Aprobada",
-  rejected: "Rechazada",
-};
 
 function LineRow({
   line,
@@ -1744,6 +1749,8 @@ function LineRow({
   onChange: (patch: Record<string, unknown>) => Promise<boolean> | void;
   currency: string;
 }) {
+  const { d, lang } = useT();
+  const iv = d.costs.invoices;
   const ingredientName = line.ingredient_id
     ? (ingredients.find((i) => i.id === line.ingredient_id)?.name ?? null)
     : null;
@@ -1824,14 +1831,14 @@ function LineRow({
                 void onChange({ ingredient_id: v || null });
               }}
               disabled={disabled || creatingNew}
-              aria-label="Cambiar ingrediente asignado"
+              aria-label={iv.changeIngredient}
             >
-              <option value="">— Quitar asignación —</option>
+              <option value="">{iv.removeAssignment}</option>
               <option value={INGREDIENT_PICK_NEW}>
-                + Crear ingrediente nuevo{" "}
+                {iv.createIngredientOption}{" "}
               </option>{" "}
               {ingredients.length > 0 && (
-                <optgroup label="Existentes">
+                <optgroup label={iv.existing}>
                   {ingredients.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.name}
@@ -1844,7 +1851,7 @@ function LineRow({
         ) : (
           <div className="space-y-1">
             <span className={`${BADGE_CLS} bg-gray-100 text-gray-700`}>
-              Sin asignar
+              {iv.unassignedBadge}
             </span>
             <select
               className={SELECT_SM_CLS}
@@ -1858,14 +1865,14 @@ function LineRow({
                 void onChange({ ingredient_id: v || null });
               }}
               disabled={disabled || creatingNew}
-              aria-label="Asignar a un ingrediente"
+              aria-label={iv.assignIngredient}
             >
-              <option value="">— Elegir ingrediente —</option>
+              <option value="">{iv.pickIngredient}</option>
               <option value={INGREDIENT_PICK_NEW}>
-                + Crear ingrediente nuevo{" "}
+                {iv.createIngredientOption}{" "}
               </option>{" "}
               {ingredients.length > 0 && (
-                <optgroup label="Existentes">
+                <optgroup label={iv.existing}>
                   {ingredients.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.name}
@@ -1879,25 +1886,25 @@ function LineRow({
         {creatingNew && !disabled && (
           <div className="mt-2 rounded-lg border border-[#c6d3f5] bg-[#f6f8fe] p-2 space-y-1.5">
             <div className="text-xs text-[#6b7385] font-medium">
-              Crear ingrediente nuevo{" "}
+              {iv.createIngredientTitle}{" "}
             </div>
             <Input
               className="h-7 text-xs"
-              placeholder="Nombre del ingrediente"
+              placeholder={iv.ingredientNamePh}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               disabled={creating}
             />
             <Input
               className="h-7 text-xs"
-              placeholder="Unidad por defecto (kg, l, pieza…)"
+              placeholder={iv.defaultUnitPhLong}
               value={newUnit}
               onChange={(e) => setNewUnit(e.target.value)}
               disabled={creating}
             />
             <Input
               className="h-7 text-xs"
-              placeholder="Categoría (opcional)"
+              placeholder={iv.categoryOptional}
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
               disabled={creating}
@@ -1908,9 +1915,9 @@ function LineRow({
                 variant="secondary"
                 onClick={submitInlineCreate}
                 disabled={creating || !newName.trim() || !newUnit.trim()}
-                title="Crea el ingrediente y asigna esta línea a él"
+                title={iv.createAndAssignTitle}
               >
-                {creating ? "Creando…" : "Crear y asignar"}{" "}
+                {creating ? iv.creating : iv.createAndAssign}{" "}
               </Button>{" "}
               <Button
                 size="sm"
@@ -1918,7 +1925,7 @@ function LineRow({
                 onClick={cancelInlineCreate}
                 disabled={creating}
               >
-                Cancelar
+                {iv.cancel}
               </Button>
             </div>
           </div>
@@ -1928,23 +1935,27 @@ function LineRow({
       <td className="px-2 py-2">{line.unit}</td>
       <td className="px-2 py-2 text-right tabular-nums">
         {isShownPrice(line.unit_cost) ? (
-          fmtMoney(line.unit_cost, currency)
+          fmtMoney(line.unit_cost, currency, lang)
         ) : (
-          <MissingBadge>Sin precio</MissingBadge>
+          <MissingBadge>{iv.noPrice}</MissingBadge>
         )}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
         {lineTotalOrNull(line) !== null ? (
-          fmtMoney(line.line_total as number, currency)
+          fmtMoney(line.line_total as number, currency, lang)
         ) : (
-          <MissingBadge>Sin precio</MissingBadge>
+          <MissingBadge>{iv.noPrice}</MissingBadge>
         )}
       </td>
       <td className="px-2 py-2">
         <span
           className={`${BADGE_CLS} ${REVIEW_STYLE[line.review_status] ?? ""}`}
         >
-          {REVIEW_LABEL[line.review_status] ?? line.review_status}
+          {{
+            pending: iv.reviewPending,
+            approved: iv.statusApproved,
+            rejected: iv.statusRejected,
+          }[line.review_status] ?? line.review_status}
         </span>
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap">
@@ -1955,8 +1966,8 @@ function LineRow({
               variant="secondary"
               onClick={() => onChange({ review_status: "approved" })}
               disabled={disabled}
-              title="Aprobar línea"
-              aria-label="Aprobar línea"
+              title={iv.approveLine}
+              aria-label={iv.approveLine}
             >
               <CheckCircle2 className="h-3 w-3" />
             </Button>
@@ -1967,8 +1978,8 @@ function LineRow({
               variant="danger"
               onClick={() => onChange({ review_status: "rejected" })}
               disabled={disabled}
-              title="Rechazar línea"
-              aria-label="Rechazar línea"
+              title={iv.rejectLine}
+              aria-label={iv.rejectLine}
             >
               <XCircle className="h-3 w-3" />
             </Button>
@@ -1979,8 +1990,8 @@ function LineRow({
               variant="secondary"
               onClick={() => onChange({ review_status: "pending" })}
               disabled={disabled}
-              title="Volver a pendiente"
-              aria-label="Volver a pendiente"
+              title={iv.backToPending}
+              aria-label={iv.backToPending}
             >
               <RefreshCw className="h-3 w-3" />
             </Button>
@@ -2022,6 +2033,8 @@ function AddLineForm({
   ) => void;
   disabled: boolean;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   // Ingredient selector — defaults to "Unmatched" so accidental Saves don't
   // silently match to whatever's first in the list.
   const [pick, setPick] = useState<string>(INGREDIENT_PICK_UNMATCHED);
@@ -2084,7 +2097,7 @@ function AddLineForm({
 
     // Validate create-new sub-form up front so the API doesn't have to.
     if (isCreatingNew && !newName.trim()) {
-      setError("El nombre del ingrediente nuevo es obligatorio.");
+      setError(iv.newIngredientNameRequired);
       setBusy(false);
       return;
     }
@@ -2128,12 +2141,7 @@ function AddLineForm({
       );
       const j = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            j,
-            "No se pudieron guardar las líneas. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(j, iv.saveLinesFailed));
         return;
       }
       const created: IngredientLite | null =
@@ -2149,7 +2157,7 @@ function AddLineForm({
       onAdded(j.line as SupplierInvoiceLine, created);
       reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setBusy(false);
     }
@@ -2166,7 +2174,7 @@ function AddLineForm({
           variant="secondary"
           onClick={() => setOpen(true)}
         >
-          + Agregar línea
+          {iv.addLineToggle}
         </Button>
       </div>
     );
@@ -2180,20 +2188,20 @@ function AddLineForm({
       {/* Row 1: Ingredient selector (+ inline create-new fields) */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className={LABEL_CLS}>Ingrediente</span>{" "}
+          <span className={LABEL_CLS}>{iv.ingredient}</span>{" "}
           <select
             className={`mt-1 ${SELECT_CLS}`}
             value={pick}
             onChange={(e) => onPickChange(e.target.value)}
           >
             <option value={INGREDIENT_PICK_UNMATCHED}>
-              — Dejar sin asignar —
+              {iv.leaveUnassigned}
             </option>
             <option value={INGREDIENT_PICK_NEW}>
-              + Crear ingrediente nuevo{" "}
+              {iv.createIngredientOption}{" "}
             </option>{" "}
             {ingredients.length > 0 && (
-              <optgroup label="Existentes">
+              <optgroup label={iv.existing}>
                 {ingredients.map((i) => (
                   <option key={i.id} value={i.id}>
                     {i.name}
@@ -2207,31 +2215,31 @@ function AddLineForm({
         {isCreatingNew && (
           <>
             <label className="md:col-span-2">
-              <span className={LABEL_CLS}>Nombre del ingrediente nuevo</span>
+              <span className={LABEL_CLS}>{iv.newIngredientNamePh}</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="Ej. Aceite de oliva"
+                placeholder={iv.egOliveOil}
                 required
               />
             </label>
             <label>
-              <span className={LABEL_CLS}>Unidad por defecto</span>
+              <span className={LABEL_CLS}>{iv.defaultUnit}</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newDefaultUnit}
                 onChange={(e) => setNewDefaultUnit(e.target.value)}
-                placeholder="kg / l / pieza"
+                placeholder={iv.unitPh}
               />
             </label>
             <label>
-              <span className={LABEL_CLS}>Categoría (opcional)</span>
+              <span className={LABEL_CLS}>{iv.categoryOptional}</span>
               <Input
                 className="mt-1 h-7 text-xs"
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="Verduras, Lácteos…"
+                placeholder={iv.categoryPh}
               />
             </label>
           </>
@@ -2241,18 +2249,12 @@ function AddLineForm({
       {/* Row 2: Description spans wide */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-6">
-          <span className={LABEL_CLS}>
-            Descripción (texto de la línea en la factura)
-          </span>
+          <span className={LABEL_CLS}>{iv.lineDescription}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={
-              isExistingPick
-                ? "Opcional — por defecto se usa el nombre del ingrediente"
-                : "Ej. Cebolla blanca, saco de 5 kg"
-            }
+            placeholder={isExistingPick ? iv.descOptionalPh : iv.egOnion}
             required
           />
         </label>
@@ -2261,7 +2263,7 @@ function AddLineForm({
       {/* Row 3: numerics */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
         <label>
-          <span className={LABEL_CLS}>Cant.</span>
+          <span className={LABEL_CLS}>{iv.qty}</span>
           <Input
             type="number"
             step="0.0001"
@@ -2272,7 +2274,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Unidad</span>
+          <span className={LABEL_CLS}>{iv.unit}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={unit}
@@ -2281,7 +2283,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Costo unitario</span>
+          <span className={LABEL_CLS}>{iv.unitCost}</span>
           <Input
             type="number"
             step="0.0001"
@@ -2291,7 +2293,7 @@ function AddLineForm({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Total de línea</span>
+          <span className={LABEL_CLS}>{iv.lineTotal}</span>
           <Input
             type="number"
             step="0.01"
@@ -2302,9 +2304,7 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-2">
-          <span className={LABEL_CLS}>
-            Nombre del artículo del proveedor (opcional)
-          </span>
+          <span className={LABEL_CLS}>{iv.supplierItemName}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={supplierItemName}
@@ -2316,7 +2316,7 @@ function AddLineForm({
       {/* Row 4: SKU + notes */}
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <label className="md:col-span-2">
-          <span className={LABEL_CLS}>SKU del proveedor (opcional)</span>
+          <span className={LABEL_CLS}>{iv.supplierSku}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={supplierSku}
@@ -2324,7 +2324,7 @@ function AddLineForm({
           />
         </label>
         <label className="md:col-span-4">
-          <span className={LABEL_CLS}>Notas (opcional)</span>
+          <span className={LABEL_CLS}>{iv.notesOptional}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={notes}
@@ -2335,15 +2335,14 @@ function AddLineForm({
 
       <div className="flex items-center gap-2 pt-1">
         <Button type="submit" size="sm" variant="secondary" disabled={busy}>
-          <Plus className="h-3.5 w-3.5" />{" "}
-          {busy ? "Agregando…" : "Agregar línea"}
+          <Plus className="h-3.5 w-3.5" /> {busy ? iv.adding : iv.addLine}
         </Button>
         <span className="text-xs text-[#6b7385]">
           {isCreatingNew
-            ? "Se creará un ingrediente nuevo y se vinculará a este proveedor."
+            ? iv.hintNewIngredient
             : isExistingPick
-              ? "La línea quedará asignada."
-              : "La línea quedará sin asignar. Puedes asignarla después."}
+              ? iv.hintAssigned
+              : iv.hintUnassigned}
         </span>
         {error && (
           <span className="text-xs text-red-600 flex items-center gap-1 ml-auto">
@@ -2427,6 +2426,8 @@ function AIExtractCard({
     meta: { fileName: string | null; sourceType: "image" | "pdf" }
   ) => void;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   const [file, setFile] = useState<File | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2446,12 +2447,7 @@ function AIExtractCard({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            body,
-            "No se pudo leer la factura. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(body, iv.readFailed));
         return;
       }
       onExtracted(body.extraction as ExtractedDraft, {
@@ -2460,7 +2456,7 @@ function AIExtractCard({
       });
       setFile(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setExtracting(false);
     }
@@ -2470,14 +2466,11 @@ function AIExtractCard({
     <Card>
       <div className="mb-2.5">
         <CardTitle>
-          <Sparkles className="h-4 w-4 text-[#1B40C8]" /> Subir factura
-          (foto){" "}
+          <Sparkles className="h-4 w-4 text-[#1B40C8]" /> {iv.aiTitle}{" "}
         </CardTitle>{" "}
       </div>{" "}
       <div className="space-y-3">
-        <p className="text-xs text-[#6b7385]">
-          Milton lee los datos de la factura para que los revises.{" "}
-        </p>
+        <p className="text-xs text-[#6b7385]">{iv.aiDesc} </p>
         <form onSubmit={onExtract} className="space-y-2">
           <Input
             type="file"
@@ -2490,19 +2483,16 @@ function AIExtractCard({
               {extracting ? (
                 <>
                   <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1" />
-                  Leyendo…
+                  {iv.reading}
                 </>
               ) : (
                 <>
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
-                  Leer con IA
+                  {iv.readWithAi}
                 </>
               )}
             </Button>
-            <span className="text-xs text-[#6b7385]">
-              Foto de la factura: PNG / JPG / WEBP de hasta 10 MB. El PDF
-              todavía no se puede leer; tómale una foto.
-            </span>
+            <span className="text-xs text-[#6b7385]">{iv.aiPhotoHint}</span>
           </div>
           {error && <p className="text-xs text-red-600">{error}</p>}
         </form>{" "}
@@ -2530,6 +2520,8 @@ function ExtractedDraftReview({
   onDiscard: () => void;
   onCreated: (id: string) => Promise<void> | void;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -2549,12 +2541,7 @@ function ExtractedDraftReview({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(
-          userErrorMessage(
-            body,
-            "No se pudo guardar la factura. Inténtalo de nuevo."
-          )
-        );
+        setError(userErrorMessage(body, iv.saveInvoiceFailed));
         return;
       }
       const id = body?.invoice?.id as string | undefined;
@@ -2562,7 +2549,7 @@ function ExtractedDraftReview({
         await onCreated(id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error de red");
+      setError(err instanceof Error ? err.message : iv.networkError);
     } finally {
       setCreating(false);
     }
@@ -2573,8 +2560,7 @@ function ExtractedDraftReview({
       <div className="mb-2.5">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <CardTitle>
-            <Sparkles className="h-4 w-4 text-[#1B40C8]" /> Revisar factura
-            leída
+            <Sparkles className="h-4 w-4 text-[#1B40C8]" /> {iv.reviewReadTitle}
             {meta?.fileName && (
               <span className="text-xs font-normal text-[#6b7385] font-mono">
                 · {meta.fileName}
@@ -2588,7 +2574,7 @@ function ExtractedDraftReview({
               onClick={onDiscard}
               disabled={creating}
             >
-              Volver a las opciones de carga{" "}
+              {iv.backToOptions}{" "}
             </Button>{" "}
             <Button
               size="sm"
@@ -2596,11 +2582,11 @@ function ExtractedDraftReview({
               onClick={onDiscard}
               disabled={creating}
             >
-              Descartar borrador{" "}
+              {iv.discardDraft}{" "}
             </Button>{" "}
             <Button size="sm" onClick={onCreate} disabled={creating}>
               <ImageIcon className="h-3.5 w-3.5" />{" "}
-              {creating ? "Creando…" : "Crear factura para revisar"}{" "}
+              {creating ? iv.creating : iv.createForReview}{" "}
             </Button>{" "}
           </div>{" "}
         </div>{" "}
@@ -2632,6 +2618,8 @@ function ExtractedDraftBody({
   setDraft: (next: ExtractedDraft) => void;
   error: string | null;
 }) {
+  const { d, fmt: f } = useT();
+  const iv = d.costs.invoices;
   const setHeader = <K extends keyof ExtractedDraft>(
     key: K,
     value: ExtractedDraft[K]
@@ -2663,13 +2651,15 @@ function ExtractedDraftBody({
       <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 flex items-start gap-2">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span>
-          Lectura de Milton: revisa cada campo. Tus costos no cambian hasta que
-          publiques la factura.{" "}
+          {iv.readNotice}{" "}
           {needsReviewCount > 0 && (
             <span className="ml-1 font-semibold">
-              {needsReviewCount}{" "}
-              {needsReviewCount === 1 ? "línea necesita" : "líneas necesitan"}{" "}
-              atención.
+              {f(
+                needsReviewCount === 1
+                  ? iv.needsAttentionOne
+                  : iv.needsAttentionOther,
+                { n: needsReviewCount }
+              )}
             </span>
           )}
         </span>
@@ -2678,7 +2668,7 @@ function ExtractedDraftBody({
       {/* Header fields */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
         <label className="col-span-2 md:col-span-1">
-          <span className={LABEL_CLS}>Proveedor</span>
+          <span className={LABEL_CLS}>{iv.supplier}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={draft.supplier_name ?? ""}
@@ -2688,7 +2678,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Nº de factura</span>
+          <span className={LABEL_CLS}>{iv.invoiceNumber}</span>
           <Input
             className="mt-1 h-7 text-xs"
             value={draft.invoice_number ?? ""}
@@ -2698,7 +2688,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Moneda</span>
+          <span className={LABEL_CLS}>{iv.currency}</span>
           <Input
             className="mt-1 h-7 text-xs uppercase"
             value={draft.currency ?? ""}
@@ -2709,7 +2699,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Fecha</span>
+          <span className={LABEL_CLS}>{iv.date}</span>
           <Input
             type="date"
             className="mt-1 h-7 text-xs"
@@ -2720,7 +2710,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Fecha de vencimiento</span>
+          <span className={LABEL_CLS}>{iv.dueDateFull}</span>
           <Input
             type="date"
             className="mt-1 h-7 text-xs"
@@ -2729,7 +2719,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Subtotal</span>
+          <span className={LABEL_CLS}>{iv.subtotal}</span>
           <Input
             type="number"
             step="0.01"
@@ -2739,7 +2729,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Impuesto</span>
+          <span className={LABEL_CLS}>{iv.tax}</span>
           <Input
             type="number"
             step="0.01"
@@ -2749,7 +2739,7 @@ function ExtractedDraftBody({
           />
         </label>
         <label>
-          <span className={LABEL_CLS}>Total</span>
+          <span className={LABEL_CLS}>{iv.total}</span>
           <Input
             type="number"
             step="0.01"
@@ -2765,7 +2755,7 @@ function ExtractedDraftBody({
       {/* Lines */}
       <div className="rounded-lg border border-[#eef0f4] bg-white">
         <div className="px-3 py-2 border-b border-[#eef0f4] flex items-center justify-between text-xs font-semibold text-[#6b7385]">
-          <span>Líneas leídas ({draft.lines.length})</span>{" "}
+          <span>{f(iv.readLines, { n: draft.lines.length })}</span>{" "}
           <Button
             size="sm"
             variant="secondary"
@@ -2797,36 +2787,39 @@ function ExtractedDraftBody({
               })
             }
           >
-            <Plus className="h-3 w-3" /> Agregar fila
+            <Plus className="h-3 w-3" /> {iv.addRow}
           </Button>
         </div>
         {draft.lines.length === 0 ? (
           <p className="text-xs text-[#6b7385] px-3 py-3">
-            No se detectaron líneas. Usa «Agregar fila» o sube una imagen más
-            nítida.
+            {iv.noLinesDetected}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-[#f9fafc] text-left text-xs text-[#6b7385]">
                 <tr>
-                  <th className="px-2 py-1.5 font-medium w-[110px]">SKU</th>
-                  <th className="px-2 py-1.5 font-medium">Descripción</th>
+                  <th className="px-2 py-1.5 font-medium w-[110px]">
+                    {iv.sku}
+                  </th>
+                  <th className="px-2 py-1.5 font-medium">{iv.description}</th>
                   <th className="px-2 py-1.5 font-medium w-[160px]">
-                    Artículo del proveedor{" "}
+                    {iv.supplierItem}{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[80px]">
-                    Cant.{" "}
+                    {iv.qty}{" "}
                   </th>
-                  <th className="px-2 py-1.5 font-medium w-[70px]">Unidad</th>
+                  <th className="px-2 py-1.5 font-medium w-[70px]">
+                    {iv.unit}
+                  </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[100px]">
-                    Costo unitario{" "}
+                    {iv.unitCost}{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[110px]">
-                    Total de línea{" "}
+                    {iv.lineTotal}{" "}
                   </th>
                   <th className="px-2 py-1.5 font-medium text-right w-[90px]">
-                    Impuesto{" "}
+                    {iv.tax}{" "}
                   </th>{" "}
                   <th className="px-2 py-1.5 font-medium w-[40px]" />
                 </tr>
@@ -2895,7 +2888,7 @@ function ExtractedDraftBody({
                           <span
                             className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
                           >
-                            Calculado
+                            {iv.computed}
                           </span>
                         )}
                       </td>
@@ -2925,7 +2918,7 @@ function ExtractedDraftBody({
                           <span
                             className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
                           >
-                            Calculado
+                            {iv.computed}
                           </span>
                         )}
                       </td>
@@ -2946,7 +2939,7 @@ function ExtractedDraftBody({
                           <span
                             className={`${BADGE_CLS} mt-1 bg-[#eef2fd] text-[#1B40C8]`}
                           >
-                            Calculado
+                            {iv.computed}
                           </span>
                         )}
                       </td>
@@ -2968,8 +2961,8 @@ function ExtractedDraftBody({
                           size="icon"
                           variant="danger"
                           onClick={() => removeLine(i)}
-                          title="Quitar línea"
-                          aria-label="Quitar línea"
+                          title={iv.removeLine}
+                          aria-label={iv.removeLine}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -2988,7 +2981,7 @@ function ExtractedDraftBody({
         <details className="group text-xs">
           <summary className={SUMMARY_CLS}>
             <Chevron />
-            Notas de confianza de la IA ({draft.confidence_notes.length})
+            {f(iv.confidenceNotes, { n: draft.confidence_notes.length })}
           </summary>
           <ul className="mt-1 space-y-0.5">
             {draft.confidence_notes.map((n, i) => (
@@ -3016,6 +3009,8 @@ function LineBadges({
   line: ExtractedLineDraft;
   needs: boolean;
 }) {
+  const { d } = useT();
+  const iv = d.costs.invoices;
   const chips: React.ReactNode[] = [];
   if (needs) {
     chips.push(
@@ -3023,7 +3018,7 @@ function LineBadges({
         key="needs"
         className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700"
       >
-        Por revisar
+        {iv.statusNeedsReview}
       </span>
     );
   }
@@ -3034,7 +3029,7 @@ function LineBadges({
         className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-700"
         title={line.confidence_notes ?? undefined}
       >
-        Confianza baja
+        {iv.confidenceLow}
       </span>
     );
   } else if (line.confidence === "medium") {
@@ -3044,7 +3039,7 @@ function LineBadges({
         className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700"
         title={line.confidence_notes ?? undefined}
       >
-        Confianza media
+        {iv.confidenceMedium}
       </span>
     );
   } else if (line.confidence === "high") {
@@ -3054,7 +3049,7 @@ function LineBadges({
         className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold bg-green-100 text-green-800"
         title={line.confidence_notes ?? undefined}
       >
-        Confianza alta
+        {iv.confidenceHigh}
       </span>
     );
   }

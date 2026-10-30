@@ -20,6 +20,8 @@
 //     sales goal is for the whole business, not for a slice) and only when
 //     they exist: no goal = no line, no chip, never 0.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   addDays,
   daysBetween,
@@ -100,12 +102,38 @@ const CHANNEL_ES: Record<string, string> = {
   delivery: "Delivery",
   online: "En línea",
 };
-export function channelLabelEs(key: string | null): string {
+export function channelLabelEs(
+  key: string | null,
+  lang: PreferredLanguage = "es"
+): string {
+  if (lang !== "es") {
+    const c = getDictionary(lang).sales.detail.channels;
+    if (key === null) return c.none;
+    const known: Record<string, string> = {
+      in_store: c.inStore,
+      takeaway: c.takeaway,
+      delivery: c.delivery,
+      online: c.online,
+    };
+    return known[key] ?? key;
+  }
   if (key === null) return "Sin canal";
   return CHANNEL_ES[key] ?? key;
 }
-export function paymentLabelEs(key: string | null): string {
-  return key === null ? "Sin forma de pago" : key;
+export function paymentLabelEs(
+  key: string | null,
+  lang: PreferredLanguage = "es"
+): string {
+  return key === null ? getDictionary(lang).sales.detail.noPayment : key;
+}
+/** The display name of a category; the token stays «Sin categoría» in the cube. */
+export function categoryLabel(
+  category: string,
+  lang: PreferredLanguage = "es"
+): string {
+  return category === NO_CATEGORY_LABEL
+    ? getDictionary(lang).sales.labels.uncategorized
+    : category;
 }
 
 // ---------------------------------------------------------------------------
@@ -579,7 +607,8 @@ export interface Baseline {
 export function baselineFor(
   key: CompareKey,
   range: Range,
-  firstDay: string | null
+  firstDay: string | null,
+  lang: PreferredLanguage = "es"
 ): Baseline | null {
   if (!firstDay) return null;
   const n = daysBetween(range.from, range.to);
@@ -596,7 +625,12 @@ export function baselineFor(
       range: { from: w.from, to: w.to },
       scale: n / w.days,
       note: w.cut
-        ? `solo ${w.days} ${w.days === 1 ? "día" : "días"} de datos`
+        ? fmt(
+            w.days === 1
+              ? getDictionary(lang).cockpit.dataSpan.daysOne
+              : getDictionary(lang).cockpit.dataSpan.daysOther,
+            { n: w.days }
+          )
         : null,
     };
   }
@@ -697,6 +731,8 @@ export interface DetailInput {
   scope: TargetScope;
   /** ≥ 2 active shifts in view: shift cards, filter and dimension exist. */
   shiftsVisible: boolean;
+  /** Language of the labels the view carries (default Spanish). */
+  lang?: PreferredLanguage;
 }
 
 export function resolveRange(
@@ -729,7 +765,8 @@ const orderedRows = (
   scale: number,
   label: (id: number) => string,
   token: (id: number) => string,
-  selected: ReadonlySet<string>
+  selected: ReadonlySet<string>,
+  lang: PreferredLanguage = "es"
 ): DimRow[] => {
   let total = 0;
   for (const g of groups.values()) total += g.net;
@@ -749,12 +786,13 @@ const orderedRows = (
     });
   }
   return rows.sort(
-    (a, b) => b.net - a.net || a.label.localeCompare(b.label, "es")
+    (a, b) => b.net - a.net || a.label.localeCompare(b.label, localeFor(lang))
   );
 };
 
 export function computeDetail(input: DetailInput): DetailView | null {
   const { prepared: p, state, targets, scope } = input;
+  const lang = input.lang ?? "es";
   const cube = p.cube;
   const resolved = resolveRange(state, cube);
   if (!resolved) return null;
@@ -767,7 +805,7 @@ export function computeDetail(input: DetailInput): DetailView | null {
     cube.first_day && cube.window_from && cube.window_from > cube.first_day
       ? cube.window_from
       : cube.first_day;
-  const baseline = baselineFor(option.key, range, firstDay);
+  const baseline = baselineFor(option.key, range, firstDay, lang);
   const filtersActive = hasDimensionFilters(state);
 
   const all = buildMask(p, state);
@@ -855,7 +893,7 @@ export function computeDetail(input: DetailInput): DetailView | null {
       else m.cat = only;
       cross.push({
         token: tokenOf(cube, dimKey, id),
-        label: labelOf(cube, dimKey, id),
+        label: labelOf(cube, dimKey, id, lang),
         grid: heatGrid(p, range, m),
       });
     }
@@ -880,9 +918,10 @@ export function computeDetail(input: DetailInput): DetailView | null {
     groups,
     baseGroups,
     scale,
-    (id) => labelOf(cube, state.dim, id),
+    (id) => labelOf(cube, state.dim, id, lang),
     (id) => tokenOf(cube, state.dim, id),
-    selectedTokens
+    selectedTokens,
+    lang
   );
   const dimTotal = dimRows.reduce((a, r) => a + r.net, 0);
   const picked = dimRows.filter((r) => r.selected);
@@ -929,8 +968,8 @@ export function computeDetail(input: DetailInput): DetailView | null {
     empty: cur.totals.net === 0 && cur.totals.tickets === 0,
     compare: {
       key: option.key,
-      label: option.label,
-      short: option.short,
+      label: compareText(option.key, lang).label,
+      short: compareText(option.key, lang).short,
       baseline,
     },
     filtersActive,
@@ -964,10 +1003,35 @@ export function computeDetail(input: DetailInput): DetailView | null {
   };
 }
 
-function labelOf(cube: DetailCube, dim: DimKey, id: number): string {
-  if (dim === "categoria") return cube.categories[id] ?? NO_CATEGORY_LABEL;
-  if (dim === "canal") return channelLabelEs(cube.channels[id] ?? null);
-  if (dim === "pago") return paymentLabelEs(cube.payments[id] ?? null);
+/** The «Comparar» option's long and short text in `lang` (Spanish = the constants above). */
+export function compareText(
+  key: CompareKey,
+  lang: PreferredLanguage = "es"
+): { label: string; short: string } {
+  const option =
+    COMPARE_OPTIONS.find((c) => c.key === key) ?? COMPARE_OPTIONS[1];
+  if (lang === "es") return { label: option.label, short: option.short };
+  const c = getDictionary(lang).sales.detail.compare;
+  const map: Record<CompareKey, { label: string; short: string }> = {
+    prev_period: { label: c.prevPeriod, short: c.prevPeriodShort },
+    prev_week: { label: c.prevWeek, short: c.prevWeekShort },
+    last_year: { label: c.lastYear, short: c.lastYearShort },
+    avg_6: { label: c.avg6, short: c.avg6Short },
+    avg_12: { label: c.avg12, short: c.avg12Short },
+  };
+  return map[key];
+}
+
+function labelOf(
+  cube: DetailCube,
+  dim: DimKey,
+  id: number,
+  lang: PreferredLanguage
+): string {
+  if (dim === "categoria")
+    return categoryLabel(cube.categories[id] ?? NO_CATEGORY_LABEL, lang);
+  if (dim === "canal") return channelLabelEs(cube.channels[id] ?? null, lang);
+  if (dim === "pago") return paymentLabelEs(cube.payments[id] ?? null, lang);
   return cube.shifts[id] ?? "";
 }
 function tokenOf(cube: DetailCube, dim: DimKey, id: number): string {

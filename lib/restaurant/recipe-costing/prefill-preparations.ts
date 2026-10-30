@@ -7,6 +7,8 @@
 // name; never an Excel price). A yield the Excel does not state plainly is
 // a suggestion that stays open. Existing preparations are never touched.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { lineUnitCostFromRaw } from "@/lib/restaurant/cost-workbook/propose-recipe";
 import { yieldSourceForBlock } from "@/lib/restaurant/cost-workbook/propose-recipe";
@@ -49,10 +51,13 @@ export async function prefillPreparations(input: {
   ingredients: readonly PrefillCatalogIngredient[];
   aliases: ReadonlyMap<string, string>;
   changes: UndoSnapshot;
+  /** Language of the review reasons (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<{
   preparations: Array<{ id: string; name: string }>;
   summary: PreparationDraftSummary;
 }> {
+  const msg = getDictionary(input.lang ?? "es").menu.editor.preparations;
   const summary: PreparationDraftSummary = {
     created: 0,
     reused: 0,
@@ -119,6 +124,7 @@ export async function prefillPreparations(input: {
       // A preparation never points at itself.
       preparations: preparations.filter((p) => p.id !== componentId),
       aliases: input.aliases,
+      lang: input.lang,
     });
     const inputs: RecipeInputSnapshot[] = prefilled
       .filter((line) => addable(line))
@@ -173,12 +179,17 @@ export async function prefillPreparations(input: {
       const parts: string[] = [];
       if (open.length > 0) {
         parts.push(
-          `${open.length} ${open.length === 1 ? "línea por resolver" : "líneas por resolver"}`
+          fmt(open.length === 1 ? msg.openLinesOne : msg.openLinesOther, {
+            count: open.length,
+          })
         );
       }
       if (yieldToConfirm) {
         parts.push(
-          `rendimiento sugerido ${outputQuantity} ${outputUnit}, por confirmar`
+          fmt(msg.yieldToConfirm, {
+            quantity: outputQuantity,
+            unit: outputUnit,
+          })
         );
       }
       review.push({
@@ -186,7 +197,10 @@ export async function prefillPreparations(input: {
         batch_id: input.batchId,
         tab_name: block.tabName,
         row_index: block.start_row_index ?? lines[0]?.rowIndex ?? 0,
-        reason: `Revisa la preparación ${block.name}: ${parts.join(" · ")}.`,
+        reason: fmt(msg.reviewReason, {
+          name: block.name,
+          parts: parts.join(" · "),
+        }),
         raw_values: {
           kind: PREPARATION_DRAFT_KIND,
           component_id: componentId,

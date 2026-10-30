@@ -9,6 +9,7 @@
 // it takes sales out of coverage. Only the classification changes: never the link
 // state, the recipe or a confirmation. Company and user come from auth.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { isPosProductClassification } from "@/lib/restaurant/pos-product-links";
@@ -26,6 +27,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -34,7 +36,7 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: d.connect.api.bodyMustBeJson },
       { status: 400 }
     );
   }
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
       row.treatment === "por_clasificar"
     ) {
       return NextResponse.json(
-        { error: "Indica el producto de Odoo y cómo se costea." },
+        { error: d.connect.api.treatmentMissing },
         { status: 400 }
       );
     }
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
   if (items.length === 0) {
     return NextResponse.json(
-      { error: "Indica al menos un producto." },
+      { error: d.connect.api.atLeastOneProduct },
       { status: 400 }
     );
   }
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[pos/links/treatment]", err);
     return NextResponse.json(
-      { error: "No pude guardar cómo se costea." },
+      { error: d.connect.api.treatmentSaveFailed },
       { status: 500 }
     );
   }

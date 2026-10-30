@@ -61,7 +61,12 @@ describe("relative windows — «la última semana» is the last 7 days", () => 
 
   it("only counts sales inside the 7 days", () => {
     const rows = octDates.map((d) =>
-      salesFact({ sale_date: d, item_name: "Típico", quantity: 10, order_key: d })
+      salesFact({
+        sale_date: d,
+        item_name: "Típico",
+        quantity: 10,
+        order_key: d,
+      })
     );
     const snap = buildSalesSnapshot(rows, ES_TZ, {
       question: "cual es el plato mas vendido de la ultima semanas?",
@@ -135,14 +140,27 @@ describe("POS names — clean dish name, variants merged", () => {
   it("merges option variants into one item", () => {
     const snap = buildSalesSnapshot(
       [
-        salesFact({ sale_date: "2026-10-26", item_name: "Café (Grande)", quantity: 3, order_key: "a" }),
-        salesFact({ sale_date: "2026-10-26", item_name: "Café (Pequeño)", quantity: 2, order_key: "b" }),
+        salesFact({
+          sale_date: "2026-10-26",
+          item_name: "Café (Grande)",
+          quantity: 3,
+          order_key: "a",
+        }),
+        salesFact({
+          sale_date: "2026-10-26",
+          item_name: "Café (Pequeño)",
+          quantity: 2,
+          order_key: "b",
+        }),
       ],
       ES_TZ,
       {}
     );
     expect(snap.top_items_by_units).toHaveLength(1);
-    expect(snap.top_items_by_units[0]).toMatchObject({ name: "Café", units: 5 });
+    expect(snap.top_items_by_units[0]).toMatchObject({
+      name: "Café",
+      units: 5,
+    });
   });
 });
 
@@ -176,7 +194,12 @@ describe("top-selling answer states the real window", () => {
 
   it("honours «top 3» as a numbered list", () => {
     const rows = ["A", "B", "C", "D", "E"].map((n, i) =>
-      salesFact({ sale_date: "2026-10-26", item_name: n, quantity: 10 - i, order_key: n })
+      salesFact({
+        sale_date: "2026-10-26",
+        item_name: n,
+        quantity: 10 - i,
+        order_key: n,
+      })
     );
     const ctx = salesContext(rows, "es");
     ctx.sales = buildSalesSnapshot(rows, ES_TZ, { question: "última semana" });

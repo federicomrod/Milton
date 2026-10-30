@@ -17,6 +17,7 @@
 //   * A comparison never lines a full period up against a partial one, and a
 //     comparison window that starts before the data does is not shown.
 
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   type DayPoint,
   type Range,
@@ -121,6 +122,8 @@ export interface CockpitInput {
   costRows: readonly MixDayRow[] | null;
   /** Only this category (needs costRows); null = everything. */
   category: string | null;
+  /** Language of the notes in the view (default Spanish). Chip labels stay keyed. */
+  lang?: PreferredLanguage;
 }
 
 export interface CostFigures {
@@ -318,7 +321,7 @@ export function computeCockpit(input: CockpitInput): CockpitView {
     const w =
       win.days > 0 ? windowSales(byDate, win.from, win.to, first) : null;
     baselineAvg = w?.avg ?? null;
-    baselineNote = baselineAvg === null ? null : dataSpanNote(win);
+    baselineNote = baselineAvg === null ? null : dataSpanNote(win, input.lang);
   } else {
     baselineAvg =
       (input.comparison === "last_week" ? week : month)?.avg ?? null;

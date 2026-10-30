@@ -6,6 +6,7 @@
 // A removed cook is ignored by the bot until they rescan a valid QR. Their app
 // devices (mobile P0b) are revoked too, so the next app request gets 401.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -22,6 +23,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -34,7 +36,7 @@ export async function DELETE(
     const { id } = await params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json(
-        { error: "El identificador no es válido." },
+        { error: d.kitchen.api.idInvalid },
         { status: 400 }
       );
     }
@@ -56,13 +58,13 @@ export async function DELETE(
     if (error) {
       console.error("[kitchen-staff] remove failed:", error.message);
       return NextResponse.json(
-        { error: "No pude quitar al cocinero." },
+        { error: d.kitchen.api.cookRemoveFailed },
         { status: 500 }
       );
     }
     if (!data) {
       return NextResponse.json(
-        { error: "No encontré al cocinero." },
+        { error: d.kitchen.api.cookNotFound },
         { status: 404 }
       );
     }
@@ -76,7 +78,7 @@ export async function DELETE(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude quitar al cocinero." },
+      { error: d.kitchen.api.cookRemoveFailed },
       { status: 500 }
     );
   }

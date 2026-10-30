@@ -12,7 +12,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import { parseInclusiveDateRange } from "@/lib/restaurant/odoo/sync-window";
 import {
   compactLastSync,
@@ -45,7 +46,8 @@ export function SyncNowButton({
   const [to, setTo] = useState("");
   const guardRef = useRef(createInFlightGuard());
   const panelRef = useRef<HTMLDivElement>(null);
-  const label = t(lang, "Sync", "Sincronizar");
+  const d = getDictionary(lang).shell.sync;
+  const label = d.label;
 
   function openConfirm() {
     if (!from || !to) {
@@ -77,7 +79,7 @@ export function SyncNowButton({
     const parsed = parseInclusiveDateRange(from, to);
     if (!parsed.ok) {
       toast({
-        title: t(lang, "Could not sync", "No se pudo sincronizar"),
+        title: d.couldNot,
         description: localizedRangeParseError(lang, parsed.error),
         variant: "destructive",
       });
@@ -105,7 +107,7 @@ export function SyncNowButton({
 
         if (!response.ok) {
           toast({
-            title: t(lang, "Sync failed", "La sincronización no se completó"),
+            title: d.failed,
             description: safeSyncErrorMessageForLang(
               lang,
               response.status,
@@ -116,18 +118,18 @@ export function SyncNowButton({
           return;
         }
 
-        const view = summarizeOdooSync(body as OdooSyncSuccessBody);
+        const view = summarizeOdooSync(body as OdooSyncSuccessBody, lang);
         compactLastSync(body as OdooSyncSuccessBody);
         toast({
-          title: t(lang, "Sales updated", "Ventas actualizadas"),
-          description: syncSummaryCopy(view).headline,
+          title: d.updated,
+          description: syncSummaryCopy(view, lang).headline,
         });
         window.dispatchEvent(new CustomEvent("milton:pos-data-updated"));
         router.refresh();
         setOpen(false);
       } catch {
         toast({
-          title: t(lang, "Sync failed", "La sincronización no se completó"),
+          title: d.failed,
           description: safeSyncErrorMessageForLang(lang, 0, {}),
           variant: "destructive",
         });
@@ -164,44 +166,32 @@ export function SyncNowButton({
       {open ? (
         <div
           role="dialog"
-          aria-label={t(
-            lang,
-            "Confirm sync range",
-            "Confirmar rango de sincronización"
-          )}
+          aria-label={d.confirmRange}
           data-testid="sync-confirm-popover"
           className="absolute right-0 top-full z-40 mt-1 w-72 rounded-md border border-border bg-background p-3 shadow-md space-y-2"
         >
-          <p className="text-xs text-muted-foreground">
-            {t(
-              lang,
-              "Sync pulls this range from Odoo. It is not the period shown on the page.",
-              "La sincronización trae este rango de Odoo. No es el periodo que ves en la página."
-            )}
-          </p>
+          <p className="text-xs text-muted-foreground">{d.hint}</p>
           <div className="grid grid-cols-2 gap-2">
             <label className="space-y-1">
               <span className="text-[12px] text-muted-foreground">
-                {t(lang, "From", "Desde")}
+                {d.from}
               </span>
               <Input
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
                 className="h-8 text-xs"
-                aria-label={t(lang, "From date", "Desde")}
+                aria-label={d.from}
               />
             </label>
             <label className="space-y-1">
-              <span className="text-[12px] text-muted-foreground">
-                {t(lang, "To", "Hasta")}
-              </span>
+              <span className="text-[12px] text-muted-foreground">{d.to}</span>
               <Input
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 className="h-8 text-xs"
-                aria-label={t(lang, "To date", "Hasta")}
+                aria-label={d.to}
               />
             </label>
           </div>
@@ -213,7 +203,7 @@ export function SyncNowButton({
               className="h-8"
               onClick={() => setOpen(false)}
             >
-              {t(lang, "Cancel", "Cancelar")}
+              {getDictionary(lang).common.cancel}
             </Button>
             <Button
               type="button"
@@ -222,7 +212,7 @@ export function SyncNowButton({
               disabled={syncing}
               onClick={() => void handleSync()}
             >
-              {t(lang, "Sync now", "Sincronizar ahora")}
+              {d.syncNow}
             </Button>
           </div>
         </div>

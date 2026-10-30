@@ -11,9 +11,12 @@ import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPage
 import { TelegramConnectionCard } from "@/components/restaurant/TelegramConnectionCard";
 import { EmailBriefingCard } from "@/components/restaurant/EmailBriefingCard";
 import { CreditCard, Mail, Calendar, Edit } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 
 export default function AccountPage() {
   const { profile, loading, error } = useUserProfile();
+  const { d, lang, locale } = useT();
+  const da = d.settings.account;
   const [userEmail, setUserEmail] = useState<string | null>(null);
 
   // Get email from auth.users (not from profiles)
@@ -43,11 +46,11 @@ export default function AccountPage() {
       <div className="container mx-auto p-6 max-w-4xl">
         <Card>
           <CardHeader>
-            <CardTitle>No se pudo cargar la cuenta</CardTitle>
+            <CardTitle>{da.loadFailedTitle}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="p-3 rounded bg-destructive/10 text-destructive border border-destructive/20">
-              No se pudo cargar la información de tu cuenta. Recarga la página.
+              {da.loadFailedBody}
             </div>
           </CardContent>
         </Card>
@@ -60,14 +63,14 @@ export default function AccountPage() {
       {/* Header */}
       <div className="mb-5">
         <OperatingPageHeader
-          title="Cuenta"
-          lang="es"
+          title={da.title}
+          lang={lang}
           showDateRange={false}
           titleAction={
             <Link href="/dashboard/settings">
               <Button size="sm" className="gap-2">
                 <Edit className="h-4 w-4" />
-                Editar perfil
+                {da.editProfile}
               </Button>
             </Link>
           }
@@ -79,18 +82,18 @@ export default function AccountPage() {
         {/* Account Status */}
         <Card>
           <CardHeader>
-            <CardTitle>Estado de la cuenta</CardTitle>
+            <CardTitle>{da.status}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-start gap-3">
               <CreditCard className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Plan
+                  {da.plan}
                 </p>
                 <div className="flex items-center gap-2 mt-1">
                   <Badge variant="default">
-                    {profile?.billing_status || "Prueba gratis"}
+                    {profile?.billing_status || da.freeTrial}
                   </Badge>
                 </div>
               </div>
@@ -100,10 +103,10 @@ export default function AccountPage() {
               <Mail className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Email
+                  {da.email}
                 </p>
                 <p className="text-base text-foreground">
-                  {userEmail || "No disponible"}
+                  {userEmail || da.notAvailable}
                 </p>
               </div>
             </div>
@@ -112,16 +115,16 @@ export default function AccountPage() {
               <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  Miembro desde
+                  {da.memberSince}
                 </p>
                 <p className="text-base text-foreground">
                   {profile?.created_at
-                    ? new Date(profile.created_at).toLocaleDateString("es-MX", {
+                    ? new Date(profile.created_at).toLocaleDateString(locale, {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
                       })
-                    : "N/D"}
+                    : da.notAvailableShort}
                 </p>
               </div>
             </div>

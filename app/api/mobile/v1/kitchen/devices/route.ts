@@ -3,6 +3,8 @@
 // GET: the cooks' phones (never a token or hash), ?locationId= to filter.
 // Owner only. Read through the caller's RLS client with explicit columns.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authAndCompanyFromBearer } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -15,6 +17,7 @@ export const runtime = "nodejs";
 const LIST_LIMIT = 200;
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authAndCompanyFromBearer(request);
   if (!auth.ok) return auth.response;
   const { supabase, companyId, userId } = auth;
@@ -28,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     const locationId = new URL(request.url).searchParams.get("locationId");
     if (locationId && !UUID_RE.test(locationId)) {
-      return mobileJson({ error: "El restaurante no es válido." }, 400);
+      return mobileJson({ error: d.kitchen.api.restaurantInvalid }, 400);
     }
 
     let staffQuery = supabase
@@ -38,7 +41,7 @@ export async function GET(request: NextRequest) {
     if (locationId) staffQuery = staffQuery.eq("location_id", locationId);
     const { data: staff, error: staffError } = await staffQuery;
     if (staffError) {
-      return mobileJson({ error: "No pude cargar los teléfonos." }, 500);
+      return mobileJson({ error: d.kitchen.api.phonesLoadFailed }, 500);
     }
     const names = new Map(
       (staff ?? []).map((s) => [s.id as string, s.display_name as string])
@@ -55,7 +58,7 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(LIST_LIMIT);
     if (error) {
-      return mobileJson({ error: "No pude cargar los teléfonos." }, 500);
+      return mobileJson({ error: d.kitchen.api.phonesLoadFailed }, 500);
     }
     return mobileJson({
       devices: (data ?? []).map((row) =>
@@ -70,6 +73,6 @@ export async function GET(request: NextRequest) {
       "[mobile-devices] list failed:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return mobileJson({ error: "No pude cargar los teléfonos." }, 500);
+    return mobileJson({ error: d.kitchen.api.phonesLoadFailed }, 500);
   }
 }

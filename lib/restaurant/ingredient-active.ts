@@ -5,6 +5,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export interface CompanyIngredientRow {
   id: string;
@@ -58,13 +60,15 @@ export async function loadCompanyIngredients(
 export const isActiveIngredient = (row: { archived_at: string | null }) =>
   !row.archived_at;
 
-/** The Spanish refusal for a line that points at an archived ingredient. */
+/** The refusal for a line that points at an archived ingredient. */
 export function archivedIngredientMessage(
   name: string,
-  survivorName: string | null
+  survivorName: string | null,
+  lang: PreferredLanguage = "es"
 ): string {
+  const m = getDictionary(lang).menu.screens.merge;
   const survivor = survivorName?.trim();
   return survivor
-    ? `${name} se unió con ${survivor}. Elige ${survivor} en esa línea.`
-    : `${name} está archivado. Elige otro ingrediente.`;
+    ? fmt(m.archivedMerged, { name, survivor })
+    : fmt(m.archivedPlain, { name });
 }

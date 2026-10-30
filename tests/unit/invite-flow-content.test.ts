@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { es } from "@/lib/i18n/es";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
@@ -144,8 +145,10 @@ describe("forgot-password page", () => {
       /(const|let)\s*\{[^}]*\berror\b[^}]*\}\s*=\s*await[^;]*resetPasswordForEmail/
     );
     expect(src).not.toMatch(/=\s*await[^;]*resetPasswordForEmail/);
-    expect(
-      src.match(/If an account exists, we(&apos;|')ve sent a link\./g)
-    ).toHaveLength(1);
+    // The message is written once, from the dictionary (es/en/de share the key).
+    expect(src.match(/\ba\.sentNote\b/g)).toHaveLength(1);
+    expect(es.auth.forgot.sentNote).toBe(
+      "Si existe una cuenta, te enviamos un enlace."
+    );
   });
 });

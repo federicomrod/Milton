@@ -10,7 +10,11 @@
 import { useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarRange } from "lucide-react";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import {
   COCKPIT_PERIOD_PARAM,
   DEFAULT_COCKPIT_PERIOD,
@@ -36,7 +40,7 @@ export function CockpitPeriodControl({
   const params = useSearchParams();
   const cockpit = useCockpitPeriodOptional();
   const [routerPending, startTransition] = useTransition();
-  const locale = lang === "es" ? "es" : "en-US";
+  const locale = localeFor(lang);
   const selected = cockpit?.preset ?? preset;
   const pending = cockpit?.pending ?? routerPending;
   const rangeLabel = range ? formatPageDateRangeLabel(range, locale) : null;
@@ -74,13 +78,13 @@ export function CockpitPeriodControl({
         }}
         variant="outline"
         size="sm"
-        aria-label={t(lang, "Period", "Periodo")}
+        aria-label={t(lang, "Period", "Periodo", "Zeitraum")}
       >
         <ToggleGroupItem value="last_7" className="px-2.5 text-xs">
-          {t(lang, "Last 7 days", "Últimos 7 días")}
+          {t(lang, "Last 7 days", "Últimos 7 días", "Letzte 7 Tage")}
         </ToggleGroupItem>
         <ToggleGroupItem value="month" className="px-2.5 text-xs">
-          {t(lang, "Month", "Mes")}
+          {t(lang, "Month", "Mes", "Monat")}
         </ToggleGroupItem>
       </ToggleGroup>
       {comparisonLabel || rangeLabel ? (

@@ -71,19 +71,20 @@ describe("Cuenta and Ajustes pages", () => {
   const account = read("app/dashboard/account/page.tsx");
   const settings = read("app/dashboard/settings/page.tsx");
   it("keep their content and drop the two buttons that were disabled forever", () => {
-    for (const heading of [
-      "Estado de la cuenta",
-      "TelegramConnectionCard",
-      "EmailBriefingCard",
-    ])
+    expect(read("lib/i18n/es/settings.ts")).toContain("Estado de la cuenta");
+    for (const heading of ["TelegramConnectionCard", "EmailBriefingCard"])
       expect(account).toContain(heading);
     expect(account).not.toContain("Información de la empresa");
-    expect(settings).toContain("Información de la empresa");
+    expect(settings).toContain("d.settings.page.companyInfo");
+    expect(read("lib/i18n/es/settings.ts")).toContain(
+      "Información de la empresa"
+    );
     expect(account).not.toContain("Administrar facturación");
     expect(account).not.toContain('href="/dashboard">');
   });
   it("Ajustes is in Spanish", () => {
-    expect(settings).toContain("Guardar");
+    expect(read("lib/i18n/es/common.ts")).toContain("Guardar");
+    expect(settings).toContain("d.common.save");
     expect(settings).not.toMatch(/Save Preferences|Company Name|Timezone/);
   });
   it("primary buttons are brand blue (not black), secondary are white with a blue border", () => {

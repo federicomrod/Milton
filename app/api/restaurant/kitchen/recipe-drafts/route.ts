@@ -6,6 +6,7 @@
 // rejected are excluded). Filterable by location. SELECT policy allows
 // any company member to read; only service role creates drafts.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -21,6 +22,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -59,7 +61,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[recipe-drafts] list failed:", error.message);
     return NextResponse.json(
-      { error: "No pude cargar los borradores." },
+      { error: d.kitchen.api.draftsLoadFailed },
       { status: 500 }
     );
   }

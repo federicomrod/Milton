@@ -7,6 +7,9 @@
 // recipes.edit its button is disabled and says why.
 
 import { useState } from "react";
+import { fmt, getDictionary } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { MenuReaderPanel } from "@/components/restaurant/recipes-costing/MenuReaderPanel";
 import {
   GhostBtn,
@@ -15,12 +18,16 @@ import {
 import { MENU_READER_ANCHOR } from "@/lib/restaurant/menu-links";
 import { NoRecipeEditNotice } from "./EstimateWithMilton";
 
-export const MENU_READER_TITLE = "Lee tu menú y estima costos";
-export const MENU_READER_INTRO =
-  "Pega el enlace o el texto de tu menú. Milton prepara borradores y estima costos; nada cambia tus números hasta que lo apruebes.";
+const ES_READER = getDictionary("es").menu.screens.reader;
+export const MENU_READER_TITLE = ES_READER.title;
+export const MENU_READER_INTRO = ES_READER.intro;
 
-export function noRecipeDishesLabel(n: number): string {
-  return n === 1 ? "1 plato sin receta" : `${n} platos sin receta`;
+export function noRecipeDishesLabel(
+  n: number,
+  lang: PreferredLanguage = "es"
+): string {
+  const r = getDictionary(lang).menu.screens.reader;
+  return n === 1 ? r.noRecipeOne : fmt(r.noRecipeOther, { n });
 }
 
 export function MenuReaderCard({
@@ -40,6 +47,8 @@ export function MenuReaderCard({
   /** Refresh the page data after a reading / an estimate run. */
   onDone: () => void;
 }) {
+  const { d, lang } = useT();
+  const rd = d.menu.screens.reader;
   const [open, setOpen] = useState(false);
   const [estimateLive, setEstimateLive] = useState(false);
   const allDone = noRecipeDishes === 0 && !open;
@@ -51,14 +60,14 @@ export function MenuReaderCard({
         data-testid="menu-reader-card-done"
         className="scroll-mt-4 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-2.5 text-[13px] text-[#6b7280]"
       >
-        <span aria-hidden="true">✓</span> Todos tus platos tienen receta ·{" "}
+        <span aria-hidden="true">✓</span> {rd.allDone} ·{" "}
         <button
           type="button"
           disabled={!canEdit}
           onClick={() => setOpen(true)}
           className="font-semibold text-[#1B40C8] disabled:text-[#6b7280] disabled:opacity-100"
         >
-          Leer menú de nuevo
+          {rd.readAgain}
         </button>
         {canEdit ? null : <NoRecipeEditNotice className="mt-1" />}
       </section>
@@ -71,26 +80,24 @@ export function MenuReaderCard({
       data-testid="menu-reader-card"
       className="scroll-mt-4 space-y-2.5 rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3"
     >
-      <h2 className="text-[15px] font-semibold text-[#151c2c]">
-        {MENU_READER_TITLE}
-      </h2>
-      <p className="text-[13px] text-[#6b7280]">{MENU_READER_INTRO}</p>
+      <h2 className="text-[15px] font-semibold text-[#151c2c]">{rd.title}</h2>
+      <p className="text-[13px] text-[#6b7280]">{rd.intro}</p>
       {noRecipeDishes != null && noRecipeDishes > 0 ? (
         <p className="text-[13px] font-semibold text-[#151c2c]">
-          {noRecipeDishesLabel(noRecipeDishes)}
+          {noRecipeDishesLabel(noRecipeDishes, lang)}
         </p>
       ) : null}
       {!canEdit ? (
         <>
-          <PrimaryBtn disabled>Leer mi menú</PrimaryBtn>
+          <PrimaryBtn disabled>{rd.readMenu}</PrimaryBtn>
           <NoRecipeEditNotice />
         </>
       ) : (
         <>
           {open ? null : estimateLive ? (
-            <GhostBtn onClick={() => setOpen(true)}>Leer mi menú</GhostBtn>
+            <GhostBtn onClick={() => setOpen(true)}>{rd.readMenu}</GhostBtn>
           ) : (
-            <PrimaryBtn onClick={() => setOpen(true)}>Leer mi menú</PrimaryBtn>
+            <PrimaryBtn onClick={() => setOpen(true)}>{rd.readMenu}</PrimaryBtn>
           )}
           <MenuReaderPanel
             embedded

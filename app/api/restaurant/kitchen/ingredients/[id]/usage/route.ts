@@ -5,6 +5,7 @@
 // todos los platos (N platos)». The ingredient must belong to the caller's
 // company.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
@@ -16,6 +17,7 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const { id } = await params;
@@ -28,7 +30,7 @@ export async function GET(
     .maybeSingle();
   if (!ingredient) {
     return NextResponse.json(
-      { error: "Ese ingrediente no está en tu lista." },
+      { error: d.kitchen.api.ingredientNotInList },
       { status: 404 }
     );
   }

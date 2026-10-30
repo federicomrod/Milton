@@ -14,6 +14,8 @@
 // platform may cap request bodies below 25 MB; the app should send
 // compressed photos and short voice notes.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import {
@@ -39,6 +41,7 @@ const BODY_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_DURATION_S = 60 * 60;
 
 export async function POST(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff } = auth;
@@ -46,45 +49,45 @@ export async function POST(request: NextRequest) {
   if (
     !(request.headers.get("content-type") ?? "").includes("multipart/form-data")
   ) {
-    return kitchenJson({ error: "Envía el archivo como formulario." }, 415);
+    return kitchenJson({ error: d.kitchen.api.sendAsForm }, 415);
   }
   const declared = Number(request.headers.get("content-length"));
   if (
     Number.isFinite(declared) &&
     declared > KITCHEN_MEDIA_MAX_BYTES + BODY_OVERHEAD_BYTES
   ) {
-    return kitchenJson({ error: "El archivo es demasiado grande." }, 413);
+    return kitchenJson({ error: d.kitchen.api.fileTooBig }, 413);
   }
 
   let form: FormData;
   try {
     form = await request.formData();
   } catch {
-    return kitchenJson({ error: "No pude leer el archivo." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileReadFailed }, 400);
   }
 
   const file = form.get("file");
   if (!file || typeof file === "string") {
-    return kitchenJson({ error: "Falta el archivo." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileMissing }, 400);
   }
   const kind = form.get("kind");
   if (kind !== "photo" && kind !== "voice" && kind !== "document") {
-    return kitchenJson({ error: "El tipo de archivo no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileTypeInvalid }, 400);
   }
   const clientRef = form.get("clientRef");
   if (typeof clientRef !== "string" || !CLIENT_REF_RE.test(clientRef)) {
-    return kitchenJson({ error: "Falta el identificador del envío." }, 400);
+    return kitchenJson({ error: d.kitchen.api.clientRefMissing }, 400);
   }
 
   const mime = (file.type || "").split(";")[0].trim().toLowerCase();
   if (!KITCHEN_MEDIA_MIMES.includes(mime) || !mimeMatchesKind(kind, mime)) {
-    return kitchenJson({ error: "No puedo guardar ese tipo de archivo." }, 415);
+    return kitchenJson({ error: d.kitchen.api.fileTypeUnsupported }, 415);
   }
   if (file.size <= 0) {
-    return kitchenJson({ error: "El archivo está vacío." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileEmpty }, 400);
   }
   if (file.size > KITCHEN_MEDIA_MAX_BYTES) {
-    return kitchenJson({ error: "El archivo es demasiado grande." }, 413);
+    return kitchenJson({ error: d.kitchen.api.fileTooBig }, 413);
   }
 
   const rawDuration = Number(form.get("durationS"));
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
       sizeBytes: file.size,
     });
     if (!report.ok) {
-      return kitchenJson({ error: "No pude guardar tu envío." }, 500);
+      return kitchenJson({ error: d.kitchen.api.submissionSaveFailed }, 500);
     }
 
     if (report.duplicate) {
@@ -153,15 +156,12 @@ export async function POST(request: NextRequest) {
       if (!report.duplicate)
         await deleteAppReport(admin, reportStaff, report.reportId);
       if (ingested.error === "unsupported type") {
-        return kitchenJson(
-          { error: "No puedo guardar ese tipo de archivo." },
-          415
-        );
+        return kitchenJson({ error: d.kitchen.api.fileTypeUnsupported }, 415);
       }
       if (ingested.error === "file too large") {
-        return kitchenJson({ error: "El archivo es demasiado grande." }, 413);
+        return kitchenJson({ error: d.kitchen.api.fileTooBig }, 413);
       }
-      return kitchenJson({ error: "No pude guardar tu archivo." }, 502);
+      return kitchenJson({ error: d.kitchen.api.fileSaveFailed }, 502);
     }
 
     const duplicate = report.duplicate || ingested.duplicate;
@@ -178,6 +178,6 @@ export async function POST(request: NextRequest) {
       "[mobile-kitchen-media] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: "No pude guardar tu archivo." }, 500);
+    return kitchenJson({ error: d.kitchen.api.fileSaveFailed }, 500);
   }
 }

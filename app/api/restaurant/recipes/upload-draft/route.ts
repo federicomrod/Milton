@@ -18,12 +18,12 @@ import {
   saveUploadDraftFile,
   updateUploadDraft,
 } from "@/lib/restaurant/price-catalog/draft";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const NEEDS_044 =
-  "Falta aplicar la migración 044 en Supabase para guardar tu avance.";
 
 export async function GET() {
   const auth = await authAndCompany();
@@ -35,7 +35,7 @@ export async function GET() {
   } catch (err) {
     console.error("[recipes/upload-draft GET]", err);
     return NextResponse.json(
-      { error: "No pude recuperar tu avance." },
+      { error: (await apiMsg()).draftRecoverFailed },
       { status: 500 }
     );
   }
@@ -54,20 +54,20 @@ export async function POST(req: NextRequest) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "Sube el archivo de costos (.xlsx)." },
+      { error: (await apiMsg()).uploadCostsFile },
       { status: 400 }
     );
   }
   const file = form.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json(
-      { error: "Sube el archivo de costos (.xlsx)." },
+      { error: (await apiMsg()).uploadCostsFile },
       { status: 400 }
     );
   }
   if (file.size > MAX_DRAFT_FILE_BYTES) {
     return NextResponse.json(
-      { error: "El archivo pesa más de 15 MB." },
+      { error: (await apiMsg()).fileTooBig },
       { status: 400 }
     );
   }
@@ -80,7 +80,10 @@ export async function POST(req: NextRequest) {
     });
     if (!saved.ok) {
       if (saved.missingTable) {
-        return NextResponse.json({ error: NEEDS_044 }, { status: 400 });
+        return NextResponse.json(
+          { error: (await apiMsg()).needsMigration044 },
+          { status: 400 }
+        );
       }
       throw new Error(saved.error);
     }
@@ -90,7 +93,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[recipes/upload-draft POST]", err);
     return NextResponse.json(
-      { error: "No pude guardar tu archivo." },
+      { error: (await apiMsg()).draftSaveFileFailed },
       { status: 500 }
     );
   }
@@ -109,7 +112,7 @@ export async function PATCH(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: (await apiMsg()).bodyNotJson },
       { status: 400 }
     );
   }
@@ -128,7 +131,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err) {
     console.error("[recipes/upload-draft PATCH]", err);
     return NextResponse.json(
-      { error: "No pude guardar tu avance." },
+      { error: (await apiMsg()).draftSaveFailed },
       { status: 500 }
     );
   }
@@ -148,7 +151,7 @@ export async function DELETE() {
   } catch (err) {
     console.error("[recipes/upload-draft DELETE]", err);
     return NextResponse.json(
-      { error: "No pude descartar el archivo." },
+      { error: (await apiMsg()).draftDiscardFailed },
       { status: 500 }
     );
   }

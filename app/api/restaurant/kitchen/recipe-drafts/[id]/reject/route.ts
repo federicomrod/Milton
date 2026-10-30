@@ -6,6 +6,7 @@
 // managers and Milton staff can reject (enforced server-side). Uses admin client after
 // role check. Only drafts in 'draft' or 'awaiting_portions' can be rejected.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -23,6 +24,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -50,7 +52,7 @@ export async function POST(
     .maybeSingle();
   if (!draft || draft.company_id !== auth.companyId) {
     return NextResponse.json(
-      { error: "No encontré el borrador." },
+      { error: d.kitchen.api.draftNotFound },
       { status: 404 }
     );
   }
@@ -69,14 +71,14 @@ export async function POST(
   if (updateError) {
     console.error("[reject] update failed");
     return NextResponse.json(
-      { error: "No pude rechazar el borrador." },
+      { error: d.kitchen.api.draftRejectFailed },
       { status: 500 }
     );
   }
 
   if (!updated) {
     return NextResponse.json(
-      { error: "Ese borrador ya no se puede rechazar." },
+      { error: d.kitchen.api.draftNotRejectable },
       { status: 404 }
     );
   }

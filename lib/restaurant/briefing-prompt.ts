@@ -64,10 +64,17 @@ export const BRIEFING_SYSTEM_PROMPT = [
   "6. Refer to specific items, ingredients, or suppliers by their exact",
   "   names from the context.",
   "7. Output VALID JSON only — no markdown, no commentary, no code fences.",
-  '8. `context.preferred_language` is either "en" or "es". Write EVERY',
+  '8. `context.preferred_language` is "en", "es" or "de". Write EVERY',
   "   field (headline, summary, top_risks, top_opportunities,",
   "   recommended_actions, confidence_notes) entirely in that language —",
-  '   natural, professional Spanish for "es", never a mix. NEVER translate',
+  '   natural, professional Spanish for "es", never a mix. For "de" write',
+  "   formal business German addressing the owner with «Sie» (never «du»)",
+  "   and use these terms: Umsatz (sales), Gericht (dish), Zutat",
+  "   (ingredient), Marge (margin), Rezeptkosten (recipe cost), Fixkosten",
+  "   (fixed costs), Break-even-Punkt (break-even point), Rentabilität",
+  "   (profitability), Küche (kitchen), Lieferant (supplier), Rechnung",
+  "   (invoice), Rezept (recipe), Speisekarte (menu); a missing price is",
+  "   «Kein Preis». NEVER translate",
   "   restaurant names, dish/menu item names, ingredient names, or supplier",
   "   names — keep those exactly as given in `context`.",
   "9. Sales periods: `context.sales_periods.facts` holds already-formatted,",
@@ -162,19 +169,22 @@ export function buildDeterministicBriefing(
       ? t(
           lang,
           `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} in sales (${sp.yesterday.current.label})`,
-          `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} en ventas (${sp.yesterday.current.label})`
+          `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} en ventas (${sp.yesterday.current.label})`,
+          `${ctx.restaurant_name}: ${fmtCurrency(sp.yesterday.current.sales, c)} Umsatz (${sp.yesterday.current.label})`
         )
       : `${ctx.restaurant_name}: ${noYesterdaySalesText(lang)}`
     : k.revenue > 0
       ? t(
           lang,
           `${ctx.restaurant_name}: ${fmtCurrency(k.revenue, c)} in revenue`,
-          `${ctx.restaurant_name}: ${fmtCurrency(k.revenue, c)} en ingresos`
+          `${ctx.restaurant_name}: ${fmtCurrency(k.revenue, c)} en ingresos`,
+          `${ctx.restaurant_name}: ${fmtCurrency(k.revenue, c)} Umsatz`
         )
       : t(
           lang,
           `${ctx.restaurant_name}: no POS revenue recorded yet`,
-          `${ctx.restaurant_name}: aún no hay ingresos de POS registrados`
+          `${ctx.restaurant_name}: aún no hay ingresos de POS registrados`,
+          `${ctx.restaurant_name}: noch kein Kassenumsatz erfasst`
         );
 
   // Summary
@@ -186,13 +196,19 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Margin and food cost cover ${ctx.period_label}.`,
-        `El margen y el costo de alimentos cubren ${ctx.period_label}.`
+        `El margen y el costo de alimentos cubren ${ctx.period_label}.`,
+        `Marge und Wareneinsatz beziehen sich auf ${ctx.period_label}.`
       )
     );
   } else {
     // The dated periods could not be built: never fall back to all-time totals.
     summaryParts.push(
-      t(lang, "No data to compare.", "Sin datos para comparar.")
+      t(
+        lang,
+        "No data to compare.",
+        "Sin datos para comparar.",
+        "Keine Daten zum Vergleichen."
+      )
     );
   }
   if (!sp && k.cost_coverage_pct < 90) {
@@ -200,7 +216,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Cost coverage is ${k.cost_coverage_pct}% — margin numbers only reflect that share of revenue.`,
-        `La cobertura de costo es ${k.cost_coverage_pct}% — los márgenes solo reflejan esa parte de los ingresos.`
+        `La cobertura de costo es ${k.cost_coverage_pct}% — los márgenes solo reflejan esa parte de los ingresos.`,
+        `Die Kostenabdeckung beträgt ${k.cost_coverage_pct} % — die Margen gelten nur für diesen Anteil des Umsatzes.`
       )
     );
   }
@@ -209,7 +226,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Estimated gross margin is ${k.estimated_gross_margin_pct}% with food cost at ${k.food_cost_pct ?? "—"}%.`,
-        `El margen bruto estimado es ${k.estimated_gross_margin_pct}% con un costo de alimentos de ${k.food_cost_pct ?? "—"}%.`
+        `El margen bruto estimado es ${k.estimated_gross_margin_pct}% con un costo de alimentos de ${k.food_cost_pct ?? "—"}%.`,
+        `Die geschätzte Bruttomarge beträgt ${k.estimated_gross_margin_pct} % bei einem Wareneinsatz von ${k.food_cost_pct ?? "—"} %.`
       )
     );
   } else if (k.estimated_gross_margin_pct_reason) {
@@ -224,7 +242,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `${item.name} margin is only ${item.gross_margin_pct ?? "—"}% — review pricing or portion.`,
-        `El margen de ${item.name} es de solo ${item.gross_margin_pct ?? "—"}% — revisa el precio o la porción.`
+        `El margen de ${item.name} es de solo ${item.gross_margin_pct ?? "—"}% — revisa el precio o la porción.`,
+        `Die Marge von ${item.name} liegt nur bei ${item.gross_margin_pct ?? "—"} % — prüfen Sie Preis oder Portion.`
       )
     );
   }
@@ -234,7 +253,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `${trend.ingredient_name} price up ${trend.pct_change}% (${p.previous} → ${p.latest} per ${trend.unit}).`,
-        `El precio de ${trend.ingredient_name} subió ${trend.pct_change}% (${p.previous} → ${p.latest} por ${trend.unit}).`
+        `El precio de ${trend.ingredient_name} subió ${trend.pct_change}% (${p.previous} → ${p.latest} por ${trend.unit}).`,
+        `Der Preis von ${trend.ingredient_name} ist um ${trend.pct_change} % gestiegen (${p.previous} → ${p.latest} pro ${trend.unit}).`
       )
     );
   }
@@ -244,7 +264,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `${item.ingredient_name}: the price changed from ${p.previous} to ${p.latest} per ${item.unit}. Is that right?`,
-        `${item.ingredient_name}: el precio cambió de ${p.previous} a ${p.latest} por ${item.unit}. ¿Es correcto?`
+        `${item.ingredient_name}: el precio cambió de ${p.previous} a ${p.latest} por ${item.unit}. ¿Es correcto?`,
+        `${item.ingredient_name}: Der Preis hat sich von ${p.previous} auf ${p.latest} pro ${item.unit} geändert. Ist das korrekt?`
       )
     );
   }
@@ -257,7 +278,8 @@ export function buildDeterministicBriefing(
         t(
           lang,
           `${item.name} drives ${fmtCurrency(item.revenue, c)} at ${item.gross_margin_pct}% margin — protect placement and stock.`,
-          `${item.name} genera ${fmtCurrency(item.revenue, c)} con ${item.gross_margin_pct}% de margen — protege su ubicación en el menú y su inventario.`
+          `${item.name} genera ${fmtCurrency(item.revenue, c)} con ${item.gross_margin_pct}% de margen — protege su ubicación en el menú y su inventario.`,
+          `${item.name} bringt ${fmtCurrency(item.revenue, c)} bei ${item.gross_margin_pct} % Marge — sichern Sie Platzierung und Bestand.`
         )
       );
     } else if (item.revenue > 0) {
@@ -265,7 +287,8 @@ export function buildDeterministicBriefing(
         t(
           lang,
           `${item.name} brings ${fmtCurrency(item.revenue, c)} in revenue across ${item.units_sold} units.`,
-          `${item.name} genera ${fmtCurrency(item.revenue, c)} en ingresos con ${item.units_sold} unidades.`
+          `${item.name} genera ${fmtCurrency(item.revenue, c)} en ingresos con ${item.units_sold} unidades.`,
+          `${item.name} bringt ${fmtCurrency(item.revenue, c)} Umsatz bei ${item.units_sold} verkauften Einheiten.`
         )
       );
     }
@@ -276,7 +299,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `${top.name} is your top seller with ${fmtCurrency(top.revenue, c)} in revenue.`,
-        `${top.name} es tu producto más vendido con ${fmtCurrency(top.revenue, c)} en ingresos.`
+        `${top.name} es tu producto más vendido con ${fmtCurrency(top.revenue, c)} en ingresos.`,
+        `${top.name} ist Ihr Bestseller mit ${fmtCurrency(top.revenue, c)} Umsatz.`
       )
     );
   }
@@ -289,7 +313,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Add a recipe for ${it.name} (${fmtCurrency(it.revenue, c)} in revenue, no cost computed).`,
-        `Agrega una receta para ${it.name} (${fmtCurrency(it.revenue, c)} en ingresos, sin costo calculado).`
+        `Agrega una receta para ${it.name} (${fmtCurrency(it.revenue, c)} en ingresos, sin costo calculado).`,
+        `Legen Sie ein Rezept für ${it.name} an (${fmtCurrency(it.revenue, c)} Umsatz, keine Kosten berechnet).`
       )
     );
   }
@@ -299,7 +324,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Fix ${b.name} costing: ${b.message}.`,
-        `Corrige el costeo de ${b.name}: ${b.message}.`
+        `Corrige el costeo de ${b.name}: ${b.message}.`,
+        `Beheben Sie die Kalkulation von ${b.name}: ${b.message}.`
       )
     );
   }
@@ -308,7 +334,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Map ${ctx.data_quality.unmapped_pos_items} POS item name${ctx.data_quality.unmapped_pos_items === 1 ? "" : "s"} to menu items so revenue links to recipes.`,
-        `Vincula ${ctx.data_quality.unmapped_pos_items} nombre${ctx.data_quality.unmapped_pos_items === 1 ? "" : "s"} de producto del POS a artículos del menú para que los ingresos se conecten con las recetas.`
+        `Vincula ${ctx.data_quality.unmapped_pos_items} nombre${ctx.data_quality.unmapped_pos_items === 1 ? "" : "s"} de producto del POS a artículos del menú para que los ingresos se conecten con las recetas.`,
+        `Ordnen Sie ${ctx.data_quality.unmapped_pos_items} Kassenartikel-Name${ctx.data_quality.unmapped_pos_items === 1 ? "" : "n"} Gerichten zu, damit der Umsatz mit den Rezepten verknüpft wird.`
       )
     );
   }
@@ -320,7 +347,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Upload cost entries for ${ctx.data_quality.ingredients_without_cost_entries} ingredient${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "s"} that still have no price.`,
-        `Sube costos para ${ctx.data_quality.ingredients_without_cost_entries} ingrediente${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "s"} que aún no tiene${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "n"} precio.`
+        `Sube costos para ${ctx.data_quality.ingredients_without_cost_entries} ingrediente${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "s"} que aún no tiene${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "n"} precio.`,
+        `Laden Sie Kosten für ${ctx.data_quality.ingredients_without_cost_entries} Zutat${ctx.data_quality.ingredients_without_cost_entries === 1 ? "" : "en"} hoch, die noch ${ctx.data_quality.ingredients_without_cost_entries === 1 ? "keinen Preis hat" : "keinen Preis haben"}.`
       )
     );
   }
@@ -332,7 +360,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `Cost coverage is ${k.cost_coverage_pct}% — margin estimates only apply to that share of revenue.`,
-        `La cobertura de costo es ${k.cost_coverage_pct}% — las estimaciones de margen solo aplican a esa parte de los ingresos.`
+        `La cobertura de costo es ${k.cost_coverage_pct}% — las estimaciones de margen solo aplican a esa parte de los ingresos.`,
+        `Die Kostenabdeckung beträgt ${k.cost_coverage_pct} % — die Margenschätzungen gelten nur für diesen Anteil des Umsatzes.`
       )
     );
   }
@@ -347,7 +376,8 @@ export function buildDeterministicBriefing(
       t(
         lang,
         `${ctx.data_quality.menu_items_without_recipe} menu items lack a recipe; ${ctx.data_quality.recipes_with_unit_mismatch} recipe(s) have unit mismatches blocking cost.`,
-        `${ctx.data_quality.menu_items_without_recipe} artículos del menú no tienen receta; ${ctx.data_quality.recipes_with_unit_mismatch} receta(s) tienen discrepancias de unidad que bloquean el costeo.`
+        `${ctx.data_quality.menu_items_without_recipe} artículos del menú no tienen receta; ${ctx.data_quality.recipes_with_unit_mismatch} receta(s) tienen discrepancias de unidad que bloquean el costeo.`,
+        `${ctx.data_quality.menu_items_without_recipe} Gerichte haben kein Rezept; bei ${ctx.data_quality.recipes_with_unit_mismatch} Rezept(en) blockieren abweichende Einheiten die Kostenberechnung.`
       )
     );
   }

@@ -1,3 +1,8 @@
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 // Plato por plato: one click for the person, two separate steps underneath.
 //
 // 1. Confirm the POS link (pos_product_links → confirmado, with who / when /
@@ -51,7 +56,11 @@ export async function confirmPlato(input: {
   locationId?: string | null;
   confirmedHow?: string | null;
   yieldConfirmed?: boolean;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<PlatoConfirmResult> {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const s = getDictionary(lang).menu.workspace.server;
   // R1-12: the role, the link and the version are independent reads: one
   // wave (they were three, one after another).
   const [actor, link, versionRow] = await Promise.all([
@@ -71,32 +80,36 @@ export async function confirmPlato(input: {
       : Promise.resolve(null),
   ]);
   if (!actorCanSubmitForApproval(actor)) {
-    return { ok: false, error: PLATO_ROLE_ERROR, status: 403 };
+    return { ok: false, error: s.platoRole, status: 403 };
   }
   if (!link?.menu_item_id) {
-    return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
+    return { ok: false, error: s.platoNoRecipe, status: 400 };
   }
 
   let versionStatus: string | null = null;
   if (input.recipeVersionId) {
     if (!versionRow || versionRow.menu_item_id !== link.menu_item_id) {
-      return { ok: false, error: PLATO_VERSION_MISMATCH_ERROR, status: 400 };
+      return { ok: false, error: s.platoVersionMismatch, status: 400 };
     }
     versionStatus = String(versionRow.status);
   }
 
   const how = input.confirmedHow?.trim() || null;
-  const approving = actorCanApprove(actor, {
-    confirmed_by: actor.user_id,
-    confirmed_at: new Date().toISOString(),
-    confirmed_how: how ?? (actor.is_milton_staff ? undefined : "en_pantalla"),
-  });
+  const approving = actorCanApprove(
+    actor,
+    {
+      confirmed_by: actor.user_id,
+      confirmed_at: new Date().toISOString(),
+      confirmed_how: how ?? (actor.is_milton_staff ? undefined : "en_pantalla"),
+    },
+    lang
+  );
   // Milton staff without the client's confirmation: stop before writing.
   if (!approving.ok && actor.is_milton_staff) {
     return { ok: false, error: approving.error, status: 403 };
   }
   if (approving.ok && versionStatus !== "approved" && !input.recipeVersionId) {
-    return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
+    return { ok: false, error: s.platoNoRecipe, status: 400 };
   }
 
   // Step 1: the POS link, its own state and audit. It starts now; the
@@ -115,6 +128,7 @@ export async function confirmPlato(input: {
           odooName: input.odooName,
           locationId: input.locationId,
           confirmedHow: how ?? "en_pantalla",
+          lang,
           menuItemId: link.menu_item_id,
           existingLink: link,
         }).then((confirmed) =>
@@ -141,6 +155,7 @@ export async function confirmPlato(input: {
       locationId: input.locationId,
       confirmedHow: how,
       yieldConfirmed: input.yieldConfirmed,
+      lang,
       version: versionRow,
       link,
       gate: linkStep,
@@ -157,7 +172,7 @@ export async function confirmPlato(input: {
         ok: false,
         error:
           confirmed.link === "confirmado"
-            ? `${approved.error} El vínculo con el POS sí quedó confirmado.`
+            ? fmt(s.linkStillConfirmed, { error: approved.error })
             : approved.error,
         status: 400,
         link_confirmed: confirmed.link === "confirmado",
@@ -169,7 +184,7 @@ export async function confirmPlato(input: {
   // Manager: prepares, the owner or an admin approves.
   if (!input.recipeVersionId) {
     await linkStep.catch(() => undefined);
-    return { ok: false, error: PLATO_NO_RECIPE_ERROR, status: 400 };
+    return { ok: false, error: s.platoNoRecipe, status: 400 };
   }
   const confirmed = await linkStep;
   if (!confirmed.ok) return { ok: false, error: confirmed.error, status: 400 };
@@ -179,6 +194,7 @@ export async function confirmPlato(input: {
     actor,
     recipeVersionId: input.recipeVersionId,
     version: versionRow,
+    lang,
   });
   if (!submitted.ok) {
     return {

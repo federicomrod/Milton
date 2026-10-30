@@ -1,6 +1,8 @@
 // "Generar sugerencias": where the recipe blocks come from, chunks, and
 // failures that never lose earlier work. Synthetic data only.
 
+import { costs } from "@/lib/i18n/es/costs";
+import { menuEditor } from "@/lib/i18n/es/menu-editor";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -218,8 +220,13 @@ describe("route and screen guards", () => {
     const ui = read("components/restaurant/costs/CostsSetupSection.tsx");
     expect(lib).toContain("export const SUGGESTION_CHUNK = 5;");
     expect(lib).toContain("json.next_offset == null");
-    expect(ui).toContain("Preparando tus platos desde el archivo…");
-    expect(lib).toContain("quedó guardado");
+    // Wording lives in the Spanish dictionary; the code reads it by key.
+    expect(costs.setup.progressStart).toContain(
+      "Preparando tus platos desde el archivo…"
+    );
+    expect(ui).toContain("s.progressStart");
+    expect(menuEditor.prepare.failureSaved).toContain("quedó guardado");
+    expect(lib).toContain("failureSaved");
   });
 
   it("the price list upload keeps the recipe blocks too", () => {

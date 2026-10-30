@@ -7,19 +7,10 @@
 // is weakest against the objetivo, how many days fell below it, and which
 // weekday sells most. No cause is claimed.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { weekdayIndex } from "@/lib/restaurant/cockpit-math";
 import type { CockpitView } from "@/lib/restaurant/cockpit-v2";
-
-/** Weekday names for «Los …», Monday = 0. */
-const WEEKDAYS_PLURAL = [
-  "lunes",
-  "martes",
-  "miércoles",
-  "jueves",
-  "viernes",
-  "sábados",
-  "domingos",
-];
 
 export const NO_COCKPIT_SUMMARY =
   "Todavía no hay suficientes días para un resumen.";
@@ -28,17 +19,19 @@ export const NO_TARGETS_SUMMARY =
 
 type InsightView = Pick<CockpitView, "bars" | "aboveDays" | "belowDays">;
 
-function listNames(names: string[]): string {
+function listNames(names: string[], and: string): string {
   return names.length <= 1
     ? (names[0] ?? "")
-    : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+    : `${names.slice(0, -1).join(", ")} ${and} ${names[names.length - 1]}`;
 }
 
 /** 1 to 3 lines, or the one fallback line when there is not enough to say. */
 export function cockpitSummaryLines(
   view: InsightView,
-  hasTargets: boolean
+  hasTargets: boolean,
+  lang: PreferredLanguage = "es"
 ): string[] {
+  const d = getDictionary(lang).cockpit.insight;
   const lines: string[] = [];
 
   // Weekdays whose days with a target fall well short of it.
@@ -58,7 +51,13 @@ export function cockpitSummaryLines(
     .slice(0, 2);
   if (weak.length > 0)
     lines.push(
-      `Los ${listNames(weak.map((w) => WEEKDAYS_PLURAL[w.wd]))} son lo más flojo frente al objetivo (${Math.round(weak[0].avg)}% en promedio).`
+      fmt(d.weakest, {
+        days: listNames(
+          weak.map((w) => d.weekdaysPlural[w.wd]),
+          d.and
+        ),
+        pct: Math.round(weak[0].avg),
+      })
     );
 
   // How many days with a target ended below it.
@@ -66,8 +65,8 @@ export function cockpitSummaryLines(
   if (withTarget >= 3)
     lines.push(
       view.belowDays > 0
-        ? `${view.belowDays} de ${withTarget} días quedaron bajo el objetivo.`
-        : "Ningún día quedó bajo el objetivo."
+        ? fmt(d.below, { below: view.belowDays, total: withTarget })
+        : d.noneBelow
     );
 
   // The weekday that sells most, once at least two weekdays repeat.
@@ -76,11 +75,8 @@ export function cockpitSummaryLines(
     .map(([wd, v]) => ({ wd, avg: avg(v) }))
     .sort((a, b) => b.avg - a.avg);
   if (strong.length >= 2 && strong[0].avg > strong[1].avg)
-    lines.push(
-      `Los ${WEEKDAYS_PLURAL[strong[0].wd]} son tu día más fuerte del periodo.`
-    );
+    lines.push(fmt(d.strongest, { day: d.weekdaysPlural[strong[0].wd] }));
 
-  if (lines.length === 0)
-    return [hasTargets ? NO_COCKPIT_SUMMARY : NO_TARGETS_SUMMARY];
+  if (lines.length === 0) return [hasTargets ? d.notEnoughDays : d.noTargets];
   return lines.slice(0, 3);
 }

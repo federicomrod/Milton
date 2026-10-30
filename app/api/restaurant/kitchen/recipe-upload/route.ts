@@ -15,8 +15,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-guard";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
+import { uploadMsg } from "@/lib/restaurant/recipe-upload/messages";
 import {
-  FILE_TOO_BIG_MESSAGE,
   MAX_UPLOAD_BYTES,
   detectUploadKind,
   processRecipeFile,
@@ -37,38 +39,35 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
 
   const started = Date.now();
+  const lang = await apiLanguage();
+  const api = getDictionary(lang).menu.groups.api;
+  const fileTooBig = uploadMsg(lang, "fileTooBig");
 
   const declared = Number(req.headers.get("content-length") ?? "0");
   if (
     Number.isFinite(declared) &&
     declared > MAX_UPLOAD_BYTES + ENVELOPE_SLACK_BYTES
   ) {
-    return NextResponse.json({ error: FILE_TOO_BIG_MESSAGE }, { status: 413 });
+    return NextResponse.json({ error: fileTooBig }, { status: 413 });
   }
 
   let form: FormData;
   try {
     form = await req.formData();
   } catch {
-    return NextResponse.json(
-      { error: "No pude leer el archivo. Inténtalo de nuevo." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.fileReadFailed }, { status: 400 });
   }
 
   const file = form.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json(
-      { error: "Elige un archivo para subir." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.pickFile }, { status: 400 });
   }
 
   if (file.size > MAX_UPLOAD_BYTES) {
-    return NextResponse.json({ error: FILE_TOO_BIG_MESSAGE }, { status: 413 });
+    return NextResponse.json({ error: fileTooBig }, { status: 413 });
   }
 
-  const kind = detectUploadKind(file.name, file.type);
+  const kind = detectUploadKind(file.name, file.type, lang);
   if (!kind.ok) {
     return NextResponse.json({ error: kind.error }, { status: 415 });
   }
@@ -90,16 +89,13 @@ export async function POST(req: NextRequest) {
   if (locError) {
     console.error("[recipe-upload] location lookup failed");
     return NextResponse.json(
-      { error: "No pude revisar el local. Inténtalo de nuevo." },
+      { error: api.locationCheckFailed },
       { status: 500 }
     );
   }
   const location = (locations ?? [])[0] as { id: string } | undefined;
   if (!location) {
-    return NextResponse.json(
-      { error: "No encontré ese local." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: api.locationNotFound }, { status: 404 });
   }
 
   // Only now, with the permission and the location checked, the admin client.
@@ -112,6 +108,7 @@ export async function POST(req: NextRequest) {
     fileName: file.name,
     mime: file.type,
     buffer,
+    lang,
   });
 
   console.log(

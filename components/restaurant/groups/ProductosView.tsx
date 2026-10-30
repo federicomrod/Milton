@@ -58,6 +58,7 @@ import { duplicateHint as findDuplicates } from "@/lib/restaurant/groups/duplica
 import { MiltonMark, MiltonSuggestions } from "./MiltonSuggestions";
 import { useMiltonSuggestions } from "./use-milton-suggestions";
 import { SearchBox } from "@/components/restaurant/ui/SearchBox";
+import { useT } from "@/lib/i18n/client";
 import { useProgressiveCount } from "./use-progressive";
 import { SortTh } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
@@ -143,6 +144,8 @@ export function ProductosView({
   /** The screen's own controls (view toggle…), kept in the sticky panel with the rest. */
   leading?: React.ReactNode;
 }) {
+  const { d: dict, fmt, locale } = useT();
+  const gd = dict.menu.groups;
   const [filter, setFilter] = useState<GroupingFilterValue>("todos");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -227,15 +230,15 @@ export function ProductosView({
             groupPath(grouping.state, g.id) +
             (multi && g.restaurant_id ? ` · ${tagOf(g.restaurant_id)}` : ""),
         }))
-        .sort((a, b) => a.path.localeCompare(b.path, "es")),
-    [userGroups, grouping.state, multi, tagOf]
+        .sort((a, b) => a.path.localeCompare(b.path, locale)),
+    [userGroups, grouping.state, multi, tagOf, locale]
   );
   const pickerOptions = useMemo(
     () => [
       ...dishes.map((d) => ({
         id: d.id,
         name: d.name,
-        path: `Plato · ${d.name}`,
+        path: fmt(gd.dishPath, { name: d.name }),
         kind: "dish" as const,
       })),
       ...groupOptions.map((o) => ({ ...o, kind: "group" as const })),
@@ -456,7 +459,10 @@ export function ProductosView({
       });
       if (other) {
         grouping.notify(
-          `«${group.name}» es de ${tagOf(group.restaurant_id) ?? "un restaurante"}: no puede incluir productos de otro restaurante.`,
+          fmt(gd.otherRestaurant, {
+            group: group.name,
+            restaurant: tagOf(group.restaurant_id) ?? gd.aRestaurant,
+          }),
           true
         );
         return;
@@ -570,7 +576,12 @@ export function ProductosView({
 
   const note =
     counts.ungrouped > 0 && counts.share !== null
-      ? `${money(counts.sales)} en ventas sin agrupar · ${counts.share.toLocaleString("es", { maximumFractionDigits: 1 })}%`
+      ? fmt(gd.note, {
+          sales: money(counts.sales),
+          share: counts.share.toLocaleString(locale, {
+            maximumFractionDigits: 1,
+          }),
+        })
       : null;
 
   const parentOptions = groupOptions;
@@ -579,8 +590,7 @@ export function ProductosView({
     <div className="space-y-3" data-testid="productos-view">
       {!grouping.available ? (
         <p className="rounded-lg border border-[#e5e7eb] bg-[#f9fafb] px-3 py-2 text-[13px]">
-          {NOT_AVAILABLE_YET} Mientras tanto puedes ver los productos, no
-          guardar grupos.
+          {NOT_AVAILABLE_YET} {gd.notAvailableTail}
         </p>
       ) : null}
       <StickyPanel>
@@ -588,7 +598,7 @@ export function ProductosView({
         <SearchBox
           value={query}
           onChange={setQuery}
-          placeholder="Buscar producto o grupo…"
+          placeholder={gd.searchPlaceholder}
           className="max-w-xl"
         />
         {canEdit && grouping.available ? (
@@ -628,7 +638,7 @@ export function ProductosView({
             multi &&
             selectedRefs.length > 1 &&
             restaurantOf(selectedRefs) === null
-              ? "La selección mezcla restaurantes (o productos de ambos): el grupo será compartido."
+              ? gd.mixedRestaurants
               : null
           }
           duplicateHint={duplicates}
@@ -643,8 +653,8 @@ export function ProductosView({
           <GroupPicker
             title={
               picker.kind === "combine"
-                ? "Combinar con…"
-                : "Mover el grupo dentro de…"
+                ? gd.list.combineTitle
+                : gd.list.moveTitle
             }
             allowTop={picker.kind === "move"}
             options={groupOptions.filter((o) => o.id !== picker.groupId)}
@@ -672,7 +682,7 @@ export function ProductosView({
                 sort={sort}
                 onSort={toggleSort}
               >
-                {filter === "sin_agrupar" ? "Producto" : "Grupo / producto"}
+                {filter === "sin_agrupar" ? gd.colProduct : gd.colGroupProduct}
               </SortTh>
               <SortTh
                 className={"px-2 py-1.5 " + STICKY_TH}
@@ -681,7 +691,7 @@ export function ProductosView({
                 onSort={toggleSort}
                 align="right"
               >
-                Ventas
+                {gd.colSales}
               </SortTh>
               <SortTh
                 className={"px-2 py-1.5 " + STICKY_TH}
@@ -690,7 +700,7 @@ export function ProductosView({
                 onSort={toggleSort}
                 align="right"
               >
-                Margen
+                {gd.colMargin}
               </SortTh>
               <SortTh
                 className={"px-2 py-1.5 " + STICKY_TH}
@@ -699,7 +709,7 @@ export function ProductosView({
                 onSort={toggleSort}
                 align="right"
               >
-                Costo %
+                {gd.colCost}
               </SortTh>
               <SortTh
                 className={"px-2 py-1.5 " + STICKY_TH}
@@ -708,10 +718,10 @@ export function ProductosView({
                 onSort={toggleSort}
                 align="right"
               >
-                % de ventas totales
+                {gd.colShare}
               </SortTh>
               <th className={"px-2 py-1.5 " + STICKY_TH}>
-                {filter === "sin_agrupar" ? "Sugerencia" : ""}
+                {filter === "sin_agrupar" ? gd.colSuggestion : ""}
               </th>
               <th className={"w-8 " + STICKY_TH} />
             </tr>
@@ -772,10 +782,10 @@ export function ProductosView({
               <tr>
                 <td colSpan={8} className="px-2 py-4 text-[#5b6476]">
                   {filter === "sin_agrupar"
-                    ? "Todos los productos están agrupados."
+                    ? gd.allGrouped
                     : query.trim()
-                      ? `Nada coincide con «${query.trim()}».`
-                      : "No hay productos con ese filtro."}
+                      ? fmt(gd.list.noMatch, { query: query.trim() })
+                      : gd.noneWithFilter}
                 </td>
               </tr>
             ) : null}
@@ -802,17 +812,19 @@ function leavesUnderAll(top: readonly TreeNode[]): TreeLeaf[] {
   return out;
 }
 
-const pctText = (n: number) =>
-  `${n.toLocaleString("es", { maximumFractionDigits: 0 })}%`;
+const pctText = (n: number, locale: string) =>
+  `${n.toLocaleString(locale, { maximumFractionDigits: 0 })}%`;
 
 /** Share of ALL sales: the same base on every row, parent or child. */
-function shareText(sales: number, total: number): string {
+function shareText(sales: number, total: number, locale: string): string {
   if (!(total > 0)) return "—";
   const v = (sales / total) * 100;
-  if (v >= 10) return `${Math.round(v)}%`;
+  if (v >= 10) return `${Math.round(v).toLocaleString(locale)}%`;
   if (v >= 0.1)
-    return `${v.toLocaleString("es", { maximumFractionDigits: 1 })}%`;
-  return v > 0 ? "<0,1%" : "0%";
+    return `${v.toLocaleString(locale, { maximumFractionDigits: 1 })}%`;
+  return v > 0
+    ? `<${(0.1).toLocaleString(locale, { minimumFractionDigits: 1 })}%`
+    : "0%";
 }
 
 function NodeRows(props: {
@@ -835,6 +847,8 @@ function NodeRows(props: {
   onRecipe: (node: TreeNode) => void;
 }) {
   const { node, money, canEdit, totalSales } = props;
+  const { d: dict, fmt, locale } = useT();
+  const gd = dict.menu.groups;
   if (node.kind === "leaf" && node.leaf) {
     return (
       <LeafRow
@@ -870,7 +884,7 @@ function NodeRows(props: {
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              aria-label={isOpen ? "Cerrar grupo" : "Abrir grupo"}
+              aria-label={isOpen ? gd.list.closeGroup : gd.list.openGroup}
               onClick={() => props.onToggle(node.id)}
               className="text-[#1b40c8]"
             >
@@ -880,7 +894,7 @@ function NodeRows(props: {
               <input
                 autoFocus
                 defaultValue={node.name}
-                aria-label="Nombre del grupo"
+                aria-label={gd.groupAs.nameAria}
                 className="rounded border border-[#1b40c8] px-1.5 py-0.5"
                 onBlur={() => props.onRenaming(null)}
                 onKeyDown={(e) => {
@@ -894,21 +908,22 @@ function NodeRows(props: {
                 type="button"
                 onClick={() => props.onDrill(node)}
                 className="text-[#151c2c] hover:text-[#1b40c8] hover:underline"
-                title="Ver el desglose"
+                title={gd.viewBreakdown}
               >
                 {node.name}
               </button>
             )}
             <span className="text-[12px] font-normal text-[#6b7a9e]">
-              {r.row_count} {r.row_count === 1 ? "producto" : "productos"}
-              {isAuto ? " · plato del menú" : ""}
+              {r.row_count}{" "}
+              {r.row_count === 1 ? gd.productOne : gd.productOther}
+              {isAuto ? ` · ${gd.menuDishTag}` : ""}
             </span>
             {node.group?.source === "ai_suggested" ? <MiltonMark /> : null}
             {canEdit && stored ? (
               <button
                 type="button"
-                aria-label={`Renombrar ${node.name}`}
-                title="Renombrar"
+                aria-label={fmt(gd.list.renameAria, { name: node.name })}
+                title={gd.list.renameTitle}
                 onClick={() => props.onRenaming(node.id)}
                 className="rounded p-0.5 text-[#6b7a9e] opacity-0 hover:text-[#1b40c8] focus:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
               >
@@ -933,7 +948,7 @@ function NodeRows(props: {
         <td className="px-2 py-2 text-right tabular-nums">{marginLabel(r)}</td>
         <td className="px-2 py-2 text-right tabular-nums">{costPctLabel(r)}</td>
         <td className="px-2 py-2 text-right tabular-nums">
-          {shareText(r.net_sales, totalSales)}
+          {shareText(r.net_sales, totalSales, locale)}
         </td>
         <td />
         <td className="px-1 py-2 text-right">
@@ -974,13 +989,18 @@ const LeafRow = memo(function LeafRow({
   onCheck: (ref: string) => void;
   suggestion?: React.ReactNode;
 }) {
+  const { d: dict, fmt, locale } = useT();
+  const gd = dict.menu.groups;
   const known = leaf.cost_total !== null && leaf.net_sales > 0;
   const margin = known
-    ? pctText(((leaf.net_sales - leaf.cost_total!) / leaf.net_sales) * 100)
-    : "Sin precio";
+    ? pctText(
+        ((leaf.net_sales - leaf.cost_total!) / leaf.net_sales) * 100,
+        locale
+      )
+    : gd.noPrice;
   const cost = known
-    ? pctText((leaf.cost_total! / leaf.net_sales) * 100)
-    : "Sin precio";
+    ? pctText((leaf.cost_total! / leaf.net_sales) * 100, locale)
+    : gd.noPrice;
   return (
     <tr
       className={
@@ -995,7 +1015,7 @@ const LeafRow = memo(function LeafRow({
             type="checkbox"
             checked={checked}
             onChange={() => onCheck(leaf.ref)}
-            aria-label={`Seleccionar ${leaf.name}`}
+            aria-label={fmt(gd.select, { name: leaf.name })}
             className="accent-[#1b40c8]"
           />
         ) : null}
@@ -1009,7 +1029,7 @@ const LeafRow = memo(function LeafRow({
       <td className="px-2 py-2 text-right tabular-nums">{margin}</td>
       <td className="px-2 py-2 text-right tabular-nums">{cost}</td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {shareText(leaf.net_sales, totalSales)}
+        {shareText(leaf.net_sales, totalSales, locale)}
       </td>
       <td className="px-2 py-2">{suggestion}</td>
       <td />

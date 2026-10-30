@@ -4,6 +4,8 @@
 // do (mobile P0b, #430). Supabase access token as bearer; the client carries
 // that token, so RLS decides what rows come back.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authUserFromBearer } from "@/lib/restaurant/api-auth";
 import { mobileJson } from "@/lib/restaurant/kitchen/mobile-response";
@@ -19,6 +21,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authUserFromBearer(request);
   if (!auth.ok) return auth.response;
   const { supabase, userId, email } = auth;
@@ -28,7 +31,7 @@ export async function GET(request: NextRequest) {
       .select("company_id, role")
       .eq("user_id", userId);
     if (error) {
-      return mobileJson({ error: "No pude cargar tu cuenta." }, 500);
+      return mobileJson({ error: d.kitchen.api.accountLoadFailed }, 500);
     }
     const rows = (memberships ?? []) as { company_id: string; role: string }[];
     const ids = rows.map((m) => m.company_id);
@@ -62,6 +65,6 @@ export async function GET(request: NextRequest) {
       "[mobile-me] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return mobileJson({ error: "No pude cargar tu cuenta." }, 500);
+    return mobileJson({ error: d.kitchen.api.accountLoadFailed }, 500);
   }
 }

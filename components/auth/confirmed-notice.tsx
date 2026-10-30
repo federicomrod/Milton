@@ -6,8 +6,10 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useT } from "@/lib/i18n/client";
 
 export function ConfirmedNotice() {
+  const { d } = useT();
   const flag = useSearchParams().get("confirmed") === "1";
   const [shown, setShown] = useState(false);
   useEffect(() => {
@@ -29,7 +31,7 @@ export function ConfirmedNotice() {
       role="status"
       className="fixed left-1/2 top-4 z-50 -translate-x-1/2 rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-4 py-2 text-sm font-semibold text-[#1f7a45] shadow-md"
     >
-      ✓ Correo confirmado
+      ✓ {d.auth.confirmedNotice}
     </div>
   );
 }

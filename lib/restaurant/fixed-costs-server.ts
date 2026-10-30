@@ -8,6 +8,8 @@
 // Missing is `null`, never 0.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
   fetchAllRows,
@@ -148,12 +150,22 @@ export interface SaveEntry {
  */
 export async function saveFixedCosts(
   ctx: FixedCostsContext,
-  args: { month: string; locationId: string | null; entries: SaveEntry[] }
+  args: {
+    month: string;
+    locationId: string | null;
+    entries: SaveEntry[];
+    /** Language of the validation messages; Spanish when absent. */
+    lang?: PreferredLanguage;
+  }
 ): Promise<
   { ok: true; lines: FixedCostLine[] } | { ok: false; error: string }
 > {
   const month = monthStartOf(args.month);
-  if (!month) return { ok: false, error: "Mes no válido." };
+  if (!month)
+    return {
+      ok: false,
+      error: getDictionary(args.lang ?? "es").costs.fixedErrors.month,
+    };
   const currency = await resolveCompanyCurrency(ctx.supabase, ctx.companyId);
   const existing = await listFixedCosts(
     ctx.supabase,
@@ -189,15 +201,18 @@ export async function saveFixedCosts(
       ]);
       continue;
     }
-    const checked = validateLine({
-      location_id: args.locationId,
-      month,
-      category: entry.category,
-      label: entry.label,
-      value: entry.value,
-      repeats: entry.repeats,
-      split_rule: entry.split_rule,
-    });
+    const checked = validateLine(
+      {
+        location_id: args.locationId,
+        month,
+        category: entry.category,
+        label: entry.label,
+        value: entry.value,
+        repeats: entry.repeats,
+        split_rule: entry.split_rule,
+      },
+      args.lang
+    );
     if (!checked.ok) return { ok: false, error: checked.error };
     const v = checked.value;
     const unchanged =

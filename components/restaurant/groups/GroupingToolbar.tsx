@@ -6,6 +6,7 @@
 // (a group of the person, or a menu dish).
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n/client";
 import {
   GroupActionBar,
   GroupAsPopover,
@@ -71,6 +72,7 @@ export function GroupingToolbar({
   duplicateHint?: { name: string; refs: string[] } | null;
   onDuplicateGroup?: (name: string, refs: string[]) => void;
 }) {
+  const { d, fmt } = useT();
   const [panel, setPanel] = useState<"picker" | "groupAs" | null>(null);
   return (
     <div className="space-y-3">
@@ -103,12 +105,15 @@ export function GroupingToolbar({
           }
           className="rounded-lg border border-dashed border-[#1b40c8] bg-white px-3 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb]"
         >
-          ✦ ¿Parecen duplicados? Agrupar como «{duplicateHint.name}»
+          ✦{" "}
+          {fmt(d.menu.groups.toolbar.duplicateHint, {
+            name: duplicateHint.name,
+          })}
         </button>
       ) : null}
       {panel === "picker" ? (
         <GroupPicker
-          title="Añadir a grupo existente"
+          title={d.menu.groups.bar.addToExisting}
           options={pickerOptions}
           onCancel={() => setPanel(null)}
           onPick={(id) => {

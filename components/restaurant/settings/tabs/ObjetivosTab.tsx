@@ -1,3 +1,5 @@
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { getDictionary } from "@/lib/i18n";
 import { can, resolveActor } from "@/lib/auth/permissions";
 import { ObjetivosForm } from "@/components/restaurant/settings/ObjetivosForm";
 import { AppliesTo } from "@/components/restaurant/settings/AppliesTo";
@@ -26,9 +28,10 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
   const user = await getCachedAuthUser();
   const companyId = user ? await getCachedCompanyId(user.id) : null;
   if (!user || !companyId) {
+    const { lang } = await loadRestaurantShellChrome();
     return (
       <p className="text-[13px] text-[#8a92a3]">
-        Conecta tu cuenta a una empresa para definir tus objetivos.
+        {getDictionary(lang).settings.tabs.noCompanyForGoals}
       </p>
     );
   }

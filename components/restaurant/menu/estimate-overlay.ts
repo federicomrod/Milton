@@ -7,16 +7,31 @@ import {
   estimatedMargin,
   type DishEstimateRow,
 } from "@/lib/restaurant/menu-reading/estimate";
-import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { getDictionary, fmt } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { formatMoneyLocale } from "@/lib/restaurant/menu-dishes/money";
 
-export const ESTIMATE_BADGE = "Estimado por Milton";
-export const PRICE_ESTIMATE_BADGE = "Precio estimado";
-export const ESTIMATE_BUTTON = "Estimar con Milton";
-export const ESTIMATE_HELP =
-  "Milton estima cuánto lleva cada plato y cuánto cuesta cada ingrediente en tu país. Son aproximaciones para que veas por dónde van tus márgenes; tú las validas.";
-export const ESTIMATE_USE_BUTTON = "Usar como borrador";
-export const ESTIMATE_USE_SUCCESS = (n: number) =>
-  `Listo: ${n} ${n === 1 ? "ingrediente estimado" : "ingredientes estimados"} en el borrador. Revísalos y aprueba.`;
+/** The estimate copy in a language. The ESTIMATE_* constants are Spanish. */
+export function estimateCopy(lang: PreferredLanguage = "es") {
+  return getDictionary(lang).menu.screens.estimate;
+}
+const ES = estimateCopy("es");
+
+export const ESTIMATE_BADGE = ES.badge;
+export const PRICE_ESTIMATE_BADGE = ES.priceBadge;
+export const ESTIMATE_BUTTON = ES.button;
+export const ESTIMATE_HELP = ES.help;
+export const ESTIMATE_USE_BUTTON = ES.useButton;
+export const ESTIMATE_USE_SUCCESS = (
+  n: number,
+  lang: PreferredLanguage = "es"
+) =>
+  fmt(
+    n === 1
+      ? estimateCopy(lang).useSuccessOne
+      : estimateCopy(lang).useSuccessOther,
+    { n }
+  );
 
 /** The button can copy this estimate into a draft. Hide it otherwise. */
 export function canUseEstimateAsDraft(
@@ -26,17 +41,13 @@ export function canUseEstimateAsDraft(
     estimate && !estimate.used_as_draft_at && estimate.lines.length > 0
   );
 }
-export const ESTIMATE_MISSING_TABLE =
-  "Falta aplicar la actualización de la base de datos (062).";
+export const ESTIMATE_MISSING_TABLE = ES.missingTable;
 
-export const ESTIMATE_NO_ROLE_HINT =
-  "Pídele a la persona dueña o administradora que cambie tu rol.";
-export const ESTIMATE_UNAVAILABLE =
-  "Las estimaciones aún no están activas en este ambiente.";
-export const ESTIMATE_NOTHING_TO_DO =
-  "Todos tus platos tienen receta. No hay nada que estimar.";
-export const ESTIMATE_PROBE_FAILED = "No pude revisar tus platos.";
-export const ESTIMATE_RETRY = "Reintentar";
+export const ESTIMATE_NO_ROLE_HINT = ES.noRoleHint;
+export const ESTIMATE_UNAVAILABLE = ES.unavailable;
+export const ESTIMATE_NOTHING_TO_DO = ES.nothingToDo;
+export const ESTIMATE_PROBE_FAILED = ES.probeFailed;
+export const ESTIMATE_RETRY = ES.retry;
 
 /**
  * The ONE gate for reading the menu and estimating: the capability the API
@@ -87,29 +98,32 @@ export interface EstimateText {
 export function estimateText(
   estimate: Pick<DishEstimateRow, "est_cost">,
   currency: string,
-  avgNetPrice: number | null
+  avgNetPrice: number | null,
+  lang: PreferredLanguage = "es"
 ): EstimateText {
+  const c = estimateCopy(lang);
+  const noPrice = `≈ ${getDictionary(lang).menu.screens.noPrice}`;
   const cost =
     estimate.est_cost == null
-      ? "≈ Sin precio"
-      : `≈ ${formatMoneyEs(estimate.est_cost, currency)} costo estimado`;
+      ? noPrice
+      : `≈ ${formatMoneyLocale(estimate.est_cost, currency, lang)}${c.costLabel}`;
   const pct = estimatedMargin(estimate.est_cost, avgNetPrice);
-  const margin = pct == null ? null : `≈ ${Math.round(pct)}% margen estimado`;
+  const margin = pct == null ? null : `≈ ${Math.round(pct)}%${c.marginLabel}`;
   const text = margin ? `${cost} · ${margin}` : cost;
 
   // Parse for styled rendering: numbers in blue, labels in ink
   const parts: Array<{ value: string; isNumber: boolean }> = [];
   if (estimate.est_cost == null) {
-    parts.push({ value: "≈ Sin precio", isNumber: false });
+    parts.push({ value: noPrice, isNumber: false });
   } else {
-    const money = formatMoneyEs(estimate.est_cost, currency);
+    const money = formatMoneyLocale(estimate.est_cost, currency, lang);
     parts.push({ value: "≈ ", isNumber: false });
     parts.push({ value: money, isNumber: true });
-    parts.push({ value: " costo estimado", isNumber: false });
+    parts.push({ value: c.costLabel, isNumber: false });
     if (margin) {
       parts.push({ value: " · ≈ ", isNumber: false });
       parts.push({ value: `${Math.round(pct!)}%`, isNumber: true });
-      parts.push({ value: " margen estimado", isNumber: false });
+      parts.push({ value: c.marginLabel, isNumber: false });
     }
   }
 
@@ -181,21 +195,29 @@ export function extraEstimatedDishes(
   return n;
 }
 
-export function extraEstimatedLabel(n: number): string {
-  return `Con estimados de Milton: ${n} ${n === 1 ? "plato más" : "platos más"} con margen aproximado`;
+export function extraEstimatedLabel(
+  n: number,
+  lang: PreferredLanguage = "es"
+): string {
+  const c = estimateCopy(lang);
+  return fmt(n === 1 ? c.extraOne : c.extraOther, { n });
 }
 
 /** What the person reads when one plato could not be estimated. */
-export function estimateSkipMessage(reason: string | null | undefined): string {
+export function estimateSkipMessage(
+  reason: string | null | undefined,
+  lang: PreferredLanguage = "es"
+): string {
+  const c = estimateCopy(lang);
   switch (reason) {
     case "has_recipe":
     case "approved":
-      return "Este plato ya tiene receta; Milton no la cambia.";
+      return c.skipHasRecipe;
     case "no_encontrado":
-      return "No encontré ese plato.";
+      return c.skipNotFound;
     case "error_guardado":
-      return "No pude guardar el estimado. Intenta de nuevo.";
+      return c.skipSaveError;
     default:
-      return "No pude estimar este plato. Intenta de nuevo.";
+      return c.skipDefault;
   }
 }

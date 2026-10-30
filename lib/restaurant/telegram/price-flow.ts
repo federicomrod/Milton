@@ -27,7 +27,7 @@ import {
   type UnitlessPrice,
 } from "./price-update";
 import { validateAiItems, type PriceAi } from "./price-update-ai";
-import { KITCHEN_COPY, renderKitchenCopy } from "./kitchen-copy";
+import { joinNames, KITCHEN_COPY, renderKitchenCopy } from "./kitchen-copy";
 
 export type UnclearItem = { label: string | null; hint?: string };
 
@@ -257,8 +257,7 @@ export async function resolvePriceText(
 // ---------------------------------------------------------------------------
 
 export function joinProducts(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
+  return joinNames(names);
 }
 
 function uniq(names: string[]): string[] {
@@ -277,11 +276,17 @@ export function unclearLine(
   const labels = r.unclear.map((u) => {
     if (!u.label) return null;
     if (!u.hint) return u.label;
-    return `${u.label} (¿$${u.hint[0]}.${u.hint.slice(1)} o $${u.hint}?)`;
+    return `${u.label} ${renderKitchenCopy(KITCHEN_COPY.FRAG_AMOUNT_HINT, {
+      a: `${u.hint[0]}.${u.hint.slice(1)}`,
+      b: u.hint,
+    })}`;
   });
   const named = uniq(labels.filter((l): l is string => l !== null));
   const unnamed = labels.length - labels.filter((l) => l !== null).length;
-  if (unnamed > 0) named.push(unnamed === 1 ? "un precio" : "unos precios");
+  if (unnamed > 0)
+    named.push(
+      unnamed === 1 ? KITCHEN_COPY.FRAG_A_PRICE : KITCHEN_COPY.FRAG_SOME_PRICES
+    );
   return renderKitchenCopy(KITCHEN_COPY.PRICE_NOT_UNDERSTOOD, {
     productos: joinProducts(named),
   });

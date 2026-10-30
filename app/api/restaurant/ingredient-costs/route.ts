@@ -18,6 +18,7 @@
 // authoritative regardless of which client wrote it (today the dashboard;
 // tomorrow the invoice importer).
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -39,6 +40,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const a = (await apiDictionary()).costs.api;
 
   const url = new URL(req.url);
   const ingredientId = url.searchParams.get("ingredient_id");
@@ -56,7 +58,7 @@ export async function GET(req: NextRequest) {
   if (result.error) {
     console.error("[ingredient-costs GET]", result.error.message);
     return NextResponse.json(
-      { error: "Read failed", details: result.error.message },
+      { error: a.readFailed, details: result.error.message },
       { status: 500 }
     );
   }
@@ -88,16 +90,20 @@ export async function POST(req: NextRequest) {
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
-  const denied = requireCapability(actor, "prices.edit", {
-    message: "Tu rol no puede cambiar precios.",
-  });
-  if (denied) return denied;
+  const denied = requireCapability(actor, "prices.edit");
+  if (denied)
+    return (
+      requireCapability(actor, "prices.edit", {
+        message: (await apiDictionary()).costs.api.pricesRoleDenied,
+      }) ?? denied
+    );
+  const a = (await apiDictionary()).costs.api;
 
   let body: PostBody;
   try {
     body = (await req.json()) as PostBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json({ error: a.bodyMustBeJson }, { status: 400 });
   }
 
   // ---- Validate ---------------------------------------------------------
@@ -115,18 +121,12 @@ export async function POST(req: NextRequest) {
       ? body.cost_date.slice(0, 10)
       : "";
   if (!costDate) {
-    return NextResponse.json(
-      { error: "cost_date must be ISO yyyy-mm-dd" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.costDateIso }, { status: 400 });
   }
   const quantity =
     typeof body.quantity === "number" ? body.quantity : Number(body.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) {
-    return NextResponse.json(
-      { error: "quantity must be a positive number" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.quantityPositiveEn }, { status: 400 });
   }
   const totalCost =
     typeof body.total_cost === "number"
@@ -134,13 +134,13 @@ export async function POST(req: NextRequest) {
       : Number(body.total_cost);
   if (!Number.isFinite(totalCost) || totalCost < 0) {
     return NextResponse.json(
-      { error: "total_cost must be a non-negative number" },
+      { error: a.totalCostNonNegative },
       { status: 400 }
     );
   }
   const unit = typeof body.unit === "string" ? body.unit.trim() : "";
   if (!unit) {
-    return NextResponse.json({ error: "unit is required" }, { status: 400 });
+    return NextResponse.json({ error: a.unitRequired }, { status: 400 });
   }
   const companyCurrency = await resolveCompanyCurrency(
     auth.supabase,
@@ -172,15 +172,12 @@ export async function POST(req: NextRequest) {
   if (ingErr) {
     console.error("[ingredient-costs POST ing lookup]", ingErr.message);
     return NextResponse.json(
-      { error: "Could not load ingredient", details: ingErr.message },
+      { error: a.ingredientLoadFailedEn, details: ingErr.message },
       { status: 500 }
     );
   }
   if (!ingredient) {
-    return NextResponse.json(
-      { error: "Ingredient not found for this company" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: a.ingredientNotFound }, { status: 404 });
   }
 
   // ---- Compute derived numbers ----------------------------------------
@@ -232,7 +229,7 @@ export async function POST(req: NextRequest) {
     console.error("[ingredient-costs POST]", error?.message);
     return NextResponse.json(
       {
-        error: "Insert failed",
+        error: a.insertFailed,
         details: error?.message,
         pg: {
           message: error?.message ?? null,
@@ -256,18 +253,19 @@ export async function DELETE(req: NextRequest) {
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
-  const denied = requireCapability(actor, "prices.edit", {
-    message: "Tu rol no puede cambiar precios.",
-  });
-  if (denied) return denied;
+  const denied = requireCapability(actor, "prices.edit");
+  if (denied)
+    return (
+      requireCapability(actor, "prices.edit", {
+        message: (await apiDictionary()).costs.api.pricesRoleDenied,
+      }) ?? denied
+    );
+  const a = (await apiDictionary()).costs.api;
 
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) {
-    return NextResponse.json(
-      { error: "id query param required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.idRequired }, { status: 400 });
   }
   const { error } = await auth.supabase
     .from("ingredient_cost_entries")
@@ -276,7 +274,7 @@ export async function DELETE(req: NextRequest) {
     .eq("id", id);
   if (error) {
     return NextResponse.json(
-      { error: "Delete failed", details: error.message },
+      { error: a.deleteFailed, details: error.message },
       { status: 500 }
     );
   }

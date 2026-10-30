@@ -47,7 +47,12 @@ function LinkRows({
   if (links.length === 0) {
     return (
       <p className="text-[13px] text-[#8a92a3]">
-        {t(lang, "Nothing here yet.", "Aún no hay nada aquí.")}
+        {t(
+          lang,
+          "Nothing here yet.",
+          "Aún no hay nada aquí.",
+          "Noch nichts vorhanden."
+        )}
       </p>
     );
   }
@@ -109,7 +114,7 @@ export default async function ConfiguracionPage({
   return (
     <div className="w-full max-w-3xl space-y-4 px-[26px] pb-10 pt-4">
       <OperatingPageHeader
-        title={t(lang, "Settings", "Configuración")}
+        title={t(lang, "Settings", "Configuración", "Einstellungen")}
         lang={lang}
         showDateRange={false}
       />

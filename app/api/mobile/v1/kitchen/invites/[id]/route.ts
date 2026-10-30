@@ -2,6 +2,8 @@
 //
 // DELETE: revoke an invite that has not been used yet. Owner only.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authAndCompanyFromBearer } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -16,6 +18,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authAndCompanyFromBearer(request);
   if (!auth.ok) return auth.response;
   const { supabase, companyId, userId } = auth;
@@ -28,7 +31,7 @@ export async function DELETE(
     }
     const { id } = await params;
     if (!UUID_RE.test(id)) {
-      return mobileJson({ error: "El identificador no es válido." }, 400);
+      return mobileJson({ error: d.kitchen.api.idInvalid }, 400);
     }
     const result = await revokeKitchenInvite(
       createAdminClient(),
@@ -36,10 +39,10 @@ export async function DELETE(
       companyId
     );
     if (!result.ok) {
-      return mobileJson({ error: "No pude quitar la invitación." }, 500);
+      return mobileJson({ error: d.kitchen.api.inviteRemoveFailed }, 500);
     }
     if (!result.revoked) {
-      return mobileJson({ error: "No encontré la invitación." }, 404);
+      return mobileJson({ error: d.kitchen.api.inviteNotFound }, 404);
     }
     return mobileJson({ success: true });
   } catch (err) {
@@ -47,6 +50,6 @@ export async function DELETE(
       "[mobile-invites] revoke failed:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return mobileJson({ error: "No pude quitar la invitación." }, 500);
+    return mobileJson({ error: d.kitchen.api.inviteRemoveFailed }, 500);
   }
 }

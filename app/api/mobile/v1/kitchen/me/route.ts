@@ -3,6 +3,8 @@
 // GET: the cook's name, restaurant(s) and company name. Device token as
 // bearer. Serialized through the allow-list: no money, ever.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import { serializeKitchenMe } from "@/lib/restaurant/kitchen/kitchen-serializer";
@@ -12,6 +14,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff, companyId, locationIds } = auth;
@@ -25,7 +28,7 @@ export async function GET(request: NextRequest) {
         .in("id", locationIds),
     ]);
     if (company.error || locations.error) {
-      return kitchenJson({ error: "No pude cargar tu cuenta." }, 500);
+      return kitchenJson({ error: d.kitchen.api.accountLoadFailed }, 500);
     }
     return kitchenJson(
       serializeKitchenMe({
@@ -39,6 +42,6 @@ export async function GET(request: NextRequest) {
       "[mobile-kitchen-me] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: "No pude cargar tu cuenta." }, 500);
+    return kitchenJson({ error: d.kitchen.api.accountLoadFailed }, 500);
   }
 }

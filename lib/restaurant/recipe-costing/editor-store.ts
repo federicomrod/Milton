@@ -26,6 +26,8 @@ import {
   answerCatalogRow,
   skipCatalogRow,
 } from "@/lib/restaurant/price-catalog/apply";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { fetchAllRowsRetryingWithoutColumns } from "@/lib/restaurant/missing-schema-column";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
@@ -74,8 +76,10 @@ function sourceLabel(
 }
 
 export function createSupabaseEditorStore(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  lang?: PreferredLanguage
 ): EditorStore {
+  const sv = getDictionary(lang ?? "es").menu.editor.store;
   return {
     async loadCosting(companyId): Promise<CostingLoad> {
       const conversionsPromise = loadUnitConversions(supabase, companyId);
@@ -334,7 +338,7 @@ export function createSupabaseEditorStore(
           .eq("id", from.id)
           .maybeSingle();
         if (srcErr || !src) {
-          throw new Error(srcErr?.message ?? "No encontré la versión.");
+          throw new Error(srcErr?.message ?? sv.versionNotFound);
         }
         const { data: last } = await supabase
           .from("component_recipe_versions")
@@ -359,7 +363,7 @@ export function createSupabaseEditorStore(
           .select("id, status")
           .single();
         if (error || !data) {
-          throw new Error(error?.message ?? "No pude crear la versión nueva.");
+          throw new Error(error?.message ?? sv.newVersionFailed);
         }
         return {
           ...from,
@@ -376,7 +380,7 @@ export function createSupabaseEditorStore(
         .eq("id", from.id)
         .maybeSingle();
       if (srcErr || !src) {
-        throw new Error(srcErr?.message ?? "No encontré la versión.");
+        throw new Error(srcErr?.message ?? sv.versionNotFound);
       }
       const { data: last } = await supabase
         .from("recipe_versions")
@@ -402,7 +406,7 @@ export function createSupabaseEditorStore(
         .select("id, status")
         .single();
       if (error || !data) {
-        throw new Error(error?.message ?? "No pude crear la versión nueva.");
+        throw new Error(error?.message ?? sv.newVersionFailed);
       }
       return { ...from, id: String(data.id), status: String(data.status) };
     },
@@ -518,7 +522,7 @@ export function createSupabaseEditorStore(
         .select("id")
         .single();
       if (error || !data) {
-        throw new Error(error?.message ?? "No pude guardar la línea.");
+        throw new Error(error?.message ?? sv.lineSaveFailed);
       }
       return { id: String(data.id), ...row };
     },
@@ -566,7 +570,7 @@ export function createSupabaseEditorStore(
 
     async approvePreparationVersion(companyId, version, approval) {
       if (version.kind !== "preparation" || !version.component_recipe_id) {
-        throw new Error("No es una preparación.");
+        throw new Error(sv.notPreparation);
       }
       const siblings = await supabase
         .from("component_recipe_versions")
@@ -675,7 +679,7 @@ export function createSupabaseEditorStore(
         .select("id, name, default_unit")
         .single();
       if (error || !data) {
-        throw new Error(error?.message ?? "No pude crear el ingrediente.");
+        throw new Error(error?.message ?? sv.ingredientCreateFailed);
       }
       return {
         id: String(data.id),
@@ -698,7 +702,7 @@ export function createSupabaseEditorStore(
         .select("id, name")
         .single();
       if (comp.error || !comp.data) {
-        throw new Error(comp.error?.message ?? "No pude crear la preparación.");
+        throw new Error(comp.error?.message ?? sv.preparationCreateFailed);
       }
       const componentId = String(comp.data.id);
       const undo = async () => {
@@ -723,9 +727,7 @@ export function createSupabaseEditorStore(
         .single();
       if (recipe.error || !recipe.data) {
         await undo();
-        throw new Error(
-          recipe.error?.message ?? "No pude crear la receta de la preparación."
-        );
+        throw new Error(recipe.error?.message ?? sv.preparationRecipeFailed);
       }
       const version = await supabase.from("component_recipe_versions").insert({
         company_id: companyId,
@@ -817,7 +819,7 @@ export function createSupabaseEditorStore(
         .eq("id", entry.ingredientId)
         .maybeSingle();
       if (ingError) throw new Error(ingError.message);
-      if (!ing) throw new Error("No encontré el ingrediente.");
+      if (!ing) throw new Error(sv.ingredientNotFound);
       const conversions =
         (await loadUnitConversions(supabase, companyId)).get(
           entry.ingredientId

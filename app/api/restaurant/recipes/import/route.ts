@@ -28,6 +28,9 @@ import {
   applyRecipeImport,
   previewRecipeImport,
 } from "@/lib/restaurant/recipe-import/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "Sube el archivo de costos (.xlsx)." },
+      { error: (await apiMsg()).uploadCostsFile },
       { status: 400 }
     );
   }
@@ -54,7 +57,7 @@ export async function POST(req: NextRequest) {
     const stored = await loadUploadDraftFile(auth.supabase, auth.companyId);
     if (!stored) {
       return NextResponse.json(
-        { error: "Ya no tengo tu archivo. Elígelo de nuevo." },
+        { error: (await apiMsg()).fileGone },
         { status: 400 }
       );
     }
@@ -64,13 +67,13 @@ export async function POST(req: NextRequest) {
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json(
-        { error: "Sube el archivo de costos (.xlsx)." },
+        { error: (await apiMsg()).uploadCostsFile },
         { status: 400 }
       );
     }
     if (file.size > MAX_CATALOG_FILE_BYTES) {
       return NextResponse.json(
-        { error: "El archivo pesa más de 15 MB." },
+        { error: (await apiMsg()).fileTooBig },
         { status: 400 }
       );
     }
@@ -106,7 +109,7 @@ export async function POST(req: NextRequest) {
       companyId: auth.companyId,
     });
     const denied = requireCapability(actor, "imports.run", {
-      message: "Tu rol no puede importar recetas.",
+      message: (await apiMsg()).roleCannotImport,
     });
     if (denied) return denied;
   }
@@ -153,7 +156,7 @@ export async function POST(req: NextRequest) {
     }
     const failure = actionableError(
       err,
-      "No pude leer las recetas del archivo.",
+      (await apiMsg()).importReadFailed,
       "recipes-import"
     );
     return NextResponse.json(

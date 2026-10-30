@@ -157,6 +157,7 @@ export interface KitchenInsights {
 }
 
 const WEEKDAY_SHORT_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_SHORT_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const WEEKDAY_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 const ITEM_PREFIX_RE =
@@ -201,11 +202,21 @@ export function kitchenItemKey(text: string | null | undefined): string {
 }
 
 export function pendingRecipesLabel(lang: PreferredLanguage): string {
-  return t(lang, "Pending recipes", KITCHEN_PENDING_RECIPES_ES);
+  return t(
+    lang,
+    "Pending recipes",
+    KITCHEN_PENDING_RECIPES_ES,
+    "Rezepte ausstehend"
+  );
 }
 
 export function notAvailableYetLabel(lang: PreferredLanguage): string {
-  return t(lang, "Not available yet", KITCHEN_NOT_AVAILABLE_ES);
+  return t(
+    lang,
+    "Not available yet",
+    KITCHEN_NOT_AVAILABLE_ES,
+    "Noch nicht verfügbar"
+  );
 }
 
 export function isLowStockType(type: KitchenReportType): boolean {
@@ -257,16 +268,21 @@ export function kitchenRelativeTime(
 ): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(event.local_date)) return "";
   const clock = formatKitchenClock(event.local_hour, event.local_minute);
-  if (event.local_date === todayKey) return clock || t(lang, "Today", "Hoy");
+  if (event.local_date === todayKey)
+    return clock || t(lang, "Today", "Hoy", "Heute");
   const yesterday = shiftDateKey(todayKey, -1);
   if (event.local_date === yesterday) {
     return clock
-      ? t(lang, `Yesterday ${clock}`, `Ayer ${clock}`)
-      : t(lang, "Yesterday", "Ayer");
+      ? t(lang, `Yesterday ${clock}`, `Ayer ${clock}`, `Gestern ${clock}`)
+      : t(lang, "Yesterday", "Ayer", "Gestern");
   }
   const weekday = weekdayFromDateKey(event.local_date);
   const short =
-    lang === "es" ? WEEKDAY_SHORT_ES[weekday] : WEEKDAY_SHORT_EN[weekday];
+    lang === "es"
+      ? WEEKDAY_SHORT_ES[weekday]
+      : lang === "de"
+        ? WEEKDAY_SHORT_DE[weekday]
+        : WEEKDAY_SHORT_EN[weekday];
   return clock ? `${short} ${clock}` : short;
 }
 
@@ -332,12 +348,18 @@ function staffPhrase(
     new Set(rows.map((row) => row.staff_name.trim()).filter(Boolean))
   );
   if (rows.length === 1 && names[0]) {
-    return t(lang, `reported by ${names[0]}`, `reportado por ${names[0]}`);
+    return t(
+      lang,
+      `reported by ${names[0]}`,
+      `reportado por ${names[0]}`,
+      `gemeldet von ${names[0]}`
+    );
   }
   return t(
     lang,
     countText(rows.length, "report", "reports"),
-    countText(rows.length, "reporte", "reportes")
+    countText(rows.length, "reporte", "reportes"),
+    countText(rows.length, "Meldung", "Meldungen")
   );
 }
 
@@ -359,7 +381,8 @@ function buildFeed(input: {
     const latest = latestOf(rows);
     if (!latest) continue;
     const title =
-      displayNameFromReports(rows, ingredients) || t(lang, "Item", "Producto");
+      displayNameFromReports(rows, ingredients) ||
+      t(lang, "Item", "Producto", "Artikel");
     items.push({
       id: `running_out:${key}`,
       kind: "running_out",
@@ -369,12 +392,18 @@ function buildFeed(input: {
         t(
           lang,
           `Running low · ${staffPhrase(rows, lang)}`,
-          `Se está agotando · ${staffPhrase(rows, lang)}`
+          `Se está agotando · ${staffPhrase(rows, lang)}`,
+          `Wird knapp · ${staffPhrase(rows, lang)}`
         )
       ),
       time_label: kitchenRelativeTime(latest, todayKey, lang),
       action: "resolve",
-      action_label: t(lang, "Mark resolved", "Marcar resuelto"),
+      action_label: t(
+        lang,
+        "Mark resolved",
+        "Marcar resuelto",
+        "Als erledigt markieren"
+      ),
       report_ids: rows.map((row) => row.id),
       draft_id: null,
       latest_at: latest.created_at,
@@ -387,7 +416,8 @@ function buildFeed(input: {
     const latest = latestOf(rows);
     if (!latest) continue;
     const title =
-      displayNameFromReports(rows, ingredients) || t(lang, "Waste", "Merma");
+      displayNameFromReports(rows, ingredients) ||
+      t(lang, "Waste", "Merma", "Ausschuss");
     const weekish = rows.length >= 2;
     items.push({
       id: `waste:${key}`,
@@ -399,13 +429,19 @@ function buildFeed(input: {
           ? t(
               lang,
               `High waste · ${rows.length} reports this week`,
-              `Merma alta · ${rows.length} reportes esta semana`
+              `Merma alta · ${rows.length} reportes esta semana`,
+              `Hoher Ausschuss · ${rows.length} Meldungen diese Woche`
             )
-          : t(lang, "Waste reported", "Merma reportada")
+          : t(lang, "Waste reported", "Merma reportada", "Ausschuss gemeldet")
       ),
       time_label: kitchenRelativeTime(latest, todayKey, lang),
       action: "view_reports",
-      action_label: t(lang, "View reports", "Ver reportes"),
+      action_label: t(
+        lang,
+        "View reports",
+        "Ver reportes",
+        "Meldungen ansehen"
+      ),
       report_ids: rows.map((row) => row.id),
       draft_id: null,
       latest_at: latest.created_at,
@@ -413,28 +449,40 @@ function buildFeed(input: {
   }
 
   for (const draft of drafts) {
-    const dish = draft.dish_name.trim() || t(lang, "Recipe", "Receta");
-    const photo = draft.has_photo ? t(lang, "photo", "foto") : null;
+    const dish =
+      draft.dish_name.trim() || t(lang, "Recipe", "Receta", "Rezept");
+    const photo = draft.has_photo ? t(lang, "photo", "foto", "Foto") : null;
     const portions =
       draft.portions && draft.portions > 0
-        ? t(lang, `${draft.portions} portions`, `${draft.portions} porciones`)
-        : t(lang, "portions pending", "faltan las porciones");
+        ? t(
+            lang,
+            `${draft.portions} portions`,
+            `${draft.portions} porciones`,
+            `${draft.portions} Portionen`
+          )
+        : t(
+            lang,
+            "portions pending",
+            "faltan las porciones",
+            "Portionen ausstehend"
+          );
     const bits = [photo, portions].filter(Boolean).join(" + ");
     items.push({
       id: `draft:${draft.id}`,
       kind: "drafts",
-      title: t(lang, `Recipe: ${dish}`, `Receta: ${dish}`),
+      title: t(lang, `Recipe: ${dish}`, `Receta: ${dish}`, `Rezept: ${dish}`),
       detail: polishCockpitCopy(
         lang,
         t(
           lang,
           `Cook draft: ${bits} · waiting for your confirmation`,
-          `Borrador del cocinero: ${bits} · falta tu confirmación`
+          `Borrador del cocinero: ${bits} · falta tu confirmación`,
+          `Entwurf des Kochs: ${bits} · wartet auf Ihre Freigabe`
         )
       ),
       time_label: kitchenRelativeTime(draft, todayKey, lang),
       action: "review",
-      action_label: t(lang, "Review", "Revisar"),
+      action_label: t(lang, "Review", "Revisar", "Prüfen"),
       report_ids: [],
       draft_id: draft.id,
       latest_at: draft.created_at,
@@ -458,7 +506,7 @@ function rankedFromGroups(
         key,
         label:
           displayNameFromReports(list, ingredients) ||
-          t(lang, "Item", "Producto"),
+          t(lang, "Item", "Producto", "Artikel"),
         count: list.length,
         last_label: latest ? kitchenRelativeTime(latest, todayKey, lang) : "",
         latest_at: latest?.created_at ?? "",
@@ -466,7 +514,7 @@ function rankedFromGroups(
     })
     .sort((a, b) => {
       if (b.count !== a.count) return b.count - a.count;
-      return a.label.localeCompare(b.label, lang === "es" ? "es" : "en");
+      return a.label.localeCompare(b.label, lang);
     });
   const max = rows[0]?.count ?? 0;
   return rows.map((row, i) => ({
@@ -489,7 +537,8 @@ function namesHint(names: string[], lang: PreferredLanguage): string {
   return t(
     lang,
     `${clean[0]}, ${clean[1]} and ${clean.length - 2} more`,
-    `${clean[0]}, ${clean[1]} y ${clean.length - 2} más`
+    `${clean[0]}, ${clean[1]} y ${clean.length - 2} más`,
+    `${clean[0]}, ${clean[1]} und ${clean.length - 2} weitere`
   );
 }
 
@@ -517,25 +566,34 @@ function buildHighlights(input: {
     }
   }
   if (topRows.length > 0) {
-    const name = displayNameFromReports(topRows) || t(lang, "Item", "Producto");
+    const name =
+      displayNameFromReports(topRows) || t(lang, "Item", "Producto", "Artikel");
     const waste = topRows.filter((row) => row.report_type === "waste").length;
     const value =
       waste > 0 && waste === topRows.length
         ? t(
             lang,
             `${name} · ${countText(topRows.length, "waste report", "waste reports")}`,
-            `${name} · ${countText(topRows.length, "reporte de merma", "reportes de merma")}`
+            `${name} · ${countText(topRows.length, "reporte de merma", "reportes de merma")}`,
+            `${name} · ${countText(topRows.length, "Ausschussmeldung", "Ausschussmeldungen")}`
           )
         : t(
             lang,
             `${name} · ${countText(topRows.length, "report", "reports")}`,
-            `${name} · ${countText(topRows.length, "reporte", "reportes")}`
+            `${name} · ${countText(topRows.length, "reporte", "reportes")}`,
+            `${name} · ${countText(topRows.length, "Meldung", "Meldungen")}`
           );
-    const title = t(lang, "Most reported", "Más reportado");
+    const title = t(
+      lang,
+      "Most reported",
+      "Más reportado",
+      "Am häufigsten gemeldet"
+    );
     const hint = t(
       lang,
       "It is the item with the most reports this week",
-      "Es el producto con más reportes esta semana"
+      "Es el producto con más reportes esta semana",
+      "Dies ist der Artikel mit den meisten Meldungen diese Woche"
     );
     highlights.push({
       id: "most_reported",
@@ -579,20 +637,27 @@ function buildHighlights(input: {
     const range = hourRangeLabel(peakHour);
     const meal =
       peakHour < 12
-        ? t(lang, "before lunch", "antes del almuerzo")
+        ? t(lang, "before lunch", "antes del almuerzo", "vor dem Mittagessen")
         : peakHour < 17
-          ? t(lang, "around lunch", "alrededor del almuerzo")
-          : t(lang, "in the evening", "por la noche");
+          ? t(
+              lang,
+              "around lunch",
+              "alrededor del almuerzo",
+              "rund um das Mittagessen"
+            )
+          : t(lang, "in the evening", "por la noche", "am Abend");
     const title = t(
       lang,
       "Hour with the most reports",
-      "Hora con más reportes"
+      "Hora con más reportes",
+      "Stunde mit den meisten Meldungen"
     );
     const value = `${range}, ${meal}`;
     const hint = t(
       lang,
       `${peakCount} of ${countText(todayReports.length, "report", "reports")} today arrived in that hour`,
-      `${peakCount} de ${countText(todayReports.length, "reporte", "reportes")} de hoy ${peakCount === 1 ? "llegó" : "llegaron"} en esa hora`
+      `${peakCount} de ${countText(todayReports.length, "reporte", "reportes")} de hoy ${peakCount === 1 ? "llegó" : "llegaron"} en esa hora`,
+      `${peakCount} von ${countText(todayReports.length, "Meldung", "Meldungen")} heute kamen in dieser Stunde`
     );
     highlights.push({
       id: "peak_hour",
@@ -623,16 +688,18 @@ function buildHighlights(input: {
   const reporterIds = new Set(classified.map((row) => row.staff_id));
   const reporters = active.filter((row) => reporterIds.has(row.id)).length;
   if (active.length > 0 && classified.length > 0) {
-    const title = t(lang, "Active team", "Equipo activo");
+    const title = t(lang, "Active team", "Equipo activo", "Aktives Team");
     const value = t(
       lang,
       `${reporters} of ${countText(active.length, "cook", "cooks")} reported`,
-      `${reporters} de ${countText(active.length, "cocinero", "cocineros")} ${reporters === 1 ? "reportó" : "reportaron"}`
+      `${reporters} de ${countText(active.length, "cocinero", "cocineros")} ${reporters === 1 ? "reportó" : "reportaron"}`,
+      `${reporters} von ${countText(active.length, "Koch", "Köchen")} haben gemeldet`
     );
     const hint = t(
       lang,
       `This week · ${countText(classified.length, "report", "reports")} in total`,
-      `Esta semana · ${countText(classified.length, "reporte", "reportes")} en total`
+      `Esta semana · ${countText(classified.length, "reporte", "reportes")} en total`,
+      `Diese Woche · ${countText(classified.length, "Meldung", "Meldungen")} insgesamt`
     );
     highlights.push({
       id: "staff_active",
@@ -718,7 +785,8 @@ export function buildKitchenInsights(
     t(
       lang,
       `${todayRunningOut} ${todayRunningOut === 1 ? "item running low" : "items running low"} · ${todayWaste.length} ${todayWaste.length === 1 ? "waste report" : "waste reports"} · ${pendingDrafts} ${pendingDrafts === 1 ? "recipe draft to review" : "recipe drafts to review"}`,
-      `${todayRunningOut} ${todayRunningOut === 1 ? "producto por agotarse" : "productos por agotarse"} · ${todayWaste.length} ${todayWaste.length === 1 ? "reporte de merma" : "reportes de merma"} · ${pendingDrafts} ${pendingDrafts === 1 ? "borrador de receta por revisar" : "borradores de receta por revisar"}`
+      `${todayRunningOut} ${todayRunningOut === 1 ? "producto por agotarse" : "productos por agotarse"} · ${todayWaste.length} ${todayWaste.length === 1 ? "reporte de merma" : "reportes de merma"} · ${pendingDrafts} ${pendingDrafts === 1 ? "borrador de receta por revisar" : "borradores de receta por revisar"}`,
+      `${todayRunningOut} ${todayRunningOut === 1 ? "Artikel wird knapp" : "Artikel werden knapp"} · ${todayWaste.length} ${todayWaste.length === 1 ? "Ausschussmeldung" : "Ausschussmeldungen"} · ${pendingDrafts} ${pendingDrafts === 1 ? "Rezeptentwurf zur Prüfung" : "Rezeptentwürfe zur Prüfung"}`
     )
   );
 
@@ -744,11 +812,12 @@ export function buildKitchenInsights(
   const summaries: KitchenSummary[] = [
     {
       id: "running_out",
-      label: t(lang, "Running low", "Se agota"),
+      label: t(lang, "Running low", "Se agota", "Wird knapp"),
       value: t(
         lang,
         countText(todayRunningOut, "item", "items"),
-        countText(todayRunningOut, "producto", "productos")
+        countText(todayRunningOut, "producto", "productos"),
+        countText(todayRunningOut, "Artikel", "Artikel")
       ),
       hint: namesHint(runningOutNames, lang),
       extra: null,
@@ -760,11 +829,12 @@ export function buildKitchenInsights(
     },
     {
       id: "waste",
-      label: t(lang, "Waste", "Merma"),
+      label: t(lang, "Waste", "Merma", "Ausschuss"),
       value: t(
         lang,
         `${countText(todayWaste.length, "report", "reports")} today`,
-        `${countText(todayWaste.length, "reporte", "reportes")} hoy`
+        `${countText(todayWaste.length, "reporte", "reportes")} hoy`,
+        `${countText(todayWaste.length, "Meldung", "Meldungen")} heute`
       ),
       hint: polishCockpitCopy(
         lang,
@@ -772,15 +842,22 @@ export function buildKitchenInsights(
           ? t(
               lang,
               `${periodWaste.length} in the period · ${topWasteName} the most frequent`,
-              `${periodWaste.length} en el periodo · ${topWasteName} el más frecuente`
+              `${periodWaste.length} en el periodo · ${topWasteName} el más frecuente`,
+              `${periodWaste.length} im Zeitraum · ${topWasteName} am häufigsten`
             )
           : t(
               lang,
               `${periodWaste.length} in the period`,
-              `${periodWaste.length} en el periodo`
+              `${periodWaste.length} en el periodo`,
+              `${periodWaste.length} im Zeitraum`
             )
       ),
-      extra: t(lang, "Waste value:", "Valor de la merma:"),
+      extra: t(
+        lang,
+        "Waste value:",
+        "Valor de la merma:",
+        "Wert des Ausschusses:"
+      ),
       pending_value: true,
       explore_tab: "waste",
       segments:
@@ -790,16 +867,18 @@ export function buildKitchenInsights(
     },
     {
       id: "drafts",
-      label: t(lang, "Recipe drafts", "Recetas en borrador"),
+      label: t(lang, "Recipe drafts", "Recetas en borrador", "Rezeptentwürfe"),
       value: t(
         lang,
         `${pendingDrafts} to confirm`,
-        `${pendingDrafts} por confirmar`
+        `${pendingDrafts} por confirmar`,
+        `${pendingDrafts} zur Freigabe`
       ),
       hint: t(
         lang,
         "Nothing counts in costs until you confirm them",
-        "Nada cuenta en costos hasta que las confirmes"
+        "Nada cuenta en costos hasta que las confirmes",
+        "Nichts zählt in den Kosten, bis Sie es freigeben"
       ),
       extra: null,
       pending_value: false,
@@ -826,7 +905,7 @@ export function buildKitchenInsights(
     (draft, i) => ({
       key: draft.id,
       rank: i + 1,
-      label: draft.dish_name.trim() || t(lang, "Recipe", "Receta"),
+      label: draft.dish_name.trim() || t(lang, "Recipe", "Receta", "Rezept"),
       count: 1,
       bar_pct: 100,
       last_label: kitchenRelativeTime(draft, todayKey, lang),
@@ -850,7 +929,7 @@ export function buildKitchenInsights(
     })
     .sort((a, b) => {
       if (b.reports !== a.reports) return b.reports - a.reports;
-      return a.name.localeCompare(b.name, lang === "es" ? "es" : "en");
+      return a.name.localeCompare(b.name, lang);
     });
 
   const history = sortLatest(periodReports).map((row, i) => ({
@@ -859,7 +938,7 @@ export function buildKitchenInsights(
     label:
       displayNameFromReports([row], bundle.ingredients) ||
       row.text?.trim().slice(0, 48) ||
-      t(lang, "Report", "Reporte"),
+      t(lang, "Report", "Reporte", "Meldung"),
     count: 1,
     bar_pct: 0,
     last_label: kitchenRelativeTime(row, todayKey, lang),
@@ -874,19 +953,22 @@ export function buildKitchenInsights(
       ? t(
           lang,
           `What needs attention in the kitchen for ${range}?`,
-          `¿Qué necesita atención en la cocina de ${range}?`
+          `¿Qué necesita atención en la cocina de ${range}?`,
+          `Was braucht in der Küche Aufmerksamkeit (${range})?`
         )
       : t(
           lang,
           "What needs attention in the kitchen right now?",
-          "¿Qué necesita atención en la cocina ahora?"
+          "¿Qué necesita atención en la cocina ahora?",
+          "Was braucht in der Küche gerade Aufmerksamkeit?"
         )
   );
 
   const empty_feed = t(
     lang,
     "Nothing needs attention in the kitchen right now.",
-    "Nada necesita atención en la cocina ahora."
+    "Nada necesita atención en la cocina ahora.",
+    "In der Küche braucht gerade nichts Aufmerksamkeit."
   );
 
   return {
@@ -933,7 +1015,8 @@ export function kitchenExploreCaption(
     return t(
       lang,
       `Top ${shown} of ${countText(insights.explore.waste_total_products, "item", "items")} with waste · this period`,
-      `Top ${shown} de ${countText(insights.explore.waste_total_products, "producto", "productos")} con merma · este periodo`
+      `Top ${shown} de ${countText(insights.explore.waste_total_products, "producto", "productos")} con merma · este periodo`,
+      `Top ${shown} von ${countText(insights.explore.waste_total_products, "Artikel", "Artikeln")} mit Ausschuss · in diesem Zeitraum`
     );
   }
   if (tab === "running_out") {
@@ -944,6 +1027,11 @@ export function kitchenExploreCaption(
         insights.today_running_out,
         "producto por agotarse",
         "productos por agotarse"
+      ),
+      countText(
+        insights.today_running_out,
+        "Artikel wird knapp",
+        "Artikel werden knapp"
       )
     );
   }
@@ -951,7 +1039,8 @@ export function kitchenExploreCaption(
     return t(
       lang,
       `${countText(insights.pending_drafts, "draft", "drafts")} waiting for confirmation · they do not count in costs yet`,
-      `${countText(insights.pending_drafts, "borrador", "borradores")} por confirmar · ${insights.pending_drafts === 1 ? "aún no cuenta" : "aún no cuentan"} en costos`
+      `${countText(insights.pending_drafts, "borrador", "borradores")} por confirmar · ${insights.pending_drafts === 1 ? "aún no cuenta" : "aún no cuentan"} en costos`,
+      `${countText(insights.pending_drafts, "Entwurf", "Entwürfe")} zur Freigabe · zählt noch nicht in den Kosten`
     );
   }
   if (tab === "staff") {
@@ -959,10 +1048,16 @@ export function kitchenExploreCaption(
     return t(
       lang,
       countText(active, "active cook", "active cooks"),
-      countText(active, "cocinero activo", "cocineros activos")
+      countText(active, "cocinero activo", "cocineros activos"),
+      countText(active, "aktiver Koch", "aktive Köche")
     );
   }
-  return t(lang, "Reports in this period", "Reportes de este periodo");
+  return t(
+    lang,
+    "Reports in this period",
+    "Reportes de este periodo",
+    "Meldungen in diesem Zeitraum"
+  );
 }
 
 export { KITCHEN_FEED_PREVIEW };

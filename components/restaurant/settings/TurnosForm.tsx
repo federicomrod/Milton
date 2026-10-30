@@ -11,6 +11,9 @@ import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { useRouter } from "next/navigation";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { fmt, getDictionary } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   ALL_WEEKDAYS,
   crossingCutoff,
@@ -21,12 +24,15 @@ import {
   type Shift,
 } from "@/lib/restaurant/business-day";
 
-const DAY_LABEL = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]; // 1..7
-
-export function weekdaysLabel(days: readonly number[]): string {
+export function weekdaysLabel(
+  days: readonly number[],
+  lang: PreferredLanguage = "es"
+): string {
+  const dict = getDictionary(lang);
+  const DAY_LABEL = dict.common.weekdaysShort; // 1..7
   const d = [...new Set(days)].sort((a, b) => a - b);
-  if (d.length === 7) return "Lun–Dom";
-  if (d.length === 0) return "Ningún día";
+  if (d.length === 7) return dict.settings.shifts.allWeek;
+  if (d.length === 0) return dict.settings.shifts.noDays;
   const contiguous = d.every((x, i) => i === 0 || x === d[i - 1] + 1);
   if (contiguous && d.length > 2)
     return `${DAY_LABEL[d[0] - 1]}–${DAY_LABEL[d[d.length - 1] - 1]}`;
@@ -67,6 +73,9 @@ const sameShifts = (a: Draft[], b: Shift[] | undefined) =>
 
 export function TurnosForm(props: TurnosFormProps) {
   const { available, canEdit, restaurants } = props;
+  const { d, lang } = useT();
+  const ds = d.settings.shifts;
+  const DAY_LABEL = d.common.weekdaysShort;
   const router = useRouter();
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? "");
   const [drafts, setDrafts] = useState<Record<string, Draft[]>>(() =>
@@ -106,7 +115,7 @@ export function TurnosForm(props: TurnosFormProps) {
     if (!canEdit) {
       setStatus({
         kind: "error",
-        message: "Tu rol no puede cambiar los turnos.",
+        message: d.settings.noEditShifts,
       });
       return;
     }
@@ -115,7 +124,7 @@ export function TurnosForm(props: TurnosFormProps) {
       return;
     }
     if (!dirty) {
-      setStatus({ kind: "info", message: "No hay cambios que guardar." });
+      setStatus({ kind: "info", message: ds.noChanges });
       return;
     }
     setSaving(true);
@@ -132,18 +141,18 @@ export function TurnosForm(props: TurnosFormProps) {
         error?: string;
         cutoff?: string;
       };
-      if (!res.ok)
-        throw new Error(userErrorMessage(json, "No pude guardar los turnos."));
+      if (!res.ok) throw new Error(userErrorMessage(json, ds.saveFailed));
       setStatus({
         kind: "ok",
-        message: `Turnos guardados. El día de ventas termina a las ${json.cutoff ?? minutesToTime(cutoff)}; Ventas y Cockpit ya los usan.`,
+        message: fmt(ds.saved, {
+          cutoff: json.cutoff ?? minutesToTime(cutoff),
+        }),
       });
       router.refresh();
     } catch (err) {
       setStatus({
         kind: "error",
-        message:
-          err instanceof Error ? err.message : "No pude guardar los turnos.",
+        message: err instanceof Error ? err.message : ds.saveFailed,
       });
     } finally {
       setSaving(false);
@@ -157,11 +166,11 @@ export function TurnosForm(props: TurnosFormProps) {
     <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[1.3fr_1fr]">
       <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
         <div className="mb-2 flex items-center gap-3">
-          <h2 className="text-[14px] font-bold">Turnos</h2>
+          <h2 className="text-[14px] font-bold">{ds.title}</h2>
           <label className="ml-auto inline-flex items-center gap-2 text-[12px] text-[#4a5a85]">
-            Restaurante
+            {ds.restaurant}
             <select
-              aria-label="Restaurante"
+              aria-label={ds.restaurant}
               value={restaurantId}
               onChange={(e) => {
                 setRestaurantId(e.target.value);
@@ -182,14 +191,13 @@ export function TurnosForm(props: TurnosFormProps) {
             role="status"
             className="mb-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]"
           >
-            {NOT_AVAILABLE_YET} Mientras tanto Ventas usa el corte de siempre:
-            almuerzo hasta las 17:00 y cena desde las 17:00.
+            {NOT_AVAILABLE_YET} {ds.unavailableNote}
           </p>
         ) : null}
 
         {rows.length === 0 ? (
           <p className="border-t border-[#eef0f4] py-3 text-[13px] text-[#6b7385]">
-            Este restaurante aún no tiene turnos.
+            {ds.noShifts}
           </p>
         ) : null}
         {rows.map((r) => (
@@ -198,7 +206,7 @@ export function TurnosForm(props: TurnosFormProps) {
             className="grid grid-cols-[110px_1fr] items-center gap-2.5 border-t border-[#eef0f4] py-2.5 text-[13px]"
           >
             <input
-              aria-label="Nombre del turno"
+              aria-label={ds.shiftName}
               value={r.name}
               disabled={disabled}
               maxLength={40}
@@ -210,7 +218,7 @@ export function TurnosForm(props: TurnosFormProps) {
                 type="button"
                 role="switch"
                 aria-checked={r.active}
-                aria-label={`${r.name || "Turno"} activo`}
+                aria-label={fmt(ds.active, { name: r.name || ds.shiftDefault })}
                 disabled={disabled}
                 onClick={() => patch(r.key, { active: !r.active })}
                 className={`relative h-[19px] w-[34px] rounded-full transition ${r.active ? "bg-[#1b40c8]" : "bg-[#c9ced8]"}`}
@@ -223,7 +231,7 @@ export function TurnosForm(props: TurnosFormProps) {
                 <>
                   <input
                     type="time"
-                    aria-label="Inicio"
+                    aria-label={ds.start}
                     value={r.start_time}
                     disabled={disabled}
                     onChange={(e) =>
@@ -231,10 +239,10 @@ export function TurnosForm(props: TurnosFormProps) {
                     }
                     className={input}
                   />
-                  <span>a</span>
+                  <span>{ds.to}</span>
                   <input
                     type="time"
-                    aria-label="Fin"
+                    aria-label={ds.end}
                     value={r.end_time}
                     disabled={disabled}
                     onChange={(e) => patch(r.key, { end_time: e.target.value })}
@@ -242,7 +250,7 @@ export function TurnosForm(props: TurnosFormProps) {
                   />
                   <details className="relative">
                     <summary className="cursor-pointer list-none text-[12px] text-[#6b7385]">
-                      {weekdaysLabel(r.weekdays)} ▾
+                      {weekdaysLabel(r.weekdays, lang)} ▾
                     </summary>
                     <div className="absolute z-10 mt-1 flex gap-1.5 rounded-lg border border-[#dbe3f7] bg-white p-2 shadow-md">
                       {ALL_WEEKDAYS.map((d) => (
@@ -274,30 +282,32 @@ export function TurnosForm(props: TurnosFormProps) {
                     (timeToMinutes(r.start_time) as number) &&
                   r.end_time !== "00:00" ? (
                     <span className="text-[11px] text-[#6b7385]">
-                      cruza la medianoche
+                      {ds.crossesMidnight}
                     </span>
                   ) : null}
                 </>
               ) : (
-                <span className="text-[12px] text-[#8a92a3]">Desactivado</span>
+                <span className="text-[12px] text-[#8a92a3]">
+                  {ds.disabled}
+                </span>
               )}
               <button
                 type="button"
                 disabled={disabled}
                 onClick={() => setRows(rows.filter((x) => x.key !== r.key))}
-                aria-label={`Quitar ${r.name || "turno"}`}
+                aria-label={fmt(ds.removeNamed, {
+                  name: r.name || ds.removeDefault,
+                })}
                 className="ml-auto text-[12px] text-[#8a92a3] hover:text-[#c03535]"
               >
-                Quitar
+                {ds.remove}
               </button>
             </div>
           </div>
         ))}
         <div className="grid grid-cols-[110px_1fr] gap-2.5 border-t border-[#eef0f4] py-2.5 text-[12px]">
-          <span className="text-[#8a92a3]">Fuera de turno</span>
-          <span className="text-[#8a92a3]">
-            Las ventas fuera de horario se muestran como «Otro horario».
-          </span>
+          <span className="text-[#8a92a3]">{ds.outsideShift}</span>
+          <span className="text-[#8a92a3]">{ds.outsideShiftNote}</span>
         </div>
         <button
           type="button"
@@ -318,7 +328,7 @@ export function TurnosForm(props: TurnosFormProps) {
           }}
           className="text-[12px] font-semibold text-[#1b40c8] disabled:opacity-50"
         >
-          + Añadir turno
+          {ds.add}
         </button>
 
         <Timeline shifts={rows.filter((r) => r.active)} />
@@ -327,12 +337,10 @@ export function TurnosForm(props: TurnosFormProps) {
           className="mt-2 text-[12px] text-[#6b7385]"
           data-testid="turnos-cutoff"
         >
-          El día de ventas termina a las <b>{minutesToTime(cutoff)}</b>
-          {crossingCutoff(rows) !== null
-            ? " (el cierre de tu último turno que cruza la medianoche)"
-            : " (sin turnos que crucen la medianoche, es a las 04:00)"}
-          . Lo que se vende después de la medianoche cuenta para el día
-          anterior.
+          {ds.cutoffPrefix}
+          <b>{minutesToTime(cutoff)}</b>
+          {crossingCutoff(rows) !== null ? ds.cutoffCrossing : ds.cutoffDefault}
+          {ds.cutoffSuffix}
         </p>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -359,34 +367,27 @@ export function TurnosForm(props: TurnosFormProps) {
             disabled={saving}
             className="ml-auto rounded-lg bg-[#1b40c8] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-50"
           >
-            {saving ? "Guardando…" : "Guardar turnos"}
+            {saving ? ds.saving : ds.saveButton}
           </button>
         </div>
       </section>
 
       <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 text-[13px]">
-        <h2 className="text-[14px] font-bold">Cómo se usan</h2>
+        <h2 className="text-[14px] font-bold">{ds.howTitle}</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[12px] text-[#6b7385]">
-          <li>
-            Con 2 turnos activos o más, Ventas muestra una tarjeta por turno y
-            el filtro Turno.
-          </li>
-          <li>
-            Un pedido pertenece al turno que contiene su hora local y el día de
-            ventas en que cayó. Si cambias las horas, el historial se reparte de
-            nuevo.
-          </li>
-          <li>Los turnos activos no pueden solaparse el mismo día.</li>
+          <li>{ds.how1}</li>
+          <li>{ds.how2}</li>
+          <li>{ds.how3}</li>
         </ul>
         <p
           className="mt-3 text-[12px] text-[#8a92a3]"
           data-testid="turnos-active-count"
         >
           {activeCount === 0
-            ? "Ahora: sin turnos activos."
+            ? ds.nowNone
             : activeCount === 1
-              ? "Ahora: 1 turno activo."
-              : `Ahora: ${activeCount} turnos activos.`}
+              ? ds.nowOne
+              : fmt(ds.nowMany, { n: activeCount })}
         </p>
       </section>
     </div>
@@ -398,6 +399,7 @@ export function TurnosForm(props: TurnosFormProps) {
 const HOUR_MARKS = [0, 6, 12, 18, 24];
 
 function Timeline({ shifts }: { shifts: Shift[] }) {
+  const { d } = useT();
   const wrapRef = useRef<HTMLDivElement>(null);
   const width = useElementWidth(wrapRef);
   const ticks = useMemo(
@@ -443,7 +445,7 @@ function Timeline({ shifts }: { shifts: Shift[] }) {
       });
   });
   return (
-    <div className="mt-3" aria-label="Vista de 24 horas" ref={wrapRef}>
+    <div className="mt-3" aria-label={d.settings.shifts.timeline} ref={wrapRef}>
       <div className="relative h-[22px] rounded-md bg-[#f2f3f6]">
         {blocks.map((b) => (
           <div

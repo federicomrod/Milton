@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { undoConfirmedPosLink } from "@/lib/restaurant/recipe-costing/link-actions-server";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -15,14 +17,14 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: d.connect.api.bodyMustBeJson },
       { status: 400 }
     );
   }
   const odooProductId = Number(body.odoo_product_id);
   if (!Number.isInteger(odooProductId) || odooProductId <= 0) {
     return NextResponse.json(
-      { error: "Falta odoo_product_id." },
+      { error: d.connect.api.odooProductIdMissing },
       { status: 400 }
     );
   }
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[pos/links/undo]", err);
     return NextResponse.json(
-      { error: "No pude deshacer la confirmación." },
+      { error: d.connect.api.undoFailed },
       { status: 500 }
     );
   }

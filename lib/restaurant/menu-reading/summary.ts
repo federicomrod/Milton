@@ -2,6 +2,9 @@
 // the client can use it. Every number is a count of PLATOS taken from the
 // result's own fields: the first line counts the dishes the MENU lists.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+
 export interface MenuReadSummaryInput {
   dishes_read: number;
   drafted: number;
@@ -36,8 +39,10 @@ export interface MenuReadLine {
  * first line splits the dishes the MENU lists, so its parts add up to N.
  */
 export function menuReadSummaryLines(
-  result: MenuReadSummaryInput
+  result: MenuReadSummaryInput,
+  lang: PreferredLanguage = "es"
 ): MenuReadLine[] {
+  const s = getDictionary(lang).menu.groups.menuReadSummary;
   const one = (n: number, singular: string, plural: string) =>
     n === 1 ? singular : plural;
   const lines: MenuReadLine[] = [];
@@ -49,71 +54,75 @@ export function menuReadSummaryLines(
   const failed = result.failed ?? 0;
   const d = result.drafted;
   const parts = [
-    d > 0 && `${d} con borrador nuevo`,
-    has > 0 && `${has} ${one(has, "ya tenía", "ya tenían")} receta`,
-    exists > 0 && `${exists} ${one(exists, "ya tenía", "ya tenían")} borrador`,
-    none > 0 &&
-      `${none} ${one(none, "no dice", "no dicen")} qué ${one(none, "lleva", "llevan")}`,
-    noPos > 0 && `${noPos} sin producto en tu POS`,
-    failed > 0 && `${failed} con error`,
+    d > 0 && fmt(s.partDrafted, { n: d }),
+    has > 0 &&
+      fmt(one(has, s.partHasRecipeOne, s.partHasRecipeOther), { n: has }),
+    exists > 0 &&
+      fmt(one(exists, s.partDraftExistsOne, s.partDraftExistsOther), {
+        n: exists,
+      }),
+    none > 0 && fmt(one(none, s.partNoneOne, s.partNoneOther), { n: none }),
+    noPos > 0 && fmt(s.partNoPos, { n: noPos }),
+    failed > 0 && fmt(s.partFailed, { n: failed }),
   ].filter((part): part is string => typeof part === "string");
   lines.push({
     key: "read",
-    text: `Leí ${n} ${one(n, "plato", "platos")} en tu menú${parts.length > 0 ? `: ${parts.join(", ")}` : ""}.`,
+    text: fmt(one(n, s.readOne, s.readOther), {
+      n,
+      parts: parts.length > 0 ? `: ${parts.join(", ")}` : "",
+    }),
   });
   lines.push({
     key: "drafted",
     text:
-      `Preparé ${d} ${one(d, "borrador", "borradores")} de receta.` +
-      (d > 0 ? " Las cantidades quedan pendientes: tú las escribes." : ""),
+      fmt(one(d, s.draftedOne, s.draftedOther), { n: d }) +
+      (d > 0 ? ` ${s.draftedPending}` : ""),
   });
   if (none > 0) {
     lines.push({
       key: "no_ingredients",
-      text:
-        none === 1
-          ? "1 plato del menú no dice qué lleva: no pude armar el borrador. Usa «Estimar con Milton»."
-          : `${none} platos del menú no dicen qué llevan: no pude armar el borrador. Usa «Estimar con Milton».`,
+      text: fmt(one(none, s.noIngredientsOne, s.noIngredientsOther), {
+        n: none,
+      }),
     });
   }
   const off = result.not_on_menu ?? 0;
   if (off > 0) {
     lines.push({
       key: "not_on_menu",
-      text:
-        off === 1
-          ? "1 plato con ventas este mes no tiene receta y no aparece en el menú."
-          : `${off} platos con ventas este mes no tienen receta y no aparecen en el menú.`,
+      text: fmt(one(off, s.notOnMenuOne, s.notOnMenuOther), { n: off }),
     });
   }
   if (failed > 0) {
     lines.push({
       key: "failed",
-      text:
-        failed === 1
-          ? "No pude preparar 1 plato. Intenta de nuevo."
-          : `No pude preparar ${failed} platos. Intenta de nuevo.`,
+      text: fmt(one(failed, s.failedOne, s.failedOther), { n: failed }),
     });
   }
   const fresh = result.new_components ?? 0;
   if (fresh > 0) {
     lines.push({
       key: "new_components",
-      text: `${fresh} ${one(fresh, "componente es nuevo", "componentes son nuevos")} (Nuevo, sugerido): créalos o elige uno de tu lista.`,
+      text: fmt(one(fresh, s.newComponentsOne, s.newComponentsOther), {
+        n: fresh,
+      }),
     });
   }
   if (result.truncated) {
     lines.push({
       key: "truncated",
-      text: "El menú era muy largo y leí solo la primera parte.",
+      text: s.truncated,
     });
   }
   return lines;
 }
 
 /** The same lines as one paragraph (for places that show plain text). */
-export function menuReadSummary(result: MenuReadSummaryInput): string {
-  return menuReadSummaryLines(result)
+export function menuReadSummary(
+  result: MenuReadSummaryInput,
+  lang: PreferredLanguage = "es"
+): string {
+  return menuReadSummaryLines(result, lang)
     .map((line) => line.text)
     .join(" ");
 }

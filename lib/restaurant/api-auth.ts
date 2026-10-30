@@ -13,6 +13,13 @@ import {
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { getDictionary } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
+
+/** Auth-time messages (no company yet): cookie / Accept-Language language. */
+async function authMessages() {
+  return getDictionary(await requestLanguage()).admin.api;
+}
 
 export type AuthAndCompanyResult =
   | { ok: true; supabase: SupabaseClient; companyId: string; userId: string }
@@ -37,7 +44,7 @@ async function authAndCompanyUncached(): Promise<AuthAndCompanyResult> {
     return {
       ok: false,
       response: NextResponse.json(
-        { error: "Inicia sesión de nuevo." },
+        { error: (await authMessages()).signInAgain },
         { status: 401 }
       ),
     };
@@ -97,7 +104,7 @@ export async function authUserFromBearer(
   if (!token) {
     return {
       ok: false,
-      response: bearerError("Inicia sesión de nuevo.", 401),
+      response: bearerError((await authMessages()).signInAgain, 401),
     };
   }
   try {
@@ -106,7 +113,7 @@ export async function authUserFromBearer(
     if (error || !data?.user) {
       return {
         ok: false,
-        response: bearerError("Inicia sesión de nuevo.", 401),
+        response: bearerError((await authMessages()).signInAgain, 401),
       };
     }
     return {
@@ -122,7 +129,7 @@ export async function authUserFromBearer(
     );
     return {
       ok: false,
-      response: bearerError("Inicia sesión de nuevo.", 401),
+      response: bearerError((await authMessages()).signInAgain, 401),
     };
   }
 }
@@ -162,7 +169,7 @@ export async function authAndCompanyFromBearer(
       if (!UUID_RE.test(requested)) {
         return {
           ok: false,
-          response: bearerError("La empresa no es válida.", 400),
+          response: bearerError((await authMessages()).companyInvalid, 400),
         };
       }
       const { data, error } = await supabase
@@ -174,7 +181,7 @@ export async function authAndCompanyFromBearer(
       if (error || !data) {
         return {
           ok: false,
-          response: bearerError("No tienes acceso a esta empresa.", 403),
+          response: bearerError((await authMessages()).noCompanyAccess, 403),
         };
       }
       return { ok: true, supabase, companyId: requested, userId, email };
@@ -197,7 +204,7 @@ export async function authAndCompanyFromBearer(
     );
     return {
       ok: false,
-      response: bearerError("No pude cargar tu cuenta.", 500),
+      response: bearerError((await authMessages()).accountLoadFailed, 500),
     };
   }
 }

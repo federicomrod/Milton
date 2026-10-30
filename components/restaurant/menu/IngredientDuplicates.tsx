@@ -6,7 +6,8 @@
 // suggested (names, same unit family); a person decides what is merged. A
 // merge is one transaction in the database and is always undoable.
 
-import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -34,7 +35,7 @@ export interface DupToast {
   error?: boolean;
 }
 
-async function post(path: string, body: unknown) {
+async function post(path: string, body: unknown, fallback: string) {
   const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -46,8 +47,7 @@ async function post(path: string, body: unknown) {
     sets?: unknown[];
     unavailable?: boolean;
   };
-  if (!res.ok)
-    throw new Error(userErrorMessage(json, "No pude guardar el cambio."));
+  if (!res.ok) throw new Error(userErrorMessage(json, fallback));
   return json;
 }
 
@@ -59,6 +59,8 @@ export function useDuplicateQueue({
   duplicates: DuplicateState;
 }) {
   const router = useRouter();
+  const { d } = useT();
+  const t = d.menu.screens.dup;
   /** A merge or an undo changed recipes and prices: re-read the page's data. */
   const onChanged = () => {
     // The Reventa picker keeps the ingredient list for a minute: drop it.
@@ -191,12 +193,16 @@ export function useDuplicateQueue({
     if (!current) return;
     setBusy(true);
     try {
-      await post("/api/restaurant/ingredients/duplicates/decide", {
-        ids: current.ids,
-        action,
-        source: current.source,
-        score: current.score,
-      });
+      await post(
+        "/api/restaurant/ingredients/duplicates/decide",
+        {
+          ids: current.ids,
+          action,
+          source: current.source,
+          score: current.score,
+        },
+        t.errSaveChange
+      );
       const now = new Date().toISOString();
       if (action === "reject") {
         setNotDup((prev) => {
@@ -205,7 +211,7 @@ export function useDuplicateQueue({
             for (const b of current.ids) if (a < b) next.add(pairKey(a, b));
           return next;
         });
-        show({ message: "Listo: ese grupo no se vuelve a sugerir." });
+        show({ message: t.toastRejected });
       } else {
         // «Ahora no»: the end of the queue, still pending.
         setStored((prev) => [
@@ -220,12 +226,12 @@ export function useDuplicateQueue({
             skippedAt: now,
           },
         ]);
-        show({ message: "Queda para después, al final de la lista." });
+        show({ message: t.toastLater });
       }
       setActiveKey(null);
     } catch (err) {
       show({
-        message: err instanceof Error ? err.message : "No pude guardar.",
+        message: err instanceof Error ? err.message : t.errSave,
         error: true,
       });
     } finally {
@@ -237,25 +243,29 @@ export function useDuplicateQueue({
     if (!current || !plan) return;
     setBusy(true);
     try {
-      const json = await post("/api/restaurant/ingredients/duplicates/merge", {
-        survivor_id: plan.survivorId,
-        loser_ids: plan.loserIds,
-        chosen_cost_entry_id: plan.priceConflict ? chosenEntry : null,
-        suggestion_id:
-          current.storedId && !current.storedId.startsWith("local-")
-            ? current.storedId
-            : null,
-      });
+      const json = await post(
+        "/api/restaurant/ingredients/duplicates/merge",
+        {
+          survivor_id: plan.survivorId,
+          loser_ids: plan.loserIds,
+          chosen_cost_entry_id: plan.priceConflict ? chosenEntry : null,
+          suggestion_id:
+            current.storedId && !current.storedId.startsWith("local-")
+              ? current.storedId
+              : null,
+        },
+        t.errSaveChange
+      );
       const name = byId.get(plan.survivorId)?.name ?? "";
       show({
-        message: `Unido en ${name}. Las recetas se actualizan al instante.`,
+        message: fmt(t.toastMerged, { name }),
         undoMergeId: json.result?.merge_id,
       });
       setActiveKey(null);
       onChanged();
     } catch (err) {
       show({
-        message: err instanceof Error ? err.message : "No pude unir.",
+        message: err instanceof Error ? err.message : t.errMerge,
         error: true,
       });
     } finally {
@@ -272,20 +282,24 @@ export function useDuplicateQueue({
   ): Promise<string | null> {
     setBusy(true);
     try {
-      const json = await post("/api/restaurant/ingredients/duplicates/merge", {
-        survivor_id: survivorId,
-        loser_ids: loserIds,
-        chosen_cost_entry_id: chosenEntryId,
-        suggestion_id: null,
-      });
+      const json = await post(
+        "/api/restaurant/ingredients/duplicates/merge",
+        {
+          survivor_id: survivorId,
+          loser_ids: loserIds,
+          chosen_cost_entry_id: chosenEntryId,
+          suggestion_id: null,
+        },
+        t.errSaveChange
+      );
       show({
-        message: `Unido en ${survivorName}. Las recetas se actualizan al instante.`,
+        message: fmt(t.toastMerged, { name: survivorName }),
         undoMergeId: json.result?.merge_id,
       });
       onChanged();
       return null;
     } catch (err) {
-      return err instanceof Error ? err.message : "No pude unir.";
+      return err instanceof Error ? err.message : t.errMerge;
     } finally {
       setBusy(false);
     }
@@ -294,19 +308,21 @@ export function useDuplicateQueue({
   async function undo(mergeId: string) {
     setBusy(true);
     try {
-      await post("/api/restaurant/ingredients/duplicates/undo", {
-        merge_id: mergeId,
-      });
+      await post(
+        "/api/restaurant/ingredients/duplicates/undo",
+        { merge_id: mergeId },
+        t.errSaveChange
+      );
       setMerges((prev) =>
         prev.map((m) => (m.id === mergeId ? { ...m, undone: true } : m))
       );
       show({
-        message: "Unión deshecha: recetas, precios y nombres como estaban.",
+        message: t.toastUndone,
       });
       onChanged();
     } catch (err) {
       show({
-        message: err instanceof Error ? err.message : "No pude deshacer.",
+        message: err instanceof Error ? err.message : t.errUndo,
         error: true,
       });
     } finally {
@@ -322,22 +338,20 @@ export function useDuplicateQueue({
       const rest = dupItems.filter((i) => !i.archived && !covered.has(i.id));
       const json = await post(
         "/api/restaurant/ingredients/duplicates/suggest",
-        { items: rest }
+        { items: rest },
+        t.errSaveChange
       );
       if (json.unavailable) {
-        show({
-          message: "Solo hay sugerencias por nombre.",
-        });
+        show({ message: t.toastOnlyNames });
       } else if (!json.sets || json.sets.length === 0) {
-        show({ message: "Milton no encontró más duplicados claros." });
+        show({ message: t.toastNoMore });
       } else {
-        show({ message: `Milton encontró ${json.sets.length} grupo(s) más.` });
+        show({ message: fmt(t.toastFoundMore, { n: json.sets.length }) });
         onChanged();
       }
     } catch (err) {
       show({
-        message:
-          err instanceof Error ? err.message : "Milton no pudo sugerir ahora.",
+        message: err instanceof Error ? err.message : t.errAsk,
         error: true,
       });
     } finally {
@@ -376,9 +390,9 @@ export function useDuplicateQueue({
 
 export type DuplicateQueue = ReturnType<typeof useDuplicateQueue>;
 
-const fmtDate = (iso: string | null) =>
+const fmtDate = (iso: string | null, locale: string) =>
   iso
-    ? new Date(iso + "T12:00:00").toLocaleDateString("es", {
+    ? new Date(iso + "T12:00:00").toLocaleDateString(locale, {
         day: "numeric",
         month: "short",
       })
@@ -393,6 +407,8 @@ export function DuplicatesBanner({
   money: (n: number, unit: string | null) => string;
   canEdit: boolean;
 }) {
+  const { d, locale } = useT();
+  const t = d.menu.screens.dup;
   const [history, setHistory] = useState(false);
   const undoable = q.merges.filter((m) => !m.undone);
   if (q.queue.length === 0 && undoable.length === 0 && !q.toast && !q.canAskAi)
@@ -406,9 +422,9 @@ export function DuplicatesBanner({
     >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-[14px] font-bold text-[#1b40c8]">
-          ✦ Posibles duplicados
+          {t.title}
           {q.queue.length > 0
-            ? ` · ${q.queue.length} ${q.queue.length === 1 ? "grupo" : "grupos"}`
+            ? ` · ${fmt(q.queue.length === 1 ? t.groupsOne : t.groupsOther, { n: q.queue.length })}`
             : ""}
         </h2>
         {q.canAskAi && canEdit ? (
@@ -418,7 +434,7 @@ export function DuplicatesBanner({
             disabled={q.busy}
             className="rounded-lg border border-[#1b40c8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-60"
           >
-            {q.busy ? "Pensando…" : "✦ Pedir más a Milton"}
+            {q.busy ? t.thinking : t.askMore}
           </button>
         ) : null}
         {undoable.length > 0 ? (
@@ -427,23 +443,23 @@ export function DuplicatesBanner({
             onClick={() => setHistory((v) => !v)}
             className="text-[12px] font-semibold text-[#4a5a85] underline"
           >
-            Historial de uniones ({undoable.length})
+            {fmt(t.history, { n: undoable.length })}
           </button>
         ) : null}
         {q.queue.length > 0 ? (
           <span className="ml-auto flex items-center gap-1 text-[12px] text-[#6b7a9e]">
             <button
               type="button"
-              aria-label="Anterior"
+              aria-label={t.prev}
               onClick={() => q.move(-1)}
               className="rounded px-1.5 hover:bg-[#e6ecfb]"
             >
               ‹
             </button>
-            {q.index + 1} de {q.queue.length}
+            {fmt(t.position, { current: q.index + 1, total: q.queue.length })}
             <button
               type="button"
-              aria-label="Siguiente"
+              aria-label={t.next}
               onClick={() => q.move(1)}
               className="rounded px-1.5 hover:bg-[#e6ecfb]"
             >
@@ -478,17 +494,19 @@ export function DuplicatesBanner({
                     {c.name}
                     {keep ? (
                       <span className="ml-2 rounded bg-[#dcf3e4] px-1.5 py-0.5 text-[12px] font-semibold text-[#15803d]">
-                        Se conserva
+                        {t.kept}
                       </span>
                     ) : null}
                   </span>
                   <span className="block text-[12px] text-[#6b7a9e]">
                     {c.price !== null
-                      ? `${money(c.price, c.priceUnit)} · ${fmtDate(c.priceDate)}`
-                      : "Sin precio · —"}
+                      ? `${money(c.price, c.priceUnit)} · ${fmtDate(c.priceDate, locale)}`
+                      : `${d.menu.screens.noPrice} · —`}
                   </span>
                   <span className="block text-[12px] text-[#6b7a9e]">
-                    {c.recipeCount} {c.recipeCount === 1 ? "receta" : "recetas"}
+                    {fmt(c.recipeCount === 1 ? t.recipesOne : t.recipesOther, {
+                      n: c.recipeCount,
+                    })}
                   </span>
                 </button>
               );
@@ -496,20 +514,18 @@ export function DuplicatesBanner({
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[13px]">
             <span className="min-w-0 break-words">
-              Unir en <b>{byId.get(q.survivorId)?.name}</b> ·{" "}
+              {t.mergeInto} <b>{byId.get(q.survivorId)?.name}</b> ·{" "}
               {q.plan.linesReassigned}{" "}
-              {q.plan.linesReassigned === 1
-                ? "línea de receta se reasigna"
-                : "líneas de receta se reasignan"}{" "}
-              · los nombres quedan como alias
+              {q.plan.linesReassigned === 1 ? t.linesOne : t.linesOther} ·{" "}
+              {t.aliasTail}
             </span>
             {q.plan.priceConflict ? (
               <label className="inline-flex items-center gap-1 rounded-md bg-[#f9fafb] px-2 py-0.5 text-[12px] font-semibold text-[#6b7280]">
-                Precio:
+                {t.priceLabel}
                 <select
                   value={q.chosenEntry ?? ""}
                   onChange={(e) => q.setEntry(e.target.value)}
-                  aria-label="Precio que se conserva"
+                  aria-label={t.keptPrice}
                   className="bg-transparent font-semibold outline-none"
                 >
                   {q.plan.priceOptions.map((o) => (
@@ -527,7 +543,7 @@ export function DuplicatesBanner({
                 onClick={() => void q.decide("skip")}
                 className="rounded-lg border border-[#c6d3f5] bg-white px-3 py-1.5 font-semibold text-[#4a5a85] disabled:opacity-50"
               >
-                Ahora no
+                {t.later}
               </button>
               <button
                 type="button"
@@ -535,7 +551,7 @@ export function DuplicatesBanner({
                 onClick={() => void q.decide("reject")}
                 className="rounded-lg border border-[#c6d3f5] bg-white px-3 py-1.5 font-semibold text-[#4a5a85] disabled:opacity-50"
               >
-                No son iguales
+                {t.notSame}
               </button>
               <button
                 type="button"
@@ -543,12 +559,14 @@ export function DuplicatesBanner({
                 onClick={() => void q.merge()}
                 className="rounded-lg bg-[#2f5be0] px-4 py-1.5 font-semibold text-white hover:bg-[#1b40c8] disabled:opacity-50"
               >
-                Unir
+                {t.merge}
               </button>
             </span>
           </div>
           {!q.available ? (
-            <p className="text-[12px] text-[#6b7280]">{NOT_AVAILABLE_YET}</p>
+            <p className="text-[12px] text-[#6b7280]">
+              {d.menu.screens.notAvailableYet}
+            </p>
           ) : null}
         </>
       ) : null}
@@ -561,7 +579,7 @@ export function DuplicatesBanner({
                 <b>{m.survivorName}</b> ← {m.loserNames.join(", ")}
               </span>
               <span className="text-[12px] text-[#6b7a9e]">
-                {new Date(m.createdAt).toLocaleDateString("es", {
+                {new Date(m.createdAt).toLocaleDateString(locale, {
                   day: "numeric",
                   month: "short",
                 })}
@@ -572,7 +590,7 @@ export function DuplicatesBanner({
                 onClick={() => void q.undo(m.id)}
                 className="font-semibold text-[#1b40c8] disabled:opacity-50"
               >
-                Deshacer
+                {t.undo}
               </button>
             </li>
           ))}
@@ -596,10 +614,10 @@ export function DuplicatesBanner({
               onClick={() => void q.undo(q.toast!.undoMergeId!)}
               className="font-semibold underline"
             >
-              Deshacer
+              {t.undo}
             </button>
           ) : null}
-          <button type="button" onClick={q.dismissToast} aria-label="Cerrar">
+          <button type="button" onClick={q.dismissToast} aria-label={t.close}>
             ×
           </button>
         </div>
@@ -643,6 +661,8 @@ export function ManualMergeDialog({
   onClose: () => void;
   onMerged: (survivorId: string, loserIds: string[]) => void;
 }) {
+  const { d, lang, locale } = useT();
+  const t = d.menu.screens.dup;
   const candidates = useMemo(() => {
     const byId = new Map(items.map((i) => [i.id, i]));
     return ids
@@ -668,7 +688,8 @@ export function ManualMergeDialog({
     items.map((i) => [i.id, i.default_unit ?? i.price_unit])
   );
   const mismatch = mergeUnitMismatch(
-    candidates.map((c) => ({ name: c.name, unit: unitById.get(c.id) ?? null }))
+    candidates.map((c) => ({ name: c.name, unit: unitById.get(c.id) ?? null })),
+    lang
   );
   const survivor = candidates.find((c) => c.id === survivorId)!;
   const blocked = q.busy || !!mismatch || !q.available;
@@ -690,13 +711,11 @@ export function ManualMergeDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Unir ingredientes"
+      aria-label={t.dialogLabel}
       data-testid="manual-merge-dialog"
     >
       <div className="max-h-full w-full max-w-[640px] space-y-3 overflow-y-auto rounded-[14px] border border-[#dbe3f7] bg-white p-4 shadow-xl">
-        <h2 className="text-[15px] font-bold text-[#151c2c]">
-          ¿Cuál se conserva?
-        </h2>
+        <h2 className="text-[15px] font-bold text-[#151c2c]">{t.whichKept}</h2>
         <div className="flex flex-wrap gap-2">
           {candidates.map((c) => {
             const keep = c.id === survivorId;
@@ -718,36 +737,36 @@ export function ManualMergeDialog({
                   {c.name}
                   {keep ? (
                     <span className="ml-2 rounded bg-[#dcf3e4] px-1.5 py-0.5 text-[12px] font-semibold text-[#15803d]">
-                      Se conserva
+                      {t.kept}
                     </span>
                   ) : null}
                 </span>
                 <span className="block text-[12px] text-[#6b7a9e]">
                   {c.price !== null
-                    ? `${money(c.price, c.priceUnit)} · ${fmtDate(c.priceDate)}`
-                    : "Sin precio · —"}
+                    ? `${money(c.price, c.priceUnit)} · ${fmtDate(c.priceDate, locale)}`
+                    : `${d.menu.screens.noPrice} · —`}
                 </span>
                 <span className="block text-[12px] text-[#6b7a9e]">
-                  {c.recipeCount} {c.recipeCount === 1 ? "receta" : "recetas"}
+                  {fmt(c.recipeCount === 1 ? t.recipesOne : t.recipesOther, {
+                    n: c.recipeCount,
+                  })}
                 </span>
               </button>
             );
           })}
         </div>
         <p className="text-[13px]">
-          Unir en <b>{survivor.name}</b> · {plan.linesReassigned}{" "}
-          {plan.linesReassigned === 1
-            ? "línea de receta se reasigna"
-            : "líneas de receta se reasignan"}{" "}
-          · los nombres quedan como alias y se archivan.
+          {t.mergeInto} <b>{survivor.name}</b> · {plan.linesReassigned}{" "}
+          {plan.linesReassigned === 1 ? t.linesOne : t.linesOther} ·{" "}
+          {t.aliasTailArchive}
         </p>
         {plan.priceConflict ? (
           <label className="inline-flex items-center gap-1 rounded-md bg-[#f9fafb] px-2 py-0.5 text-[12px] font-semibold text-[#6b7280]">
-            Los precios son distintos. Precio que se conserva:
+            {t.pricesDiffer}
             <select
               value={chosenEntry ?? ""}
               onChange={(e) => setEntryPick(e.target.value)}
-              aria-label="Precio que se conserva"
+              aria-label={t.keptPrice}
               className="bg-transparent font-semibold outline-none"
             >
               {plan.priceOptions.map((o) => (
@@ -767,7 +786,9 @@ export function ManualMergeDialog({
           </p>
         ) : null}
         {!q.available ? (
-          <p className="text-[12px] text-[#6b7280]">{NOT_AVAILABLE_YET}</p>
+          <p className="text-[12px] text-[#6b7280]">
+            {d.menu.screens.notAvailableYet}
+          </p>
         ) : null}
         <div className="flex justify-end gap-2 text-[13px]">
           <button
@@ -775,7 +796,7 @@ export function ManualMergeDialog({
             onClick={onClose}
             className="rounded-lg border border-[#c6d3f5] bg-white px-3 py-1.5 font-semibold text-[#4a5a85]"
           >
-            Cancelar
+            {t.cancel}
           </button>
           <button
             type="button"
@@ -783,7 +804,7 @@ export function ManualMergeDialog({
             onClick={() => void confirm()}
             className="rounded-lg bg-[#2f5be0] px-4 py-1.5 font-semibold text-white hover:bg-[#1b40c8] disabled:opacity-50"
           >
-            {q.busy ? "Uniendo…" : "Unir"}
+            {q.busy ? t.merging : t.merge}
           </button>
         </div>
       </div>

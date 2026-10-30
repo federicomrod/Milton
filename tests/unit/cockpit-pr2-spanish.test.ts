@@ -42,9 +42,7 @@ describe("Spanish completeness for the executive cockpit (#129)", () => {
     expect(strip).toContain("% costo de comida");
     expect(strip).toContain("Ticket promedio");
     expect(strip).toContain("NotAvailableYet");
-    expect(read("components/restaurant/shell/NotAvailableYet.tsx")).toContain(
-      "Aún no disponible"
-    );
+    expect(read("lib/i18n/es/shell.ts")).toContain("Aún no disponible");
     expect(
       read("components/restaurant/cockpit/CockpitOnboardingChip.tsx")
     ).toContain("Configura tu menú");

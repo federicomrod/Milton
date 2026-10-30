@@ -1,3 +1,8 @@
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import {
   classificationFromStored,
   confirmPosProductLink,
@@ -59,14 +64,16 @@ export function attachUndoSnapshot(
 
 export function confirmLinkResult(
   base: PosProductLinkRecord,
-  confirmation: Partial<LinkConfirmation> | null | undefined
+  confirmation: Partial<LinkConfirmation> | null | undefined,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): { ok: true; link: PosProductLinkRecord } | { ok: false; error: string } {
+  const s = getDictionary(lang).menu.workspace.server;
   const error = confirmPosProductLinkError(confirmation);
   if (error || !confirmation) {
-    return { ok: false, error: error ?? CONFIRM_LINK_ERROR };
+    return { ok: false, error: error ?? s.confirmLink };
   }
   if (!canConfirmSuggestedLink(parseSuggestionEvidence(base.evidence))) {
-    return { ok: false, error: UNBOUND_CONFIRM_ERROR };
+    return { ok: false, error: s.unboundConfirm };
   }
   const confirmed = confirmPosProductLink(base, {
     confirmed_by: confirmation.confirmed_by!.trim(),
@@ -88,13 +95,14 @@ export function changeLinkResult(
     menu_item_id: string;
     evidence?: Record<string, unknown>;
     classification?: PosProductLinkRecord["classification"];
-  }
+  },
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): { ok: true; link: PosProductLinkRecord } | { ok: false; error: string } {
   const menuItemId = input.menu_item_id.trim();
   if (!menuItemId) {
     return {
       ok: false,
-      error: "Elige otra receta para vincular este producto.",
+      error: getDictionary(lang).menu.workspace.server.chooseOtherRecipe,
     };
   }
   const suggested = suggestPosProductLink(base, {
@@ -134,10 +142,14 @@ function restoreFromSnapshot(
 }
 
 export function undoConfirmedLinkResult(
-  base: PosProductLinkRecord
+  base: PosProductLinkRecord,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): { ok: true; link: PosProductLinkRecord } | { ok: false; error: string } {
   if (base.link_state !== "confirmado") {
-    return { ok: false, error: UNDO_NOT_CONFIRMED_ERROR };
+    return {
+      ok: false,
+      error: getDictionary(lang).menu.workspace.server.undoNotConfirmed,
+    };
   }
   const stored = readUndoSnapshot(base.evidence);
   if (stored) {

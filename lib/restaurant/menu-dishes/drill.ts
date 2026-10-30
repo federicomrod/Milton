@@ -10,6 +10,8 @@ import {
   rollupLeaves,
   type RollupTotals,
 } from "@/lib/restaurant/costing/rollup";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { MenuDishVariant } from "./menu-dishes";
 
 export type DrillDimension =
@@ -34,37 +36,69 @@ export const DRILL_DIMENSIONS: ReadonlyArray<{
   { id: "channel", label: "Canal", stored: "channel" },
 ];
 
-const NONE_LABEL: Record<DrillDimension, string> = {
-  product: "Producto",
-  restaurant: "Sin restaurante",
-  size: "Sin tamaño",
-  side: "Sin acompañante",
-  point: "Sin punto",
-  channel: "Salón",
-};
+const DIM_KEY = {
+  product: "dimProduct",
+  restaurant: "dimRestaurant",
+  size: "dimSize",
+  side: "dimSide",
+  point: "dimPoint",
+  channel: "dimChannel",
+} as const;
+const INLINE_KEY = {
+  product: "inlineProduct",
+  restaurant: "inlineRestaurant",
+  size: "inlineSize",
+  side: "inlineSide",
+  point: "inlinePoint",
+  channel: "inlineChannel",
+} as const;
+
+/** The name of a dimension in `lang` (capitalised). */
+export function dimensionLabel(
+  dim: DrillDimension,
+  lang: PreferredLanguage = "es"
+): string {
+  return getDictionary(lang).menu.screens.drill[DIM_KEY[dim]];
+}
+
+/** The name of a dimension inside a sentence ("por tamaño", "nach Größe"). */
+export function dimensionInline(
+  dim: DrillDimension,
+  lang: PreferredLanguage = "es"
+): string {
+  return getDictionary(lang).menu.screens.drill[INLINE_KEY[dim]];
+}
+
+/** "6 oz" / "4 personas": the size of a variant, unit words in `lang`. */
+export function sizeText(
+  v: Pick<MenuDishVariant, "size" | "size_unit">,
+  lang: PreferredLanguage = "es"
+): string | null {
+  if (v.size === null) return null;
+  const people = getDictionary(lang).menu.screens.drill.people;
+  return `${v.size} ${v.size_unit === "personas" ? people : "oz"}`;
+}
 
 /** The label a variant has on a dimension. */
 export function dimensionValue(
   v: MenuDishVariant,
-  dim: DrillDimension
+  dim: DrillDimension,
+  lang: PreferredLanguage = "es"
 ): string {
+  const t = getDictionary(lang).menu.screens.drill;
   switch (dim) {
     case "product":
-      return v.name.trim() || "Sin nombre";
+      return v.name.trim() || t.noName;
     case "restaurant":
-      return v.restaurant_label ?? NONE_LABEL.restaurant;
+      return v.restaurant_label ?? t.noRestaurant;
     case "size":
-      return v.size !== null
-        ? `${v.size} ${v.size_unit === "personas" ? "personas" : "oz"}`
-        : NONE_LABEL.size;
+      return sizeText(v, lang) ?? t.noSize;
     case "side":
-      return v.side?.trim() ? v.side.trim() : NONE_LABEL.side;
+      return v.side?.trim() ? v.side.trim() : t.noSide;
     case "point":
-      return v.cooking_point?.trim()
-        ? v.cooking_point.trim()
-        : NONE_LABEL.point;
+      return v.cooking_point?.trim() ? v.cooking_point.trim() : t.noPoint;
     case "channel":
-      return v.channel === "eventos" ? "Eventos" : "Salón";
+      return v.channel === "eventos" ? t.channelEvents : t.channelHall;
   }
 }
 
@@ -107,7 +141,8 @@ export interface ValueGroup {
 
 export function applyFilters(
   variants: readonly MenuDishVariant[],
-  filters: DrillFilters
+  filters: DrillFilters,
+  lang: PreferredLanguage = "es"
 ): MenuDishVariant[] {
   const entries = Object.entries(filters) as [
     DrillDimension,
@@ -116,8 +151,8 @@ export function applyFilters(
   return variants.filter((v) =>
     entries.every(([dim, value]) =>
       typeof value === "string"
-        ? dimensionValue(v, dim) === value
-        : value.includes(dimensionValue(v, dim))
+        ? dimensionValue(v, dim, lang) === value
+        : value.includes(dimensionValue(v, dim, lang))
     )
   );
 }
@@ -125,11 +160,12 @@ export function applyFilters(
 /** The distinct values of a dimension, biggest sales first. */
 export function dimensionValues(
   variants: readonly MenuDishVariant[],
-  dim: DrillDimension
+  dim: DrillDimension,
+  lang: PreferredLanguage = "es"
 ): string[] {
   const sales = new Map<string, number>();
   for (const v of variants) {
-    const k = dimensionValue(v, dim);
+    const k = dimensionValue(v, dim, lang);
     sales.set(k, (sales.get(k) ?? 0) + v.net_sales);
   }
   return [...sales.entries()]
@@ -162,11 +198,12 @@ export interface DrillRow {
 export function drillRows(
   variants: readonly MenuDishVariant[],
   dim: DrillDimension,
-  groups: readonly ValueGroup[] = []
+  groups: readonly ValueGroup[] = [],
+  lang: PreferredLanguage = "es"
 ): { rows: DrillRow[]; total: RollupTotals } {
   const byValue = new Map<string, MenuDishVariant[]>();
   for (const v of variants) {
-    const k = dimensionValue(v, dim);
+    const k = dimensionValue(v, dim, lang);
     byValue.set(k, [...(byValue.get(k) ?? []), v]);
   }
   const values = [...byValue.entries()]
@@ -246,10 +283,11 @@ export function crossTab(
   rowDim: DrillDimension,
   colDim: DrillDimension,
   rowGroups: readonly ValueGroup[] = [],
-  colGroups: readonly ValueGroup[] = []
+  colGroups: readonly ValueGroup[] = [],
+  lang: PreferredLanguage = "es"
 ): CrossTab {
-  const rowOf = labeler(variants, rowDim, rowGroups);
-  const colOf = labeler(variants, colDim, colGroups);
+  const rowOf = labeler(variants, rowDim, rowGroups, lang);
+  const colOf = labeler(variants, colDim, colGroups, lang);
   const rowLabels = rowOf.labels;
   const colLabels = colOf.labels;
   const sales = rowLabels.map(() => colLabels.map(() => 0));
@@ -273,7 +311,8 @@ export function crossTab(
 function labeler(
   variants: readonly MenuDishVariant[],
   dim: DrillDimension,
-  groups: readonly ValueGroup[]
+  groups: readonly ValueGroup[],
+  lang: PreferredLanguage
 ) {
   const groupOfValue = new Map<string, string>();
   for (const g of groups) {
@@ -282,7 +321,7 @@ function labeler(
     }
   }
   const of = (v: MenuDishVariant) => {
-    const value = dimensionValue(v, dim);
+    const value = dimensionValue(v, dim, lang);
     return groupOfValue.get(value) ?? value;
   };
   const sales = new Map<string, number>();

@@ -7,7 +7,8 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { fmt, getDictionary } from "@/lib/i18n";
 import { DATA_SETTINGS_HREF } from "@/lib/restaurant/navigation";
 import type {
   CockpitDataHealth,
@@ -32,7 +33,8 @@ export function DataHealthIndicator({
   lang?: PreferredLanguage;
   health: CockpitDataHealth;
 }) {
-  const label = issueLabel(lang, health.issue_count);
+  const d = getDictionary(lang).shell.health;
+  const label = issueLabel(d, health.issue_count);
   const toneClass =
     health.tone === "error"
       ? "text-red-800 dark:text-red-200"
@@ -62,16 +64,8 @@ export function DataHealthIndicator({
         className="fixed top-0 right-0 left-auto bottom-0 h-full max-h-full w-full sm:max-w-md translate-x-0 translate-y-0 rounded-none border-l p-0 gap-0 overflow-y-auto"
       >
         <DialogHeader className="px-5 pt-5 pb-3 border-b">
-          <DialogTitle>
-            {t(lang, "Data health", "Salud de los datos")}
-          </DialogTitle>
-          <DialogDescription>
-            {t(
-              lang,
-              "Readiness of the numbers on this page. The UI does not guess missing values.",
-              "Estado de los números de esta página. La interfaz no inventa valores faltantes."
-            )}
-          </DialogDescription>
+          <DialogTitle>{d.title}</DialogTitle>
+          <DialogDescription>{d.description}</DialogDescription>
         </DialogHeader>
         <ul className="px-5 py-4 space-y-3">
           {health.items.map((item) => (
@@ -83,7 +77,7 @@ export function DataHealthIndicator({
             href={DATA_SETTINGS_HREF}
             className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] rounded-sm"
           >
-            {t(lang, "Open Data & Settings →", "Abrir Datos y configuración →")}
+            {d.openSettings}
           </Link>
         </p>
       </DialogContent>
@@ -108,18 +102,13 @@ function HealthRow({ item }: { item: DataHealthItem }) {
   );
 }
 
-function issueLabel(lang: PreferredLanguage, count: number): string {
-  if (count <= 0) {
-    return t(lang, "Data health: up to date", "Salud de los datos: al día");
-  }
-  if (count === 1) {
-    return t(lang, "Data health: 1 issue", "Salud de los datos: 1 asunto");
-  }
-  return t(
-    lang,
-    `Data health: ${count} issues`,
-    `Salud de los datos: ${count} asuntos`
-  );
+function issueLabel(
+  d: ReturnType<typeof getDictionary>["shell"]["health"],
+  count: number
+): string {
+  if (count <= 0) return d.upToDate;
+  if (count === 1) return d.one;
+  return fmt(d.many, { n: count });
 }
 
 function dotClass(tone: DataHealthTone): string {

@@ -19,6 +19,8 @@
 // The server never trusts these ops: RLS, the unique index and the triggers
 // of 048 re-check everything.
 
+import { fmt, getDictionary, type Dictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type {
   GroupDimension,
   GroupMemberType,
@@ -43,11 +45,43 @@ export interface OpResult {
   state: GroupsState;
   ops: GroupOps;
   undo: GroupOps;
-  /** What happened, for the "Deshacer" toast. */
+  /** What happened, for the "Deshacer" toast (Spanish). */
   label: string;
+  /** The same text as a dictionary key + variables, to show in any language. */
+  labelKey: OpKey;
+  labelVars?: OpVars;
 }
 
-export class GroupOpError extends Error {}
+/** A key of `menu.groups.ops` in the dictionary. */
+export type OpKey = keyof Dictionary["menu"]["groups"]["ops"];
+export type OpVars = Record<string, string | number>;
+
+/** The text of an op message or label in `lang`. */
+export function opText(
+  lang: PreferredLanguage,
+  key: OpKey,
+  vars: OpVars = {}
+): string {
+  return fmt(getDictionary(lang).menu.groups.ops[key], vars);
+}
+
+/**
+ * A refused action. `message` is in Spanish (as it always was); `key` and
+ * `vars` let the screen say it in the person's language with `opText`.
+ */
+export class GroupOpError extends Error {
+  key?: OpKey;
+  vars?: OpVars;
+  constructor(message: string, key?: OpKey, vars?: OpVars) {
+    super(message);
+    this.key = key;
+    this.vars = vars;
+  }
+}
+
+function opError(key: OpKey, vars?: OpVars): GroupOpError {
+  return new GroupOpError(opText("es", key, vars), key, vars);
+}
 
 export const EMPTY_OPS: GroupOps = {
   delete_member_ids: [],
@@ -154,12 +188,19 @@ function inverseOf(before: GroupsState, ops: GroupOps): GroupOps {
   return { upsert_groups, delete_group_ids, upsert_members, delete_member_ids };
 }
 
-function finish(before: GroupsState, ops: GroupOps, label: string): OpResult {
+function finish(
+  before: GroupsState,
+  ops: GroupOps,
+  labelKey: OpKey,
+  labelVars?: OpVars
+): OpResult {
   return {
     state: applyOps(before, ops),
     ops,
     undo: inverseOf(before, ops),
-    label,
+    label: opText("es", labelKey, labelVars),
+    labelKey,
+    labelVars,
   };
 }
 
@@ -169,8 +210,8 @@ function finish(before: GroupsState, ops: GroupOps, label: string): OpResult {
 
 function cleanName(name: string): string {
   const n = name.trim().replace(/\s+/g, " ");
-  if (!n) throw new GroupOpError("Escribe un nombre para el grupo.");
-  if (n.length > 80) throw new GroupOpError("El nombre es demasiado largo.");
+  if (!n) throw opError("nameRequired");
+  if (n.length > 80) throw opError("nameTooLong");
   return n;
 }
 
@@ -191,7 +232,7 @@ function assertNameFree(
       norm(g.name) === norm(name)
   );
   if (clash) {
-    throw new GroupOpError(`Ya hay un grupo llamado «${clash.name}» ahí.`);
+    throw opError("nameClash", { name: clash.name });
   }
 }
 
@@ -211,7 +252,7 @@ function descendantsOf(state: GroupsState, id: string): Set<string> {
 
 function groupById(state: GroupsState, id: string): StoredItemGroup {
   const g = state.groups.find((x) => x.id === id);
-  if (!g) throw new GroupOpError("Ese grupo ya no existe.");
+  if (!g) throw opError("groupGone");
   return g;
 }
 
@@ -295,9 +336,7 @@ function nestDishes(
   const upsert_groups: StoredItemGroup[] = [];
   for (const d of dishes) {
     if (d.menu_dish_id.startsWith("auto:")) {
-      throw new GroupOpError(
-        "Primero guarda la agrupación de Milton para poder agrupar ese plato."
-      );
+      throw opError("saveMiltonFirst");
     }
     const existing = autoGroupOfDish(state, d.menu_dish_id);
     if (existing) {
@@ -346,7 +385,7 @@ export function createGroup(
   if (parentId) {
     const parent = groupById(state, parentId);
     if (!sameHierarchy(parent, input.hierarchy)) {
-      throw new GroupOpError("Un grupo va dentro de un grupo del mismo tipo.");
+      throw opError("sameKind");
     }
   }
   assertNameFree(state, input.hierarchy, restaurantId, parentId, name);
@@ -377,11 +416,9 @@ export function createGroup(
     );
   }
   const count = (input.items?.length ?? 0) + (input.dishes?.length ?? 0);
-  return finish(
-    state,
-    ops,
-    count > 0 ? `Grupo «${name}» creado con ${count}` : `Grupo «${name}» creado`
-  );
+  return count > 0
+    ? finish(state, ops, "createdWith", { name, count })
+    : finish(state, ops, "created", { name });
 }
 
 export function addToGroup(
@@ -405,17 +442,16 @@ export function addToGroup(
         auto &&
         (auto.id === group.id || descendantsOf(state, auto.id).has(group.id))
       ) {
-        throw new GroupOpError("Un grupo no puede ir dentro de sí mismo.");
+        throw opError("notInsideSelf");
       }
     }
     ops = mergeOps(ops, nestDishes(state, input.dishes, group.id, input.uuid));
   }
   const count = (input.items?.length ?? 0) + (input.dishes?.length ?? 0);
-  return finish(
-    state,
-    ops,
-    `${count} añadido${count === 1 ? "" : "s"} a «${group.name}»`
-  );
+  return finish(state, ops, count === 1 ? "addedOne" : "addedOther", {
+    count,
+    name: group.name,
+  });
 }
 
 /** Take items out of their explicit groups (they become sin agrupar), and dishes out of a user group. */
@@ -437,7 +473,8 @@ export function removeFromGroups(
   return finish(
     state,
     { ...EMPTY_OPS, delete_member_ids, upsert_groups },
-    `${count} sin agrupar`
+    "ungrouped",
+    { count }
   );
 }
 
@@ -487,7 +524,8 @@ export function createSuggestedGroups(
   return finish(
     state,
     ops,
-    `${made} ${made === 1 ? "sugerencia" : "sugerencias"} de Milton`
+    made === 1 ? "suggestionsOne" : "suggestionsOther",
+    { count: made }
   );
 }
 
@@ -504,11 +542,9 @@ export function confirmSuggestion(
       ? { ...found, name: cleanName(newName) }
       : found;
   if (group.status === "confirmed") {
-    return finish(
-      state,
-      { ...EMPTY_OPS },
-      `«${group.name}» ya estaba agrupado`
-    );
+    return finish(state, { ...EMPTY_OPS }, "alreadyGrouped", {
+      name: group.name,
+    });
   }
   assertNameFree(
     state,
@@ -528,7 +564,8 @@ export function confirmSuggestion(
       ...EMPTY_OPS,
       upsert_groups: [{ ...group, status: "confirmed" }],
     },
-    `Grupo «${group.name}» agrupado por Milton`
+    "acceptedByMilton",
+    { name: group.name }
   );
 }
 
@@ -539,8 +576,7 @@ export function renameGroup(
 ): OpResult {
   const group = groupById(state, groupId);
   const next = cleanName(name);
-  if (next === group.name)
-    return finish(state, { ...EMPTY_OPS }, "Sin cambios");
+  if (next === group.name) return finish(state, { ...EMPTY_OPS }, "noChanges");
   assertNameFree(
     state,
     {
@@ -556,7 +592,8 @@ export function renameGroup(
   return finish(
     state,
     { ...EMPTY_OPS, upsert_groups: [{ ...group, name: next }] },
-    `«${group.name}» ahora es «${next}»`
+    "renamed",
+    { from: group.name, to: next }
   );
 }
 
@@ -572,7 +609,7 @@ export function moveGroup(
       parent.id === group.id ||
       descendantsOf(state, group.id).has(parent.id)
     ) {
-      throw new GroupOpError("Un grupo no puede ir dentro de sí mismo.");
+      throw opError("notInsideSelf");
     }
     if (
       !sameHierarchy(parent, {
@@ -582,7 +619,7 @@ export function moveGroup(
       }) &&
       !(parent.scope === group.scope && group.scope === "product")
     ) {
-      throw new GroupOpError("Un grupo va dentro de un grupo del mismo tipo.");
+      throw opError("sameKind");
     }
   }
   assertNameFree(
@@ -600,7 +637,8 @@ export function moveGroup(
   return finish(
     state,
     { ...EMPTY_OPS, upsert_groups: [{ ...group, parent_id: parentId }] },
-    parentId ? `«${group.name}» movido` : `«${group.name}» al nivel superior`
+    parentId ? "moved" : "movedTop",
+    { name: group.name }
   );
 }
 
@@ -608,9 +646,7 @@ export function moveGroup(
 export function ungroupGroup(state: GroupsState, groupId: string): OpResult {
   const group = groupById(state, groupId);
   if (group.source === "auto") {
-    throw new GroupOpError(
-      "Los platos del menú no se deshacen: usa «Mover» o «Excluir plato»."
-    );
+    throw opError("autoNoUngroup");
   }
   const upsert_groups = state.groups
     .filter((g) => g.parent_id === group.id)
@@ -625,7 +661,8 @@ export function ungroupGroup(state: GroupsState, groupId: string): OpResult {
         .filter((m) => m.group_id === group.id)
         .map((m) => m.id),
     },
-    `Grupo «${group.name}» deshecho`
+    "dissolved",
+    { name: group.name }
   );
 }
 
@@ -636,7 +673,7 @@ export function mergeGroups(
   name?: string
 ): OpResult {
   const groups = groupIds.map((id) => groupById(state, id));
-  if (groups.length < 2) throw new GroupOpError("Elige al menos dos grupos.");
+  if (groups.length < 2) throw opError("pickTwo");
   const keep = groups[0];
   const h: Hierarchy = {
     scope: keep.scope,
@@ -645,15 +682,13 @@ export function mergeGroups(
   };
   for (const g of groups) {
     if (g.source === "auto") {
-      throw new GroupOpError("Un plato del menú no se combina con otro grupo.");
+      throw opError("autoNoMerge");
     }
     if (
       !sameHierarchy(g, h) ||
       (g.restaurant_id ?? null) !== (keep.restaurant_id ?? null)
     ) {
-      throw new GroupOpError(
-        "Solo se combinan grupos del mismo tipo y restaurante."
-      );
+      throw opError("mergeSameKind");
     }
   }
   const losers = groups.slice(1);
@@ -663,9 +698,7 @@ export function mergeGroups(
       descendantsOf(state, l.id).has(keep.id) ||
       descendantsOf(state, keep.id).has(l.id)
     ) {
-      throw new GroupOpError(
-        "No se pueden combinar un grupo y otro que está dentro de él."
-      );
+      throw opError("mergeNested");
     }
   }
   const finalName = name ? cleanName(name) : keep.name;
@@ -694,9 +727,7 @@ export function mergeGroups(
   );
   for (const g of moved) {
     if (names.has(norm(g.name))) {
-      throw new GroupOpError(
-        `Los dos grupos tienen un subgrupo «${g.name}». Renombra uno antes.`
-      );
+      throw opError("subgroupClash", { name: g.name });
     }
     names.add(norm(g.name));
   }
@@ -714,7 +745,8 @@ export function mergeGroups(
       // The losers' member rows are replaced by the moved copies.
       delete_member_ids: [],
     },
-    `${groups.length} grupos combinados en «${finalName}»`
+    "merged",
+    { count: groups.length, name: finalName }
   );
 }
 

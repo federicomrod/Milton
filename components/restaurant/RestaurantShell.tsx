@@ -47,9 +47,10 @@ import {
 } from "@/lib/restaurant/navigation";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
-  t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
+import { I18nProvider } from "@/lib/i18n/client";
 import {
   RestaurantShellChromeProvider,
   useCan,
@@ -117,30 +118,32 @@ export function RestaurantShell({
     capabilities,
   };
   return (
-    <RestaurantShellChromeProvider value={chrome}>
-      <Suspense
-        fallback={
-          <RestaurantShellBody
+    <I18nProvider lang={lang}>
+      <RestaurantShellChromeProvider value={chrome}>
+        <Suspense
+          fallback={
+            <RestaurantShellBody
+              pathname={pathname}
+              locations={locations}
+              currentLocationId={null}
+              lang={lang}
+              slim={slim}
+            >
+              {children}
+            </RestaurantShellBody>
+          }
+        >
+          <SearchParamsReader
             pathname={pathname}
             locations={locations}
-            currentLocationId={null}
             lang={lang}
             slim={slim}
           >
             {children}
-          </RestaurantShellBody>
-        }
-      >
-        <SearchParamsReader
-          pathname={pathname}
-          locations={locations}
-          lang={lang}
-          slim={slim}
-        >
-          {children}
-        </SearchParamsReader>
-      </Suspense>
-    </RestaurantShellChromeProvider>
+          </SearchParamsReader>
+        </Suspense>
+      </RestaurantShellChromeProvider>
+    </I18nProvider>
   );
 }
 
@@ -286,7 +289,7 @@ function RestaurantShellChrome({
               className="rounded-full bg-primary text-primary-foreground h-8 px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               onClick={() => openAskMilton()}
             >
-              {t(lang, "Ask Milton", "Preguntar a Milton")}
+              {getDictionary(lang).shell.sidebar.askMilton}
             </button>
             <button
               type="button"
@@ -298,7 +301,7 @@ function RestaurantShellChrome({
             >
               <Menu className="h-5 w-5" />
               <span className="sr-only">
-                {t(lang, "Open navigation", "Abrir navegación")}
+                {getDictionary(lang).shell.sidebar.openNavigation}
               </span>
             </button>
           </div>
@@ -340,7 +343,7 @@ function SlimSidebar({ lang }: { lang: PreferredLanguage }) {
           <span className="text-lg font-bold tracking-tight">milton.</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          {t(lang, "Initial setup", "Configuración inicial")}
+          {getDictionary(lang).shell.sidebar.initialSetup}
         </p>
       </div>
       <div className="flex-1" />
@@ -368,11 +371,7 @@ function SidebarNav({
   const canSeeRentabilidad = useCan("costs.fixed");
   return (
     <nav
-      aria-label={t(
-        lang,
-        "Restaurant navigation",
-        "Navegación del restaurante"
-      )}
+      aria-label={getDictionary(lang).shell.sidebar.restaurantNavigation}
       className="flex-1 overflow-y-auto px-3 py-3"
     >
       <ul className="space-y-0.5">
@@ -412,9 +411,8 @@ function SidebarBrand({
   const selected = currentLocationId
     ? (locations.find((l) => l.id === currentLocationId) ?? null)
     : null;
-  const displayLabel = selected
-    ? selected.name
-    : t(lang, "All Restaurants", "Todos los restaurantes");
+  const sidebarDict = getDictionary(lang).shell.sidebar;
+  const displayLabel = selected ? selected.name : sidebarDict.allRestaurants;
 
   // A plain <Link> per restaurant (prefetched, no imperative navigation).
   const hrefFor = (locationId: string | null) =>
@@ -450,9 +448,7 @@ function SidebarBrand({
         <DropdownMenuContent align="start" className="w-56">
           <DropdownMenuItem asChild>
             <Link href={hrefFor(null)}>
-              <span className="flex-1">
-                {t(lang, "All Restaurants", "Todos los restaurantes")}
-              </span>
+              <span className="flex-1">{sidebarDict.allRestaurants}</span>
               {!selected && <Check className="h-3.5 w-3.5" />}
             </Link>
           </DropdownMenuItem>
@@ -472,7 +468,7 @@ function SidebarBrand({
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setAddOpen(true)}>
                 <Plus className="h-3.5 w-3.5" />
-                <span>{t(lang, "Add restaurant", "Agregar restaurante")}</span>
+                <span>{sidebarDict.addRestaurant}</span>
               </DropdownMenuItem>
             </>
           ) : null}
@@ -541,7 +537,7 @@ function SidebarLink({
         <span className="truncate">{label}</span>
         {item.id === "rentabilidad" ? (
           <span className="ml-auto rounded-full bg-[#E7EDFD] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1B40C8]">
-            {t(lang, "New", "Nuevo")}
+            {getDictionary(lang).shell.sidebar.newBadge}
           </span>
         ) : null}
       </Link>
@@ -559,7 +555,7 @@ function SidebarLink({
           className="sr-only"
           data-testid="prefetch-platos"
         >
-          Platos
+          {getDictionary(lang).shell.sidebar.dishes}
         </Link>
       ) : null}
     </li>
@@ -598,7 +594,7 @@ function SidebarFooter({
           href="/management/dashboard"
           className="block px-2.5 py-1 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
-          Administración
+          {getDictionary(lang).shell.sidebar.admin}
         </Link>
       ) : null}
       <div className="flex items-center gap-1 px-2.5 text-sm text-muted-foreground">

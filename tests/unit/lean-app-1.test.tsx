@@ -10,6 +10,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard/restaurant",
   useSearchParams: () => new URLSearchParams(),
 }));
+// The Ask Milton page is an async server component that reads the company's
+// language; here the company has not chosen one, so it is the Spanish default.
+vi.mock("@/lib/restaurant/shell-context-server", () => ({
+  loadRestaurantShellChrome: async () => ({ lang: "es" }),
+}));
 vi.mock("@/components/restaurant/AskMiltonWorkspace", () => ({
   AskMiltonWorkspace: () => null,
 }));
@@ -80,8 +85,8 @@ describe("Cockpit", () => {
 });
 
 describe("Preguntar a Milton", () => {
-  it("has a Spanish title and no English subtitle", () => {
-    const html = renderToString(createElement(AskMiltonPage));
+  it("has a Spanish title and no English subtitle", async () => {
+    const html = renderToString(await AskMiltonPage());
     expect(html).toContain("Preguntar a Milton");
     expect(html).not.toContain("Ask questions about");
   });

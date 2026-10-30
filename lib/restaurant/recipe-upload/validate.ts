@@ -18,6 +18,8 @@ import {
   type ExtractedRecipe,
 } from "@/lib/restaurant/telegram/kitchen-recipe-drafts";
 import { classifyRecipeKind } from "./classify";
+import { uploadMsg } from "./messages";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export type UploadRecipeKind = "plato" | "preparacion";
 
@@ -38,7 +40,7 @@ export interface ValidatedChunk {
   ignored: IgnoredSection[];
 }
 
-export const NO_INGREDIENTS_REASON = "no encontré ingredientes";
+export const NO_INGREDIENTS_REASON = uploadMsg("es", "noIngredients");
 
 const MAX_NAME = 120;
 const MAX_REASON = 160;
@@ -172,7 +174,9 @@ export function validateUploadResponse(
   /** The chunk's text, when it is a text chunk (enables the anti-invention guard). */
   chunkText: string | null,
   /** The chunk's label (sheet/tab name), when known. */
-  tabLabel: string | null = null
+  tabLabel: string | null = null,
+  /** Language of the reasons we write ourselves (default Spanish). */
+  lang: PreferredLanguage = "es"
 ): ValidatedChunk {
   const out: ValidatedChunk = { recipes: [], ignored: [] };
   if (!raw || typeof raw !== "object") return out;
@@ -192,7 +196,7 @@ export function validateUploadResponse(
       if (name || reason) {
         out.ignored.push({
           name: name ?? "",
-          reason: reason ?? "no parece una receta",
+          reason: reason ?? uploadMsg(lang, "notARecipe"),
         });
       }
     }
@@ -207,7 +211,7 @@ export function validateUploadResponse(
     if (!name) {
       out.ignored.push({
         name: "",
-        reason: "no encontré el nombre de la receta",
+        reason: uploadMsg(lang, "noRecipeName"),
       });
       continue;
     }
@@ -242,7 +246,7 @@ export function validateUploadResponse(
     }
 
     if (lines.length === 0) {
-      out.ignored.push({ name, reason: NO_INGREDIENTS_REASON });
+      out.ignored.push({ name, reason: uploadMsg(lang, "noIngredients") });
       continue;
     }
 
@@ -273,7 +277,7 @@ export function validateUploadResponse(
       overall_confidence: confidenceOf(r.overall_confidence),
     };
     if (!validateExtractedRecipe(candidate)) {
-      out.ignored.push({ name, reason: "no pude leer bien esta receta" });
+      out.ignored.push({ name, reason: uploadMsg(lang, "unreadableRecipe") });
       continue;
     }
 

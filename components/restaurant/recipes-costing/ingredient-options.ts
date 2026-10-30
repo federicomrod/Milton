@@ -33,3 +33,17 @@ export function loadIngredientOptions(): Promise<IngredientOption[]> {
   });
   return rows;
 }
+
+/** Kitchen units whose label is a word (the rest are symbols: g, kg, oz…). */
+const WORD_UNITS = new Set(["pza", "unidad", "orden"]);
+
+/** A kitchen unit's option label in the person's language (`units` is the
+ *  dictionary's menu.editor.units). */
+export function kitchenUnitLabel(
+  unit: { value: string; label: string },
+  units: Record<string, string>
+): string {
+  return WORD_UNITS.has(unit.value)
+    ? (units[unit.value] ?? unit.label)
+    : unit.label;
+}

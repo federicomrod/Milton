@@ -14,6 +14,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { toRecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import {
   copyRecipeLinesForCompany,
@@ -29,6 +31,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const msg = getDictionary(await apiLanguage()).menu.editor.api;
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
@@ -42,25 +45,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ candidates });
   } catch (err) {
     console.error("[recipes/copy GET]", err);
-    return NextResponse.json(
-      { error: "No pude cargar las recetas para copiar." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.copyLoadFailed }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const lang = await apiLanguage();
+  const msg = getDictionary(lang).menu.editor.api;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.bodyNotJson }, { status: 400 });
   }
   const odooProductId = Number(body.odoo_product_id);
   const sourceMenuItemId =
@@ -73,17 +72,14 @@ export async function POST(req: NextRequest) {
     !sourceMenuItemId
   ) {
     return NextResponse.json(
-      { error: "Indica el producto y la receta que quieres copiar." },
+      { error: msg.copyTargetRequired },
       { status: 400 }
     );
   }
   const mode =
     body.mode === "replace" || body.mode === "append" ? body.mode : null;
   if (body.mode != null && !mode) {
-    return NextResponse.json(
-      { error: "Elige reemplazar las líneas o agregar al final." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.copyModeRequired }, { status: 400 });
   }
 
   const permission = await resolveActor(auth.supabase, auth.userId, {
@@ -100,7 +96,7 @@ export async function POST(req: NextRequest) {
     typeof body.odoo_name === "string" ? body.odoo_name.trim() : "";
   const locationId =
     typeof body.location_id === "string" ? body.location_id : null;
-  const store = createSupabaseEditorStore(auth.supabase);
+  const store = createSupabaseEditorStore(auth.supabase, lang);
 
   try {
     const result = await copyRecipeLinesForCompany({
@@ -109,7 +105,7 @@ export async function POST(req: NextRequest) {
         loadCopySource(auth.supabase, store, auth.companyId, menuItemId),
       createRecipe: async () => {
         if (!odooName) {
-          return { ok: false, error: "Falta el nombre del producto." };
+          return { ok: false, error: msg.productNameRequired };
         }
         const created = await createRecipeAndLink({
           supabase: auth.supabase,
@@ -139,6 +135,7 @@ export async function POST(req: NextRequest) {
       locationId,
       sourceMenuItemId,
       mode,
+      lang,
     });
     if (!result.ok) {
       const { status, ...rest } = result;
@@ -147,9 +144,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error("[recipes/copy POST]", err);
-    return NextResponse.json(
-      { error: "No pude copiar la receta." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.copyFailed }, { status: 500 });
   }
 }

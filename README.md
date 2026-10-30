@@ -561,6 +561,8 @@ npm run test:unit        # run once
 npm run test:unit:watch  # watch mode
 ```
 
+**Languages (es, en, de).** UI text lives in `lib/i18n/{es,en,de}/<area>.ts`; `es` is the source of truth and `en`/`de` are typed against it. Every new feature must ship its strings in all three languages. `npm run type-check` (and `tests/unit/i18n-keys.test.ts`) fails on a missing, extra or empty key and on mismatched `{placeholders}`.
+
 Located in `tests/unit/`. Cover:
 
 - All KPI calculator functions with mocked Supabase responses

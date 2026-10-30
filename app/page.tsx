@@ -2,8 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
+import { getDictionary } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const a = getDictionary(await requestLanguage()).auth.landing;
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white flex flex-col">
       {/* Inline header — no async auth check, no flicker */}
@@ -16,11 +19,11 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             <Link href="/auth/login">
               <Button size="sm" variant="ghost">
-                Sign in
+                {a.signIn}
               </Button>
             </Link>
             <Link href="/auth/signup">
-              <Button size="sm">Get started</Button>
+              <Button size="sm">{a.getStarted}</Button>
             </Link>
           </div>
         </div>
@@ -34,16 +37,11 @@ export default function HomePage() {
         </div>
 
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 max-w-2xl mb-6 leading-tight">
-          The AI operating system for{" "}
-          <span className="text-blue-600">restaurant profitability.</span>
+          {a.headline1}
+          <span className="text-blue-600">{a.headline2}</span>
         </h1>
         <div className="flex flex-wrap justify-center gap-2 mb-6">
-          {[
-            "POS sales",
-            "Food costs",
-            "Suppliers & invoices",
-            "Recipe margins",
-          ].map((label) => (
+          {[a.pill1, a.pill2, a.pill3, a.pill4].map((label) => (
             <span
               key={label}
               className="px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-sm font-medium"
@@ -54,27 +52,24 @@ export default function HomePage() {
         </div>
 
         <p className="text-lg text-gray-500 max-w-xl mb-10 leading-relaxed">
-          Track sales, food costs, suppliers, recipes, and the actions that
-          protect your margin — all in one restaurant control tower.
+          {a.body}
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link href="/auth/signup">
             <Button size="lg" className="text-base px-8">
-              Get started — it&apos;s free
+              {a.cta}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
           <Link href="/auth/login">
             <Button size="lg" variant="outline" className="text-base px-8">
-              Sign in
+              {a.signIn}
             </Button>
           </Link>
         </div>
 
-        <p className="mt-6 text-sm text-gray-400">
-          No credit card required · Setup in &lt;1 hour
-        </p>
+        <p className="mt-6 text-sm text-gray-400">{a.nocard}</p>
       </section>
 
       {/* Footer */}
@@ -95,13 +90,13 @@ export default function HomePage() {
                 href="/auth/login"
                 className="text-sm text-gray-400 hover:text-gray-900 transition-colors"
               >
-                Log in
+                {a.login}
               </Link>
               <Link
                 href="/auth/signup"
                 className="text-sm text-gray-400 hover:text-gray-900 transition-colors"
               >
-                Sign up
+                {a.signup}
               </Link>
             </div>
           </div>

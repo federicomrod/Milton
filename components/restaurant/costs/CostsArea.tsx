@@ -13,11 +13,7 @@ import { sortRows, type SortValue } from "@/lib/restaurant/table-sort";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { dishHref, ingredientHref } from "@/lib/restaurant/menu-links";
 import { costsTabHref, type CostsTab } from "@/lib/restaurant/costs-tabs";
-import {
-  formatMoney,
-  formatPct,
-  formatUnitPrice,
-} from "@/lib/restaurant/costs-format";
+import { formatPct, formatUnitPrice } from "@/lib/restaurant/costs-format";
 import type { IngredientPriceTrendRow } from "@/lib/restaurant/profitability-server";
 
 // ---------------------------------------------------------------------------
@@ -76,11 +72,21 @@ export function CostsKpiCard({
 // Tabs
 // ---------------------------------------------------------------------------
 
-const TABS: Array<{ id: CostsTab; en: string; es: string }> = [
-  { id: "costos-fijos", en: "Fixed costs", es: "Costos fijos" },
-  { id: "precios", en: "Price changes", es: "Cambios de precio" },
-  { id: "compras", en: "Purchases", es: "Compras" },
-  { id: "proveedores", en: "Suppliers", es: "Proveedores" },
+const TABS: Array<{ id: CostsTab; en: string; es: string; de: string }> = [
+  {
+    id: "costos-fijos",
+    en: "Fixed costs",
+    es: "Costos fijos",
+    de: "Fixkosten",
+  },
+  {
+    id: "precios",
+    en: "Price changes",
+    es: "Cambios de precio",
+    de: "Preisänderungen",
+  },
+  { id: "compras", en: "Purchases", es: "Compras", de: "Einkäufe" },
+  { id: "proveedores", en: "Suppliers", es: "Proveedores", de: "Lieferanten" },
 ];
 
 export function CostsAreaTabs({
@@ -95,7 +101,12 @@ export function CostsAreaTabs({
 }) {
   return (
     <nav
-      aria-label={t(lang, "Cost sections", "Secciones de costos")}
+      aria-label={t(
+        lang,
+        "Cost sections",
+        "Secciones de costos",
+        "Kostenbereiche"
+      )}
       className="flex flex-wrap gap-x-5 sm:gap-x-7 border-b border-[#dfe3ea]"
     >
       {TABS.map((tab) => (
@@ -110,7 +121,7 @@ export function CostsAreaTabs({
               : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
           }
         >
-          {t(lang, tab.en, tab.es)}
+          {t(lang, tab.en, tab.es, tab.de)}
         </Link>
       ))}
     </nav>
@@ -138,7 +149,7 @@ function AffectsCell({
         title={names}
         className="font-medium text-[#151c2c] hover:underline"
       >
-        {t(lang, "Affects 1 dish", "Afecta 1 plato")}
+        {t(lang, "Affects 1 dish", "Afecta 1 plato", "Betrifft 1 Gericht")}
       </Link>
     );
   }
@@ -151,7 +162,8 @@ function AffectsCell({
       {t(
         lang,
         `Affects ${dishes.length} dishes`,
-        `Afecta ${dishes.length} platos`
+        `Afecta ${dishes.length} platos`,
+        `Betrifft ${dishes.length} Gerichte`
       )}
     </Link>
   );
@@ -192,10 +204,16 @@ export function PriceChangesTable({
         title={t(
           lang,
           "Shows up after two prices for the same ingredient.",
-          "Aparece cuando un ingrediente tiene dos precios."
+          "Aparece cuando un ingrediente tiene dos precios.",
+          "Erscheint, sobald eine Zutat zwei Preise hat."
         )}
       >
-        {t(lang, "No price changes yet.", "Aún no hay cambios de precio.")}
+        {t(
+          lang,
+          "No price changes yet.",
+          "Aún no hay cambios de precio.",
+          "Noch keine Preisänderungen."
+        )}
       </p>
     );
   }
@@ -211,7 +229,7 @@ export function PriceChangesTable({
               onSort={toggle}
               className="px-4 py-2.5 font-medium"
             >
-              {t(lang, "Ingredient", "Ingrediente")}
+              {t(lang, "Ingredient", "Ingrediente", "Zutat")}
             </SortTh>
             <SortTh
               sortKey="supplier"
@@ -219,7 +237,7 @@ export function PriceChangesTable({
               onSort={toggle}
               className="px-4 py-2.5 font-medium"
             >
-              {t(lang, "Supplier", "Proveedor")}
+              {t(lang, "Supplier", "Proveedor", "Lieferant")}
             </SortTh>
             <SortTh
               sortKey="before"
@@ -228,7 +246,7 @@ export function PriceChangesTable({
               className="px-4 py-2.5 font-medium"
               align="right"
             >
-              {t(lang, "Before", "Antes")}
+              {t(lang, "Before", "Antes", "Vorher")}
             </SortTh>
             <SortTh
               sortKey="now"
@@ -237,7 +255,7 @@ export function PriceChangesTable({
               className="px-4 py-2.5 font-medium"
               align="right"
             >
-              {t(lang, "Now", "Ahora")}
+              {t(lang, "Now", "Ahora", "Jetzt")}
             </SortTh>
             <SortTh
               sortKey="change"
@@ -246,7 +264,7 @@ export function PriceChangesTable({
               className="px-4 py-2.5 font-medium"
               align="right"
             >
-              {t(lang, "Change", "Cambio")}
+              {t(lang, "Change", "Cambio", "Änderung")}
             </SortTh>
             <SortTh
               sortKey="affects"
@@ -254,7 +272,7 @@ export function PriceChangesTable({
               onSort={toggle}
               className="px-4 py-2.5 font-medium"
             >
-              {t(lang, "Affects", "Afecta")}
+              {t(lang, "Affects", "Afecta", "Betrifft")}
             </SortTh>
           </tr>
         </thead>
@@ -282,14 +300,20 @@ export function PriceChangesTable({
                 {formatUnitPrice(
                   trend.previous_cost,
                   trend.unit,
-                  trend.currency
+                  trend.currency,
+                  lang
                 )}
               </td>
               <td
                 className="px-4 py-2.5 text-right tabular-nums"
                 title={trend.latest_date}
               >
-                {formatUnitPrice(trend.latest_cost, trend.unit, trend.currency)}
+                {formatUnitPrice(
+                  trend.latest_cost,
+                  trend.unit,
+                  trend.currency,
+                  lang
+                )}
               </td>
               <td
                 className={

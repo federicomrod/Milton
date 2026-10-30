@@ -20,6 +20,8 @@ import {
   withMenuDraftEvidence,
 } from "@/lib/restaurant/pos-product-links";
 import { hasRecipe } from "@/lib/restaurant/recipe-costing/has-recipe";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { menuMsg } from "./messages";
 import { loadVersionLineCounts } from "@/lib/restaurant/recipe-costing/has-recipe-server";
 import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 import { wantsSuggestion } from "@/lib/restaurant/recipe-suggestion-server";
@@ -194,15 +196,17 @@ async function loadOrReadDishes(
   return { id: String(saved.id), dishes, cached: false };
 }
 
-function batchName(menu: MenuText): string {
+function batchName(menu: MenuText, lang: PreferredLanguage = "es"): string {
   if (menu.source_ref) {
     try {
-      return `Menú · ${new URL(menu.source_ref).hostname}`;
+      return menuMsg(lang, "batchUrl", {
+        host: new URL(menu.source_ref).hostname,
+      });
     } catch {
       // fall through
     }
   }
-  return "Menú · texto pegado";
+  return menuMsg(lang, "batchPasted");
 }
 
 export async function readMenuIntoDrafts(
@@ -216,12 +220,17 @@ export async function readMenuIntoDrafts(
     ai?: MenuAi;
     readSource?: typeof readMenuSource;
     loadPlatos?: LoadPeriodPlatos;
+    /** Language of the errors, reasons and notes (default Spanish). */
+    lang?: PreferredLanguage;
   }
 ): Promise<MenuReadResult> {
+  const lang = params.lang ?? "es";
   const locationId = params.locationId ?? null;
   let menu: MenuText;
   try {
-    menu = await (params.readSource ?? readMenuSource)(params.source);
+    menu = await (params.readSource ?? readMenuSource)(params.source, {
+      lang,
+    });
   } catch (err) {
     if (err instanceof MenuFetchError) throw new MenuReadError(err.message);
     throw err;
@@ -234,9 +243,7 @@ export async function readMenuIntoDrafts(
     createdBy: params.createdBy ?? null,
   });
   if (read.dishes.length === 0) {
-    throw new MenuReadError(
-      "No encontré platos en ese menú. Revisa la dirección o pega el texto del menú."
-    );
+    throw new MenuReadError(menuMsg(lang, "noDishesFound"));
   }
 
   const period = await (params.loadPlatos ?? loadPeriodPlatos)(supabase, {
@@ -345,6 +352,7 @@ export async function readMenuIntoDrafts(
       },
       menuSourceId: read.id,
       menuUrl: menu.source_ref,
+      lang,
     })
   );
 
@@ -405,7 +413,7 @@ export async function readMenuIntoDrafts(
 
   const batch = await repo.createBatch({
     companyId: params.companyId,
-    filename: batchName(menu),
+    filename: batchName(menu, lang),
     fileMonth: null,
     currency: params.currency,
     importedCount: 0,
@@ -460,7 +468,7 @@ export async function readMenuIntoDrafts(
           status: "in_review",
           effectiveDate: null,
           sourceType: "import",
-          notes: "Borrador desde el menú",
+          notes: menuMsg(lang, "draftNote"),
           inputs: [],
         });
         changes.created_recipe_version_ids = [

@@ -8,6 +8,8 @@
 // the manage-drafts flag (the server computes it; no role rules here).
 
 import { RECIPE_UPLOAD_INTRO } from "@/lib/restaurant/ui-copy";
+import { useT } from "@/lib/i18n/client";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -42,7 +44,13 @@ interface Row {
   state: RowState;
 }
 
-const GENERIC_ERROR = "No pude leer este archivo. Inténtalo de nuevo.";
+const genericError = (lang: PreferredLanguage) =>
+  t(
+    lang,
+    "I could not read this file. Try again.",
+    "No pude leer este archivo. Inténtalo de nuevo.",
+    "Ich konnte diese Datei nicht lesen. Bitte versuchen Sie es erneut."
+  );
 
 export type RecipeUploadCardHandle = {
   openPicker: () => void;
@@ -63,6 +71,7 @@ export const RecipeUploadCard = forwardRef<
   { canManage, locations, onDone, embedded = false },
   ref
 ) {
+  const { lang } = useT();
   // The person's own pick; until then the restaurant selected in Cocina
   // (?location=…), else the first one. Derived, no effect.
   const searchParams = useSearchParams();
@@ -112,7 +121,7 @@ export const RecipeUploadCard = forwardRef<
       if (!res.ok) {
         setRow(key, {
           status: "error",
-          message: userErrorMessage(data, GENERIC_ERROR),
+          message: userErrorMessage(data, genericError(lang)),
         });
         return null;
       }
@@ -120,14 +129,21 @@ export const RecipeUploadCard = forwardRef<
       if (found === 0) {
         setRow(key, {
           status: "error",
-          message: data.errors?.[0] || "No encontré recetas en este archivo.",
+          message:
+            data.errors?.[0] ||
+            t(
+              lang,
+              "I found no recipes in this file.",
+              "No encontré recetas en este archivo.",
+              "In dieser Datei habe ich keine Rezepte gefunden."
+            ),
         });
         return data;
       }
       setRow(key, { status: "ok", recipes: found });
       return data;
     } catch {
-      setRow(key, { status: "error", message: GENERIC_ERROR });
+      setRow(key, { status: "error", message: genericError(lang) });
       return null;
     }
   };
@@ -171,7 +187,7 @@ export const RecipeUploadCard = forwardRef<
       <div className="flex flex-wrap items-center gap-2">
         {locations.length > 1 ? (
           <select
-            aria-label="Local"
+            aria-label={t(lang, "Location", "Local", "Standort")}
             value={locationId}
             disabled={busy}
             onChange={(e) => setLocationId(e.target.value)}
@@ -200,7 +216,7 @@ export const RecipeUploadCard = forwardRef<
             className="bg-[#1B40C8] text-white hover:bg-[#1533A3]"
             onClick={() => inputRef.current?.click()}
           >
-            Elegir archivos
+            {t(lang, "Choose files", "Elegir archivos", "Dateien auswählen")}
           </Button>
         )}
       </div>
@@ -216,14 +232,18 @@ export const RecipeUploadCard = forwardRef<
               {row.state.status === "reading" ? (
                 <span className="inline-flex items-center gap-1 text-[#6b7280]">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Leyendo…
+                  {t(lang, "Reading…", "Leyendo…", "Wird gelesen …")}
                 </span>
               ) : row.state.status === "waiting" ? (
-                <span className="text-[#6b7280]">En espera</span>
+                <span className="text-[#6b7280]">
+                  {t(lang, "Waiting", "En espera", "Wartet")}
+                </span>
               ) : row.state.status === "ok" ? (
                 <span className="text-[#1B40C8]">
                   ✓ {row.state.recipes}{" "}
-                  {row.state.recipes === 1 ? "receta" : "recetas"}
+                  {row.state.recipes === 1
+                    ? t(lang, "recipe", "receta", "Rezept")
+                    : t(lang, "recipes", "recetas", "Rezepte")}
                 </span>
               ) : (
                 <span className="text-red-600">✗ {row.state.message}</span>
@@ -259,8 +279,22 @@ export const RecipeUploadCard = forwardRef<
   return (
     <Card data-testid="recipe-upload-card">
       <CardHeader>
-        <CardTitle>Sube tus recetas</CardTitle>
-        <CardDescription>{RECIPE_UPLOAD_INTRO}</CardDescription>
+        <CardTitle>
+          {t(
+            lang,
+            "Upload your recipes",
+            "Sube tus recetas",
+            "Rezepte hochladen"
+          )}
+        </CardTitle>
+        <CardDescription>
+          {t(
+            lang,
+            "Upload your recipes as Excel, Word, PDF or a photo. Milton prepares the drafts and you approve them.",
+            RECIPE_UPLOAD_INTRO,
+            "Laden Sie Ihre Rezepte als Excel, Word, PDF oder Foto hoch. Milton erstellt die Entwürfe und Sie geben sie frei."
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">{picker}</CardContent>
     </Card>

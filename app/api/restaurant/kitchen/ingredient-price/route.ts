@@ -6,6 +6,7 @@
 // every dish reads. The ingredient must belong to the caller's company.
 // Owner / Milton staff only.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { setIngredientPrice } from "@/lib/restaurant/recipe-costing/editor-service";
@@ -15,6 +16,7 @@ import { kitchenManagerGuard } from "@/lib/restaurant/telegram/kitchen-manager-g
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const body = (await req.json().catch(() => null)) as {
@@ -31,7 +33,7 @@ export async function POST(req: NextRequest) {
     typeof body?.ingredient_id === "string" ? body.ingredient_id : "";
   if (!ingredientId) {
     return NextResponse.json(
-      { error: "Falta el ingrediente." },
+      { error: d.kitchen.api.ingredientMissing },
       { status: 400 }
     );
   }
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.message : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude guardar el precio." },
+      { error: d.kitchen.api.priceSaveFailed },
       { status: 500 }
     );
   }

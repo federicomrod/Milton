@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { effectiveDateForNewApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import {
   actorCanApprove,
@@ -20,11 +25,15 @@ export async function submitRecipeForApproval(input: {
   recipeVersionId: string;
   /** Already read by the caller (R1-12): skips a second read. */
   version?: InReviewVersionRow | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const s = getDictionary(input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE)
+    .menu.workspace.server;
   if (!actorCanSubmitForApproval(input.actor)) {
     return {
       ok: false,
-      error: "No puedes enviar esta receta a aprobación.",
+      error: s.cannotSubmit,
     };
   }
   const version =
@@ -34,9 +43,9 @@ export async function submitRecipeForApproval(input: {
       input.companyId,
       input.recipeVersionId
     ));
-  if (!version) return { ok: false, error: "No encontré esa versión." };
+  if (!version) return { ok: false, error: s.versionNotFound };
   if (version.status === "approved") {
-    return { ok: false, error: "Esta receta ya está Aprobada." };
+    return { ok: false, error: s.alreadyApproved };
   }
   const { error } = await input.supabase
     .from("recipe_versions")
@@ -82,13 +91,17 @@ export async function approveRecipeVersion(input: {
    * the editor service on this client. Tests inject their own.
    */
   loadLiveLines?: LiveLinesLoad;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const s = getDictionary(lang).menu.workspace.server;
   const confirmation = {
     confirmed_by: input.actor.user_id,
     confirmed_at: new Date().toISOString(),
     confirmed_how: input.confirmedHow?.trim() || "en_pantalla",
   };
-  const allowed = actorCanApprove(input.actor, confirmation);
+  const allowed = actorCanApprove(input.actor, confirmation, lang);
   if (!allowed.ok) return allowed;
 
   const version =
@@ -99,9 +112,9 @@ export async function approveRecipeVersion(input: {
           input.recipeVersionId
         )
       : input.version;
-  if (!version) return { ok: false, error: "No encontré esa versión." };
+  if (!version) return { ok: false, error: s.versionNotFound };
   if (version.status === "approved") {
-    return { ok: false, error: "Esta receta ya está Aprobada." };
+    return { ok: false, error: s.alreadyApproved };
   }
 
   // The live lines, the line count and the sibling versions do not depend on
@@ -145,21 +158,20 @@ export async function approveRecipeVersion(input: {
   if (live) {
     if (!live.ok) return { ok: false, error: live.error };
     if (live.version_id !== input.recipeVersionId) {
-      return { ok: false, error: APPROVE_VERSION_MISMATCH_ERROR };
+      return { ok: false, error: s.versionMismatch };
     }
     // The same rule the Aprobar button uses (approval-live.ts).
-    const approval = liveApproval({ lines: live.lines });
+    const approval = liveApproval({ lines: live.lines }, lang);
     if (!approval.ready) {
       return {
         ok: false,
-        error:
-          approval.first?.text ?? "La receta todavía no pasa el checklist.",
+        error: approval.first?.text ?? s.checklistNotPassed,
       };
     }
   } else if ((inputCount ?? 0) === 0) {
     return {
       ok: false,
-      error: "La receta no tiene ingredientes.",
+      error: getDictionary(lang).menu.workspace.approval.blocker.noIngredients,
     };
   }
 

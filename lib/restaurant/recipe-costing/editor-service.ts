@@ -12,6 +12,8 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { findSimilarIngredient } from "@/lib/restaurant/ingredient-similar";
 import { approvalRecord, type ApprovalRecord } from "./approval-audit";
 import type { CostingData } from "@/lib/restaurant/costing";
@@ -259,8 +261,15 @@ export type EditorResult =
   | { ok: true; state: EditorState }
   | { ok: false; error: string; status?: number; conversion?: ConversionHint };
 
+/** The editor's server messages in the company's language (default Spanish). */
+function svc(lang?: PreferredLanguage) {
+  return getDictionary(lang ?? "es").menu.editor.service;
+}
+
 export interface Ctx {
   store: EditorStore;
+  /** The company's language for the messages this returns (default Spanish). */
+  lang?: PreferredLanguage;
   companyId: string;
   /** A dish (by POS product) unless componentId is set. */
   odooProductId: number;
@@ -496,13 +505,13 @@ async function build(
     editable,
     locked_reason: !version
       ? isPrep
-        ? "Esta preparación todavía no tiene receta."
-        : "Este plato todavía no tiene una receta."
+        ? svc(ctx.lang).lockedPrepNoRecipe
+        : svc(ctx.lang).lockedDishNoRecipe
       : editable
         ? null
         : isPrep
-          ? "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva."
-          : "Esta receta ya está aprobada. Para cambiarla hace falta una versión nueva.",
+          ? svc(ctx.lang).lockedPrepApproved
+          : svc(ctx.lang).lockedRecipeApproved,
     version_id: version?.id ?? null,
     version_note: loaded.version_note ?? null,
     lines,
@@ -524,7 +533,7 @@ async function build(
             source: null,
           }
         : null);
-    const checklist = preparationChecklist(lines, prepYield);
+    const checklist = preparationChecklist(lines, prepYield, ctx.lang);
     state.preparation = {
       component_id: loaded.preparation.component_id,
       name: loaded.preparation.name,
@@ -540,19 +549,19 @@ async function build(
 
 export function preparationChecklist(
   lines: readonly EditorLine[],
-  prepYield: PreparationYield | null
+  prepYield: PreparationYield | null,
+  lang?: PreferredLanguage
 ): PreparationChecklist {
+  const sv = svc(lang);
   const hasLines = lines.length > 0;
   const resolved = hasLines && !lines.some((l) => l.kind === "unresolved");
   const costs = hasLines && lines.every((l) => l.amount !== null && !l.pending);
   const yieldOk = Boolean(prepYield?.confirmed);
   const blockers: string[] = [];
-  if (!hasLines) blockers.push("La preparación no tiene ingredientes.");
-  if (hasLines && !resolved)
-    blockers.push("Hay líneas que todavía no están en tu lista.");
-  if (hasLines && resolved && !costs)
-    blockers.push("A alguna línea le falta precio o una unidad que cuadre.");
-  if (!yieldOk) blockers.push("Confirma cuánto rinde.");
+  if (!hasLines) blockers.push(sv.blockerNoLines);
+  if (hasLines && !resolved) blockers.push(sv.blockerUnresolved);
+  if (hasLines && resolved && !costs) blockers.push(sv.blockerCosts);
+  if (!yieldOk) blockers.push(sv.blockerYield);
   return {
     has_lines: hasLines,
     lines_resolved: resolved,
@@ -582,7 +591,7 @@ async function load(
       ctx.componentId
     );
     if (!prep) {
-      return { ok: false, error: "No encontré esa preparación.", status: 404 };
+      return { ok: false, error: svc(ctx.lang).prepNotFound, status: 404 };
     }
     return {
       ok: true,
@@ -599,7 +608,7 @@ async function load(
   if (!link) {
     return {
       ok: false,
-      error: "No hay un vínculo para este producto.",
+      error: svc(ctx.lang).noLink,
       status: 404,
     };
   }
@@ -618,10 +627,17 @@ async function load(
     );
     if (inForce && inForce.id !== newest.id) {
       version = inForce;
+      const sv = svc(ctx.lang);
       const when = newest.effective_date
-        ? ` entra en vigor el ${newest.effective_date}`
-        : " todavía no está en vigor";
-      version_note = `Se muestra la versión aprobada en vigor${inForce.version_number ? ` (v${inForce.version_number})` : ""}; la v${newest.version_number ?? "nueva"}${when}.`;
+        ? fmt(sv.whenEffective, { date: newest.effective_date })
+        : sv.whenNotYet;
+      version_note = fmt(sv.versionNoteInForce, {
+        version: inForce.version_number
+          ? fmt(sv.versionSuffix, { version: inForce.version_number })
+          : "",
+        newest: newest.version_number ?? sv.newestFallback,
+        when,
+      });
     }
   }
   return {
@@ -793,9 +809,6 @@ function asYieldRecord(value: unknown): Record<string, unknown> | null {
 /** "Ninguna / Pendiente" as an answer to a price-list question. */
 export const NO_PRICE_ANSWER = "none";
 
-const TYPE_QUANTITY_FIRST =
-  "Escribe cuánto lleva el plato (cantidad y unidad) antes de elegir.";
-
 /**
  * Quantity and unit for an unresolved line that is being resolved. What
  * the person typed wins; else what the file said. A line read from the
@@ -873,8 +886,10 @@ export async function setIngredientPrice(
     adoptLegacy?: boolean;
     correctUnit?: boolean;
   },
-  known: { default_unit?: string | null } | undefined
+  known: { default_unit?: string | null } | undefined,
+  lang?: PreferredLanguage
 ): Promise<SetPriceResult> {
+  const sv = svc(lang);
   const price = cleanPrice(input.unitCost);
   // A unit outside the table («taza») is accepted when the ingredient has a
   // unit of its own: saving then converts it with the ingredient's
@@ -887,14 +902,14 @@ export async function setIngredientPrice(
   if (price === null || !unit) {
     return {
       ok: false,
-      error: "Indica un precio y una unidad válidos.",
+      error: sv.invalidPriceUnit,
       status: 400,
     };
   }
   if (!known) {
     return {
       ok: false,
-      error: "Ese ingrediente no está en tu lista.",
+      error: sv.ingredientNotInList,
       status: 400,
     };
   }
@@ -904,7 +919,9 @@ export async function setIngredientPrice(
   if (merged) {
     return {
       ok: false,
-      error: `Este ingrediente se unió con ${merged.name || "otro"}; recarga la receta.`,
+      error: fmt(sv.ingredientMerged, {
+        name: merged.name || sv.otherIngredient,
+      }),
       status: 409,
     };
   }
@@ -974,7 +991,7 @@ export async function applyEdit(
   if (action.action === "set_yield" && !loaded.preparation) {
     return {
       ok: false,
-      error: "El rendimiento se confirma en la preparación.",
+      error: svc(ctx.lang).yieldInPreparation,
       status: 400,
     };
   }
@@ -984,14 +1001,14 @@ export async function applyEdit(
     if (!version) {
       return {
         ok: false,
-        error: "Este plato todavía no tiene una receta.",
+        error: svc(ctx.lang).dishNoRecipe,
         status: 400,
       };
     }
     if (version.status === "in_review") {
       return {
         ok: false,
-        error: "Ya hay un borrador abierto de esta receta.",
+        error: svc(ctx.lang).draftAlreadyOpen,
         status: 409,
       };
     }
@@ -1017,15 +1034,14 @@ export async function applyEdit(
     if (!version) {
       return {
         ok: false,
-        error: "Este plato todavía no tiene una receta.",
+        error: svc(ctx.lang).dishNoRecipe,
         status: 400,
       };
     }
     if (version.status !== "in_review") {
       return {
         ok: false,
-        error:
-          "Esta receta ya está aprobada. Para cambiarla hace falta una versión nueva.",
+        error: svc(ctx.lang).lockedRecipeApproved,
         status: 409,
       };
     }
@@ -1096,14 +1112,14 @@ export async function applyEdit(
       if (!qty || !unit) {
         return {
           ok: false,
-          error: "Indica una cantidad y una unidad válidas.",
+          error: svc(ctx.lang).invalidQuantityUnit,
           status: 400,
         };
       }
       if (!itemExists(action.kind, action.id)) {
         return {
           ok: false,
-          error: "Ese ingrediente no está en tu lista.",
+          error: svc(ctx.lang).ingredientNotInList,
           status: 400,
         };
       }
@@ -1124,7 +1140,7 @@ export async function applyEdit(
         if (!qty)
           return {
             ok: false,
-            error: "La cantidad tiene que ser mayor que cero.",
+            error: svc(ctx.lang).quantityPositive,
             status: 400,
           };
         patch.quantity = qty;
@@ -1132,13 +1148,13 @@ export async function applyEdit(
       if (action.unit !== undefined) {
         const unit = cleanUnit(action.unit);
         if (!unit)
-          return { ok: false, error: "Esa unidad no es válida.", status: 400 };
+          return { ok: false, error: svc(ctx.lang).invalidUnit, status: 400 };
         patch.unit = unit;
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
       const current = inputs.find((row) => row.id === action.input_id);
       if (!current) {
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       }
       if (patch.unit && patch.unit !== current.unit) {
         Object.assign(patch, clearedOwnCost(current));
@@ -1157,7 +1173,7 @@ export async function applyEdit(
       if (!qty || !unit) {
         return {
           ok: false,
-          error: "Indica cuánto rinde, con una unidad válida.",
+          error: svc(ctx.lang).invalidYield,
           status: 400,
         };
       }
@@ -1177,12 +1193,12 @@ export async function applyEdit(
       editedInputIds.add(action.input_id);
       const unit = cleanUnit(action.unit);
       if (!unit) {
-        return { ok: false, error: "Esa unidad no es válida.", status: 400 };
+        return { ok: false, error: svc(ctx.lang).invalidUnit, status: 400 };
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
       const current = inputs.find((row) => row.id === action.input_id);
       if (!current) {
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       }
       await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
         unit,
@@ -1198,14 +1214,14 @@ export async function applyEdit(
       if (!itemExists(action.kind, action.id)) {
         return {
           ok: false,
-          error: "Ese ingrediente no está en tu lista.",
+          error: svc(ctx.lang).ingredientNotInList,
           status: 400,
         };
       }
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
       const current = inputs.find((row) => row.id === action.input_id);
       if (!current) {
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       }
       await ctx.store.updateInput(ctx.companyId, version!, action.input_id, {
         input_type: action.kind,
@@ -1234,12 +1250,12 @@ export async function applyEdit(
     case "resolve": {
       const line = await lineByKey(action.line_key);
       if (!line || line.kind !== "unresolved") {
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       }
       if (!itemExists(action.kind, action.id)) {
         return {
           ok: false,
-          error: "Ese ingrediente no está en tu lista.",
+          error: svc(ctx.lang).ingredientNotInList,
           status: 400,
         };
       }
@@ -1249,7 +1265,11 @@ export async function applyEdit(
         "unit"
       );
       if (!amount) {
-        return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+        return {
+          ok: false,
+          error: svc(ctx.lang).typeQuantityFirst,
+          status: 400,
+        };
       }
       const row = await ctx.store.insertInput(ctx.companyId, version!, {
         input_type: action.kind,
@@ -1277,7 +1297,7 @@ export async function applyEdit(
     case "remove": {
       const line = await lineByKey(action.line_key);
       if (!line)
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       if (line.input_id) {
         await ctx.store.deleteInput(ctx.companyId, version!, line.input_id);
         // Also drop any unbound file line of the same name, so the item
@@ -1330,7 +1350,11 @@ export async function applyEdit(
             "unit"
           )
         ) {
-          return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+          return {
+            ok: false,
+            error: svc(ctx.lang).typeQuantityFirst,
+            status: 400,
+          };
         }
       }
       const name =
@@ -1341,14 +1365,14 @@ export async function applyEdit(
       if (!name || name.length > MAX_NAME) {
         return {
           ok: false,
-          error: "Escribe el nombre del ingrediente.",
+          error: svc(ctx.lang).ingredientNameRequired,
           status: 400,
         };
       }
       if (!unit) {
         return {
           ok: false,
-          error: "Elige la unidad en la que lo compras.",
+          error: svc(ctx.lang).ingredientUnitRequired,
           status: 400,
         };
       }
@@ -1357,7 +1381,7 @@ export async function applyEdit(
       if (action.unit_cost !== undefined && price === null) {
         return {
           ok: false,
-          error: "El precio no puede ser negativo.",
+          error: svc(ctx.lang).priceNegative,
           status: 400,
         };
       }
@@ -1367,7 +1391,7 @@ export async function applyEdit(
       if (existing) {
         return {
           ok: false,
-          error: `Ya existe un ingrediente llamado «${existing.name}». Elígelo de la lista.`,
+          error: fmt(svc(ctx.lang).ingredientExists, { name: existing.name }),
           status: 409,
         };
       }
@@ -1499,7 +1523,11 @@ export async function applyEdit(
             "unit"
           )
         ) {
-          return { ok: false, error: TYPE_QUANTITY_FIRST, status: 400 };
+          return {
+            ok: false,
+            error: svc(ctx.lang).typeQuantityFirst,
+            status: 400,
+          };
         }
       }
       const name =
@@ -1511,14 +1539,14 @@ export async function applyEdit(
       if (!name || name.length > MAX_NAME) {
         return {
           ok: false,
-          error: "Escribe el nombre de la preparación.",
+          error: svc(ctx.lang).preparationNameRequired,
           status: 400,
         };
       }
       if (!yieldQty || !yieldUnit) {
         return {
           ok: false,
-          error: "Indica cuánto rinde la preparación, con una unidad válida.",
+          error: svc(ctx.lang).invalidPreparationYield,
           status: 400,
         };
       }
@@ -1529,7 +1557,7 @@ export async function applyEdit(
       if (samePrep) {
         return {
           ok: false,
-          error: `Ya existe una preparación llamada «${samePrep.name}». Elígela de la lista.`,
+          error: fmt(svc(ctx.lang).preparationExists, { name: samePrep.name }),
           status: 409,
         };
       }
@@ -1567,7 +1595,7 @@ export async function applyEdit(
         if (!qty || !lineUnit) {
           return {
             ok: false,
-            error: "Indica cuánto lleva el plato, con una unidad válida.",
+            error: svc(ctx.lang).invalidDishQuantity,
             status: 400,
           };
         }
@@ -1586,14 +1614,14 @@ export async function applyEdit(
       const inputs = await ctx.store.listInputs(ctx.companyId, version!);
       const row = inputs.find((r) => r.id === action.input_id);
       if (!row) {
-        return { ok: false, error: "No encontré esa línea.", status: 404 };
+        return { ok: false, error: svc(ctx.lang).lineNotFound, status: 404 };
       }
       const cost =
         action.unit_cost === null ? null : cleanPrice(action.unit_cost);
       if (action.unit_cost !== null && cost === null) {
         return {
           ok: false,
-          error: "El precio no puede ser negativo.",
+          error: svc(ctx.lang).priceNegative,
           status: 400,
         };
       }
@@ -1674,7 +1702,8 @@ export async function applyEdit(
           adoptLegacy: action.adopt_legacy === true,
           correctUnit: action.correct_unit === true,
         },
-        data.ingredientsById.get(action.ingredient_id)
+        data.ingredientsById.get(action.ingredient_id),
+        ctx.lang
       );
       if (!out.ok) return out;
       break;
@@ -1827,14 +1856,14 @@ export async function approvePreparation(
   if (!version) {
     return {
       ok: false,
-      error: "Esta preparación no tiene receta.",
+      error: svc(ctx.lang).preparationNoRecipe,
       status: 400,
     };
   }
   if (version.status !== "in_review") {
     return {
       ok: false,
-      error: "Esta preparación ya está aprobada.",
+      error: svc(ctx.lang).preparationAlreadyApproved,
       status: 409,
     };
   }
@@ -1843,14 +1872,14 @@ export async function approvePreparation(
   if (!checklist?.ready) {
     return {
       ok: false,
-      error: checklist?.blockers[0] ?? "La preparación no pasa el checklist.",
+      error: checklist?.blockers[0] ?? svc(ctx.lang).checklistFailed,
       status: 400,
     };
   }
   const denied = await ctx.guard;
   if (denied) return denied;
   if (!ctx.userId) {
-    return { ok: false, error: "Falta quién aprueba.", status: 400 };
+    return { ok: false, error: svc(ctx.lang).approverMissing, status: 400 };
   }
   await ctx.store.approvePreparationVersion(
     ctx.companyId,
@@ -1863,8 +1892,7 @@ export async function approvePreparation(
   const approvedState: EditorState = {
     ...built.state,
     editable: false,
-    locked_reason:
-      "Esta preparación ya está aprobada. Para cambiarla hace falta una versión nueva.",
+    locked_reason: svc(ctx.lang).lockedPrepApproved,
     preparation: built.state.preparation
       ? { ...built.state.preparation, status: "approved" }
       : built.state.preparation,

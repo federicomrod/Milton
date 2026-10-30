@@ -332,7 +332,9 @@ describe("dish food-cost — Fede's «tres platos con peores márgenes»", () =>
     const lines = out.answer.split("\n").filter((l) => /^\d+\. /.test(l));
     expect(lines).toHaveLength(3);
     expect(out.answer.startsWith("Tus 3 platos con peor margen:")).toBe(true);
-    expect(lines[0]).toBe("1. Queso fundido — margen 63% · costo 37% del precio");
+    expect(lines[0]).toBe(
+      "1. Queso fundido — margen 63% · costo 37% del precio"
+    );
     expect(out.answer).not.toMatch(/QUESO FUNDIDO|Sopa|Ensalada/);
     expect(out.answer).toMatch(
       /Ojo: 1 plato aún no tiene costo, así que podría tener peor margen\./
@@ -358,7 +360,9 @@ describe("dish food-cost — Fede's «tres platos con peores márgenes»", () =>
       "dish_food_cost",
       NO_ENTITIES
     );
-    expect(out.answer).toMatch(/solo 1 plato tiene costo aprobado|Por ahora solo/);
+    expect(out.answer).toMatch(
+      /solo 1 plato tiene costo aprobado|Por ahora solo/
+    );
   });
 });
 

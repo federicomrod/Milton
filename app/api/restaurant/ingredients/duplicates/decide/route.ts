@@ -5,6 +5,7 @@
 // never suggested again). One transaction (ingredient_duplicate_decide, 051).
 
 import { requireCapability } from "@/lib/auth/permissions";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import {
   UUID,
@@ -16,20 +17,18 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const g = await gate();
   if (!g.ok) return g.response;
   const denied = requireCapability(g.actor, "ingredients.manage", {
-    message: "Tu rol no puede unir ni descartar ingredientes.",
+    message: api.roleMerge,
   });
   if (denied) return denied;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const ids = Array.isArray(body.ids)
     ? [
@@ -47,10 +46,7 @@ export async function POST(req: NextRequest) {
         ? "skip"
         : null;
   if (!action || ids.length < 2 || ids.length > 12) {
-    return NextResponse.json(
-      { error: "Elige entre 2 y 12 ingredientes y una acción." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.chooseTwoTwelve }, { status: 400 });
   }
   const { data, error } = await g.auth.supabase.rpc(
     "ingredient_duplicate_decide",
@@ -68,7 +64,7 @@ export async function POST(req: NextRequest) {
   if (error)
     return failureResponse(
       error,
-      "No pude guardar tu decisión.",
+      api.saveDecision,
       "ingredient-duplicate-decide"
     );
   return NextResponse.json({ ok: true, result: data });

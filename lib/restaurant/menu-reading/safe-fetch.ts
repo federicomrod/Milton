@@ -15,6 +15,8 @@ import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import https from "node:https";
 import type { IncomingMessage } from "node:http";
 import zlib from "node:zlib";
+import { menuMsg } from "./messages";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export const MENU_FETCH_TIMEOUT_MS = 10_000;
 export const MENU_FETCH_MAX_BYTES = 2 * 1024 * 1024;
@@ -85,23 +87,23 @@ export function isBlockedAddress(address: string): boolean {
  * Parse and check a URL a person typed. Adds https:// when the scheme is
  * missing. Throws MenuFetchError with a message for the person.
  */
-export function checkMenuUrl(raw: string): URL {
+export function checkMenuUrl(raw: string, lang: PreferredLanguage = "es"): URL {
   const text = raw.trim();
-  if (!text) throw new MenuFetchError("Escribe la dirección de tu menú.");
+  if (!text) throw new MenuFetchError(menuMsg(lang, "urlRequired"));
   let url: URL;
   try {
     url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
   } catch {
-    throw new MenuFetchError("Esa dirección no es válida.");
+    throw new MenuFetchError(menuMsg(lang, "urlInvalid"));
   }
   if (url.protocol !== "https:") {
-    throw new MenuFetchError("La dirección tiene que empezar con https://");
+    throw new MenuFetchError(menuMsg(lang, "urlHttps"));
   }
   if (url.username || url.password) {
-    throw new MenuFetchError("La dirección no puede llevar usuario ni clave.");
+    throw new MenuFetchError(menuMsg(lang, "urlCredentials"));
   }
   if (url.port && url.port !== "443") {
-    throw new MenuFetchError("La dirección no puede usar otro puerto.");
+    throw new MenuFetchError(menuMsg(lang, "urlPort"));
   }
   const host = url.hostname
     .replace(/^\[|\]$/g, "")
@@ -111,9 +113,7 @@ export function checkMenuUrl(raw: string): URL {
   // turned 2130706433, 0x7f.1 and [::ffff:127.0.0.1] into plain IP form,
   // so isIP sees every spelling of an address.
   if (isIP(host) !== 0) {
-    throw new MenuFetchError(
-      "Escribe la dirección con el nombre de la página, no con una IP."
-    );
+    throw new MenuFetchError(menuMsg(lang, "urlIp"));
   }
   if (
     !host ||
@@ -123,7 +123,7 @@ export function checkMenuUrl(raw: string): URL {
     host.endsWith(".internal") ||
     !host.includes(".")
   ) {
-    throw new MenuFetchError("Esa dirección no es una página pública.");
+    throw new MenuFetchError(menuMsg(lang, "urlNotPublic"));
   }
   url.hash = "";
   return url;
@@ -173,7 +173,8 @@ function decoded(res: IncomingMessage): NodeJS.ReadableStream {
 
 function requestOnce(
   url: URL,
-  signal: AbortSignal
+  signal: AbortSignal,
+  lang: PreferredLanguage = "es"
 ): Promise<
   | { kind: "redirect"; location: string }
   | { kind: "page"; contentType: string; body: string }
@@ -199,11 +200,7 @@ function requestOnce(
         }
         if (status < 200 || status >= 300) {
           res.resume();
-          reject(
-            new MenuFetchError(
-              `La página respondió con un error (${status}). Pega el texto del menú.`
-            )
-          );
+          reject(new MenuFetchError(menuMsg(lang, "pageError", { status })));
           return;
         }
         const contentType = String(res.headers["content-type"] ?? "")
@@ -217,17 +214,13 @@ function requestOnce(
           contentType !== "text/plain"
         ) {
           res.resume();
-          reject(
-            new MenuFetchError(
-              "Esa dirección no es una página web (puede ser un PDF o una imagen). Pega el texto del menú."
-            )
-          );
+          reject(new MenuFetchError(menuMsg(lang, "notWebPage")));
           return;
         }
         const declared = Number(res.headers["content-length"] ?? 0);
         if (declared > MENU_FETCH_MAX_BYTES) {
           res.destroy();
-          reject(new MenuFetchError("La página es demasiado grande."));
+          reject(new MenuFetchError(menuMsg(lang, "pageTooBig")));
           return;
         }
         const stream = decoded(res);
@@ -237,7 +230,7 @@ function requestOnce(
           size += chunk.length;
           if (size > MENU_FETCH_MAX_BYTES) {
             res.destroy();
-            reject(new MenuFetchError("La página es demasiado grande."));
+            reject(new MenuFetchError(menuMsg(lang, "pageTooBig")));
             return;
           }
           chunks.push(chunk);
@@ -257,13 +250,16 @@ function requestOnce(
 }
 
 /** Fetch a public menu page, following up to 3 checked redirects. */
-export async function fetchMenuPage(raw: string): Promise<FetchedPage> {
-  let url = checkMenuUrl(raw);
+export async function fetchMenuPage(
+  raw: string,
+  lang: PreferredLanguage = "es"
+): Promise<FetchedPage> {
+  let url = checkMenuUrl(raw, lang);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MENU_FETCH_TIMEOUT_MS);
   try {
     for (let hop = 0; hop <= MENU_FETCH_MAX_REDIRECTS; hop++) {
-      const result = await requestOnce(url, controller.signal);
+      const result = await requestOnce(url, controller.signal, lang);
       if (result.kind === "page") {
         return {
           url: url.toString(),
@@ -271,23 +267,19 @@ export async function fetchMenuPage(raw: string): Promise<FetchedPage> {
           body: result.body,
         };
       }
-      url = checkMenuUrl(new URL(result.location, url).toString());
+      url = checkMenuUrl(new URL(result.location, url).toString(), lang);
     }
-    throw new MenuFetchError("La página redirige demasiadas veces.");
+    throw new MenuFetchError(menuMsg(lang, "tooManyRedirects"));
   } catch (err) {
     if (err instanceof MenuFetchError) throw err;
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code === "EBLOCKED") {
-      throw new MenuFetchError("Esa dirección no es una página pública.");
+      throw new MenuFetchError(menuMsg(lang, "urlNotPublic"));
     }
     if (controller.signal.aborted || code === "ABORT_ERR") {
-      throw new MenuFetchError(
-        "La página tardó demasiado en responder. Pega el texto del menú."
-      );
+      throw new MenuFetchError(menuMsg(lang, "timeout"));
     }
-    throw new MenuFetchError(
-      "No pude abrir esa página. Revisa la dirección o pega el texto del menú."
-    );
+    throw new MenuFetchError(menuMsg(lang, "openFailed"));
   } finally {
     clearTimeout(timer);
   }

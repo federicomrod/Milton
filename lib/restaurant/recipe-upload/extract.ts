@@ -19,6 +19,7 @@ import {
   type AiUnavailable,
 } from "@/lib/ai/call";
 import type { RecipeChunk } from "./chunks";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   validateUploadResponse,
   type ExtractedUploadRecipe,
@@ -138,7 +139,8 @@ export interface ExtractionResult {
 export async function extractRecipesFromChunks(
   chunks: RecipeChunk[],
   ai: UploadAi,
-  concurrency = UPLOAD_CONCURRENCY
+  concurrency = UPLOAD_CONCURRENCY,
+  lang: PreferredLanguage = "es"
 ): Promise<ExtractionResult> {
   const results: Array<{
     recipes: ExtractedUploadRecipe[];
@@ -158,7 +160,8 @@ export async function extractRecipesFromChunks(
         const validated = validateUploadResponse(
           raw,
           chunk.kind === "text" ? (chunk.text ?? "") : null,
-          chunk.label
+          chunk.label,
+          lang
         );
         results[i] = { ...validated, failed: false };
       } catch (err) {

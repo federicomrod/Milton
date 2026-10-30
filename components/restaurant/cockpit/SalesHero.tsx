@@ -5,6 +5,7 @@
 
 "use client";
 
+import { moneyLocale } from "@/lib/restaurant/cockpit-format";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -17,7 +18,6 @@ import {
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { CockpitSalesAggregate } from "@/lib/restaurant/cockpit-aggregates";
 import { DINNER_START_HOUR } from "@/lib/restaurant/sales-revenue";
-import { localeForCurrency } from "@/lib/restaurant/currency";
 import { SalesHeatmap } from "./SalesHeatmap";
 import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 
@@ -37,7 +37,7 @@ export function SalesHero({
   cockpit: CockpitSalesAggregate;
   lang: PreferredLanguage;
 }) {
-  const locale = localeForCurrency(cockpit.currency);
+  const locale = moneyLocale(cockpit.currency, lang);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(cockpit.currency) ? cockpit.currency : "USD",
@@ -52,14 +52,16 @@ export function SalesHero({
           {t(
             lang,
             "Net sales by hour × weekday",
-            "Ventas netas por hora × día"
+            "Ventas netas por hora × día",
+            "Nettoumsatz nach Stunde × Wochentag"
           )}
         </h2>
         <p className="text-xs text-muted-foreground mb-2">
           {t(
             lang,
             `Restaurant timezone ${cockpit.timezone}. Lunch is before ${DINNER_START_HOUR}:00; dinner is ${DINNER_START_HOUR}:00 and after.`,
-            `Zona horaria del restaurante ${cockpit.timezone}. Almuerzo es antes de las ${DINNER_START_HOUR}:00; cena es desde las ${DINNER_START_HOUR}:00.`
+            `Zona horaria del restaurante ${cockpit.timezone}. Almuerzo es antes de las ${DINNER_START_HOUR}:00; cena es desde las ${DINNER_START_HOUR}:00.`,
+            `Zeitzone des Restaurants ${cockpit.timezone}. Mittagessen ist vor ${DINNER_START_HOUR}:00 Uhr; Abendessen ab ${DINNER_START_HOUR}:00 Uhr.`
           )}
         </p>
         <SalesHeatmap
@@ -71,7 +73,7 @@ export function SalesHero({
 
       <section id="almuerzo">
         <h2 className="text-base font-semibold mb-2">
-          {t(lang, "Lunch vs dinner", "Almuerzo vs cena")}
+          {t(lang, "Lunch vs dinner", "Almuerzo vs cena", "Mittag vs. Abend")}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {cockpit.dayparts.map((part) => (
@@ -81,17 +83,17 @@ export function SalesHero({
             >
               <p className="text-xs font-medium text-muted-foreground">
                 {part.daypart === "lunch"
-                  ? t(lang, "Lunch", "Almuerzo")
-                  : t(lang, "Dinner", "Cena")}{" "}
+                  ? t(lang, "Lunch", "Almuerzo", "Mittagessen")
+                  : t(lang, "Dinner", "Cena", "Abendessen")}{" "}
                 <span className="font-normal">({part.hours})</span>
               </p>
               <p className="text-lg font-semibold tabular-nums mt-0.5">
                 {money.format(part.net_sales)}
               </p>
               <p className="text-[12px] text-muted-foreground">
-                {t(lang, "Avg ticket", "Ticket promedio")}{" "}
+                {t(lang, "Avg ticket", "Ticket promedio", "Ø Bon")}{" "}
                 {money.format(part.avg_ticket)} · {part.tickets}{" "}
-                {t(lang, "tickets", "tickets")}
+                {t(lang, "tickets", "tickets", "Bons")}
               </p>
             </div>
           ))}
@@ -103,12 +105,14 @@ export function SalesHero({
           title={t(
             lang,
             "Channel mix over time",
-            "Mix de canales en el tiempo"
+            "Mix de canales en el tiempo",
+            "Kanalmix im Zeitverlauf"
           )}
           subtitle={t(
             lang,
             "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
-            "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
+            "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI).",
+            "Kalenderwochen Mo–So (nicht das gleitende 7-Tage-Fenster der Kennzahlen)."
           )}
           series={cockpit.channel_mix_over_time}
           currency={cockpit.currency}
@@ -121,12 +125,14 @@ export function SalesHero({
             title={t(
               lang,
               "Payment mix over time",
-              "Mix de pagos en el tiempo"
+              "Mix de pagos en el tiempo",
+              "Zahlungsmix im Zeitverlauf"
             )}
             subtitle={t(
               lang,
               "Calendar weeks Mon–Sun (not the rolling 7-day KPI window).",
-              "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI)."
+              "Semanas calendario lun–dom (no la ventana móvil de 7 días del KPI).",
+              "Kalenderwochen Mo–So (nicht das gleitende 7-Tage-Fenster der Kennzahlen)."
             )}
             series={cockpit.payment_mix_over_time}
             currency={cockpit.currency}
@@ -134,7 +140,12 @@ export function SalesHero({
             lang={lang}
             labelFor={(key) =>
               key === "unknown"
-                ? t(lang, "Unknown payment", "Pago desconocido")
+                ? t(
+                    lang,
+                    "Unknown payment",
+                    "Pago desconocido",
+                    "Unbekannte Zahlungsart"
+                  )
                 : key
             }
           />
@@ -180,7 +191,12 @@ function MixChart({
           <p className="text-[12px] text-muted-foreground mt-0.5">{subtitle}</p>
         ) : null}
         <p className="text-xs text-muted-foreground mt-1">
-          {t(lang, "No mix to show yet.", "Aún no hay mix para mostrar.")}
+          {t(
+            lang,
+            "No mix to show yet.",
+            "Aún no hay mix para mostrar.",
+            "Noch kein Mix vorhanden."
+          )}
         </p>
       </div>
     );

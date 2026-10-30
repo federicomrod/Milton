@@ -29,12 +29,13 @@ describe("NotAvailableYet (#128)", () => {
   const src = read("components/restaurant/shell/NotAvailableYet.tsx");
 
   it("requires a title, reason, and optional link — never a bare dash", () => {
-    expect(src).toContain("Not available yet");
-    expect(src).toContain("Aún no disponible");
+    expect(src).toContain("getDictionary(lang)");
+    expect(read("lib/i18n/en/shell.ts")).toContain("Not available yet");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Aún no disponible");
     expect(src).toContain("reason");
     expect(src).toContain("href");
-    expect(src).toContain("Add costs →");
-    expect(src).toContain("Agregar costos →");
+    expect(read("lib/i18n/en/shell.ts")).toContain("Add costs →");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Agregar costos →");
     expect(src).not.toMatch(/>\s*—\s*</);
     expect(src).not.toContain('{"—"}');
   });
@@ -44,7 +45,7 @@ describe("shown period chip", () => {
   it("is read-only and does not write ?from=/?to=", () => {
     const src = read("components/restaurant/shell/DateRangeControl.tsx");
     expect(src).toContain("data-readonly");
-    expect(src).toContain(
+    expect(read("lib/i18n/es/shell.ts")).toContain(
       "El filtro por fechas llega con la siguiente versión"
     );
     expect(src).not.toContain("router.push");

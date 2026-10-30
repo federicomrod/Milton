@@ -13,23 +13,25 @@ import {
   type DimRow,
   type ViewKey,
 } from "@/lib/restaurant/sales-detail";
+import { useT } from "@/lib/i18n/client";
 import { pctLabel } from "./format";
 
-const DIMS: Array<{ key: DimKey; label: string }> = [
-  { key: "categoria", label: "Categoría" },
-  { key: "canal", label: "Canal" },
-  { key: "pago", label: "Pago" },
-  { key: "turno", label: "Turno" },
+const DIMS: Array<{ key: DimKey }> = [
+  { key: "categoria" },
+  { key: "canal" },
+  { key: "pago" },
+  { key: "turno" },
 ];
 const VISIBLE = 20;
 
 /** Grey «≈» unless the change is ±15% or more; «—» without a comparable period. */
 export function DeltaChip({ delta }: { delta: number | null }) {
+  const { d, lang } = useT();
   if (delta === null)
     return (
       <span
         className="text-[10.5px] font-bold text-[#b0b6c3]"
-        title="Sin período comparable"
+        title={d.sales.detail.dim.noComparable}
       >
         —
       </span>
@@ -38,7 +40,7 @@ export function DeltaChip({ delta }: { delta: number | null }) {
     return (
       <span
         className="text-[10.5px] font-bold text-[#b0b6c3]"
-        title={`${pctLabel(delta, 1)}`}
+        title={`${pctLabel(delta, 1, lang)}`}
       >
         ≈
       </span>
@@ -48,7 +50,7 @@ export function DeltaChip({ delta }: { delta: number | null }) {
     <span
       className={`rounded-lg px-1.5 py-px text-[10.5px] font-bold ${up ? "bg-[#A7F3D0] text-[#0F172A]" : "bg-[#FBCFE8] text-[#0F172A]"}`}
     >
-      {pctLabel(delta)}
+      {pctLabel(delta, 0, lang)}
     </span>
   );
 }
@@ -80,6 +82,15 @@ export function DimensionPanel({
   onClear: () => void;
   onSeeDishes: (token: string | null) => void;
 }) {
+  const { d, fmt, locale } = useT();
+  const dm = d.sales.detail.dim;
+  const f0 = d.sales.detail.filter;
+  const dimLabel: Record<DimKey, string> = {
+    categoria: f0.category,
+    canal: f0.channel,
+    pago: f0.payment,
+    turno: f0.shift,
+  };
   const [showAll, setShowAll] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({
     key: "net",
@@ -95,15 +106,15 @@ export function DimensionPanel({
       const y = v(b);
       return (
         (typeof x === "string"
-          ? x.localeCompare(y as string, "es")
+          ? x.localeCompare(y as string, locale)
           : (x as number) - (y as number)) * sort.dir
       );
     });
-  }, [rows, sort]);
+  }, [rows, sort, locale]);
   const shown = mode === "tarjetas" ? rows : sorted;
   const list = showAll ? shown : shown.slice(0, VISIBLE);
   const top = rows[0]?.net ?? 0;
-  const noun = DIMS.find((d) => d.key === dim)?.label ?? "";
+  const noun = dimLabel[dim];
   const onRow = (r: DimRow, e: React.MouseEvent) =>
     onToggle(r.token, e.metaKey || e.ctrlKey || e.shiftKey);
   const head = (key: SortKey, label: string, right = true, hint?: string) => (
@@ -132,29 +143,29 @@ export function DimensionPanel({
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <div
           role="group"
-          aria-label="Dimensión"
+          aria-label={dm.groupAria}
           className="inline-flex rounded-[10px] bg-[#e9ecf2] p-[3px]"
         >
-          {dims.map((d) => (
+          {dims.map((x) => (
             <button
-              key={d.key}
+              key={x.key}
               type="button"
-              aria-pressed={dim === d.key}
-              onClick={() => onDim(d.key)}
+              aria-pressed={dim === x.key}
+              onClick={() => onDim(x.key)}
               className={
                 "rounded-lg px-3 py-1 text-[12.5px] font-semibold " +
-                (dim === d.key
+                (dim === x.key
                   ? "bg-white text-[#151c2c] shadow-sm"
                   : "text-[#5b6476]")
               }
             >
-              {d.label}
+              {dimLabel[x.key]}
             </button>
           ))}
         </div>
         <div
           role="group"
-          aria-label="Vista"
+          aria-label={f0.view}
           className="inline-flex rounded-[10px] bg-[#e9ecf2] p-[3px]"
         >
           <button
@@ -168,7 +179,7 @@ export function DimensionPanel({
                 : "text-[#5b6476]")
             }
           >
-            ▦ Tarjetas
+            {dm.cards}
           </button>
           <button
             type="button"
@@ -181,7 +192,7 @@ export function DimensionPanel({
                 : "text-[#5b6476]")
             }
           >
-            ☰ Tabla
+            {dm.table}
           </button>
         </div>
         {view.selection ? (
@@ -193,7 +204,7 @@ export function DimensionPanel({
             {view.selection.share.toFixed(1)}%
             <button
               type="button"
-              aria-label="Quitar la selección"
+              aria-label={dm.removeSelection}
               onClick={onClear}
             >
               ✕
@@ -212,15 +223,17 @@ export function DimensionPanel({
             }
             className="text-[12px] font-semibold text-[#1b40c8] hover:underline"
           >
-            Ver platos →
+            {dm.seeDishes}
           </button>
         ) : null}
-        <span className="ml-auto text-[11.5px] text-[#8a92a3]">⌘ = varias</span>
+        <span className="ml-auto text-[11.5px] text-[#8a92a3]">
+          {dm.multiHint}
+        </span>
       </div>
 
       {rows.length === 0 ? (
         <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#8a92a3]">
-          Sin ventas con estos filtros.
+          {dm.noSales}
         </p>
       ) : mode === "tarjetas" ? (
         <div
@@ -263,8 +276,10 @@ export function DimensionPanel({
                 />
               </div>
               <div className="text-[11px] text-[#8a92a3]">
-                {r.tickets} tickets ·{" "}
-                {Math.round(r.units).toLocaleString("es-MX")} unid.
+                {fmt(dm.ticketsUnits, {
+                  tickets: r.tickets,
+                  units: Math.round(r.units).toLocaleString(locale),
+                })}
               </div>
             </button>
           ))}
@@ -277,17 +292,17 @@ export function DimensionPanel({
                 <th className="w-6" />
                 {head("label", noun, false)}
                 <th className="px-2 py-1.5 text-left text-[11px] font-semibold text-[#8a92a3]">
-                  Participación
+                  {dm.share}
                 </th>
-                {head("net", "Ventas")}
-                {head("tickets", "Tickets")}
-                {head("units", "Unid.")}
-                {head("perUnit", "$/unid.")}
+                {head("net", dm.salesCol)}
+                {head("tickets", dm.ticketsCol)}
+                {head("units", dm.unitsCol)}
+                {head("perUnit", dm.perUnitCol)}
                 {head(
                   "delta",
-                  `Δ vs ${compareShort}`,
+                  fmt(dm.deltaCol, { short: compareShort }),
                   true,
-                  `Δ coloreado solo si el cambio es notable vs ${view.compare.label}`
+                  fmt(dm.deltaHint, { label: view.compare.label })
                 )}
               </tr>
             </thead>
@@ -324,7 +339,7 @@ export function DimensionPanel({
                   </td>
                   <td className="px-2 py-1 text-right">{r.tickets}</td>
                   <td className="px-2 py-1 text-right">
-                    {Math.round(r.units).toLocaleString("es-MX")}
+                    {Math.round(r.units).toLocaleString(locale)}
                   </td>
                   <td className="px-2 py-1 text-right">
                     {r.perUnit === null ? "—" : money(r.perUnit, 2)}
@@ -345,7 +360,7 @@ export function DimensionPanel({
             onClick={() => setShowAll((v) => !v)}
             className="font-semibold text-[#1b40c8] hover:underline"
           >
-            {showAll ? "Ver menos" : `Ver todas (${shown.length})`}
+            {showAll ? dm.seeLess : fmt(dm.seeAll, { n: shown.length })}
           </button>
         ) : null}
         {view.compare.baseline?.note ? (

@@ -29,7 +29,12 @@ export function MenuProfitabilityTab({
       <section>
         <div className="flex items-baseline justify-between mb-3 gap-3 flex-wrap">
           <h2 className="text-base font-semibold">
-            {t(lang, "Menu profitability", "Rentabilidad del menú")}{" "}
+            {t(
+              lang,
+              "Menu profitability",
+              "Rentabilidad del menú",
+              "Rentabilität der Speisekarte"
+            )}{" "}
             <span className="text-sm font-normal text-muted-foreground">
               ({profitability.marginRows.length})
             </span>

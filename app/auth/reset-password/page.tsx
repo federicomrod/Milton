@@ -14,6 +14,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +31,8 @@ import {
 const MIN_PASSWORD = 8;
 
 function ResetPasswordForm() {
+  const { d } = useT();
+  const a = d.auth.reset;
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<"checking" | "ready" | "invalid">(
@@ -100,20 +103,18 @@ function ResetPasswordForm() {
     e.preventDefault();
     setError(null);
     if (password.length < MIN_PASSWORD) {
-      setError("Password must be at least 8 characters.");
+      setError(a.tooShort);
       return;
     }
     if (password !== confirm) {
-      setError("Passwords don't match.");
+      setError(a.mismatch);
       return;
     }
     setLoading(true);
     const supabase = createClient();
     const { error: updateError } = await supabase.auth.updateUser({ password });
     if (updateError) {
-      setError(
-        "We couldn't update your password. The link may have expired — request a new one."
-      );
+      setError(a.updateFailed);
       setLoading(false);
       return;
     }
@@ -127,7 +128,7 @@ function ResetPasswordForm() {
     return (
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Checking your link…</CardTitle>
+          <CardTitle>{a.checking}</CardTitle>
         </CardHeader>
       </Card>
     );
@@ -137,21 +138,17 @@ function ResetPasswordForm() {
     return (
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Link expired or invalid</CardTitle>
-          <CardDescription>
-            Password reset links work once and expire after a short time.
-          </CardDescription>
+          <CardTitle>{a.invalidTitle}</CardTitle>
+          <CardDescription>{a.invalidDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           <Alert variant="destructive">
-            <AlertDescription>
-              This reset link is no longer valid.
-            </AlertDescription>
+            <AlertDescription>{a.invalidAlert}</AlertDescription>
           </Alert>
         </CardContent>
         <CardFooter>
           <Button asChild className="w-full">
-            <Link href="/auth/forgot-password">Send a new link</Link>
+            <Link href="/auth/forgot-password">{a.sendNew}</Link>
           </Button>
         </CardFooter>
       </Card>
@@ -161,10 +158,8 @@ function ResetPasswordForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Set a new password</CardTitle>
-        <CardDescription>
-          Choose a password of at least 8 characters.
-        </CardDescription>
+        <CardTitle>{a.title}</CardTitle>
+        <CardDescription>{a.description}</CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
         <CardContent className="space-y-4">
@@ -174,7 +169,7 @@ function ResetPasswordForm() {
             </Alert>
           )}
           <div className="space-y-2">
-            <Label htmlFor="new-password">New password</Label>
+            <Label htmlFor="new-password">{a.newPassword}</Label>
             <PasswordInput
               id="new-password"
               autoComplete="new-password"
@@ -184,7 +179,7 @@ function ResetPasswordForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirm-password">Confirm password</Label>
+            <Label htmlFor="confirm-password">{a.confirm}</Label>
             <PasswordInput
               id="confirm-password"
               autoComplete="new-password"
@@ -196,7 +191,7 @@ function ResetPasswordForm() {
         </CardContent>
         <CardFooter className="pt-6">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Updating..." : "Update password"}
+            {loading ? a.updating : a.submit}
           </Button>
         </CardFooter>
       </form>

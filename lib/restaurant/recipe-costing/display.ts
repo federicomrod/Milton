@@ -1,5 +1,13 @@
 import type { SuggestionEvidenceView } from "./evidence";
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  localeFor,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { formatMoneyEs } from "./format";
+
+const DEFAULT_LANG = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
 export type ProductKindLabel =
   | "Plato"
@@ -17,6 +25,52 @@ export type DisplayStateLabel =
   | "No requiere"
   | "Reventa"
   | "Sin vincular";
+
+/** The kind label in the person's language (the Spanish label is the key). */
+export function productKindText(
+  label: ProductKindLabel,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  const k = getDictionary(lang).menu.workspace.display.kind;
+  switch (label) {
+    case "Combo":
+      return k.combo;
+    case "Bebida":
+      return k.bebida;
+    case "Modificador":
+      return k.modificador;
+    case "Cargo":
+      return k.cargo;
+    default:
+      return k.plato;
+  }
+}
+
+/** The state chip label in the person's language. */
+export function displayStateText(
+  label: DisplayStateLabel,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  const s = getDictionary(lang).menu.workspace.display.state;
+  switch (label) {
+    case "Confirmado":
+      return s.confirmado;
+    case "Sugerido":
+      return s.sugerido;
+    case "Ambiguo":
+      return s.ambiguo;
+    case "Combo":
+      return s.combo;
+    case "Sin receta":
+      return s.sinReceta;
+    case "No requiere":
+      return s.noRequiere;
+    case "Reventa":
+      return s.reventa;
+    default:
+      return s.sinVincular;
+  }
+}
 
 export type ChipTone = "ok" | "sug" | "warn" | "bad" | "grey" | "pur";
 
@@ -133,7 +187,10 @@ export function evidenceChecklist(input: {
   evidence: SuggestionEvidenceView;
   pos_price: number | null;
   currency?: string;
+  lang?: PreferredLanguage;
 }): EvidenceCheckItem[] {
+  const lang = input.lang ?? DEFAULT_LANG;
+  const c = getDictionary(lang).menu.workspace.display.check;
   const items: EvidenceCheckItem[] = [];
   const block = input.block_name ?? input.evidence.block_name;
   if (block) {
@@ -141,9 +198,7 @@ export function evidenceChecklist(input: {
     items.push({
       ok: same,
       warn: !same,
-      label: same
-        ? "Nombre casi igual (singular/plural)"
-        : `Nombre distinto a «${block}»`,
+      label: same ? c.nameAlmostEqual : fmt(c.nameDiffers, { block }),
     });
   }
   if (input.pos_price != null && input.evidence.evidence_text) {
@@ -153,14 +208,21 @@ export function evidenceChecklist(input: {
       items.push({
         ok: true,
         warn: false,
-        label: `Precio de venta del Excel = POS (${formatMoneyEs(input.pos_price, input.currency)})`,
+        label: fmt(c.priceMatchesPos, {
+          price: formatMoneyEs(
+            input.pos_price,
+            input.currency,
+            undefined,
+            lang
+          ),
+        }),
       });
     }
   } else if (input.evidence.excel_match === "match") {
     items.push({
       ok: true,
       warn: false,
-      label: "Precio / costo del Excel cuadra",
+      label: c.priceCostMatches,
     });
   }
   for (const reason of input.evidence.reasons.slice(0, 3)) {
@@ -179,38 +241,47 @@ export function evidenceChecklist(input: {
     items.push({
       ok: false,
       warn: true,
-      label: "Ninguna otra receta lo vende",
+      label: c.noOtherRecipe,
     });
   }
   return items.slice(0, 4);
 }
 
-export function formatUnitsLabel(units: number): string {
+export function formatUnitsLabel(
+  units: number,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
   const rounded = Math.round(units);
-  return `${new Intl.NumberFormat("es-MX").format(rounded)} uds`;
+  return fmt(getDictionary(lang).menu.workspace.display.units, {
+    n: new Intl.NumberFormat(localeFor(lang)).format(rounded),
+  });
 }
 
 export function odooSyncLabel(
   syncedAt: string | null | undefined,
-  now: Date = new Date()
+  now: Date = new Date(),
+  lang: PreferredLanguage = DEFAULT_LANG
 ): string | null {
+  const s = getDictionary(lang).menu.workspace.display.sync;
   if (!syncedAt) return null;
   const when = new Date(syncedAt);
   if (Number.isNaN(when.getTime())) return null;
   const minutes = Math.floor(
     Math.max(0, now.getTime() - when.getTime()) / 60_000
   );
-  if (minutes < 1) return "Odoo sincronizado ahora mismo";
-  if (minutes < 60) return `Odoo sincronizado hace ${minutes} min`;
+  if (minutes < 1) return s.now;
+  if (minutes < 60) return fmt(s.minutes, { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Odoo sincronizado hace ${hours} h`;
+  if (hours < 24) return fmt(s.hours, { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `Odoo sincronizado hace ${days} d`;
-  return `Odoo sincronizado el ${when.toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  })}`;
+  if (days < 7) return fmt(s.days, { n: days });
+  return fmt(s.date, {
+    date: when.toLocaleDateString(localeFor(lang), {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+  });
 }
 
 export function posPriceFromSales(

@@ -38,7 +38,9 @@ function isRankable(
   return d.cost_status === "aprobado" && hasCost(d.food_cost_pct);
 }
 
-function toRow(d: AskMiltonMenuDish & { food_cost_pct: number }): DishFoodCostRow {
+function toRow(
+  d: AskMiltonMenuDish & { food_cost_pct: number }
+): DishFoodCostRow {
   return {
     name: displayName(d.name),
     food_cost_pct: d.food_cost_pct,
@@ -91,7 +93,10 @@ function uncostedCaveat(
       : `Note: ${count} dishes don't have a cost yet, so others could have a ${worse ? "lower" : "higher"} margin.`,
     count === 1
       ? `Ojo: 1 plato aún no tiene costo, así que podría tener ${worse ? "peor" : "mejor"} margen.`
-      : `Ojo: ${count} platos aún no tienen costo, así que podría haber otros con ${worse ? "peor" : "mejor"} margen.`
+      : `Ojo: ${count} platos aún no tienen costo, así que podría haber otros con ${worse ? "peor" : "mejor"} margen.`,
+    count === 1
+      ? `Hinweis: 1 Gericht hat noch keine Kosten, daher könnte die Marge ${worse ? "niedriger" : "höher"} ausfallen.`
+      : `Hinweis: ${count} Gerichte haben noch keine Kosten, daher könnten andere eine ${worse ? "niedrigere" : "höhere"} Marge haben.`
   );
 }
 
@@ -111,14 +116,22 @@ function header(
         : `Only ${shown} dishes have an approved cost so far, here they are:`,
       shown === 1
         ? `Por ahora solo 1 plato tiene costo aprobado:`
-        : `Por ahora solo ${shown} platos tienen costo aprobado, estos son:`
+        : `Por ahora solo ${shown} platos tienen costo aprobado, estos son:`,
+      shown === 1
+        ? `Bisher hat nur 1 Gericht freigegebene Kosten:`
+        : `Bisher haben nur ${shown} Gerichte freigegebene Kosten, hier sind sie:`
     );
   }
   if (shown === 1) {
     return t(
       lang,
-      worse ? "Your dish with the lowest margin:" : "Your dish with the best margin:",
-      worse ? "Tu plato con peor margen:" : "Tu plato con mejor margen:"
+      worse
+        ? "Your dish with the lowest margin:"
+        : "Your dish with the best margin:",
+      worse ? "Tu plato con peor margen:" : "Tu plato con mejor margen:",
+      worse
+        ? "Ihr Gericht mit der niedrigsten Marge:"
+        : "Ihr Gericht mit der besten Marge:"
     );
   }
   return t(
@@ -128,7 +141,10 @@ function header(
       : `Your ${shown} dishes with the best margin:`,
     worse
       ? `Tus ${shown} platos con peor margen:`
-      : `Tus ${shown} platos con mejor margen:`
+      : `Tus ${shown} platos con mejor margen:`,
+    worse
+      ? `Ihre ${shown} Gerichte mit der niedrigsten Marge:`
+      : `Ihre ${shown} Gerichte mit der besten Marge:`
   );
 }
 
@@ -139,11 +155,19 @@ export function dishMarginLine(
   lang: PreferredLanguage
 ): string {
   const cost = formatDishFoodCostPct(d.food_cost_pct);
-  const margin = d.margin_pct === null ? null : formatDishFoodCostPct(d.margin_pct);
+  const margin =
+    d.margin_pct === null ? null : formatDishFoodCostPct(d.margin_pct);
   const detail = t(
     lang,
-    margin ? `margin ${margin} · cost ${cost} of price` : `cost ${cost} of price`,
-    margin ? `margen ${margin} · costo ${cost} del precio` : `costo ${cost} del precio`
+    margin
+      ? `margin ${margin} · cost ${cost} of price`
+      : `cost ${cost} of price`,
+    margin
+      ? `margen ${margin} · costo ${cost} del precio`
+      : `costo ${cost} del precio`,
+    margin
+      ? `Marge ${margin} · Kosten ${cost} vom Preis`
+      : `Kosten ${cost} vom Preis`
   );
   return `${i + 1}. ${d.name} — ${detail}`;
 }
@@ -162,27 +186,33 @@ export function dishFoodCostAnswer(
   );
   const links: AskMiltonRelatedLink[] = [
     {
-      label: t(lang, "Dishes", "Platos"),
+      label: t(lang, "Dishes", "Platos", "Gerichte"),
       href: "/dashboard/restaurant/menu/platos",
     },
-    { label: t(lang, "Menu", "Menú"), href: "/dashboard/restaurant/menu" },
+    {
+      label: t(lang, "Menu", "Menú", "Speisekarte"),
+      href: "/dashboard/restaurant/menu",
+    },
   ];
   const followups = [
     direction === "worst"
       ? t(
           lang,
           "Which ingredients are most expensive?",
-          "¿Qué ingredientes salen más caros?"
+          "¿Qué ingredientes salen más caros?",
+          "Welche Zutaten sind am teuersten?"
         )
       : t(
           lang,
           "Which dishes have the lowest margin?",
-          "¿Qué platos tienen peor margen?"
+          "¿Qué platos tienen peor margen?",
+          "Welche Gerichte haben die niedrigste Marge?"
         ),
     t(
       lang,
       "Which dishes have missing recipes?",
-      "¿Qué platos no tienen receta?"
+      "¿Qué platos no tienen receta?",
+      "Welche Gerichte haben kein Rezept?"
     ),
   ];
 
@@ -192,13 +222,15 @@ export function dishFoodCostAnswer(
         t(
           lang,
           "No dish has an approved cost yet, so I can't rank margins.",
-          "Todavía ningún plato tiene costo aprobado, así que aún no puedo ordenarlos por margen."
+          "Todavía ningún plato tiene costo aprobado, así que aún no puedo ordenarlos por margen.",
+          "Noch kein Gericht hat freigegebene Kosten, daher kann ich die Margen noch nicht ordnen."
         ),
         uncosted > 0
           ? t(
               lang,
               `${uncosted} dishes are waiting for a recipe or a price in Platos.`,
-              `${uncosted} platos esperan receta o precio en Platos.`
+              `${uncosted} platos esperan receta o precio en Platos.`,
+              `${uncosted} Gerichte warten auf ein Rezept oder einen Preis unter Gerichte.`
             )
           : "",
       ]

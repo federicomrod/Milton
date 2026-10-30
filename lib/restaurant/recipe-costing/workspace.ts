@@ -1,3 +1,9 @@
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  localeFor,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import type { PosProductLinkRecord } from "@/lib/restaurant/pos-product-links";
 import {
   CLASSIFICATION_LABELS,
@@ -29,31 +35,38 @@ import {
   isMenuSuggestion,
   parseSuggestionEvidence,
   type SuggestionEvidenceView,
+  type SuggestionLineView,
 } from "./evidence";
 import {
   displayStateForProduct,
-  evidenceChecklist,
-  formatUnitsLabel,
+  displayStateText,
+  evidenceChecklist as evidenceChecklistBase,
+  formatUnitsLabel as formatUnitsLabelBase,
   namesAlmostEqual,
   posPriceFromSales,
   productKindLabel,
+  productKindText,
   type ChipTone,
   type EvidenceCheckItem,
-  type ProductKindLabel,
 } from "./display";
-import { formatMoneyEs, formatPctLabel, round1, shareToPct } from "./format";
 import {
-  COSTING_FOOTERS,
-  TODO_KIND_ACTIONS,
-  TODO_KIND_LABELS,
-  evidenceSentence,
+  formatMoneyEs as formatMoneyEsBase,
+  formatPctLabel,
+  round1,
+  shareToPct,
+} from "./format";
+import {
+  costingFooter,
+  todoKindAction,
+  todoKindLabel,
+  evidenceSentence as evidenceSentenceBase,
   isAmbiguousEvidence,
-  productReason,
-  whoApprovesNote,
+  productReason as productReasonBase,
+  whoApprovesNote as whoApprovesNoteBase,
   type TodoKind,
 } from "./copy";
 import {
-  buildApprovalChecklist,
+  buildApprovalChecklist as buildApprovalChecklistBase,
   actorNeedsClientConfirmation,
   toPermissionActor,
   type ApprovalChecklist,
@@ -68,7 +81,8 @@ import {
 } from "@/lib/restaurant/costing/dish-state";
 import {
   isUncertainEvidence,
-  toReviewLine,
+  toReviewLine as toReviewLineBase,
+  type ReviewLineView,
   type ReviewItemView,
 } from "./review";
 
@@ -150,7 +164,7 @@ export interface ClassifyQueueRow {
 export interface VincularProductRow {
   odoo_product_id: number;
   odoo_name: string;
-  kind_label: ProductKindLabel;
+  kind_label: string;
   category: string | null;
   units_sold: number;
   units_label: string;
@@ -187,7 +201,7 @@ export interface VincularProductRow {
   can_confirm_suggestion: boolean;
   suggestion_bound: boolean;
   evidence: SuggestionEvidenceView;
-  preview_lines: ReturnType<typeof toReviewLine>[];
+  preview_lines: ReviewLineView[];
   milton_cost_label: string | null;
   excel_total_label: string | null;
   confidence_label: string | null;
@@ -395,7 +409,7 @@ export interface RecipeEditorView {
   excel_total_label: string | null;
   variance_note: string | null;
   checklist: ApprovalChecklist;
-  lines: ReturnType<typeof toReviewLine>[];
+  lines: ReviewLineView[];
   yield_value: number | null;
   yield_unit: string | null;
   yield_assumed: boolean;
@@ -519,8 +533,10 @@ export function classifyTodoKind(input: {
 }
 
 function coverageSlices(
-  products: readonly RankedPosProduct[]
+  products: readonly RankedPosProduct[],
+  lang: PreferredLanguage
 ): CoverageSlice[] {
+  const w = getDictionary(lang).menu.workspace.view;
   // Shares of food net sales: excluded products are not in the bar.
   const food = products.filter((row) => row.in_food_sales);
   const total = food.reduce((sum, row) => sum + row.net_sales, 0);
@@ -545,19 +561,19 @@ function coverageSlices(
   return [
     {
       id: "aprobado",
-      label: "Aprobado",
+      label: w.sliceApproved,
       pct: pct(bucket.aprobado),
       color: "#1f9d55",
     },
     {
       id: "por_revisar",
-      label: "Por revisar",
+      label: w.sliceReview,
       pct: pct(bucket.por_revisar),
       color: "#e5e7eb",
     },
     {
       id: "sin_vincular",
-      label: "Sin vincular",
+      label: w.sliceUnlinked,
       pct: pct(bucket.sin_vincular),
       color: "#93a6e8",
     },
@@ -596,8 +612,32 @@ export function buildRecipeCostingWorkspace(input: {
   restaurants?: Array<{ id: string; name: string }>;
   viewLocationId?: string | null;
   uploadDraftPending?: boolean;
+  /** Language of the labels the view carries (default Spanish). */
+  lang?: PreferredLanguage;
 }): RecipeCostingWorkspace {
   const currency = input.currency || "USD";
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const w = getDictionary(lang).menu.workspace.view;
+  const formatMoneyEs = (
+    amount: number,
+    cur?: string,
+    opts?: { decimals?: number }
+  ) => formatMoneyEsBase(amount, cur, opts, lang);
+  const formatUnitsLabel = (units: number) => formatUnitsLabelBase(units, lang);
+  const evidenceSentence = (ev: SuggestionEvidenceView) =>
+    evidenceSentenceBase(ev, lang);
+  const evidenceChecklist = (
+    args: Parameters<typeof evidenceChecklistBase>[0]
+  ) => evidenceChecklistBase({ ...args, lang });
+  const productReason = (args: Parameters<typeof productReasonBase>[0]) =>
+    productReasonBase({ ...args, lang });
+  const toReviewLine = (
+    line: SuggestionLineView,
+    cur?: string,
+    portionCost?: number | null
+  ) => toReviewLineBase(line, cur, portionCost, lang);
+  const treatmentText = (id: PosProductClassification) =>
+    treatmentTexts(id, lang);
   const versionsByMenu = new Map<string, WorkspaceVersion[]>();
   for (const version of input.versions) {
     const list = versionsByMenu.get(version.menu_item_id) ?? [];
@@ -647,15 +687,21 @@ export function buildRecipeCostingWorkspace(input: {
       recipe_name: recipeName ?? null,
     });
     const sourceLabel = fromMenu
-      ? "del menú"
+      ? w.fromMenu
       : bound
         ? [
-            evidence.tab ? `hoja ${evidence.tab}` : null,
+            evidence.tab
+              ? fmt(getDictionary(lang).menu.workspace.copy.evidence.sheet, {
+                  tab: evidence.tab,
+                })
+              : null,
             evidence.lines.some((line) => line.source_row != null)
-              ? `fila ${
-                  evidence.lines.find((line) => line.source_row != null)
-                    ?.source_row
-                }`
+              ? fmt(w.row, {
+                  row: String(
+                    evidence.lines.find((line) => line.source_row != null)
+                      ?.source_row
+                  ),
+                })
               : null,
           ]
             .filter(Boolean)
@@ -664,7 +710,7 @@ export function buildRecipeCostingWorkspace(input: {
     return {
       odoo_product_id: product.odoo_product_id,
       odoo_name: product.odoo_name,
-      kind_label: kind,
+      kind_label: productKindText(kind, lang),
       category: product.category ?? menu?.category ?? null,
       units_sold: unitsSold,
       units_label: formatUnitsLabel(unitsSold),
@@ -690,20 +736,20 @@ export function buildRecipeCostingWorkspace(input: {
       classification: product.classification,
       classification_label: product.classification_label,
       treatment: product.treatment,
-      treatment_label: TREATMENT_RULES[product.treatment].label,
+      treatment_label: treatmentText(product.treatment).label,
       in_food_sales: product.in_food_sales,
       suggested_treatment: product.suggested_treatment?.treatment ?? null,
       suggested_treatment_reason: product.suggested_treatment?.reason ?? null,
       link_state: product.link_state,
       link_state_label: product.link_state_label,
-      display_state_label: display.label,
+      display_state_label: displayStateText(display.label, lang),
       display_state_tone: display.tone,
       menu_item_id: recipeId,
       recipe_name: recipeName ?? null,
       evidence_label: bound
         ? evidenceSentence(evidence)
         : product.link_state === "sugerido"
-          ? "La sugerencia no trae ingredientes"
+          ? w.suggestionNoIngredients
           : evidenceSentence(evidence),
       evidence_checks: evidenceChecklist({
         odoo_name: product.odoo_name,
@@ -715,6 +761,7 @@ export function buildRecipeCostingWorkspace(input: {
       confirmed: product.link_state === "confirmado",
       can_undo: product.link_state === "confirmado",
       action_label: vincularActionLabel({
+        lang,
         confirmed: product.link_state === "confirmado",
         is_combo: product.is_combo,
         classification: product.treatment,
@@ -755,7 +802,10 @@ export function buildRecipeCostingWorkspace(input: {
         namesAlmostEqual(other.odoo_name, row.odoo_name)
     );
     if (sibling) {
-      row.share_hint = `«${sibling.odoo_name}» (#${sibling.odoo_product_id}) puede compartirla solo si lleva lo mismo en la misma cantidad.`;
+      row.share_hint = fmt(w.shareHint, {
+        name: sibling.odoo_name,
+        id: sibling.odoo_product_id,
+      });
     }
   }
 
@@ -782,8 +832,8 @@ export function buildRecipeCostingWorkspace(input: {
         odoo_product_id: product.odoo_product_id,
         odoo_name: product.odoo_name,
         kind,
-        kind_label: TODO_KIND_LABELS[kind],
-        action_label: TODO_KIND_ACTIONS[kind],
+        kind_label: todoKindLabel(kind, lang),
+        action_label: todoKindAction(kind, lang),
         reason: productReason({
           kind,
           evidence,
@@ -808,7 +858,7 @@ export function buildRecipeCostingWorkspace(input: {
         odoo_name: product.odoo_name,
         menu_item_id: product.menu_item_id,
         recipe_version_id: evidence.recipe_version_id ?? latest?.id ?? null,
-        tab: evidence.tab ?? "Sin pestaña",
+        tab: evidence.tab ?? w.noTab,
         block_name: evidence.block_name,
         filename: evidence.filename,
         pending: evidence.pending,
@@ -863,10 +913,10 @@ export function buildRecipeCostingWorkspace(input: {
     row.rank = index + 1;
   });
 
-  const slices = coverageSlices(input.products);
+  const slices = coverageSlices(input.products, lang);
   // "Continuar": the next dish to do in Plato por plato (sales order).
   const nextPlato =
-    buildPlatoQueue(products, versionsByMenu).find(
+    buildPlatoQueue(products, versionsByMenu, lang).find(
       (row) => row.status !== "listo"
     ) ?? null;
   const excelUploaded =
@@ -874,7 +924,7 @@ export function buildRecipeCostingWorkspace(input: {
     input.batches.length > 0 ||
     input.versions.some((v) => v.source_type === "import");
   const platoQueue = withDishStatus(
-    buildPlatoQueue(products, versionsByMenu),
+    buildPlatoQueue(products, versionsByMenu, lang),
     input.dishEconomics ?? null
   );
   const platoSelectedId =
@@ -894,6 +944,7 @@ export function buildRecipeCostingWorkspace(input: {
           ? (versionsByMenu.get(selected.menu_item_id) ?? [])
           : [],
         currency,
+        lang,
       })
     : null;
   if (editor && input.view === "plato") {
@@ -945,19 +996,19 @@ export function buildRecipeCostingWorkspace(input: {
         : rows.reduce((sum, p) => sum + shareToPct(p.share_of_food_sales), 0);
     return {
       id,
-      label: TREATMENT_RULES[id].label,
+      label: treatmentText(id).label,
       count: rows.length,
-      hint: TREATMENT_RULES[id].hint,
-      share_label:
-        id === "excluido"
-          ? `${formatPctLabel(round1(share))} de todas las ventas`
-          : `${formatPctLabel(round1(share))} de ventas de comida`,
+      hint: treatmentText(id).hint,
+      share_label: fmt(
+        id === "excluido" ? w.shareOfAllSales : w.shareOfFoodSales,
+        { pct: formatPctLabel(round1(share)) }
+      ),
     };
   });
   const classifyQueue: ClassifyQueueRow[] = toClassify.map((product) => {
     const suggestion = product.suggested_treatment ?? {
       treatment: "plato_preparado" as const,
-      reason: "Se vende como plato",
+      reason: w.soldAsDish,
     };
     return {
       odoo_product_id: product.odoo_product_id,
@@ -967,7 +1018,7 @@ export function buildRecipeCostingWorkspace(input: {
         decimals: 0,
       }),
       suggested: suggestion.treatment,
-      suggested_label: TREATMENT_RULES[suggestion.treatment].label,
+      suggested_label: treatmentText(suggestion.treatment).label,
       reason: suggestion.reason,
     };
   });
@@ -1002,18 +1053,22 @@ export function buildRecipeCostingWorkspace(input: {
       }),
       excluded_note:
         excludedNet > 0
-          ? `${formatMoneyEs(excludedNet, currency, { decimals: 0 })} marcados como «no es comida» no cuentan en la cobertura.`
+          ? fmt(w.excludedNote, {
+              amount: formatMoneyEs(excludedNet, currency, { decimals: 0 }),
+            })
           : null,
       dishes_approved: approvedDishes,
       dishes_need_recipe: needRecipe,
       slices,
-      margins_note: `Los márgenes del Menú y Costos solo usan el ${formatPctLabel(input.coveragePct)} aprobado.`,
+      margins_note: fmt(w.marginsNote, {
+        pct: formatPctLabel(input.coveragePct),
+      }),
       goal_pct: COVERAGE_GOAL_PCT,
       goal_reached: input.coveragePct >= COVERAGE_GOAL_PCT,
       goal_note:
         input.coveragePct >= COVERAGE_GOAL_PCT
-          ? "Llegaste a la meta del 90%. Puedes seguir con los demás platos cuando quieras."
-          : `Meta: ${COVERAGE_GOAL_PCT}% de las ventas de comida con costo aprobado.`,
+          ? w.goalReached
+          : fmt(w.goalNote, { goal: COVERAGE_GOAL_PCT }),
     },
     upload_draft_pending: input.uploadDraftPending ?? false,
     item_groups: input.dishEconomics?.item_groups ?? null,
@@ -1048,28 +1103,33 @@ export function buildRecipeCostingWorkspace(input: {
     setup_checklist: [
       {
         id: "pos",
-        label: "POS conectado",
+        label: w.setupPos,
         detail:
           input.products.length > 0
-            ? `${input.products.length} productos de Odoo con ventas`
-            : "Todavía no llegan ventas de Odoo. Conecta tu POS en Datos.",
+            ? fmt(w.setupPosDetail, { n: input.products.length })
+            : w.setupPosNone,
         done: input.products.length > 0,
       },
       {
         id: "excel",
-        label: "Excel de costos subido",
+        label: w.setupExcel,
         // Any live upload or import counts (a price list without recipe
         // blocks, or recipes imported from the file), not only the newest
         // batch with recipe blocks.
         detail: excelUploaded
-          ? (input.latestUpload?.filename ?? "Recetas importadas del archivo")
-          : "Sube tu archivo de costos.",
+          ? (input.latestUpload?.filename ?? w.setupExcelImported)
+          : w.setupExcelUpload,
         done: excelUploaded,
       },
       {
         id: "platos",
-        label: "Platos vinculados",
-        detail: `${linked} de ${needRecipe} confirmados · ${suggestedLinks} sugeridos · ${approvedDishes} aprobados`,
+        label: w.setupDishes,
+        detail: fmt(w.setupDishesDetail, {
+          linked,
+          need: needRecipe,
+          suggested: suggestedLinks,
+          approved: approvedDishes,
+        }),
         done: needRecipe > 0 && unresolved === 0,
       },
     ],
@@ -1078,7 +1138,7 @@ export function buildRecipeCostingWorkspace(input: {
           odoo_product_id: nextPlato.odoo_product_id,
           odoo_name: nextPlato.odoo_name,
           view: "plato",
-          label: `Continuar: ${nextPlato.odoo_name} →`,
+          label: fmt(w.continueWith, { name: nextPlato.odoo_name }),
         }
       : null,
     last_progress: input.lastProgress ?? null,
@@ -1087,21 +1147,21 @@ export function buildRecipeCostingWorkspace(input: {
     classification: classificationRows,
     classify_queue: classifyQueue,
     plato_queue: platoQueue,
-    plato_progress: platoProgress(platoQueue),
+    plato_progress: platoProgress(platoQueue, lang),
     treatment_options: PICKABLE_TREATMENTS.map((id) => ({
       id,
-      label: TREATMENT_RULES[id].label,
-      hint: TREATMENT_RULES[id].hint,
+      label: treatmentText(id).label,
+      hint: treatmentText(id).hint,
     })),
-    who_approves: whoApprovesNote(input.companyName),
+    who_approves: whoApprovesNoteBase(input.companyName, lang),
     products,
     menu_items: [...input.menuItems].sort((a, b) =>
-      a.name.localeCompare(b.name, "es")
+      a.name.localeCompare(b.name, localeFor(lang))
     ),
     batches: input.batches.filter((batch) => batch.can_undo),
     selected,
     editor,
-    footer: COSTING_FOOTERS[view],
+    footer: costingFooter(view, lang),
     combo_sync_hint: input.comboSyncHint ?? null,
     latest_upload: input.latestUpload ?? null,
     reset: input.reset ?? null,
@@ -1122,6 +1182,7 @@ export function buildRecipeCostingWorkspace(input: {
 }
 
 function vincularActionLabel(input: {
+  lang: PreferredLanguage;
   confirmed: boolean;
   is_combo: boolean;
   classification: string;
@@ -1130,38 +1191,45 @@ function vincularActionLabel(input: {
   ambiguous: boolean;
   can_confirm: boolean;
 }): string {
-  if (input.confirmed) return "Cambiar";
-  if (input.is_combo) return "Ver partes";
+  const lang = input.lang;
+  const w = getDictionary(lang).menu.workspace.view;
+  const kinds = (kind: TodoKind) => todoKindAction(kind, lang);
+  if (input.confirmed) return w.actionChange;
+  if (input.is_combo) return kinds("combo");
   if (
     !TREATMENT_RULES[input.classification as PosProductClassification]
       ?.needs_recipe
   )
-    return "Cambiar";
+    return w.actionChange;
   if (input.classification === "reventa" && !input.recipe_name)
-    return "Elegir qué compras";
-  if (input.ambiguous) return "Elegir";
-  if (input.link_state === "sugerido" && input.can_confirm) return "Confirmar";
-  if (!input.recipe_name) return "Crear receta";
-  return "Elegir";
+    return kinds("reventa");
+  if (input.ambiguous) return kinds("ambiguo");
+  if (input.link_state === "sugerido" && input.can_confirm)
+    return kinds("sugerido");
+  if (!input.recipe_name) return kinds("sin_receta");
+  return kinds("ambiguo");
 }
 
 function buildEditorView(input: {
   product: VincularProductRow;
   versions: readonly WorkspaceVersion[];
   currency: string;
+  lang: PreferredLanguage;
 }): RecipeEditorView {
+  const w = getDictionary(input.lang).menu.workspace.view;
   // Approved in force, else the newest of any status (dish-version.ts).
   const latest = pickDishVersions(input.versions).version ?? undefined;
   const notes = latest?.notes?.trim();
   const versionLabel = latest
-    ? `${notes || (latest.status === "approved" ? "Aprobada" : "Borrador")} · v${latest.version_number}`
-    : "Sin receta";
+    ? `${notes || (latest.status === "approved" ? w.versionApproved : w.versionDraft)} · v${latest.version_number}`
+    : w.versionNone;
   return editorFromEvidence({
     product: input.product,
     recipe_version_id: latest?.id ?? input.product.evidence.recipe_version_id,
     version_label: versionLabel,
     recipe_status: recipeStatusOf(latest),
     currency: input.currency,
+    lang: input.lang,
   });
 }
 
@@ -1171,8 +1239,14 @@ function editorFromEvidence(input: {
   version_label: string;
   recipe_status: RecipeEditorView["recipe_status"];
   currency: string;
+  lang: PreferredLanguage;
 }): RecipeEditorView {
   const ev = input.product.evidence;
+  const lang = input.lang;
+  const dict = getDictionary(lang).menu.workspace;
+  const w = dict.view;
+  const formatMoneyEs = (amount: number, cur?: string) =>
+    formatMoneyEsBase(amount, cur, undefined, lang);
   const milton =
     ev.milton_cost != null
       ? formatMoneyEs(ev.milton_cost, input.currency)
@@ -1187,7 +1261,9 @@ function editorFromEvidence(input: {
       ev.variance_amount != null
         ? formatMoneyEs(ev.variance_amount, input.currency)
         : null;
-    varianceNote = `El costo calculado es ${milton}, pero tu Excel dice ${excel}${delta ? ` (${delta})` : ""}.`;
+    varianceNote = delta
+      ? fmt(w.varianceNoteDelta, { milton, excel, delta })
+      : fmt(w.varianceNote, { milton, excel });
     if (ev.reasons[0]) varianceNote = `${varianceNote} ${ev.reasons[0]}`;
   }
   const firstRow = ev.lines.find((line) => line.source_row != null)?.source_row;
@@ -1202,8 +1278,12 @@ function editorFromEvidence(input: {
   const yieldNote =
     ev.yield.value != null
       ? ev.yield.source === "assumed"
-        ? `Rendimiento por confirmar: ${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`
-        : `Rinde ${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`
+        ? fmt(w.yieldToConfirm, {
+            value: `${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`,
+          })
+        : fmt(w.yieldIs, {
+            value: `${ev.yield.value}${ev.yield.unit ? ` ${ev.yield.unit}` : ""}`,
+          })
       : null;
   return {
     odoo_product_id: input.product.odoo_product_id,
@@ -1217,7 +1297,7 @@ function editorFromEvidence(input: {
     category: input.product.category,
     pos_price_label: input.product.pos_price_label,
     units_label: input.product.units_label,
-    share_label: `${input.product.share_label} de las ventas`,
+    share_label: fmt(w.shareOfSales, { share: input.product.share_label }),
     margin_label:
       input.product.pos_price != null &&
       input.product.pos_price > 0 &&
@@ -1228,17 +1308,18 @@ function editorFromEvidence(input: {
               100
           )
         : null,
-    margin_hint:
-      ev.yield.source === "assumed"
-        ? "si confirmas el rendimiento el margen cambia"
-        : null,
+    margin_hint: ev.yield.source === "assumed" ? w.marginHint : null,
     excel_row_label:
       ev.filename && ev.tab && firstRow != null
-        ? `${ev.filename} › hoja ${ev.tab} › fila ${firstRow}`
+        ? fmt(w.excelRowFull, {
+            file: ev.filename,
+            tab: ev.tab,
+            row: String(firstRow),
+          })
         : ev.tab && firstRow != null
-          ? `hoja ${ev.tab} › fila ${firstRow}`
+          ? fmt(w.excelRowTab, { tab: ev.tab, row: String(firstRow) })
           : ev.tab
-            ? `hoja ${ev.tab}`
+            ? fmt(dict.copy.evidence.sheet, { tab: ev.tab })
             : ev.filename,
     menu_source: ev.menu
       ? {
@@ -1255,14 +1336,15 @@ function editorFromEvidence(input: {
     milton_cost_label: milton,
     excel_total_label: excel,
     variance_note: varianceNote,
-    checklist: buildApprovalChecklist({
+    checklist: buildApprovalChecklistBase({
+      lang,
       link_state: input.product.link_state,
       evidence: ev,
       odoo_name: input.product.odoo_name,
       odoo_product_id: input.product.odoo_product_id,
     }),
     lines: ev.lines.map((line) =>
-      toReviewLine(line, input.currency, portionCost)
+      toReviewLineBase(line, input.currency, portionCost, lang)
     ),
     yield_value: ev.yield.value,
     yield_unit: ev.yield.unit,
@@ -1289,12 +1371,41 @@ function recipeStatusOf(
     : "borrador";
 }
 
-const PLATO_STATUS: Record<PlatoStatus, { label: string; tone: ChipTone }> = {
-  listo: { label: "Aprobado", tone: "ok" },
-  por_aprobar: { label: "Por aprobar", tone: "sug" },
-  borrador: { label: "Sugerido", tone: "warn" },
-  sin_receta: { label: "Sin receta", tone: "grey" },
-};
+function platoStatus(
+  lang: PreferredLanguage
+): Record<PlatoStatus, { label: string; tone: ChipTone }> {
+  const w = getDictionary(lang).menu.workspace.view;
+  return {
+    listo: { label: w.platoListo, tone: "ok" },
+    por_aprobar: { label: w.platoPorAprobar, tone: "sug" },
+    borrador: { label: w.platoBorrador, tone: "warn" },
+    sin_receta: { label: w.platoSinReceta, tone: "grey" },
+  };
+}
+
+/** The Spanish text of a treatment, in the person's language. */
+function treatmentTexts(
+  id: PosProductClassification,
+  lang: PreferredLanguage
+): { label: string; hint: string } {
+  const t = getDictionary(lang).menu.workspace.treatment;
+  switch (id) {
+    case "plato_preparado":
+      return t.platoPreparado;
+    case "reventa":
+      return t.reventa;
+    case "modificador_con_costo":
+      return t.modificadorConCosto;
+    case "modificador_sin_costo":
+      return t.modificadorSinCosto;
+    case "combo":
+      return t.combo;
+    case "excluido":
+      return t.excluido;
+    default:
+      return t.porClasificar;
+  }
+}
 
 /** Dishes that take a recipe (not combos, not no-cost or excluded),
  *  in the product list's order: top sellers first. */
@@ -1358,8 +1469,10 @@ export function withDishStatus(
 
 export function buildPlatoQueue(
   products: readonly VincularProductRow[],
-  versionsByMenu: ReadonlyMap<string, readonly WorkspaceVersion[]>
+  versionsByMenu: ReadonlyMap<string, readonly WorkspaceVersion[]>,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): PlatoQueueRow[] {
+  const statuses = platoStatus(lang);
   return products
     .filter(
       (row) => !row.is_combo && TREATMENT_RULES[row.treatment].needs_recipe
@@ -1386,17 +1499,23 @@ export function buildPlatoQueue(
         odoo_name: row.odoo_name,
         share_label: row.share_label,
         status,
-        status_label: PLATO_STATUS[status].label,
-        status_tone: PLATO_STATUS[status].tone,
+        status_label: statuses[status].label,
+        status_tone: statuses[status].tone,
       };
     });
 }
 
-function platoProgress(queue: readonly PlatoQueueRow[]) {
+function platoProgress(
+  queue: readonly PlatoQueueRow[],
+  lang: PreferredLanguage
+) {
   const done = queue.filter((row) => row.status === "listo").length;
   return {
     done,
     total: queue.length,
-    label: `${done} de ${queue.length} platos aprobados`,
+    label: fmt(getDictionary(lang).menu.workspace.view.progress, {
+      done,
+      total: queue.length,
+    }),
   };
 }

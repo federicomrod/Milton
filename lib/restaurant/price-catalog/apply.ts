@@ -15,6 +15,8 @@
 //   picks a reading (never with a guessed unit). Missing prices stay
 //   pending, never $0.
 
+import { fmt, getDictionary, type Dictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { buildIngredientCostEntryInsert } from "@/lib/restaurant/cost-import";
 import { inferDateFromName } from "@/lib/restaurant/cost-workbook/date";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
@@ -36,6 +38,17 @@ import {
   type RecipeCostObservation,
 } from "./conflicts";
 import type { CatalogUnit, PriceCatalogRead, PriceCatalogRow } from "./reader";
+
+type PriceMsgKey = keyof Dictionary["menu"]["groups"]["priceCatalog"];
+
+/** A price-list message in the person's language (Spanish by default). */
+function pcMsg(
+  lang: PreferredLanguage,
+  key: PriceMsgKey,
+  vars: Record<string, string | number> = {}
+): string {
+  return fmt(getDictionary(lang).menu.groups.priceCatalog[key], vars);
+}
 
 export const COST_CONFLICT_KIND = "cost_conflict";
 export const CATALOG_ROW_KIND = "catalog_row";
@@ -136,7 +149,8 @@ export interface CatalogPlan {
 
 export function planCatalog(
   read: PriceCatalogRead,
-  decisions: PriceCatalogDecisions = {}
+  decisions: PriceCatalogDecisions = {},
+  lang: PreferredLanguage = "es"
 ): CatalogPlan {
   const save: PlannedRow[] = [];
   const pending: CatalogPlan["pending"] = [];
@@ -175,23 +189,23 @@ export function planCatalog(
     if (row.status === "error_cell") {
       pending.push({
         row,
-        reason: "El precio de esta fila tiene un error en tu archivo.",
+        reason: pcMsg(lang, "rowError"),
       });
       continue;
     }
     if (row.status === "no_price") {
-      pending.push({ row, reason: "Esta fila no trae precio." });
+      pending.push({ row, reason: pcMsg(lang, "noPrice") });
       continue;
     }
     if (needsConfirmation && !confirmed) {
       pending.push({
         row,
-        reason: "Falta confirmar la unidad de esta fila.",
+        reason: pcMsg(lang, "confirmUnit"),
       });
       continue;
     }
     if (unit === null || unitCost === null || !(unitCost > 0)) {
-      pending.push({ row, reason: "Falta la unidad o el precio." });
+      pending.push({ row, reason: pcMsg(lang, "missingUnitOrPrice") });
       continue;
     }
     save.push({ row, unit, unitCost });
@@ -208,10 +222,15 @@ export function planCatalog(
 }
 
 /** "LIBRA/ UNIDAD" rows: the per-unidad price is kept in the note. */
-function alsoPerUnit(row: PriceCatalogRow): string {
+function alsoPerUnit(
+  row: PriceCatalogRow,
+  lang: PreferredLanguage = "es"
+): string {
   if (!row.reasons.includes("lb_and_unit_prices")) return "";
   const perUnit = row.options.find((o) => o.unit === "unit");
-  return perUnit ? ` · también $${perUnit.unitCost.toFixed(4)} por unidad` : "";
+  return perUnit
+    ? ` · ${pcMsg(lang, "alsoPerUnit", { cost: perUnit.unitCost.toFixed(4) })}`
+    : "";
 }
 
 function priceDate(filename: string) {
@@ -270,6 +289,7 @@ async function chooseCost(input: {
   choice: "catalog" | number;
   costDate: string;
   dateSource: ReturnType<typeof priceDate>["date_source"];
+  lang?: PreferredLanguage;
 }): Promise<
   { ok: true; insertedEntryId: string | null } | { ok: false; reason: string }
 > {
@@ -282,7 +302,10 @@ async function chooseCost(input: {
       normalizeMatchName(row.name) === normalizeMatchName(input.conflict.name)
   );
   if (ingredients.length === 0) {
-    return { ok: false, reason: "No encontré el ingrediente en tu lista." };
+    return {
+      ok: false,
+      reason: pcMsg(input.lang ?? "es", "ingredientNotFound"),
+    };
   }
   const allEntries = await input.repo.listIngredientCostEntries(
     input.companyId,
@@ -311,8 +334,7 @@ async function chooseCost(input: {
     if (!target) {
       return {
         ok: false,
-        reason:
-          "La lista no dejó un precio guardado para este ingrediente. Elige el de las recetas o «Ninguna (dejar Pendiente)».",
+        reason: pcMsg(input.lang ?? "es", "noStoredPrice"),
       };
     }
     await input.repo.setIngredientChosenCost({
@@ -336,7 +358,7 @@ async function chooseCost(input: {
   if (!insert) {
     return {
       ok: false,
-      reason: "No pude convertir ese costo a la unidad del ingrediente.",
+      reason: pcMsg(input.lang ?? "es", "convertCostFailed"),
     };
   }
   const [created] = await input.repo.insertCostEntries([
@@ -348,7 +370,7 @@ async function chooseCost(input: {
     },
   ]);
   if (!created)
-    return { ok: false, reason: "No pude guardar el costo elegido." };
+    return { ok: false, reason: pcMsg(input.lang ?? "es", "saveCostFailed") };
   await input.repo.updateIngredientCosts([
     {
       ingredientId: ingredient.id,
@@ -391,8 +413,11 @@ export async function applyPriceCatalog(input: {
   decisions: PriceCatalogDecisions;
   /** Recipe blocks of the same file: kept so suggestions can use them. */
   candidateBlocks?: readonly GroupedRecipe[];
+  /** Language of the notes and review questions (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<ApplyCatalogResult> {
-  const plan = planCatalog(input.read, input.decisions);
+  const lang = input.lang ?? "es";
+  const plan = planCatalog(input.read, input.decisions, lang);
   const date = priceDate(input.filename);
 
   // "Ninguna / Pendiente": the price-list row of that conflict is not
@@ -435,7 +460,7 @@ export async function applyPriceCatalog(input: {
       date_source: date.date_source,
       supplier_name: null,
       currency: input.currency,
-      notes: `${row.sheet} · fila ${row.row}${alsoPerUnit(row)}`,
+      notes: `${pcMsg(lang, "rowNote", { sheet: row.sheet, row: row.row })}${alsoPerUnit(row, lang)}`,
       raw: {},
       category: row.section,
     })
@@ -488,6 +513,7 @@ export async function applyPriceCatalog(input: {
       choice,
       costDate: date.effective_date,
       dateSource: date.date_source,
+      lang,
     });
     if (result.ok) {
       decided += 1;
@@ -516,7 +542,7 @@ export async function applyPriceCatalog(input: {
       batch_id: batch.id,
       tab_name: input.read.sheet,
       row_index: Number(conflict.catalog.rowKey.split("|").pop()) || 0,
-      reason: `Dos costos para ${conflict.name}. Confirma cuál usar.`,
+      reason: pcMsg(lang, "twoCosts", { name: conflict.name }),
       raw_values: {
         kind: COST_CONFLICT_KIND,
         key: conflict.key,
@@ -625,17 +651,19 @@ export async function resolveCostConflict(input: {
   currency: string;
   reviewId: string;
   choice: ConflictChoice;
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const lang = input.lang ?? "es";
   const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
   if (!item || item.raw_values.kind !== COST_CONFLICT_KIND) {
-    return { ok: false, reason: "No encontré esa decisión." };
+    return { ok: false, reason: pcMsg(lang, "decisionNotFound") };
   }
   if (item.status !== "pending") {
-    return { ok: false, reason: "Esa decisión ya está resuelta." };
+    return { ok: false, reason: pcMsg(lang, "decisionResolved") };
   }
   const batch = await input.repo.getBatch(input.companyId, item.batch_id);
   if (!batch || batch.undone_at) {
-    return { ok: false, reason: "Esa carga ya se deshizo." };
+    return { ok: false, reason: pcMsg(lang, "uploadUndone") };
   }
   const conflict = item.raw_values as unknown as CostConflict;
   if (input.choice === NO_COST_CHOICE) {
@@ -655,7 +683,7 @@ export async function resolveCostConflict(input: {
     input.choice !== "catalog" &&
     (!Number.isInteger(input.choice) || !conflict.candidates?.[input.choice])
   ) {
-    return { ok: false, reason: "Esa opción no existe." };
+    return { ok: false, reason: pcMsg(lang, "optionMissing") };
   }
   const date = priceDate(batch.filename);
   const result = await chooseCost({
@@ -668,6 +696,7 @@ export async function resolveCostConflict(input: {
     choice: input.choice,
     costDate: date.effective_date,
     dateSource: date.date_source,
+    lang,
   });
   if (!result.ok) return result;
   if (result.insertedEntryId) {
@@ -696,13 +725,15 @@ export async function skipCatalogRow(input: {
   repo: CostWorkbookRepo;
   companyId: string;
   reviewId: string;
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const lang = input.lang ?? "es";
   const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
   if (!item || item.raw_values.kind !== CATALOG_ROW_KIND) {
-    return { ok: false, reason: "No encontré esa fila de tu lista." };
+    return { ok: false, reason: pcMsg(lang, "rowNotFound") };
   }
   if (item.status !== "pending") {
-    return { ok: false, reason: "Esa fila ya está resuelta." };
+    return { ok: false, reason: pcMsg(lang, "rowResolved") };
   }
   await input.repo.updateReviewItem(input.companyId, item.id, {
     status: "skipped",
@@ -722,19 +753,21 @@ export async function answerCatalogRow(input: {
   currency: string;
   reviewId: string;
   unit: string;
+  lang?: PreferredLanguage;
 }): Promise<
   { ok: true; ingredientId: string } | { ok: false; reason: string }
 > {
+  const lang = input.lang ?? "es";
   const item = await input.repo.getReviewItem(input.companyId, input.reviewId);
   if (!item || item.raw_values.kind !== CATALOG_ROW_KIND) {
-    return { ok: false, reason: "No encontré esa fila de tu lista." };
+    return { ok: false, reason: pcMsg(lang, "rowNotFound") };
   }
   if (item.status !== "pending") {
-    return { ok: false, reason: "Esa fila ya está resuelta." };
+    return { ok: false, reason: pcMsg(lang, "rowResolved") };
   }
   const batch = await input.repo.getBatch(input.companyId, item.batch_id);
   if (!batch || batch.undone_at) {
-    return { ok: false, reason: "Esa carga ya se deshizo." };
+    return { ok: false, reason: pcMsg(lang, "uploadUndone") };
   }
   const raw = item.raw_values as Record<string, unknown>;
   let ingredientId =
@@ -746,7 +779,7 @@ export async function answerCatalogRow(input: {
     (o) => o.unit === input.unit && validCost(o.unit_cost)
   );
   if (!option || !isUnit(option.unit)) {
-    return { ok: false, reason: "Esa opción no existe." };
+    return { ok: false, reason: pcMsg(lang, "optionMissing") };
   }
   const name = typeof raw.name === "string" ? raw.name.trim() : "";
   const ingredients = await input.repo.listIngredients(input.companyId);
@@ -759,7 +792,7 @@ export async function answerCatalogRow(input: {
   if (!ingredient) {
     // The person's pick is what adds it: the row's own name, in the unit
     // they chose. Never before, never with a guessed unit.
-    if (!name) return { ok: false, reason: "Esa fila no trae nombre." };
+    if (!name) return { ok: false, reason: pcMsg(lang, "rowNoName") };
     const [created] = await input.repo.createIngredients([
       {
         companyId: input.companyId,
@@ -770,7 +803,7 @@ export async function answerCatalogRow(input: {
       },
     ]);
     if (!created)
-      return { ok: false, reason: "No pude agregar el ingrediente." };
+      return { ok: false, reason: pcMsg(lang, "addIngredientFailed") };
     ingredient = created;
     createdIngredientIds.push(created.id);
   }
@@ -791,7 +824,10 @@ export async function answerCatalogRow(input: {
       unit: option.unit,
       total_cost: option.unit_cost as number,
       currency: input.currency,
-      notes: `${String(raw.sheet ?? item.tab_name)} · fila ${String(raw.row ?? item.row_index)} (unidad confirmada)`,
+      notes: pcMsg(lang, "confirmedRowNote", {
+        sheet: String(raw.sheet ?? item.tab_name),
+        row: String(raw.row ?? item.row_index),
+      }),
       supplier_item_name: null,
       supplier_sku: null,
     },
@@ -799,7 +835,7 @@ export async function answerCatalogRow(input: {
   if (!built.ok) {
     return {
       ok: false,
-      reason: "No pude convertir ese precio a la unidad del ingrediente.",
+      reason: pcMsg(lang, "convertPriceFailed"),
     };
   }
   const [created] = await input.repo.insertCostEntries([
@@ -810,7 +846,7 @@ export async function answerCatalogRow(input: {
       date_source: date.date_source,
     },
   ]);
-  if (!created) return { ok: false, reason: "No pude guardar el precio." };
+  if (!created) return { ok: false, reason: pcMsg(lang, "savePriceFailed") };
   await input.repo.updateIngredientCosts([
     {
       ingredientId: ingredient.id,

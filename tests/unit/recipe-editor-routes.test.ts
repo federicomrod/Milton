@@ -1,3 +1,4 @@
+import { menuEditor } from "@/lib/i18n/es/menu-editor";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -67,13 +68,26 @@ describe("recipe editor route and screen", () => {
     expect(ui).toContain('role="listbox"');
     expect(ui).toContain("searchPickerOptions(options, query)");
     expect(ui).toContain('event.key === "Enter"');
-    expect(ui).toContain("Preparación · ");
-    expect(ui).toContain("¿No está? Agregar ingrediente");
-    expect(ui).toContain("Agregar y usar");
-    expect(ui).toContain("Revisa que no esté ya en tu lista con otro nombre.");
-    expect(ui).toContain("Crear preparación");
-    expect(ui).toContain("Crear y usar");
-    expect(ui).toContain("Agregar precio");
+    // The Spanish wording lives in lib/i18n/es/menu-editor.ts; the editor reads it by key.
+    expect(menuEditor.picker.preparationPrefix).toBe("Preparación · ");
+    expect(menuEditor.picker.notThere).toBe("¿No está? Agregar ingrediente");
+    expect(menuEditor.picker.addAndUse).toBe("Agregar y usar");
+    expect(menuEditor.picker.checkDuplicates).toBe(
+      "Revisa que no esté ya en tu lista con otro nombre."
+    );
+    expect(menuEditor.picker.createPreparation).toBe("Crear preparación");
+    expect(menuEditor.picker.createAndUse).toBe("Crear y usar");
+    expect(menuEditor.lines.addPrice).toBe("Agregar precio");
+    for (const k of [
+      "d.picker.preparationPrefix",
+      "d.picker.notThere",
+      "d.picker.addAndUse",
+      "d.picker.checkDuplicates",
+      "d.picker.createPreparation",
+      "d.picker.createAndUse",
+      "d.lines.addPrice",
+    ])
+      expect(ui).toContain(k);
     // No path posts a free-typed name as a line.
     expect(ui).not.toContain("raw_name:");
     expect(ui).not.toContain("add_line");

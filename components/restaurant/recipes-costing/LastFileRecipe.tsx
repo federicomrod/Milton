@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from "react";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import type { LastFileLookup } from "@/lib/restaurant/recipe-import/last-file";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
 
 const cache = new Map<string, LastFileLookup>();
 
@@ -85,11 +87,13 @@ export function LastFileDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor.lastFile;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!open) return null;
   const money = (n: number | null) =>
-    n === null ? "Sin precio" : formatMoneyEs(n, currency);
+    n === null ? d.noPrice : formatMoneyEs(n, currency);
 
   async function use() {
     setBusy(true);
@@ -105,11 +109,10 @@ export function LastFileDialog({
         }),
       });
       const json = (await res.json()) as { error?: string };
-      if (!res.ok)
-        throw new Error(userErrorMessage(json, "No pude traer la receta."));
+      if (!res.ok) throw new Error(userErrorMessage(json, d.fetchFailed));
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude traer la receta.");
+      setError(err instanceof Error ? err.message : d.fetchFailed);
     } finally {
       setBusy(false);
     }
@@ -119,20 +122,19 @@ export function LastFileDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div
         role="dialog"
-        aria-label="Receta del último archivo"
+        aria-label={d.dialogLabel}
         className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-[#dfe3ea] bg-white p-4 shadow-xl"
       >
         <h2 className="text-base font-semibold text-[#151c2c]">
-          Receta del último archivo
+          {d.dialogLabel}
         </h2>
         <p className="mt-0.5 text-[12px] text-[#6b7385]">
-          {lookup.filename}. Se crea un borrador nuevo; tu receta actual y sus
-          versiones no se tocan.
+          {fmt(d.note, { filename: lookup.filename })}
         </p>
         <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto md:grid-cols-2">
           <Column
-            title="Tu receta ahora"
-            empty="Sin líneas todavía"
+            title={d.currentTitle}
+            empty={d.currentEmpty}
             lines={lookup.current.lines.map((l) => ({
               name: l.name,
               quantity: l.quantity,
@@ -143,8 +145,8 @@ export function LastFileDialog({
             money={money}
           />
           <Column
-            title="Del archivo"
-            empty="Sin líneas"
+            title={d.fileTitle}
+            empty={d.fileEmpty}
             lines={lookup.file.lines}
             total={lookup.file.total}
             money={money}
@@ -165,7 +167,7 @@ export function LastFileDialog({
             onClick={onClose}
             className="rounded-md border border-[#1B40C8] bg-white px-3 py-1.5 text-[13px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45"
           >
-            Cancelar
+            {d.cancel}
           </button>
           <button
             type="button"
@@ -173,7 +175,7 @@ export function LastFileDialog({
             onClick={() => void use()}
             className="rounded-md bg-[#1B40C8] px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-45"
           >
-            {busy ? "Trayendo…" : "Usar esta receta"}
+            {busy ? d.fetching : d.useRecipe}
           </button>
         </div>
       </div>
@@ -199,10 +201,13 @@ function Column({
   total: number | null;
   money: (n: number | null) => string;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor.lastFile;
   return (
     <section className="rounded-lg border border-[#eef0f4]">
       <h3 className="border-b border-[#eef0f4] px-3 py-1.5 text-[12.5px] font-semibold text-[#151c2c]">
-        {title} · {lines.length} {lines.length === 1 ? "línea" : "líneas"}
+        {title} · {lines.length}{" "}
+        {lines.length === 1 ? d.linesOne : d.linesOther}
       </h3>
       {lines.length === 0 ? (
         <p className="px-3 py-2 text-[12px] text-[#8a92a3]">{empty}</p>
@@ -227,7 +232,7 @@ function Column({
         </table>
       )}
       <div className="flex justify-between border-t border-[#eef0f4] px-3 py-1.5 text-[12px] font-semibold">
-        <span>Costo</span>
+        <span>{d.cost}</span>
         <span>{money(total)}</span>
       </div>
     </section>

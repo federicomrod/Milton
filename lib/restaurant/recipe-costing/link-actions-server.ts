@@ -1,3 +1,8 @@
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -152,18 +157,22 @@ export async function confirmPosLinkForCompany(input: {
   menuItemId?: string | null;
   /** The link the caller already read (R1-12); undefined = read it here. */
   existingLink?: PosProductLinkRecord | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<
   { ok: true; link: PosProductLinkRecord } | { ok: false; error: string }
 > {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const s = getDictionary(lang).menu.workspace.server;
   const how = input.confirmedHow?.trim() ?? "";
   if (how && !isConfirmedHow(how)) {
-    return { ok: false, error: "Indica cómo confirmó el cliente." };
+    return { ok: false, error: s.howClientConfirmed };
   }
   if (!actorCanLinkProducts(input.actor)) {
     return { ok: false, error: CAPABILITY_MESSAGES["links.confirm"] };
   }
   const confirmation = confirmationFromActor(input.actor, how || "en_pantalla");
-  const allowed = actorCanConfirmLink(input.actor, confirmation);
+  const allowed = actorCanConfirmLink(input.actor, confirmation, lang);
   if (!allowed.ok) return allowed;
 
   const existing =
@@ -187,10 +196,10 @@ export async function confirmPosLinkForCompany(input: {
   if (!base.menu_item_id) {
     return {
       ok: false,
-      error: "Elige o crea una receta antes de confirmar el vínculo.",
+      error: s.chooseRecipeFirst,
     };
   }
-  const next = confirmLinkResult(base, confirmation);
+  const next = confirmLinkResult(base, confirmation, lang);
   if (!next.ok) return next;
   const saved = await persistLink(input.supabase, input.companyId, next.link);
   return { ok: true, link: saved };
@@ -203,9 +212,12 @@ export async function changePosLinkForCompany(input: {
   odooName?: string;
   locationId?: string | null;
   menuItemId: string;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<
   { ok: true; link: PosProductLinkRecord } | { ok: false; error: string }
 > {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
   const { data: menu, error } = await input.supabase
     .from("menu_items")
     .select("id, name")
@@ -214,7 +226,10 @@ export async function changePosLinkForCompany(input: {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!menu) {
-    return { ok: false, error: "Esa receta no es de tu restaurante." };
+    return {
+      ok: false,
+      error: getDictionary(lang).menu.workspace.server.notYourRecipe,
+    };
   }
   const existing =
     (await loadPosProductLink(
@@ -246,12 +261,16 @@ export async function createRecipeAndLink(input: {
   odooProductId: number;
   odooName: string;
   locationId?: string | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<
   | { ok: true; menu_item_id: string; link: PosProductLinkRecord }
   | { ok: false; error: string }
 > {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const s = getDictionary(lang).menu.workspace.server;
   const name = input.odooName.trim();
-  if (!name) return { ok: false, error: "Falta el nombre del producto." };
+  if (!name) return { ok: false, error: s.productNameMissing };
   const currency =
     (await resolveCompanyCurrency(input.supabase, input.companyId)) || "USD";
   const created = await input.supabase
@@ -267,7 +286,7 @@ export async function createRecipeAndLink(input: {
   if (created.error || !created.data) {
     return {
       ok: false,
-      error: created.error?.message ?? "No pude crear la receta.",
+      error: created.error?.message ?? s.createRecipeFailed,
     };
   }
   const menuItemId = String(created.data.id);
@@ -287,9 +306,7 @@ export async function createRecipeAndLink(input: {
   if (recipe.error || !recipe.data) {
     return {
       ok: false,
-      error:
-        recipe.error?.message ??
-        "Creé el plato pero no pude guardar la receta.",
+      error: recipe.error?.message ?? s.createdDishNoRecipe,
     };
   }
   await input.supabase.from("recipe_versions").insert({
@@ -329,6 +346,8 @@ export async function undoConfirmedPosLink(input: {
   companyId: string;
   odooProductId: number;
   locationId?: string | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<
   { ok: true; link: PosProductLinkRecord } | { ok: false; error: string }
 > {
@@ -339,9 +358,13 @@ export async function undoConfirmedPosLink(input: {
     input.locationId
   );
   if (!existing) {
-    return { ok: false, error: "No hay un vínculo Confirmado que deshacer." };
+    return {
+      ok: false,
+      error: getDictionary(input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE)
+        .menu.workspace.server.noConfirmedLink,
+    };
   }
-  const next = undoConfirmedLinkResult(existing);
+  const next = undoConfirmedLinkResult(existing, input.lang);
   if (!next.ok) return next;
   const saved = await persistLink(input.supabase, input.companyId, next.link);
   return { ok: true, link: saved };
@@ -380,17 +403,21 @@ export async function setPosProductTreatments(input: {
   source: "manual" | "sugerencia";
   /** Milton staff: how the client confirmed an exclusion. */
   confirmedHow?: string | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true; saved: number } | { ok: false; error: string }> {
+  const lang = input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  const s = getDictionary(lang).menu.workspace.server;
   if (!actorCanSubmitForApproval(input.actor)) {
-    return { ok: false, error: TREATMENT_ROLE_ERROR };
+    return { ok: false, error: s.treatmentRole };
   }
   if (input.items.length === 0) return { ok: true, saved: 0 };
   if (input.items.length > MAX_TREATMENT_ITEMS) {
-    return { ok: false, error: "Son demasiados productos a la vez." };
+    return { ok: false, error: s.tooManyProducts };
   }
   for (const item of input.items) {
     if (!PICKABLE_TREATMENTS.includes(item.treatment)) {
-      return { ok: false, error: "Ese tratamiento no existe." };
+      return { ok: false, error: s.unknownTreatment };
     }
   }
   // Excluding takes sales out of the coverage denominator, so it needs the
@@ -406,8 +433,8 @@ export async function setPosProductTreatments(input: {
       return {
         ok: false,
         error: input.actor.is_milton_staff
-          ? EXCLUDE_CLIENT_CONFIRMATION_ERROR
-          : EXCLUDE_ROLE_ERROR,
+          ? s.excludeClientConfirmation
+          : s.excludeRole,
       };
     }
   }
@@ -463,7 +490,7 @@ export async function setPosProductTreatments(input: {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("pos_product_links_classification_chk")) {
-        return { ok: false, error: TREATMENT_MIGRATION_ERROR };
+        return { ok: false, error: s.treatmentMigration };
       }
       throw err;
     }

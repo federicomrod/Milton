@@ -8,6 +8,7 @@
 // The UI never asks the user for a cost.
 
 import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -45,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[ingredients GET]", error.message);
     return NextResponse.json(
-      { error: "No pude leer.", details: error.message },
+      { error: api.readFailed, details: error.message },
       { status: 500 }
     );
   }
@@ -72,6 +74,7 @@ interface CreateBody {
 }
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const actor = await resolveActor(auth.supabase, auth.userId, {
@@ -84,18 +87,12 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json(
-      { error: "El nombre es obligatorio." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.nameRequired }, { status: 400 });
   }
   const category =
     typeof body.category === "string" && body.category.trim() !== ""
@@ -133,7 +130,7 @@ export async function POST(req: NextRequest) {
   if (error || !data) {
     console.error("[ingredients POST]", error?.message);
     return NextResponse.json(
-      { error: "No se pudo crear.", details: error?.message },
+      { error: api.createFailed, details: error?.message },
       { status: 500 }
     );
   }

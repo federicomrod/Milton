@@ -6,6 +6,7 @@
 // bar, the three tabs and every click are computed in the browser. The state
 // lives in the URL. /sales/detalle forwards here.
 
+import { getDictionary } from "@/lib/i18n";
 import { SalesDetailV2 } from "@/components/restaurant/sales/detail/SalesDetailV2";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
@@ -29,8 +30,16 @@ export default async function SalesPage({
 
   return (
     <div className="w-full px-6 py-3 lg:px-10 space-y-2">
-      <OperatingPageHeader title="Ventas" lang={lang} showDateRange={false} />
-      <SalesDetailV2 initial={parseDetailState(flat)} locationId={location} />
+      <OperatingPageHeader
+        title={getDictionary(lang).sales.page.title}
+        lang={lang}
+        showDateRange={false}
+      />
+      <SalesDetailV2
+        initial={parseDetailState(flat)}
+        locationId={location}
+        lang={lang}
+      />
     </div>
   );
 }

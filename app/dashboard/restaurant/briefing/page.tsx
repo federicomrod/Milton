@@ -18,15 +18,18 @@
 // thin client shell.
 
 import { AskMiltonWorkspace } from "@/components/restaurant/AskMiltonWorkspace";
+import { getDictionary } from "@/lib/i18n";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 
 export const dynamic = "force-dynamic";
 
-export default function AskMiltonPage() {
+export default async function AskMiltonPage() {
+  const { lang } = await loadRestaurantShellChrome();
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 max-w-5xl mx-auto">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
-          Preguntar a Milton
+          {getDictionary(lang).ask.page.title}
         </h1>
       </header>
       <AskMiltonWorkspace />

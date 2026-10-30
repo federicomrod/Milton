@@ -690,8 +690,10 @@ describe("«Crear versión nueva» on an approved recipe", () => {
     const src = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(src).toContain("Crear versión nueva");
-    expect(src).toContain(
+    expect(src).toContain("d.lines.newVersion");
+    const words = read("lib/i18n/es/menu-editor.ts");
+    expect(words).toContain("Crear versión nueva");
+    expect(words).toContain(
       "Receta aprobada · para cambiar cantidades, crea una versión nueva"
     );
   });

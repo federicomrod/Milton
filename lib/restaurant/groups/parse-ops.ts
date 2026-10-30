@@ -4,6 +4,8 @@
 // to the database (item_groups_apply). The database re-validates everything;
 // this only refuses garbage early with a readable message.
 
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { GroupOps } from "./group-ops";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,10 +33,12 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === "object" && !Array.isArray(v);
 
 export function parseGroupOps(
-  raw: unknown
+  raw: unknown,
+  lang: PreferredLanguage = "es"
 ): { ok: true; ops: GroupOps } | { ok: false; error: string } {
   const bad = (error: string) => ({ ok: false as const, error });
-  if (!isObj(raw)) return bad("Faltan los cambios de la agrupación.");
+  const p = getDictionary(lang).menu.groups.parse;
+  if (!isObj(raw)) return bad(p.missingChanges);
   const list = (key: string): unknown[] | null => {
     const v = raw[key];
     if (v === undefined) return [];
@@ -44,35 +48,30 @@ export function parseGroupOps(
   const dg = list("delete_group_ids");
   const ug = list("upsert_groups");
   const um = list("upsert_members");
-  if (!dm || !dg || !ug || !um)
-    return bad("Los cambios no tienen el formato esperado.");
+  if (!dm || !dg || !ug || !um) return bad(p.badFormat);
   if (dm.length + dg.length + ug.length + um.length > MAX_OPS) {
-    return bad("Son demasiados cambios de una sola vez.");
+    return bad(p.tooMany);
   }
-  if (![...dm, ...dg].every(isUuid))
-    return bad("Hay un identificador inválido.");
+  if (![...dm, ...dg].every(isUuid)) return bad(p.badId);
 
   const upsert_groups = [];
   for (const g of ug) {
-    if (!isObj(g) || !isUuid(g.id))
-      return bad("Un grupo no tiene identificador válido.");
+    if (!isObj(g) || !isUuid(g.id)) return bad(p.groupNoId);
     if (typeof g.name !== "string" || !g.name.trim() || g.name.length > 80) {
-      return bad("El nombre de un grupo no es válido.");
+      return bad(p.groupName);
     }
     if (typeof g.scope !== "string" || !SCOPES.has(g.scope))
-      return bad("Tipo de grupo inválido.");
+      return bad(p.groupType);
     if (
       g.dimension != null &&
       !(typeof g.dimension === "string" && DIMENSIONS.has(g.dimension))
     ) {
-      return bad("Dimensión inválida.");
+      return bad(p.dimension);
     }
-    if (!SOURCES.has(String(g.source ?? "user")))
-      return bad("Origen inválido.");
-    if (!STATUSES.has(String(g.status ?? "confirmed")))
-      return bad("Estado inválido.");
+    if (!SOURCES.has(String(g.source ?? "user"))) return bad(p.origin);
+    if (!STATUSES.has(String(g.status ?? "confirmed"))) return bad(p.status);
     for (const k of ["parent_id", "restaurant_id", "menu_dish_id"] as const) {
-      if (g[k] != null && !isUuid(g[k])) return bad("Referencia inválida.");
+      if (g[k] != null && !isUuid(g[k])) return bad(p.reference);
     }
     upsert_groups.push({
       id: g.id,
@@ -90,16 +89,16 @@ export function parseGroupOps(
   const upsert_members = [];
   for (const m of um) {
     if (!isObj(m) || !isUuid(m.id) || !isUuid(m.group_id))
-      return bad("Un miembro no es válido.");
+      return bad(p.memberInvalid);
     if (typeof m.member_type !== "string" || !MEMBER_TYPES.has(m.member_type)) {
-      return bad("Tipo de miembro inválido.");
+      return bad(p.memberType);
     }
     if (
       typeof m.member_ref !== "string" ||
       !m.member_ref.trim() ||
       m.member_ref.length > 200
     ) {
-      return bad("Referencia de miembro inválida.");
+      return bad(p.memberRef);
     }
     upsert_members.push({
       id: m.id,

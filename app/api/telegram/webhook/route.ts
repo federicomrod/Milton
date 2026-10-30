@@ -36,6 +36,11 @@ import {
 } from "@/lib/restaurant/telegram/send";
 import { loadDraftMatchingCatalog } from "@/lib/restaurant/kitchen-draft-catalog";
 import { resolvePreferredLanguage, t } from "@/lib/restaurant/language";
+import {
+  currentKitchenLanguage,
+  languageFromTelegramCode,
+  setKitchenLanguage,
+} from "@/lib/restaurant/telegram/kitchen-language";
 import { isValidWebhookSecret } from "@/lib/restaurant/telegram/webhook-secret";
 import {
   buildDisplayName,
@@ -136,12 +141,17 @@ export const maxDuration = 120;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
-    from?: { id?: number; first_name?: string; last_name?: string };
+    from?: {
+      id?: number;
+      first_name?: string;
+      last_name?: string;
+      language_code?: string;
+    };
     chat?: { id?: number; type?: string };
   };
   callback_query?: {
     id?: string;
-    from?: { id?: number };
+    from?: { id?: number; language_code?: string };
     message?: {
       message_id?: number;
       text?: string;
@@ -160,19 +170,23 @@ function verifyWebhookSecret(req: NextRequest): boolean {
 
 const GENERIC_INVALID_CODE_MESSAGE =
   "This code is invalid or has expired. Generate a new one from Milton.\n\n" +
-  "Este código no es válido o expiró. Genera uno nuevo desde Milton.";
+  "Este código no es válido o expiró. Genera uno nuevo desde Milton.\n\n" +
+  "Dieser Code ist ungültig oder abgelaufen. Erzeugen Sie in Milton einen neuen.";
 
 const GENERIC_ALREADY_CONNECTED_MESSAGE =
   "This chat or company is already connected to Milton.\n\n" +
-  "Este chat o empresa ya está conectado a Milton.";
+  "Este chat o empresa ya está conectado a Milton.\n\n" +
+  "Dieser Chat oder dieses Unternehmen ist bereits mit Milton verbunden.";
 
 const GENERIC_USAGE_MESSAGE =
   "Please use the connection link from Milton to pair this chat.\n\n" +
-  "Usa el enlace de conexión de Milton para vincular este chat.";
+  "Usa el enlace de conexión de Milton para vincular este chat.\n\n" +
+  "Bitte verwenden Sie den Verbindungslink aus Milton, um diesen Chat zu koppeln.";
 
 const GENERIC_ERROR_MESSAGE =
   "Something went wrong. Please try again from Milton.\n\n" +
-  "Ocurrió un error. Inténtalo de nuevo desde Milton.";
+  "Ocurrió un error. Inténtalo de nuevo desde Milton.\n\n" +
+  "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es in Milton erneut.";
 
 type TelegramMessage = NonNullable<TelegramUpdate["message"]>;
 
@@ -186,12 +200,20 @@ async function handleKitchenJoin(
   const fromId = message.from?.id;
   if (message.chat?.type !== "private" || !fromId) return;
   try {
+    let companyLang: ReturnType<typeof languageFromTelegramCode> | null = null;
     const result = await consumeKitchenJoin({
       payload,
       telegramUserId: fromId,
       chatId,
       displayName: buildDisplayName(message.from ?? {}),
+      onLanguage: (lang) => {
+        companyLang = lang;
+      },
     });
+    // The company's language once the QR is valid; Telegram's own otherwise.
+    setKitchenLanguage(
+      companyLang ?? languageFromTelegramCode(message.from?.language_code)
+    );
     let reply: string;
     switch (result.kind) {
       case "invalid":
@@ -202,19 +224,19 @@ async function handleKitchenJoin(
         break;
       case "already_joined":
         reply = renderKitchenCopy(KITCHEN_COPY.ALREADY_JOINED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
         break;
       case "added":
         reply = renderKitchenCopy(KITCHEN_COPY.JOINED_ADDED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
         break;
       default:
         reply = renderKitchenCopy(KITCHEN_COPY.JOINED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
     }
@@ -404,6 +426,7 @@ async function handleKitchenReport(
   );
   try {
     const links = await listActiveLinks(fromId);
+    if (links.length > 0) setKitchenLanguage(links[0].language ?? "es");
     if (links.length === 0) {
       // Not a cook. If this chat is an owner-paired briefing chat, say once
       // how to send invoices. Unknown chats stay silent. Nothing is captured.
@@ -532,7 +555,12 @@ async function handleKitchenReport(
           result.ok
             ? renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
                 ...destinationVars(linkToActor(awaiting.link)),
-                porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
+                porciones:
+                  portions === 1
+                    ? KITCHEN_COPY.FRAG_PORTION_ONE
+                    : renderKitchenCopy(KITCHEN_COPY.FRAG_PORTIONS, {
+                        n: String(portions),
+                      }),
               })
             : KITCHEN_COPY.RECIPE_PORTIONS_UNCLEAR
         );
@@ -607,6 +635,7 @@ async function processReport(args: {
   markup?: InlineKeyboardMarkup;
 }): Promise<void> {
   const { link, chatId, message, report, markup } = args;
+  if (link.language) setKitchenLanguage(link.language);
   const staff = linkToActor(link);
   const admin = createAdminClient();
   const messageId = message.message_id ?? 0;
@@ -711,6 +740,7 @@ async function handleRestaurantCommand(
   try {
     const links = await listActiveLinks(fromId);
     if (links.length === 0) return;
+    setKitchenLanguage(links[0].language ?? "es");
     if (links.length === 1) {
       await sendTelegramMessage(
         chatId,
@@ -829,6 +859,7 @@ async function handleCallbackQuery(
         return reject("bad_index");
       }
       const links = await listActiveLinks(fromId);
+      if (links.length > 0) setKitchenLanguage(links[0].language ?? "es");
       const entries = entriesFor(pending.optionStaffIds, links);
       if (entries.length === 0) return reject("link_gone");
       const kind = parsed.kind === "item" ? "item" : "default";
@@ -874,6 +905,7 @@ async function handleCallbackQuery(
     if (!staffId) return reject("bad_index");
     const link = await validateLink(fromId, staffId);
     if (!link) return reject("link_gone");
+    if (link.language) setKitchenLanguage(link.language);
 
     const resolved = await resolvePendingItem(pending.id, staffId);
     if (!resolved.ok) {
@@ -1330,7 +1362,10 @@ async function processRecipeDraftAsync(
           feature: "telegram-voice",
           companyId: staff.company_id,
           timeoutMs: 20000,
-          params: { file, model: "whisper-1", language: "es" },
+          params:
+            currentKitchenLanguage() === "es"
+              ? { file, model: "whisper-1", language: "es" }
+              : { file, model: "whisper-1" },
         });
         if (transcription.ok) {
           finalTextContent = transcription.value.text ?? "";
@@ -1583,6 +1618,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true }); // malformed body — nothing to do
   }
 
+  // Until the company of the cook is known, Telegram's own language.
+  setKitchenLanguage(
+    languageFromTelegramCode(
+      (update.callback_query?.from ?? update.message?.from)?.language_code
+    )
+  );
+
   if (update.callback_query) {
     await handleCallbackQuery(update.callback_query);
     return NextResponse.json({ ok: true });
@@ -1662,7 +1704,8 @@ export async function POST(req: NextRequest) {
     confirmation = t(
       lang,
       `✅ Connected${name ? ` to ${name}` : ""}! You'll receive Milton briefings here.`,
-      `✅ ¡Conectado${name ? ` a ${name}` : ""}! Recibirás los briefings de Milton aquí.`
+      `✅ ¡Conectado${name ? ` a ${name}` : ""}! Recibirás los briefings de Milton aquí.`,
+      `✅ Verbunden${name ? ` mit ${name}` : ""}! Hier erhalten Sie die Milton-Briefings.`
     );
   } catch (err) {
     console.error(

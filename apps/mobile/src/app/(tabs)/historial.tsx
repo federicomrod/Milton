@@ -128,7 +128,14 @@ function Sends() {
       renderSectionHeader={({ section }) => (
         <Text style={st.section}>{section.title}</Text>
       )}
-      renderItem={({ item }) => <ServerRow item={item} />}
+      extraData={feed.version}
+      renderItem={({ item }) => (
+        <ServerRow
+          item={item}
+          stuck={feed.isStuck(item)}
+          onRetry={() => feed.retry(item.id)}
+        />
+      )}
     />
   );
 }

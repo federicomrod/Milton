@@ -898,3 +898,127 @@ describe("the history route never returns an amount, and «unclear» is no longe
     expect(serializeAppResult({ state: "done" })?.unclear).toBeNull();
   });
 });
+
+describe("a mixed message keeps EVERY item", () => {
+  const MIXED = "pan a 2 dólares el kilo y unos tomates";
+  const TOKEN = "device-token-for-cook-one-0000000000000000000";
+
+  it("typed: the priced item is a draft, the other becomes a question with its name, and no price reaches the card", async () => {
+    h.state.db.tables.kitchen_reports.push(report(R1, { text: MIXED }));
+    await processAppReport({
+      staffId: STAFF,
+      reportId: R1,
+      admin: h.state.db.client,
+    });
+
+    expect(h.createDraft).toHaveBeenCalledTimes(1);
+    const [, draft] = h.createDraft.mock.calls[0];
+    expect(draft.extraction.lines).toHaveLength(1);
+    expect(draft.extraction.lines[0]).toMatchObject({ unit: "kg" });
+
+    const stored = resultOf(R1).app_result;
+    expect(stored).toMatchObject({
+      state: "done",
+      draft: true,
+      extras: ["tomates"],
+    });
+    // Names only: no digit, no currency anywhere on the card.
+    const { understood, asks, unclear, extras } = stored;
+    expect(JSON.stringify({ understood, asks, unclear, extras })).not.toMatch(
+      /[\d$€]/
+    );
+    expect(h.fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("spoken: the transcript goes through the same path", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R2, { media_kind: "voice", media_mime: "audio/mp4" })
+    );
+    h.state.db.tables.kitchen_media.push({
+      id: R2,
+      company_id: CO,
+      kitchen_report_id: R2,
+      storage_path: "co/loc/2026/10/v2.m4a",
+      mime: "audio/mp4",
+    });
+    h.state.db.objects.set("co/loc/2026/10/v2.m4a", 2000);
+    h.transcribe.mockResolvedValue({ ok: true, value: { text: MIXED } });
+    await processAppReport({
+      staffId: STAFF,
+      reportId: R2,
+      admin: h.state.db.client,
+    });
+    expect(resultOf(R2).app_result).toMatchObject({
+      state: "done",
+      draft: true,
+      extras: ["tomates"],
+    });
+    expect(h.fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a message with a single item has no extras, and Telegram never records them", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R3, { text: "compramos pan a 2 dólares el kilo" })
+    );
+    await processAppReport({
+      staffId: STAFF,
+      reportId: R3,
+      admin: h.state.db.client,
+    });
+    expect(resultOf(R3).app_result.extras).toEqual([]);
+    // Outside a sink (Telegram) nothing is recorded at all.
+    expect(() =>
+      recordPipelineEvent({ kind: "extras", products: ["tomates"] })
+    ).not.toThrow();
+  });
+
+  it("serializeAppResult passes names and drops anything that looks like a price", () => {
+    const r = serializeAppResult({
+      v: 1,
+      state: "done",
+      draft: true,
+      extras: ["tomates", "pan $2.00", "cebolla 1,50 usd", 7, "cilantro"],
+    });
+    expect(r?.extras).toEqual(["tomates", "cilantro"]);
+    expect(() => assertNoMoneyFields(r)).not.toThrow();
+  });
+
+  it("the history route returns the extras and still passes the money guard", async () => {
+    h.state.db.tables.kitchen_devices = [
+      {
+        id: "55555555-5555-4555-8555-555555555551",
+        company_id: CO,
+        staff_id: STAFF,
+        token_hash: hashToken(TOKEN),
+        revoked_at: null,
+        last_seen_at: null,
+      },
+    ];
+    h.state.db.tables.kitchen_reports.push(
+      report(R1, {
+        text: MIXED,
+        processed_at: "2026-10-30T10:00:00.000Z",
+        app_result: {
+          v: 1,
+          state: "done",
+          noted: false,
+          draft: true,
+          asks: null,
+          unclear: null,
+          recipe: false,
+          understood: ["pan"],
+          extras: ["tomates"],
+        },
+      })
+    );
+    const res = await historyGET(
+      new NextRequest("http://localhost/api/mobile/v1/kitchen/history", {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.items[0].result.extras).toEqual(["tomates"]);
+    expect(() => assertNoMoneyFields(body)).not.toThrow();
+  });
+});

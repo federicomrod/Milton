@@ -274,6 +274,28 @@ function totalText(
   return lines && lines.length > 0 ? iv.incomplete : iv.noPrice;
 }
 
+/**
+ * The Total cell of a price update (from the app or Telegram): it has no
+ * invoice total, so it shows the amount of its line, «Varios precios» when it
+ * has several, or «Sin precio». Never blank, never a made-up 0.
+ */
+function priceUpdateAmountText(
+  inv: {
+    currency: string;
+    line_counts: { total: number };
+    line_preview?: { unit_cost: number | null }[];
+  },
+  iv: IV,
+  lang: PreferredLanguage
+): string {
+  const priced = (inv.line_preview ?? []).filter((l) =>
+    isShownPrice(l.unit_cost)
+  );
+  if (priced.length === 0) return iv.noPrice;
+  if (inv.line_counts.total > 1) return iv.severalPrices;
+  return fmtMoney(priced[0].unit_cost as number, inv.currency, lang);
+}
+
 // ---------------------------------------------------------------------------
 
 export interface InvoiceListItem {
@@ -1235,7 +1257,12 @@ function InvoiceListCard({
                           lang
                         )
                       ) : (
-                        <PriceUpdateLabel />
+                        <div className="flex flex-col items-end gap-1">
+                          <span data-testid="price-update-amount">
+                            {priceUpdateAmountText(inv, iv, lang)}
+                          </span>
+                          <PriceUpdateLabel />
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 align-top">

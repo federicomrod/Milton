@@ -541,7 +541,8 @@ describe("kitchen serializer", () => {
     });
     expect(out).toEqual({
       staff: { id: "s", name: "Luis" },
-      company: { name: "Casa A" },
+      // `language` is the company language the app speaks (never money).
+      company: { name: "Casa A", language: "es" },
       locations: [{ id: "l", name: "Centro" }],
     });
     expect(pickAllowed({ a: 1, b: 2, price: 3 }, ["a"])).toEqual({ a: 1 });

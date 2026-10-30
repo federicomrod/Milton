@@ -12,7 +12,7 @@ import React, {
 } from "react";
 import { createApiClient, type ApiClient } from "../api/client";
 import { apiBaseUrl } from "../config";
-import { deviceLanguage } from "../i18n";
+import { currentLanguage, setCurrentLanguage } from "../i18n/language-store";
 import { clearOutbox, startOutbox } from "../send/outbox";
 import {
   clearToken,
@@ -58,6 +58,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       await setProfile(null);
       await clearOutbox();
       setProfileState(null);
+      setCurrentLanguage(null);
       setStatus("signedOut");
     } finally {
       signingOut = false;
@@ -69,7 +70,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       createApiClient({
         baseUrl: apiBaseUrl(),
         getToken,
-        language: deviceLanguage(),
+        language: currentLanguage,
         onUnauthorized: () => void signOut(),
       }),
     [signOut]
@@ -82,6 +83,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         name: me.staff.name,
         location: me.locations[0]?.name ?? "",
         company: me.company.name || null,
+        language: setCurrentLanguage(me.company.language),
       };
       setProfileState(next);
       await setProfile(next);
@@ -93,6 +95,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(
     async (token: string, fallback: Profile) => {
       await setToken(token);
+      setCurrentLanguage(fallback.language);
       setProfileState(fallback);
       await setProfile(fallback);
       setStatus("signedIn");
@@ -109,7 +112,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setStatus("signedOut");
         return;
       }
-      setProfileState(await getProfile());
+      const cached = await getProfile();
+      setCurrentLanguage(cached?.language);
+      setProfileState(cached);
       setStatus("signedIn");
       await startOutbox(api);
       void refreshProfile();

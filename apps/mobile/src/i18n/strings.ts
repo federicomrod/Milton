@@ -106,6 +106,9 @@ export const es = {
     priceNote: "Los precios los ve tu encargado.",
     amountAsk: "Dime el precio otra vez, con la unidad (por kilo, por libra…).",
     answerHint: "Contéstale con un mensaje nuevo.",
+    extrasAsk: "¿Qué cantidad de {products}?",
+    stuckHint: "Milton todavía no lo ha leído.",
+    stuckRetry: "Reintentar",
     unitAsk: "Dime si el precio es por kilo, por libra o por unidad.",
     unclear: {
       unreadable: "No pude escuchar el audio. Mándalo otra vez o escríbelo.",
@@ -248,6 +251,9 @@ export const en: Strings = {
     priceNote: "Prices are for your manager to see.",
     amountAsk: "Tell me the price again, with the unit (per kilo, per pound…).",
     answerHint: "Answer with a new message.",
+    extrasAsk: "How much {products}?",
+    stuckHint: "Milton hasn't read it yet.",
+    stuckRetry: "Retry",
     unitAsk: "Tell me if the price is per kilo, per pound or per unit.",
     unclear: {
       unreadable: "I couldn't hear the audio. Send it again or write it.",
@@ -396,6 +402,9 @@ export const de: Strings = {
     amountAsk:
       "Sag mir den Preis noch einmal, mit der Einheit (pro Kilo, pro Pfund…).",
     answerHint: "Antworte mit einer neuen Nachricht.",
+    extrasAsk: "Welche Menge {products}?",
+    stuckHint: "Milton hat es noch nicht gelesen.",
+    stuckRetry: "Erneut versuchen",
     unitAsk: "Sag mir, ob der Preis pro Kilo, pro Pfund oder pro Stück gilt.",
     unclear: {
       unreadable:

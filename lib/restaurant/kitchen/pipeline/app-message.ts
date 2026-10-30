@@ -55,6 +55,8 @@ export interface AppResult {
   recipe: boolean;
   /** What Milton understood: product names only. */
   understood: string[];
+  /** Named without a price next to priced ones: the card asks how many (names only). */
+  extras: string[];
 }
 
 const EMPTY: Omit<AppResult, "state"> = {
@@ -65,6 +67,7 @@ const EMPTY: Omit<AppResult, "state"> = {
   unclear: null,
   recipe: false,
   understood: [],
+  extras: [],
 };
 
 /**
@@ -88,6 +91,9 @@ export function summarizeSink(
         e.kind === "price_draft" || e.kind === "stock" ? e.products : []
       )
     ),
+  ].filter(Boolean);
+  const extras = [
+    ...new Set(events.flatMap((e) => (e.kind === "extras" ? e.products : []))),
   ].filter(Boolean);
   const nothing = !question && !draft && !noted;
 
@@ -121,6 +127,7 @@ export function summarizeSink(
     unclear,
     recipe: outcome === "recipe" && nothing,
     understood,
+    extras,
   };
 }
 

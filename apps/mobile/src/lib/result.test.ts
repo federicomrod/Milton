@@ -3,9 +3,13 @@ import type { AppResult } from "../api/types";
 import { de, en, es } from "../i18n/strings";
 import { dayGroup, formatClock, initialsOf } from "./format";
 import {
+  QUICK_QUANTITIES,
+  STUCK_AFTER_MS,
   awaitsResult,
   describeResult,
+  isStuck,
   offlineText,
+  quickReplyText,
   unclearText,
 } from "./result";
 
@@ -152,16 +156,21 @@ describe("helpers", () => {
     expect(
       awaitsResult({ kind: "text", result: null, createdAt: old }, now)
     ).toBe(false);
+    // Still «processing» but young: keep checking. Two minutes on: stop.
+    const processing = { ...done(), state: "processing" as const };
     expect(
       awaitsResult(
         {
           kind: "voice",
-          result: { ...done(), state: "processing" },
-          createdAt: old,
+          result: processing,
+          createdAt: "2026-10-30T11:59:00Z",
         },
         now
       )
     ).toBe(true);
+    expect(
+      awaitsResult({ kind: "voice", result: processing, createdAt: old }, now)
+    ).toBe(false);
     expect(
       awaitsResult({ kind: "voice", result: done(), createdAt: fresh }, now)
     ).toBe(false);
@@ -188,5 +197,116 @@ describe("helpers", () => {
     expect(initialsOf("luis")).toBe("L");
     expect(initialsOf("Ana María de la Cruz")).toBe("AC");
     expect(initialsOf("  ")).toBe("?");
+  });
+});
+
+describe("a card stuck on «processing»", () => {
+  const now = Date.parse("2026-10-30T12:00:00Z");
+  const processing = { ...done(), state: "processing" as const };
+  const at = (secondsAgo: number) =>
+    new Date(now - secondsAgo * 1000).toISOString();
+
+  it("is polled for two minutes, then it is stuck and polling stops", () => {
+    expect(STUCK_AFTER_MS).toBe(120_000);
+    const young = {
+      kind: "text" as const,
+      result: processing,
+      createdAt: at(60),
+    };
+    const old = {
+      kind: "text" as const,
+      result: processing,
+      createdAt: at(130),
+    };
+    expect(awaitsResult(young, now)).toBe(true);
+    expect(isStuck(young, now)).toBe(false);
+    expect(awaitsResult(old, now)).toBe(false);
+    expect(isStuck(old, now)).toBe(true);
+  });
+
+  it("«Reintentar» restarts the two minutes from that moment", () => {
+    const old = {
+      kind: "voice" as const,
+      result: processing,
+      createdAt: at(600),
+    };
+    const retriedAt = now - 10_000;
+    expect(awaitsResult(old, now, retriedAt)).toBe(true);
+    expect(isStuck(old, now, retriedAt)).toBe(false);
+    expect(isStuck(old, now + STUCK_AFTER_MS, retriedAt)).toBe(true);
+  });
+
+  it("a finished or failed card, a photo and an old row without a result are never stuck", () => {
+    const old = at(600);
+    expect(isStuck({ kind: "text", result: done(), createdAt: old }, now)).toBe(
+      false
+    );
+    expect(
+      isStuck(
+        {
+          kind: "text",
+          result: { ...done(), state: "failed" },
+          createdAt: old,
+        },
+        now
+      )
+    ).toBe(false);
+    expect(isStuck({ kind: "photo", result: null, createdAt: old }, now)).toBe(
+      false
+    );
+    expect(
+      isStuck(
+        {
+          kind: "text",
+          result: null,
+          createdAt: at(3 * 86400),
+          status: "processed",
+        },
+        now
+      )
+    ).toBe(false);
+    // No result yet, never processed, a few minutes old: stuck.
+    expect(
+      isStuck(
+        { kind: "text", result: null, createdAt: old, status: "received" },
+        now
+      )
+    ).toBe(true);
+  });
+});
+
+describe("«¿Qué cantidad de tomates?» (products said without a price)", () => {
+  it("is a Milton-asks card with names only, in each language", () => {
+    for (const [dict, expected] of [
+      [es, "¿Qué cantidad de tomates, cebollas?"],
+      [en, "How much tomates, cebollas?"],
+      [de, "Welche Menge tomates, cebollas?"],
+    ] as const) {
+      const view = describeResult(
+        done({
+          draft: true,
+          understood: ["pan"],
+          extras: ["tomates", "cebollas"],
+        }),
+        dict
+      );
+      expect(view.extrasQuestion).toBe(expected);
+      expect(view.extras).toEqual(["tomates", "cebollas"]);
+      expect(view.chips.map((c) => c.label)).toContain(dict.status.asks);
+      expect(JSON.stringify(view)).not.toMatch(/[\d$€]/);
+    }
+  });
+
+  it("has no card when nothing is left over (or the server did not send extras)", () => {
+    expect(describeResult(done({ draft: true }), es).extrasQuestion).toBeNull();
+    expect(describeResult(done({ extras: [] }), es).extras).toEqual([]);
+  });
+
+  it("quick replies are plain quantities that never read like a price", () => {
+    expect(QUICK_QUANTITIES).toEqual([1, 2, 5, 10]);
+    expect(quickReplyText("tomates", 5)).toBe("tomates: 5");
+    expect(quickReplyText("tomates", 5)).not.toMatch(
+      /[$€]|precio|price|preis/i
+    );
   });
 });

@@ -127,7 +127,12 @@ export default function Enviar() {
                   <WaitingRow key={i.id} item={i} />
                 ))}
                 {feed.items.slice(0, 4).map((i) => (
-                  <ServerRow key={i.id} item={i} />
+                  <ServerRow
+                    key={i.id}
+                    item={i}
+                    stuck={feed.isStuck(i)}
+                    onRetry={() => feed.retry(i.id)}
+                  />
                 ))}
               </View>
             ) : null}

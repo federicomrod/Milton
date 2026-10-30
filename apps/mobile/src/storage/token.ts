@@ -12,6 +12,8 @@ export interface Profile {
   name: string;
   location: string;
   company: string | null;
+  /** The company language, cached so the first screen is already in it. */
+  language?: string;
 }
 
 export async function getToken(): Promise<string | null> {

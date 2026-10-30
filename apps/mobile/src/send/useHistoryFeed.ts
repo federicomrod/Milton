@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, friendlyMessage } from "../api/client";
 import type { HistoryItem } from "../api/types";
 import { useStrings } from "../i18n";
-import { awaitsResult } from "../lib/result";
+import { awaitsResult, isStuck } from "../lib/result";
 import { useSession } from "../session/SessionProvider";
 import { reportOffline, useOutbox } from "./outbox";
 
@@ -20,6 +20,9 @@ export function useHistoryFeed() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // When the cook last tapped «Reintentar» on a stuck card (per history id).
+  const [retried, setRetried] = useState<Record<string, number>>({});
+  const [tick, setTick] = useState(0);
   const busy = useRef(false);
   const sentCount = useOutbox().items.filter((i) => i.state === "sent").length;
 
@@ -69,6 +72,7 @@ export function useHistoryFeed() {
   // in effects, never during render).
   const sentRef = useRef(0);
   const seenRef = useRef(0);
+  const stuckSeen = useRef(0);
   useEffect(() => {
     sentRef.current = sentCount;
   }, [sentCount]);
@@ -79,12 +83,19 @@ export function useHistoryFeed() {
     const timer = setInterval(() => {
       const fresh = sentRef.current !== seenRef.current;
       seenRef.current = sentRef.current;
-      if (fresh || items.some((i) => awaitsResult(i, Date.now()))) {
+      const now = Date.now();
+      if (fresh || items.some((i) => awaitsResult(i, now, retried[i.id]))) {
         void load({ quiet: true });
+      }
+      // A card that crossed the two-minute mark: draw it as «Por enviar» once.
+      const stuck = items.filter((i) => isStuck(i, now, retried[i.id])).length;
+      if (stuck !== stuckSeen.current) {
+        stuckSeen.current = stuck;
+        setTick((t) => t + 1);
       }
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [items, load]);
+  }, [items, load, retried]);
 
   return {
     items,
@@ -92,6 +103,14 @@ export function useHistoryFeed() {
     refreshing,
     error,
     hasMore: cursor !== null,
+    /** Changes whenever a card becomes (or stops being) stuck: lists use it as extraData. */
+    version: `${tick}:${Object.keys(retried).length}`,
+    isStuck: (item: HistoryItem) => isStuck(item, Date.now(), retried[item.id]),
+    /** «Reintentar»: look again now and keep checking for another two minutes. */
+    retry: (id: string) => {
+      setRetried((prev) => ({ ...prev, [id]: Date.now() }));
+      void load({ quiet: true });
+    },
     refresh: () => {
       setRefreshing(true);
       void load({ pull: true });

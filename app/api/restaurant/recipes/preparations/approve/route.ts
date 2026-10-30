@@ -7,6 +7,8 @@
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { actorCanApprove } from "@/lib/restaurant/recipe-costing/approval";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
 import { approvePreparation } from "@/lib/restaurant/recipe-costing/editor-service";
@@ -18,21 +20,20 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const lang = await apiLanguage();
+  const msg = getDictionary(lang).menu.editor.api;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.bodyNotJson }, { status: 400 });
   }
   const componentId =
     typeof body.component_id === "string" ? body.component_id.trim() : "";
   if (!componentId) {
     return NextResponse.json(
-      { error: "Indica la preparación." },
+      { error: msg.preparationRequired },
       { status: 400 }
     );
   }
@@ -61,7 +62,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await approvePreparation({
-      store: createSupabaseEditorStore(auth.supabase),
+      store: createSupabaseEditorStore(auth.supabase, lang),
+      lang,
       companyId: auth.companyId,
       odooProductId: 0,
       locationId: null,
@@ -97,9 +99,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[recipes/preparations/approve]", err);
-    return NextResponse.json(
-      { error: "No pude aprobar la preparación." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.approveFailed }, { status: 500 });
   }
 }

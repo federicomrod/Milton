@@ -116,8 +116,9 @@ describe("Spanish completeness for cockpit chrome", () => {
     expect(strip).toContain("Ventas netas");
   });
 
-  it("treats the migration-016 English backfill as Spanish for the R1 cockpit", () => {
-    expect(resolveRestaurantCockpitLanguage("en")).toBe("es");
+  it("honours the stored en/es/de language and defaults to Spanish otherwise", () => {
+    expect(resolveRestaurantCockpitLanguage("en")).toBe("en");
+    expect(resolveRestaurantCockpitLanguage("de")).toBe("de");
     expect(resolveRestaurantCockpitLanguage("es")).toBe("es");
     expect(resolveRestaurantCockpitLanguage(null)).toBe("es");
   });
@@ -131,14 +132,15 @@ describe("Spanish completeness for cockpit chrome", () => {
 
   it("localizes Logout and Ask Milton in the shell", () => {
     const logout = read("components/dashboard/logout-button.tsx");
-    expect(logout).toContain("Cerrar sesión");
-    expect(logout).toContain("t(lang,");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Cerrar sesión");
+    expect(logout).toContain("getDictionary(lang)");
     const shell = read("components/restaurant/RestaurantShell.tsx");
     expect(shell).toContain('<LogoutButton lang={lang} variant="link" />');
-    expect(shell).toContain("Todos los restaurantes");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Todos los restaurantes");
     // One "✦ Preguntar a Milton", top right in every page header (A2).
     const header = read("components/restaurant/shell/OperatingPageHeader.tsx");
-    expect(header).toContain("Preguntar a Milton");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Preguntar a Milton");
+    expect(header).toContain("shell.sidebar.askMilton");
     expect(shell).not.toContain("AskMiltonButton");
   });
 

@@ -12,6 +12,7 @@ import {
   NoRecipeEditNotice,
 } from "@/components/restaurant/menu/EstimateWithMilton";
 import { Card, GhostBtn } from "./ui";
+import { useT } from "@/lib/i18n/client";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface MenuReadResponse {
@@ -29,16 +30,6 @@ interface MenuReadResponse {
   menu_outcomes?: MenuOutcome[];
   truncated?: boolean;
 }
-
-/** «Ver detalle»: the menu's dishes grouped by what happened, in this order. */
-const DETAIL_GROUPS: Array<{ outcome: MenuOutcomeCode; title: string }> = [
-  { outcome: "drafted", title: "Borradores nuevos" },
-  { outcome: "no_pos_match", title: "Sin producto en tu POS" },
-  { outcome: "has_recipe", title: "Ya tenían receta" },
-  { outcome: "draft_exists", title: "Ya tenían borrador" },
-  { outcome: "no_ingredients", title: "El menú no dice qué lleva" },
-  { outcome: "failed", title: "No pude preparar" },
-];
 
 const BLUE_BUTTON =
   "rounded-md bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1533A3]";
@@ -78,6 +69,17 @@ export function MenuReaderPanel({
   /** After «Estimar con Milton»: refresh the page data (no remount of this panel). */
   onEstimated?: () => void;
 }) {
+  const { d, lang } = useT();
+  const w = d.menu.workspace.menuReader;
+  /** «Ver detalle»: the menu's dishes grouped by what happened, in this order. */
+  const DETAIL_GROUPS: Array<{ outcome: MenuOutcomeCode; title: string }> = [
+    { outcome: "drafted", title: w.groups.drafted },
+    { outcome: "no_pos_match", title: w.groups.noPosMatch },
+    { outcome: "has_recipe", title: w.groups.hasRecipe },
+    { outcome: "draft_exists", title: w.groups.draftExists },
+    { outcome: "no_ingredients", title: w.groups.noIngredients },
+    { outcome: "failed", title: w.groups.failed },
+  ];
   const [mode, setMode] = useState<"url" | "text">("url");
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
@@ -106,12 +108,12 @@ export function MenuReaderPanel({
       });
       const json = (await res.json().catch(() => ({}))) as MenuReadResponse;
       if (!res.ok) {
-        throw new Error(userErrorMessage(json, "No pude leer el menú."));
+        throw new Error(userErrorMessage(json, w.readFailed));
       }
       setResult(json);
       if (json.drafted > 0) onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude leer el menú.");
+      setError(err instanceof Error ? err.message : w.readFailed);
     } finally {
       setBusy(false);
     }
@@ -121,7 +123,7 @@ export function MenuReaderPanel({
   return (
     <Wrapper className="space-y-2.5">
       {embedded ? null : (
-        <h2 className="text-[15px] font-semibold">Leer menú (opcional)</h2>
+        <h2 className="text-[15px] font-semibold">{w.title}</h2>
       )}
 
       {hideReader ? null : (
@@ -132,14 +134,14 @@ export function MenuReaderPanel({
               className={mode === "url" ? "text-[#1b2333]" : "text-[#3557c9]"}
               onClick={() => setMode("url")}
             >
-              Dirección del menú
+              {w.modeUrl}
             </button>
             <button
               type="button"
               className={mode === "text" ? "text-[#1b2333]" : "text-[#3557c9]"}
               onClick={() => setMode("text")}
             >
-              Pega el texto del menú
+              {w.modeText}
             </button>
           </div>
           <div className="flex flex-wrap items-start gap-2">
@@ -148,7 +150,7 @@ export function MenuReaderPanel({
                 value={url}
                 disabled={busy || !canEdit}
                 onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://turestaurante.com/menu"
+                placeholder={w.urlPlaceholder}
                 className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm disabled:bg-[#f6f7f9]"
               />
             ) : (
@@ -156,7 +158,7 @@ export function MenuReaderPanel({
                 value={text}
                 disabled={busy || !canEdit}
                 onChange={(event) => setText(event.target.value)}
-                placeholder="Copia el menú (de tu página o de un PDF) y pégalo aquí: nombre del plato, precio y descripción."
+                placeholder={w.textPlaceholder}
                 rows={5}
                 className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm disabled:bg-[#f6f7f9]"
               />
@@ -165,7 +167,7 @@ export function MenuReaderPanel({
               disabled={!canEdit || busy || busyExternal || !value}
               onClick={() => void read()}
             >
-              {busy ? "Leyendo tu menú…" : "Leer menú"}
+              {busy ? w.reading : w.read}
             </GhostBtn>
           </div>
           {canEdit ? null : <NoRecipeEditNotice />}
@@ -192,7 +194,7 @@ export function MenuReaderPanel({
 
       {result ? (
         <div className="space-y-1 rounded-md border border-[#cfe0ff] bg-[#f3f7ff] px-3 py-2 text-xs text-[#1b2333]">
-          {menuReadSummaryLines(result).map((line) => (
+          {menuReadSummaryLines(result, lang).map((line) => (
             <p key={line.key}>
               {line.text}
               {line.key === "not_on_menu" && result.not_found.length > 0 ? (
@@ -204,7 +206,7 @@ export function MenuReaderPanel({
                     aria-expanded={showMissing}
                     onClick={() => setShowMissing((open) => !open)}
                   >
-                    {showMissing ? "Ocultar" : "Ver cuáles"}
+                    {showMissing ? w.hide : w.showWhich}
                   </button>
                 </>
               ) : null}
@@ -223,7 +225,7 @@ export function MenuReaderPanel({
                 aria-expanded={showDetail}
                 onClick={() => setShowDetail((open) => !open)}
               >
-                {showDetail ? "Ocultar detalle" : "Ver detalle"}
+                {showDetail ? w.hideDetail : w.showDetail}
               </button>
               {showDetail ? (
                 <div className="mt-2 space-y-2">

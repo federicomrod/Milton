@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fmt, getDictionary } from "@/lib/i18n";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import {
   loadCompanyMembershipRole,
@@ -99,6 +102,10 @@ function asLink(row: Record<string, unknown>): PosProductLinkRecord | null {
   };
 }
 
+async function languageOf(input: WorkspaceInput): Promise<PreferredLanguage> {
+  return input.lang ?? (await apiLanguage());
+}
+
 export function parseCostingView(value: string | null): RecipeCostingView {
   // Vincular and Validar are one screen now; old links land on it.
   if (value === "plato" || value === "vincular" || value === "validar") {
@@ -155,6 +162,8 @@ type WorkspaceInput = {
    * on its way. Several tabs asked together (one request) share one.
    */
   economics?: Promise<DishEconomicsLoad>;
+  /** Language of the labels and messages; default: the company's. */
+  lang?: PreferredLanguage;
 };
 export type WorkspaceLoad =
   | { ok: true; workspace: RecipeCostingWorkspace }
@@ -208,7 +217,8 @@ export async function loadRecipeCostingWorkspace(
     );
     return {
       ok: false,
-      error: "No pude cargar tus costos y recetas ahora. Inténtalo de nuevo.",
+      error: getDictionary(await languageOf(input)).menu.workspace.server
+        .workspaceLoadFailed,
     };
   }
 }
@@ -220,6 +230,8 @@ async function loadRecipeCostingWorkspaceUnsafe(
   { ok: true; workspace: RecipeCostingWorkspace } | { ok: false; error: string }
 > {
   const started = Date.now();
+  const lang = await languageOf(input);
+  const s = getDictionary(lang).menu.workspace.server;
   const view = input.view ?? "resumen";
   // Platos with no period in the URL opens on Resumen's month (see above),
   // unless a shared economics read (several tabs asked together) was passed.
@@ -425,10 +437,10 @@ async function loadRecipeCostingWorkspaceUnsafe(
   if (list && !list.ok) return list;
 
   if (linksRes.error) {
-    return { ok: false, error: "No se pudieron leer los vínculos POS." };
+    return { ok: false, error: s.linksReadFailed };
   }
   if (versionsRes.error) {
-    return { ok: false, error: "No se pudieron leer las versiones de receta." };
+    return { ok: false, error: s.versionsReadFailed };
   }
   if (menuRes.error) {
     return { ok: false, error: "No se pudieron leer los platos." };
@@ -480,8 +492,8 @@ async function loadRecipeCostingWorkspaceUnsafe(
   const batchAt = batches[0]?.created_at ?? null;
   const lastAt = [confirmedAt, batchAt].filter(Boolean).sort().at(-1) ?? null;
   const lastProgress = lastAt
-    ? `Puedes guardar y seguir después · último avance: ${lastAt.slice(0, 16).replace("T", " ")}`
-    : "Puedes guardar y seguir después. El avance queda guardado.";
+    ? fmt(s.lastProgress, { at: lastAt.slice(0, 16).replace("T", " ") })
+    : s.lastProgressNone;
 
   // "Empezar de nuevo" lives on Resumen, for the owner or an admin only.
   let reset: RecipeCostingWorkspace["reset"] = null;
@@ -527,11 +539,12 @@ async function loadRecipeCostingWorkspaceUnsafe(
     : input.startDate && input.endDate
       ? formatPageDateRangeLabel(
           { from: input.startDate, to: input.endDate },
-          "es-MX"
+          localeFor(lang)
         )
       : null;
 
   const built = buildRecipeCostingWorkspace({
+    lang,
     companyId: input.companyId,
     companyName,
     currency: currency || "USD",

@@ -5,6 +5,8 @@
 // similar name already exists (a case/accent variant or a remembered alias)
 // it asks «Ya existe "X". ¿Usarlo?» instead of creating a duplicate.
 
+import { useT } from "@/lib/i18n/client";
+import { t } from "@/lib/restaurant/language";
 import { useMemo, useRef, useState } from "react";
 import { normalizeKitchenName } from "@/lib/restaurant/kitchen-ingredient-match";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
@@ -39,6 +41,7 @@ export function IngredientCombobox({
   /** Create «text» as a new ingredient (no price). */
   onCreate: (name: string) => Promise<CreateOutcome>;
 }) {
+  const { lang } = useT();
   const selected = ingredients.find((i) => i.id === value) ?? null;
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -84,7 +87,16 @@ export function IngredientCombobox({
       const outcome = await onCreate(name);
       if (outcome.ok) pick(outcome.ingredient);
       else if (outcome.similar) setSimilar(outcome.similar);
-      else setError(outcome.error ?? "No pude crear el ingrediente.");
+      else
+        setError(
+          outcome.error ??
+            t(
+              lang,
+              "I could not create the ingredient.",
+              "No pude crear el ingrediente.",
+              "Ich konnte die Zutat nicht anlegen."
+            )
+        );
     } finally {
       setBusy(false);
     }
@@ -95,12 +107,17 @@ export function IngredientCombobox({
       {!selected && rawName?.trim() && !open ? (
         <button
           type="button"
-          aria-label={`Crear "${sentenceCase(rawName)}"`}
+          aria-label={t(
+            lang,
+            `Create "${sentenceCase(rawName)}"`,
+            `Crear "${sentenceCase(rawName)}"`,
+            `„${sentenceCase(rawName)}“ anlegen`
+          )}
           disabled={busy}
           className="absolute right-1.5 top-1.5 z-10 rounded-full bg-[#eef2fd] px-2 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#dfe7fb] disabled:opacity-60"
           onClick={() => void create(rawName)}
         >
-          + Crear
+          {t(lang, "+ Create", "+ Crear", "+ Anlegen")}
         </button>
       ) : null}
       <input
@@ -138,7 +155,7 @@ export function IngredientCombobox({
       {open ? (
         <ul
           role="listbox"
-          aria-label={`${ariaLabel}: opciones`}
+          aria-label={`${ariaLabel}: ${t(lang, "options", "opciones", "Optionen")}`}
           className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border border-[#dfe3ea] bg-white py-1 text-sm shadow-lg"
         >
           {options.map((ing) => (
@@ -156,7 +173,9 @@ export function IngredientCombobox({
             </li>
           ))}
           {options.length === 0 && !canCreate ? (
-            <li className="px-2 py-1.5 text-[#8a92a3]">Sin ingredientes</li>
+            <li className="px-2 py-1.5 text-[#8a92a3]">
+              {t(lang, "No ingredients", "Sin ingredientes", "Keine Zutaten")}
+            </li>
           ) : null}
           {canCreate ? (
             <li
@@ -168,27 +187,30 @@ export function IngredientCombobox({
                 void create();
               }}
             >
-              + Crear &quot;{sentenceCase(text)}&quot;
+              {t(lang, "+ Create", "+ Crear", "+ Anlegen")} &quot;
+              {sentenceCase(text)}&quot;
             </li>
           ) : null}
         </ul>
       ) : null}
       {similar ? (
         <p className="mt-1 text-[12px] text-[#26314a]" role="status">
-          Ya existe &quot;{sentenceCase(similar.name)}&quot;. ¿Usarlo?{" "}
+          {t(lang, "Already exists", "Ya existe", "Existiert bereits")} &quot;
+          {sentenceCase(similar.name)}&quot;.{" "}
+          {t(lang, "Use it?", "¿Usarlo?", "Verwenden?")}{" "}
           <button
             type="button"
             className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
             onClick={() => pick(similar)}
           >
-            Usarlo
+            {t(lang, "Use it", "Usarlo", "Verwenden")}
           </button>{" "}
           <button
             type="button"
             className="text-[#6b7385] underline"
             onClick={() => setSimilar(null)}
           >
-            No
+            {t(lang, "No", "No", "Nein")}
           </button>
         </p>
       ) : null}

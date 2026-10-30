@@ -35,7 +35,7 @@ function factByLabel(
 }
 
 function dayPhraseFromTotalLabel(label: string): string | null {
-  const match = label.match(/total (?:de los|across)\s+(.+)/i);
+  const match = label.match(/(?:total (?:de los|across)|summe über)\s+(.+)/i);
   return match?.[1]?.trim() || null;
 }
 
@@ -50,11 +50,11 @@ export function isBestSalesDayAnswerTextCompliant(
 ): boolean {
   const totalFact = factByLabel(
     grounded.supporting_facts,
-    /total (de los|across)/i
+    /(total (de los|across)|summe über)/i
   );
   const avgFact = factByLabel(
     grounded.supporting_facts,
-    /promedio por|average per/i
+    /promedio por|average per|durchschnitt pro/i
   );
   if (!totalFact || !avgFact) return false;
 
@@ -63,13 +63,13 @@ export function isBestSalesDayAnswerTextCompliant(
 
   const text = fold(answer);
   if (!text.includes(fold(dayPhrase))) return false;
-  if (!/(promedio|average)/.test(text)) return false;
-  if (!/total/.test(text)) return false;
+  if (!/(promedio|average|durchschnitt)/.test(text)) return false;
+  if (!/(total|summe|gesamt)/.test(text)) return false;
 
   const groundedText = fold(grounded.answer);
   if (
-    /(no es igual|uneven)/.test(groundedText) &&
-    !/(no es igual|desigual|uneven|aparecen mas|more often|mas veces)/.test(
+    /(no es igual|uneven|ungleich)/.test(groundedText) &&
+    !/(no es igual|desigual|uneven|aparecen mas|more often|mas veces|ungleich|haufiger)/.test(
       text
     )
   ) {
@@ -78,13 +78,14 @@ export function isBestSalesDayAnswerTextCompliant(
 
   const bestFact = factByLabel(
     grounded.supporting_facts,
-    /mejor d[ií]a individual|best single date/i
+    /mejor d[ií]a individual|best single date|bester einzeltag/i
   );
   if (bestFact) {
     const dayNum = bestFact.value.match(/\b(\d{1,2})\b/);
     // Word boundary so "17" does not match inside "170".
     if (dayNum && !new RegExp(`\\b${dayNum[1]}\\b`).test(text)) return false;
-    if (!/(mejor dia|best (single )?(date|day))/.test(text)) return false;
+    if (!/(mejor dia|best (single )?(date|day)|bester (einzel)?tag)/.test(text))
+      return false;
   }
 
   return true;
@@ -103,7 +104,8 @@ function hasApprovedMarginRanking(ctx: AskMiltonContext): boolean {
 
 const CURRENCY_CODE_AMOUNT =
   /\b(USD|EUR|MXN|GTQ|HNL|NIO|CRC|COP|PEN|CLP|ARS|DOP|PAB|BZD)\s?\$?\d/;
-const WEEK_WORDS = /\b(semana|week|7 dias|7 days|siete dias|seven days)\b/;
+const WEEK_WORDS =
+  /\b(semana|week|7 dias|7 days|siete dias|seven days|woche|wochen|7 tage|sieben tage)\b/;
 const MONTH_LIKE_SOURCES = new Set(["latest_month", "named_period"]);
 
 /**
@@ -134,7 +136,9 @@ export function topSellingAnswerIsGrounded(
     const topDish = picked.items[0];
     if (topDish && !text.includes(fold(topDish.name))) return false;
   }
-  const leader = picked.dishesOnly ? picked.items[0] : sales.top_items_by_units[0];
+  const leader = picked.dishesOnly
+    ? picked.items[0]
+    : sales.top_items_by_units[0];
   if (leader && !text.includes(fold(leader.name))) {
     // Category questions lead with the category's own top item.
     const inCategory = sales.top_items_by_category.some(

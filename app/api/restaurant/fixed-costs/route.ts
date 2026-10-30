@@ -13,6 +13,8 @@
 // resolved from the user, never taken from the client; the location must
 // belong to that company.
 
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability } from "@/lib/auth/permissions";
 import { authorizeFixedCosts } from "@/lib/restaurant/fixed-costs-auth";
@@ -32,13 +34,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const lang = await apiLanguage();
+  const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
   const denied = requireCapability(auth.actor, "costs.fixed");
   if (denied) return denied;
   const month = monthStartOf(req.nextUrl.searchParams.get("month") ?? "");
-  if (!month)
-    return NextResponse.json({ error: "Mes no válido." }, { status: 400 });
+  if (!month) return NextResponse.json({ error: fe.month }, { status: 400 });
   const context = await resolveRestaurantContext(
     auth.supabase,
     auth.companyId,
@@ -62,20 +65,20 @@ export async function GET(req: NextRequest) {
           locationId: context.selected?.locationId ?? null,
           restaurantIds: context.locations.map((l) => l.id),
           month,
+          lang,
         }),
       }
     );
     return NextResponse.json(view);
   } catch (err) {
     console.error("[fixed-costs] GET failed:", err);
-    return NextResponse.json(
-      { error: "No se pudieron leer los costos fijos." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: fe.readFailed }, { status: 500 });
   }
 }
 
 export async function PUT(req: NextRequest) {
+  const lang = await apiLanguage();
+  const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
   const denied = requireCapability(auth.actor, "costs.fixed");
@@ -84,14 +87,13 @@ export async function PUT(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Cuerpo no válido." }, { status: 400 });
+    return NextResponse.json({ error: fe.invalidBody }, { status: 400 });
   }
   const month =
     typeof body.month === "string" ? monthStartOf(body.month) : null;
-  if (!month)
-    return NextResponse.json({ error: "Mes no válido." }, { status: 400 });
+  if (!month) return NextResponse.json({ error: fe.month }, { status: 400 });
   if (!Array.isArray(body.entries))
-    return NextResponse.json({ error: "Faltan los costos." }, { status: 400 });
+    return NextResponse.json({ error: fe.missingEntries }, { status: 400 });
 
   let locationId: string | null = null;
   if (body.location_id) {
@@ -101,20 +103,14 @@ export async function PUT(req: NextRequest) {
       String(body.location_id)
     );
     if (!context.selected)
-      return NextResponse.json(
-        { error: "Restaurante no válido." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: fe.restaurant }, { status: 400 });
     locationId = context.selected.locationId;
   }
 
   const entries: SaveEntry[] = [];
   for (const raw of body.entries as Array<Record<string, unknown>>) {
     if (!raw || !isFixedCostCategory(raw.category))
-      return NextResponse.json(
-        { error: "Categoría no válida." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: fe.category }, { status: 400 });
     entries.push({
       category: raw.category,
       value:
@@ -137,16 +133,13 @@ export async function PUT(req: NextRequest) {
         companyId: auth.companyId,
         userId: auth.userId,
       },
-      { month, locationId, entries }
+      { month, locationId, entries, lang }
     );
     if (!saved.ok)
       return NextResponse.json({ error: saved.error }, { status: 400 });
     return NextResponse.json({ lines: saved.lines });
   } catch (err) {
     console.error("[fixed-costs] PUT failed:", err);
-    return NextResponse.json(
-      { error: "No se pudieron guardar los costos fijos." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: fe.saveFailed }, { status: 500 });
   }
 }

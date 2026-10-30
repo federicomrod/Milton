@@ -27,19 +27,21 @@ import { toRecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
   ESTIMATE_MAX_RUN,
-  ESTIMATE_TABLES_MISSING,
   EstimateTablesMissingError,
   countEstimableDishes,
   countUnlinkedWithoutPlato,
   estimateDishes,
 } from "@/lib/restaurant/menu-reading/estimate-server";
 import { loadDishEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
+import { apiDictionary, apiLanguage } from "@/lib/restaurant/api-lang";
+import { menuMsg } from "@/lib/restaurant/menu-reading/messages";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-const DENIED = "Tu rol no puede preparar recetas.";
 const MAX_IDS = 100;
 
 async function guard(): Promise<
@@ -56,7 +58,9 @@ async function guard(): Promise<
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
-  const denied = requireCapability(actor, "recipes.edit", { message: DENIED });
+  const denied = requireCapability(actor, "recipes.edit", {
+    message: (await apiMsg()).roleCannotPrepare,
+  });
   if (denied) return { ok: false, response: denied };
   return { ok: true, auth, actor: toRecipeActor(actor), permission: actor };
 }
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
       body.menu_item_ids.some((id) => typeof id !== "string" || !id.trim())
     ) {
       return NextResponse.json(
-        { error: "Envía la lista de platos que quieres estimar." },
+        { error: (await apiMsg()).estimateSendDishes },
         { status: 400 }
       );
     }
@@ -130,7 +134,7 @@ export async function POST(req: NextRequest) {
       );
     if (!valid) {
       return NextResponse.json(
-        { error: "Envía los productos que quieres estimar." },
+        { error: (await apiMsg()).estimateSendProducts },
         { status: 400 }
       );
     }
@@ -171,13 +175,13 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof EstimateTablesMissingError) {
       return NextResponse.json(
-        { error: ESTIMATE_TABLES_MISSING },
+        { error: menuMsg(await apiLanguage(), "estimateTablesMissing") },
         { status: 503 }
       );
     }
     console.error("[recipes-menu-estimate]");
     return NextResponse.json(
-      { error: "No pude estimar estos platos. Intenta de nuevo." },
+      { error: (await apiMsg()).estimateFailed },
       { status: 500 }
     );
   }

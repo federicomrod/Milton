@@ -8,6 +8,7 @@
 // from the request.
 
 import { requireCapability } from "@/lib/auth/permissions";
+import { apiDictionary, apiLanguage } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import { mergeUnitMismatch } from "@/lib/restaurant/ingredient-duplicates";
@@ -21,10 +22,11 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const g = await gate();
   if (!g.ok) return g.response;
   const denied = requireCapability(g.actor, "ingredients.manage", {
-    message: "Tu rol no puede unir ni descartar ingredientes.",
+    message: api.roleMerge,
   });
   if (denied) return denied;
   const { supabase, companyId } = g.auth;
@@ -32,10 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const survivor = body.survivor_id;
   const losers = Array.isArray(body.loser_ids)
@@ -62,10 +61,7 @@ export async function POST(req: NextRequest) {
     losers.length < 1 ||
     losers.length > 20
   ) {
-    return NextResponse.json(
-      { error: "Elige el ingrediente que se conserva y 1 a 20 por unir." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.chooseSurvivor }, { status: 400 });
   }
   // The losers' names and every unit, from the database.
   const names = await supabase
@@ -76,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (names.error)
     return failureResponse(
       names.error,
-      "No pude leer los ingredientes.",
+      api.readIngredients,
       "ingredient-merge"
     );
   const rows = (names.data ?? []) as Array<{
@@ -107,7 +103,8 @@ export async function POST(req: NextRequest) {
     rows.map((r) => ({
       name: r.name,
       unit: r.default_unit ?? latestUnit.get(r.id) ?? null,
-    }))
+    })),
+    await apiLanguage()
   );
   if (mismatch) return NextResponse.json({ error: mismatch }, { status: 400 });
   const aliases = rows
@@ -124,11 +121,6 @@ export async function POST(req: NextRequest) {
     p_aliases: aliases,
     p_suggestion_id: suggestion,
   });
-  if (error)
-    return failureResponse(
-      error,
-      "No pude unir los ingredientes.",
-      "ingredient-merge"
-    );
+  if (error) return failureResponse(error, api.mergeFailed, "ingredient-merge");
   return NextResponse.json({ ok: true, result: data });
 }

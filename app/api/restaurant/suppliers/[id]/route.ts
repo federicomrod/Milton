@@ -9,6 +9,7 @@
 //   linked ingredient_cost_entries retain their supplier reference.
 //   Returns 409 if hard-delete is requested while cost entries exist.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -40,15 +41,13 @@ export async function PATCH(
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
 
   let body: PatchBody;
   try {
     body = (await req.json()) as PatchBody;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo de la solicitud debe ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyJson }, { status: 400 });
   }
 
   const str = (v: unknown) =>
@@ -79,7 +78,7 @@ export async function PATCH(
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json(
-      { error: "No hay nada que actualizar: envía al menos un campo." },
+      { error: a.nothingToUpdateField },
       { status: 400 }
     );
   }
@@ -97,15 +96,12 @@ export async function PATCH(
   if (error || !data) {
     const pgCode = (error as { code?: string } | null)?.code;
     if (pgCode === "23505") {
-      return NextResponse.json(
-        { error: "Ya existe un proveedor con ese nombre." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: a.supplierExists }, { status: 409 });
     }
     console.error("[suppliers PATCH]", error?.message);
     return NextResponse.json(
       {
-        error: "No pude actualizar el proveedor. Inténtalo de nuevo.",
+        error: a.supplierUpdateFailed,
         details: error?.message,
       },
       { status: 500 }
@@ -127,6 +123,7 @@ export async function DELETE(
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
 
   // Soft-delete only — set status to archived.
   const { data, error } = await auth.supabase
@@ -141,7 +138,7 @@ export async function DELETE(
     console.error("[suppliers DELETE]", error?.message);
     return NextResponse.json(
       {
-        error: "No pude archivar el proveedor. Inténtalo de nuevo.",
+        error: a.supplierArchiveFailed,
         details: error?.message,
       },
       { status: 500 }

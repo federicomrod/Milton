@@ -6,7 +6,6 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { isUserAdminServer } from "@/lib/profile-service-server";
 import { cache } from "react";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
@@ -19,6 +18,7 @@ import { listRestaurantLocationsForCurrentUser } from "@/lib/restaurant/restaura
 import {
   getCachedAuthUser,
   getCachedCompanyId,
+  getCachedIsMiltonAdmin,
 } from "@/lib/restaurant/auth-user";
 import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import type { RestaurantLocationOption } from "@/lib/restaurant/restaurant-context-server";
@@ -71,7 +71,7 @@ async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrom
 
       const companyId = await getCachedCompanyId(user.id);
       const [isAdmin, lang, lastSyncedAt, locations] = await Promise.all([
-        isUserAdminServer(user.id),
+        getCachedIsMiltonAdmin(user.id),
         companyId
           ? loadPreferredLanguage(supabase, companyId)
           : Promise.resolve(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE),

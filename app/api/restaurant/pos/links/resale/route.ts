@@ -6,6 +6,7 @@
 // one-line recipe (the item you buy). The link stays a suggestion and the
 // recipe still needs approval. Company and user come from auth.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: d.connect.api.bodyMustBeJson },
       { status: 400 }
     );
   }
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
     !unit
   ) {
     return NextResponse.json(
-      { error: "Indica el producto de Odoo, qué compras y la unidad." },
+      { error: d.connect.api.resaleMissing },
       { status: 400 }
     );
   }
@@ -77,7 +79,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[pos/links/resale]", err);
     return NextResponse.json(
-      { error: "No pude crear el costo de reventa." },
+      { error: d.connect.api.resaleCreateFailed },
       { status: 500 }
     );
   }

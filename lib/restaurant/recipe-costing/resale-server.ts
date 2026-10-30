@@ -1,3 +1,8 @@
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 // Reventa in one step: a product sold as it is bought gets a one-line
 // recipe (what you buy, how much goes into one sale). It is a draft like any
 // other: the link is a suggestion and the recipe still needs approval, so
@@ -27,15 +32,19 @@ export async function startResaleRecipe(input: {
   quantity: number;
   unit: string;
   locationId?: string | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<
   | { ok: true; menu_item_id: string; state: EditorState }
   | { ok: false; error: string; status?: number }
 > {
+  const s = getDictionary(input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE)
+    .menu.workspace.server;
   if (!actorCanSubmitForApproval(input.actor)) {
-    return { ok: false, error: "Tu rol no puede crear recetas.", status: 403 };
+    return { ok: false, error: s.resaleRole, status: 403 };
   }
   if (!(input.quantity > 0)) {
-    return { ok: false, error: "Indica cuánto lleva una venta." };
+    return { ok: false, error: s.resaleHowMuch };
   }
   const { data: ingredient, error } = await input.supabase
     .from("ingredients")
@@ -45,7 +54,7 @@ export async function startResaleRecipe(input: {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!ingredient) {
-    return { ok: false, error: "Ese producto no está en tu lista." };
+    return { ok: false, error: s.productNotInList };
   }
 
   const existing = await loadPosProductLink(
@@ -55,7 +64,7 @@ export async function startResaleRecipe(input: {
     input.locationId
   );
   if (existing?.menu_item_id) {
-    return { ok: false, error: RESALE_HAS_RECIPE_ERROR, status: 409 };
+    return { ok: false, error: s.resaleHasRecipe, status: 409 };
   }
 
   const treatment = await setPosProductTreatments({

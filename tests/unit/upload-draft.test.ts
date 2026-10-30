@@ -1,6 +1,7 @@
 // The cost-file upload survives leaving the page: the file and every
 // choice live server-side (migration 044) and come back on open.
 
+import { menuWorkspace } from "@/lib/i18n/es/menu-workspace";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -74,9 +75,13 @@ describe("saved choices", () => {
     expect(panel).toContain('method: "PATCH"');
     expect(panel).toContain("await persistChoices();");
     // A choice can always be cleared back to Pendiente.
-    expect(panel).toContain("Ninguna / Pendiente");
+    expect(menuWorkspace.priceCatalog.noneLabel).toBe("Ninguna / Pendiente");
+    expect(panel).toContain("w.noneLabel");
     // Each "parece preparación" row asks it explicitly.
-    expect(panel).toContain("¿Lo compras ya hecho?");
+    expect(menuWorkspace.priceCatalog.boughtReady).toBe(
+      "¿Lo compras ya hecho?"
+    );
+    expect(panel).toContain("{w.boughtReady}");
     expect(panel).not.toContain("Parecen preparaciones de tu cocina");
   });
 });

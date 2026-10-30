@@ -1,5 +1,6 @@
 // Lean copy pass 2: Menú and Cocina say each thing once. Synthetic data only.
 import { readFileSync, readdirSync, existsSync } from "fs";
+import { es } from "@/lib/i18n/es";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,7 +18,8 @@ describe("Menú › Resumen", () => {
   const src = read("components/restaurant/recipes-costing/ResumenScreen.tsx");
   it("has no «clic para abrir el plato» caption and never prints $0", () => {
     expect(src).not.toContain("clic para abrir el plato");
-    expect(src).toContain('title="Abrir el plato"');
+    expect(src).toContain("title={w.openDish}");
+    expect(es.menu.workspace.resumen.openDish).toBe("Abrir el plato");
     expect(src).not.toMatch(/nunca cuentan como \$0/);
   });
   it("says «solo ventas con costo» everywhere", () => {
@@ -35,7 +37,7 @@ describe("Cocina", () => {
     ).not.toContain("kitchen-legend");
     const qr = read("components/restaurant/kitchen/KitchenQrResult.tsx");
     expect(qr).not.toContain("QR for");
-    expect(qr).toContain("QR de {locationName}");
+    expect(qr).toContain("QR de ${locationName}");
   });
   it("«Rotar QR» no longer carries the warning (the confirm dialog does)", () => {
     const src = read("components/restaurant/kitchen/KitchenQrCard.tsx");
@@ -128,14 +130,17 @@ describe("Cuenta and break-even naming", () => {
     expect(read("app/dashboard/account/page.tsx")).not.toContain(
       "Información de la empresa"
     );
-    expect(read("app/dashboard/settings/page.tsx")).toContain(
+    expect(read("lib/i18n/es/settings.ts")).toContain(
       "Información de la empresa"
     );
   });
   it("break-even is «Punto de equilibrio» in the UI", () => {
     expect(
       read("components/restaurant/rentabilidad/RentabilidadPage.tsx")
-    ).toContain("Punto de equilibrio por día");
+    ).toContain("r.page.breakEvenPerDay");
+    expect(es.rentabilidad.page.breakEvenPerDay).toBe(
+      "Punto de equilibrio por día"
+    );
     expect(read("lib/restaurant/rentabilidad-copy.ts")).not.toMatch(
       /venta de equilibrio/i
     );

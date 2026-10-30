@@ -11,6 +11,7 @@
 
 import type { AskMiltonContext } from "@/lib/restaurant/ask-milton-context";
 import type { AskMiltonIntent } from "@/lib/restaurant/ask-milton-prompt";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { AgentActionPriority } from "@/types/agent-actions";
 
 // ---------------------------------------------------------------------------
@@ -50,7 +51,8 @@ const LOW_MARGIN_THRESHOLD = 35;
 export function generateSuggestedActions(
   message: string,
   ctx: AskMiltonContext,
-  intent: AskMiltonIntent
+  intent: AskMiltonIntent,
+  lang: PreferredLanguage = "es"
 ): SuggestedAction[] {
   const actions: SuggestedAction[] = [];
   const m = message.toLowerCase();
@@ -76,7 +78,10 @@ export function generateSuggestedActions(
       "fix",
       "price",
       "this week",
-      "high food cost"
+      "high food cost",
+      "marge",
+      "wareneinsatz",
+      "diese woche"
     );
 
   if (wantsMarginFix) {
@@ -288,11 +293,16 @@ export function generateSuggestedActions(
   // -------------------------------------------------------------------------
   const wantsInvoiceReview =
     intent === "invoices_needing_review" ||
-    has("invoice", "review invoice", "pending invoice");
+    has("invoice", "review invoice", "pending invoice", "rechnung");
 
   if (wantsInvoiceReview && ctx.invoices.needs_review_count > 0) {
     add({
-      label: `Revisar facturas pendientes (${ctx.invoices.needs_review_count})`,
+      label: t(
+        lang,
+        `Review pending invoices (${ctx.invoices.needs_review_count})`,
+        `Revisar facturas pendientes (${ctx.invoices.needs_review_count})`,
+        `Offene Rechnungen prüfen (${ctx.invoices.needs_review_count})`
+      ),
       action_type: "navigation",
       agent_key: null,
       related_entity_type: null,
@@ -316,11 +326,23 @@ export function generateSuggestedActions(
   const wantsDataQuality =
     intent === "cost_coverage" ||
     (intent === "agent_recommendations" && hasDataIssues) ||
-    has("coverage", "data quality", "missing data", "setup");
+    has(
+      "coverage",
+      "data quality",
+      "missing data",
+      "setup",
+      "kostenabdeckung",
+      "datenqualit"
+    );
 
   if (wantsDataQuality && ctx.agent_actions.open.length > 0) {
     add({
-      label: "Ver problemas de datos",
+      label: t(
+        lang,
+        "View data issues",
+        "Ver problemas de datos",
+        "Datenprobleme ansehen"
+      ),
       action_type: "navigation",
       agent_key: null,
       related_entity_type: null,

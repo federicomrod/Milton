@@ -5,8 +5,9 @@
 // Visible only with the `costs.fixed` capability (owner, admin, manager).
 
 import { RentabilidadPage } from "@/components/restaurant/rentabilidad/RentabilidadPage";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -19,6 +20,7 @@ import {
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { createClient } from "@/lib/supabase/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +29,16 @@ type SearchParams = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) =>
   Array.isArray(v) ? v[0] : v;
 
-function Note({ children }: { children: React.ReactNode }) {
+function Note({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="w-full space-y-3 px-6 py-3 lg:px-10">
-      <OperatingPageHeader title="Rentabilidad" showDateRange={false} />
+      <OperatingPageHeader title={title} showDateRange={false} />
       <div className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-3.5 text-[13px] text-[#6b7385]">
         {children}
       </div>
@@ -44,31 +52,23 @@ export default async function RentabilidadRoute({
   searchParams: Promise<SearchParams>;
 }) {
   const params = await searchParams;
+  const d = (await apiDictionary()).rentabilidad;
   const user = await getCachedAuthUser();
   const companyId = user?.id ? await getCachedCompanyId(user.id) : null;
-  if (!user?.id || !companyId)
-    return <Note>Inicia sesión para ver tu rentabilidad.</Note>;
+  if (!user?.id || !companyId) return <Note title={d.title}>{d.signIn}</Note>;
   const supabase = await createClient();
-  const actor = await resolveActor(supabase, user.id, { companyId });
+  // The role check and the restaurant list do not depend on each other.
+  const [actor, context] = await Promise.all([
+    getCachedActor(user.id, companyId),
+    resolveRestaurantContext(supabase, companyId, first(params.location)),
+  ]);
   if (!capabilityFlags(actor)["costs.fixed"])
-    return <Note>Tu rol no puede ver la rentabilidad.</Note>;
-
-  const context = await resolveRestaurantContext(
-    supabase,
-    companyId,
-    first(params.location)
-  );
+    return <Note title={d.title}>{d.roleDenied}</Note>;
   // One restaurant: the selected one, or the only one the company has.
   const selected =
     context.selected?.locationId ??
     (context.locations.length === 1 ? context.locations[0].id : null);
-  if (!selected)
-    return (
-      <Note>
-        Elige un restaurante arriba para ver su rentabilidad. La vista de todo
-        el grupo llega más adelante.
-      </Note>
-    );
+  if (!selected) return <Note title={d.title}>{d.pickRestaurant}</Note>;
 
   const currentMonth = monthStartOf(new Date()) as string;
   const requested = first(params.month)
@@ -88,13 +88,10 @@ export default async function RentabilidadRoute({
   } catch (err) {
     console.error("[rentabilidad] load failed:", err);
     return (
-      <Note>
-        No se pudo calcular tu rentabilidad ahora. Si es la primera vez, falta
-        aplicar la migración 064 en este ambiente (costos fijos); también puede
-        ser que los costos de tus platos no se hayan podido leer. Prueba otra
-        vez en unos minutos o revisa{" "}
+      <Note title={d.title}>
+        {d.loadFailedBefore}{" "}
         <a className="underline" href={COSTS_HREF}>
-          Costos
+          {d.loadFailedLink}
         </a>
         .
       </Note>

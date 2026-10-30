@@ -7,13 +7,16 @@
 // Every number comes from the shared loader; the screen only re-adds the
 // sums after a move (dishSums, the loader's own function).
 
-import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
+import type { Dictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { invalidateEstimateProbe } from "@/lib/restaurant/menu-estimate-probe-cache";
 import { UploadRecipesLink } from "./UploadRecipesLink";
 import {
-  GROUP_COVERAGE_TIP,
-  groupStatusDisplay,
-} from "@/lib/restaurant/costing/rollup";
+  coverageTip,
+  groupStatusText,
+} from "@/lib/restaurant/menu-dishes/labels";
 import {
   Fragment,
   memo,
@@ -44,21 +47,20 @@ import {
   type MenuDish,
   type MenuDishVariant,
 } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import type { DishStatus } from "@/lib/restaurant/costing/dish-status";
 import {
-  DISH_STATUS_LABELS,
-  type DishStatus,
-} from "@/lib/restaurant/costing/dish-status";
-import { FROM_MENU_LABEL } from "@/lib/restaurant/costing/dish-state";
-import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+  dishStatusLabel,
+  fromMenuLabel,
+} from "@/lib/restaurant/menu-dishes/status-labels";
+import { sizeText } from "@/lib/restaurant/menu-dishes/drill";
+import { formatMoneyLocale } from "@/lib/restaurant/menu-dishes/money";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
-  ESTIMATE_BADGE,
-  ESTIMATE_BUTTON,
-  ESTIMATE_USE_BUTTON,
   ESTIMATE_USE_SUCCESS,
   canUseEstimateAsDraft,
+  estimateCopy,
   estimateSkipMessage,
   estimateForProducts,
   estimateText,
@@ -88,16 +90,24 @@ const TONE: Record<DishStatus, "ok" | "pur" | "warn" | "grey"> = {
   sin_receta: "grey",
 };
 
-const EXCLUDED_LABELS: Record<string, string> = {
-  bebida: "Bebida",
-  extra: "Extra",
-  empleados: "Empleados",
-  descuento: "Descuento",
-  excluido: "Excluido",
-  excluido_a_mano: "Excluido",
-};
+type DishesText = Dictionary["menu"]["screens"]["dishes"];
 
-async function post(body: Record<string, unknown>) {
+function excludedLabel(reason: string | null, t: DishesText): string {
+  switch (reason) {
+    case "bebida":
+      return t.excludedBebida;
+    case "extra":
+      return t.excludedExtra;
+    case "empleados":
+      return t.excludedEmpleados;
+    case "descuento":
+      return t.excludedDescuento;
+    default:
+      return t.excludedDefault;
+  }
+}
+
+async function post(body: Record<string, unknown>, fallback: string) {
   const res = await fetch("/api/restaurant/menu-dishes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -107,21 +117,25 @@ async function post(body: Record<string, unknown>) {
     error?: string;
     menu_dish_id?: string;
   };
-  if (!res.ok)
-    throw new Error(userErrorMessage(json, "No pude guardar el cambio."));
+  if (!res.ok) throw new Error(userErrorMessage(json, fallback));
   return json;
 }
 
-const SCOPE_LABELS = {
-  restaurante: "ventas del restaurante con su propio vínculo",
-  compartido: "ventas con el vínculo compartido",
-  sin_vinculo: "ventas de un restaurante sin vínculo: sin costo",
-} as const;
+function scopeLabel(
+  kind: "restaurante" | "compartido" | "sin_vinculo",
+  t: DishesText
+) {
+  return kind === "restaurante"
+    ? t.scopeRestaurant
+    : kind === "compartido"
+      ? t.scopeShared
+      : t.scopeNoLink;
+}
 
 /** A variant's name; a restaurant part says whose link costs it. */
-function variantTitle(v: MenuDishVariant): string {
+function variantTitle(v: MenuDishVariant, t: DishesText): string {
   return v.sales_scope
-    ? `${v.name} (${SCOPE_LABELS[v.sales_scope.kind]})`
+    ? `${v.name} (${scopeLabel(v.sales_scope.kind, t)})`
     : v.name;
 }
 
@@ -180,6 +194,8 @@ export function MenuDishesScreen({
   onOpenDish: (odooProductId: number) => void;
   statusFilter?: readonly string[];
 }) {
+  const { d, lang } = useT();
+  const t = d.menu.screens.dishes;
   const menu = data.menu_dishes;
   const [dishes, setDishes] = useState<MenuDish[]>(menu?.dishes ?? []);
   const [excluded, setExcluded] = useState<MenuDish[]>(menu?.excluded ?? []);
@@ -255,8 +271,8 @@ export function MenuDishesScreen({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const money = useCallback(
-    (n: number) => formatMoneyEs(n, data.currency, { decimals: 0 }),
-    [data.currency]
+    (n: number) => formatMoneyLocale(n, data.currency, lang, { decimals: 0 }),
+    [data.currency, lang]
   );
 
   // The lists are this screen's own after the first load: moves and
@@ -271,12 +287,10 @@ export function MenuDishesScreen({
     setSaving(true);
     setError(null);
     try {
-      await post({ action: "sync" });
+      await post({ action: "sync" }, t.saveChangeFailed);
       setUnsaved(0);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No pude guardar la agrupación."
-      );
+      setError(err instanceof Error ? err.message : t.groupingFailed);
     } finally {
       setSaving(false);
     }
@@ -300,6 +314,7 @@ export function MenuDishesScreen({
       string,
       {
         text: string;
+        parts: Array<{ value: string; isNumber: boolean }>;
         menu_item_id: string;
         usable: boolean;
         line_count: number;
@@ -325,15 +340,17 @@ export function MenuDishesScreen({
       )
         continue;
       const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
+      const shown = estimateText(est, data.currency, avg, lang);
       map.set(dish.id, {
-        text: estimateText(est, data.currency, avg).text,
+        text: shown.text,
+        parts: shown.parts,
         menu_item_id: est.menu_item_id,
         usable: canUseEstimateAsDraft(est),
         line_count: est.lines.length,
       });
     }
     return map;
-  }, [estimates, dishes, excluded, data.currency]);
+  }, [estimates, dishes, excluded, data.currency, lang]);
 
   const openDrill = (
     target:
@@ -399,13 +416,16 @@ export function MenuDishesScreen({
     setDishes(moved.dishes);
     setExcluded(moved.excluded);
     try {
-      const saved = await post({
-        action: "move",
-        odoo_product_id: variant.odoo_product_id,
-        odoo_name: variant.name,
-        menu_dish_id: typeof target === "string" ? null : target.id,
-        dish_name: typeof target === "string" ? target : target.name,
-      });
+      const saved = await post(
+        {
+          action: "move",
+          odoo_product_id: variant.odoo_product_id,
+          odoo_name: variant.name,
+          menu_dish_id: typeof target === "string" ? null : target.id,
+          dish_name: typeof target === "string" ? target : target.name,
+        },
+        t.saveChangeFailed
+      );
       if (saved.menu_dish_id && saved.menu_dish_id !== targetId) {
         setDishes((prev) =>
           prev.map((d) =>
@@ -418,9 +438,7 @@ export function MenuDishesScreen({
     } catch (err) {
       setDishes(before.dishes);
       setExcluded(before.excluded);
-      setError(
-        err instanceof Error ? err.message : "No pude mover la variante."
-      );
+      setError(err instanceof Error ? err.message : t.moveVariantFailed);
     }
   }
 
@@ -448,20 +466,21 @@ export function MenuDishesScreen({
     setExcluded(nextExcluded);
     try {
       for (const v of variants) {
-        await post({
-          action: "move",
-          odoo_product_id: v.odoo_product_id,
-          odoo_name: v.name,
-          menu_dish_id: dish.id,
-          dish_name: dish.name,
-        });
+        await post(
+          {
+            action: "move",
+            odoo_product_id: v.odoo_product_id,
+            odoo_name: v.name,
+            menu_dish_id: dish.id,
+            dish_name: dish.name,
+          },
+          t.saveChangeFailed
+        );
       }
     } catch (err) {
       setDishes(before.dishes);
       setExcluded(before.excluded);
-      setError(
-        err instanceof Error ? err.message : "No pude mover los productos."
-      );
+      setError(err instanceof Error ? err.message : t.moveProductsFailed);
     }
   }
 
@@ -488,22 +507,23 @@ export function MenuDishesScreen({
       );
     }
     try {
-      await post({
-        action: "exclude",
-        dish_name: dish.name,
-        menu_dish_id: dish.id,
-        excluded: exclude,
-        variants: dish.variants.map((v) => ({
-          odoo_product_id: v.odoo_product_id,
-          odoo_name: v.name,
-        })),
-      });
+      await post(
+        {
+          action: "exclude",
+          dish_name: dish.name,
+          menu_dish_id: dish.id,
+          excluded: exclude,
+          variants: dish.variants.map((v) => ({
+            odoo_product_id: v.odoo_product_id,
+            odoo_name: v.name,
+          })),
+        },
+        t.saveChangeFailed
+      );
     } catch (err) {
       setDishes(before.dishes);
       setExcluded(before.excluded);
-      setError(
-        err instanceof Error ? err.message : "No pude guardar el cambio."
-      );
+      setError(err instanceof Error ? err.message : t.saveChangeFailed);
     }
   }
 
@@ -511,7 +531,7 @@ export function MenuDishesScreen({
     <div className="flex flex-wrap items-center gap-3">
       <div
         role="group"
-        aria-label="Vista"
+        aria-label={t.viewGroup}
         className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
       >
         {(["platos", "productos"] as const).map((v) => (
@@ -527,7 +547,7 @@ export function MenuDishesScreen({
                 : "text-[#4a5a85] hover:text-[#1b40c8]")
             }
           >
-            {v === "platos" ? "Platos" : "Productos"}
+            {v === "platos" ? t.viewDishes : t.viewProducts}
           </button>
         ))}
       </div>
@@ -538,7 +558,7 @@ export function MenuDishesScreen({
         className="rounded-md px-2 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb]"
         aria-pressed={kpiUserHidden}
       >
-        {kpiUserHidden ? "Mostrar indicadores" : "Ocultar indicadores"}
+        {kpiUserHidden ? t.showKpis : t.hideKpis}
       </button>
     </div>
   );
@@ -579,7 +599,9 @@ export function MenuDishesScreen({
             canEdit={data.actor.can_submit}
             money={money}
             onBack={() => setDrill(null)}
-            backLabel={drillFrom === "productos" ? "Productos" : "Platos"}
+            backLabel={
+              drillFrom === "productos" ? t.viewProducts : t.viewDishes
+            }
             restaurants={data.restaurants}
             showRestaurants={
               (data.restaurants?.length ?? 0) > 1 && !data.view_location_id
@@ -605,38 +627,43 @@ export function MenuDishesScreen({
             className="mb-1.5 text-[12px] text-[#8a92a3]"
             data-testid="platos-kpi-period"
           >
-            {data.period_label ?? "Todo el historial"}
+            {data.period_label ?? t.periodAll}
           </p>
           <div className="grid grid-cols-4 gap-3">
             <Kpi
-              label="Costo de comida"
+              label={t.kpiFoodCost}
               value={
-                k.food_cost_pct !== null ? pct(k.food_cost_pct) : "Sin precio"
+                k.food_cost_pct !== null
+                  ? pct(k.food_cost_pct)
+                  : d.menu.screens.noPrice
               }
-              sub="solo ventas con costo"
+              sub={t.kpiOnlyCosted}
               href={platosHref(["aprobado"])}
             />
             <Kpi
-              label="Margen bruto"
+              label={t.kpiGrossMargin}
               value={k.gross_margin !== null ? money(k.gross_margin) : "—"}
-              sub="solo ventas con costo"
+              sub={t.kpiOnlyCosted}
               href={platosHref(["aprobado"])}
             />
             <Kpi
-              label="Ventas con costo"
+              label={t.kpiSalesWithCost}
               value={`${Math.round(k.coverage_pct)}%`}
-              sub={`${k.covered_dishes} de ${k.dish_count} platos`}
+              sub={fmt(t.kpiCoveredOf, {
+                covered: k.covered_dishes,
+                total: k.dish_count,
+              })}
               href={platosHref()}
             />
             <Kpi
-              label="Platos con problema"
+              label={t.kpiProblem}
               value={String(k.problem_count)}
               sub={[
-                `${k.missing_price_dishes} sin precio`,
+                fmt(t.kpiMissingPrice, { n: k.missing_price_dishes }),
                 ...((k.draft_dishes ?? 0) > 0
-                  ? [`${k.draft_dishes} borrador`]
+                  ? [fmt(t.kpiDraft, { n: k.draft_dishes ?? 0 })]
                   : []),
-                `${k.no_recipe_dishes} sin receta`,
+                fmt(t.kpiNoRecipe, { n: k.no_recipe_dishes }),
               ].join(" · ")}
               href={platosHref(["falta_precio", "borrador", "sin_receta"])}
               alert={k.problem_count > 0}
@@ -647,15 +674,12 @@ export function MenuDishesScreen({
         <div className="flex items-center gap-3 text-[13px]">
           <span
             className="rounded-md bg-[#f1f3f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]"
-            title={
-              menu.stored
-                ? "Milton agrupó los productos del POS en platos del menú. Corrige con ⋯ › Mover variante."
-                : NOT_AVAILABLE_YET
-            }
+            title={menu.stored ? t.groupedTip : d.menu.screens.notAvailableYet}
           >
-            ✦ Agrupado por Milton ·{" "}
-            {menu.variant_count + menu.excluded_variant_count} productos →{" "}
-            {dishes.length} platos
+            {fmt(t.groupedByMilton, {
+              products: menu.variant_count + menu.excluded_variant_count,
+              dishes: dishes.length,
+            })}
           </span>
           {menu.stored && unsaved > 0 ? (
             <button
@@ -663,11 +687,13 @@ export function MenuDishesScreen({
               onClick={() => void saveGrouping()}
               disabled={saving}
               className="font-semibold text-[#3557c9] disabled:opacity-60"
-              title="Productos nuevos del POS que Milton agrupó y todavía no están guardados."
+              title={t.saveGroupingTip}
             >
               {saving
-                ? "Guardando…"
-                : `Guardar agrupación (${unsaved} ${unsaved === 1 ? "producto nuevo" : "productos nuevos"})`}
+                ? t.saving
+                : fmt(unsaved === 1 ? t.saveGroupingOne : t.saveGroupingOther, {
+                    n: unsaved,
+                  })}
             </button>
           ) : null}
           <EstimateWithMilton
@@ -683,7 +709,7 @@ export function MenuDishesScreen({
           />
           {statusFilter.length > 0 ? (
             <Link href={platosHref()} className="font-semibold text-[#3557c9]">
-              Ver todos
+              {t.seeAll}
             </Link>
           ) : null}
           <label className="ml-auto inline-flex items-center gap-1.5 text-[#5b6476]">
@@ -692,7 +718,7 @@ export function MenuDishesScreen({
               checked={showExcluded}
               onChange={(e) => setShowExcluded(e.target.checked)}
             />
-            Mostrar excluidos ({menu.excluded_variant_count})
+            {fmt(t.showExcluded, { n: menu.excluded_variant_count })}
           </label>
         </div>
 
@@ -744,7 +770,7 @@ export function MenuDishesScreen({
                     sort={sort}
                     onSort={toggleSort}
                   >
-                    Plato del menú
+                    {t.thDish}
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -753,7 +779,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    Ventas
+                    {t.thSales}
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -762,7 +788,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    Margen
+                    {t.thMargin}
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -771,7 +797,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    Costo %
+                    {t.thCostPct}
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -780,7 +806,7 @@ export function MenuDishesScreen({
                     onSort={toggleSort}
                     align="right"
                   >
-                    <span title={GROUP_COVERAGE_TIP}>Cobertura</span>
+                    <span title={coverageTip(lang)}>{t.thCoverage}</span>
                   </SortTh>
                   <SortTh
                     className={"px-2 py-1.5 " + STICKY_TH}
@@ -788,7 +814,7 @@ export function MenuDishesScreen({
                     sort={sort}
                     onSort={toggleSort}
                   >
-                    Estado
+                    {t.thStatus}
                   </SortTh>
                   <th className={"w-8 " + STICKY_TH} />
                 </tr>
@@ -818,14 +844,14 @@ export function MenuDishesScreen({
                 {shown.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-2 py-4 text-[#5b6476]">
-                      No hay platos con ese filtro.
+                      {t.emptyFilter}
                     </td>
                   </tr>
                 ) : null}
               </tbody>
             </table>
             <p className="px-2 py-2 text-[12px] text-[#8a92a3]">
-              Doble clic en un plato para ver su desglose
+              {t.doubleClickHint}
             </p>
           </section>
         ) : null}
@@ -868,13 +894,14 @@ function Kpi({
 }
 
 /** Variants by size ("6 oz · 14 variantes"), sums only. */
-function bySize(variants: readonly MenuDishVariant[]) {
+function bySize(
+  variants: readonly MenuDishVariant[],
+  lang: PreferredLanguage,
+  noSize: string
+) {
   const groups = new Map<string, MenuDishVariant[]>();
   for (const v of variants) {
-    const key =
-      v.size !== null
-        ? `${v.size} ${v.size_unit === "personas" ? "personas" : "oz"}`
-        : "Sin tamaño";
+    const key = sizeText(v, lang) ?? noSize;
     groups.set(key, [...(groups.get(key) ?? []), v]);
   }
   return [...groups.entries()]
@@ -902,6 +929,7 @@ function RowEstimate({
   locationId: string | null;
   onEstimated?: () => void;
 }) {
+  const { lang } = useT();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const reason = !canEdit ? CAPABILITY_MESSAGES["recipes.edit"] : null;
@@ -926,18 +954,18 @@ function RowEstimate({
         results?: Array<{ skipped_reason?: string | null }>;
       };
       if (!res.ok) {
-        setNote(userErrorMessage(json, estimateSkipMessage(null)));
+        setNote(userErrorMessage(json, estimateSkipMessage(null, lang)));
         return;
       }
       const skipped = json.results?.[0]?.skipped_reason;
       if (skipped) {
-        setNote(estimateSkipMessage(skipped));
+        setNote(estimateSkipMessage(skipped, lang));
         return;
       }
       invalidateEstimateProbe();
       onEstimated?.();
     } catch {
-      setNote(estimateSkipMessage(null));
+      setNote(estimateSkipMessage(null, lang));
     } finally {
       setBusy(false);
     }
@@ -953,7 +981,7 @@ function RowEstimate({
         className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-blue)] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[var(--brand-blue)] hover:bg-[var(--ai-lavender)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Sparkles className="h-3.5 w-3.5" />
-        {busy ? "Estimando…" : ESTIMATE_BUTTON}
+        {busy ? estimateCopy(lang).running : estimateCopy(lang).button}
       </button>
       {reason ? (
         <span className="text-[var(--brand-ink)]">{reason}</span>
@@ -977,6 +1005,7 @@ function RowEstimateUse({
   lineCount: number;
   onUsed?: () => void;
 }) {
+  const { d, lang } = useT();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const { toast } = useToast();
@@ -996,19 +1025,20 @@ function RowEstimateUse({
       };
       if (!res.ok) {
         setNote(
-          userErrorMessage(json, "No pude usar el estimado como borrador.")
+          userErrorMessage(json, d.menu.screens.dishes.useEstimateFailed)
         );
         return;
       }
       invalidateEstimateProbe();
       toast({
         title: ESTIMATE_USE_SUCCESS(
-          typeof json.applied === "number" ? json.applied : lineCount
+          typeof json.applied === "number" ? json.applied : lineCount,
+          lang
         ),
       });
       onUsed?.();
     } catch {
-      setNote("No pude usar el estimado como borrador.");
+      setNote(d.menu.screens.dishes.useEstimateFailed);
     } finally {
       setBusy(false);
     }
@@ -1021,7 +1051,7 @@ function RowEstimateUse({
         onClick={() => void use()}
         className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--brand-blue)] px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[var(--brand-blue-hover)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-blue)] focus:ring-opacity-40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {ESTIMATE_USE_BUTTON}
+        {estimateCopy(lang).useButton}
       </button>
       {note ? (
         <span role="status" className="text-[var(--brand-muted)]">
@@ -1042,11 +1072,13 @@ function RowMenu({
   onMove: () => void;
   onExclude: () => void;
 }) {
+  const { d } = useT();
+  const t = d.menu.screens.dishes;
   const [armed, setArmed] = useState(false);
   const trigger = (
     <button
       type="button"
-      aria-label="Más acciones"
+      aria-label={t.moreActions}
       onClick={armed ? undefined : () => setArmed(true)}
       className="rounded-md p-1 text-[#6b7385] hover:bg-[#e6ecfb]"
     >
@@ -1058,12 +1090,10 @@ function RowMenu({
     <DropdownMenu defaultOpen onOpenChange={(o) => !o && setArmed(false)}>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuItem onClick={onMove}>
-          Mover variante a otro plato
-        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onMove}>{t.moveVariant}</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onExclude}>
-          {isExcluded ? "Volver a incluir" : "Excluir plato"}
+          {isExcluded ? t.includeAgain : t.excludeDish}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1090,6 +1120,7 @@ const DishRows = memo(function DishRows({
   /** «≈ $4.20 costo estimado · ≈ 62% margen estimado», muted, apart from the real columns. */
   estimate?: {
     text: string;
+    parts: Array<{ value: string; isNumber: boolean }>;
     menu_item_id: string;
     usable?: boolean;
     line_count?: number;
@@ -1109,14 +1140,16 @@ const DishRows = memo(function DishRows({
   onMove: (dish: MenuDish, variant: MenuDishVariant | null) => void;
   onExclude: (dish: MenuDish, exclude: boolean) => void;
 }) {
+  const { d, lang } = useT();
+  const t = d.menu.screens.dishes;
   const isExcluded = dish.status === "excluded";
   const coverage = Math.round(dish.coverage * 100);
-  const groupChip = groupStatusDisplay(dish);
+  const groupChip = groupStatusText(dish, lang);
   // «Borrador» prepared by the menu reader says where it came from.
   const fromMenuTip =
     dish.cost_status === "borrador" &&
     dish.variants.some((v) => v.state_reason === "desde_el_menu")
-      ? `${DISH_STATUS_LABELS.borrador} · ${FROM_MENU_LABEL}`
+      ? `${dishStatusLabel("borrador", lang)} · ${fromMenuLabel(lang)}`
       : undefined;
   const [openSizes, setOpenSizes] = useState<ReadonlySet<string>>(new Set());
   const toggleSize = (label: string) =>
@@ -1135,7 +1168,9 @@ const DishRows = memo(function DishRows({
           odoo_name: baseVariant?.name ?? dish.name,
         }
       : null;
-  const missingTip = groupChip.mixed ? missingProductsTip(dish.variants) : null;
+  const missingTip = groupChip.mixed
+    ? missingProductsTip(dish.variants, lang)
+    : null;
   return (
     <>
       <tr
@@ -1151,7 +1186,7 @@ const DishRows = memo(function DishRows({
               type="button"
               onClick={() => onToggle(dish.id)}
               className="text-[#1b40c8]"
-              aria-label={open ? "Ocultar variantes" : "Ver variantes"}
+              aria-label={open ? t.hideVariants : t.showVariants}
             >
               {open ? "▾" : "▸"}
             </button>
@@ -1159,13 +1194,15 @@ const DishRows = memo(function DishRows({
               type="button"
               onClick={() => onDrill(dish.id)}
               className="font-bold text-[#151c2c] hover:text-[#1b40c8] hover:underline"
-              title="Ver el desglose del plato"
+              title={t.drillTitle}
             >
               {dish.name}
             </button>
             <span className="text-[12px] text-[#8a92a3]">
-              {dish.variants.length}{" "}
-              {dish.variants.length === 1 ? "variante" : "variantes"}
+              {fmt(
+                dish.variants.length === 1 ? t.variantsOne : t.variantsOther,
+                { n: dish.variants.length }
+              )}
             </span>
             <span className="pl-1">
               <RowActions
@@ -1185,20 +1222,20 @@ const DishRows = memo(function DishRows({
             >
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
                 <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
-                {ESTIMATE_BADGE}
+                {estimateCopy(lang).badge}
               </span>
               <span>
-                {estimate.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
-                  part.match(/^\$[\d,.]+$|^[\d]+%$/) ? (
+                {estimate.parts.map((part, i) =>
+                  part.isNumber ? (
                     <span
                       key={i}
                       className="font-semibold text-[var(--brand-blue)]"
                     >
-                      {part}
+                      {part.value}
                     </span>
                   ) : (
                     <span key={i} className="text-[var(--brand-ink)]">
-                      {part}
+                      {part.value}
                     </span>
                   )
                 )}
@@ -1212,7 +1249,7 @@ const DishRows = memo(function DishRows({
                 }
                 className="font-semibold text-[var(--brand-blue)] hover:underline"
               >
-                Ver estimado
+                {t.seeEstimate}
               </Link>
               {canEstimate && estimate.usable !== false ? (
                 <>
@@ -1263,13 +1300,13 @@ const DishRows = memo(function DishRows({
         <td className="px-2 py-2">
           {isExcluded ? (
             <Chip tone="grey">
-              {EXCLUDED_LABELS[dish.excluded_reason ?? ""] ?? "Excluido"}
+              {excludedLabel(dish.excluded_reason ?? null, t)}
             </Chip>
           ) : (
             <span
               title={
                 groupChip.mixed
-                  ? [GROUP_COVERAGE_TIP, missingTip].filter(Boolean).join("\n")
+                  ? [coverageTip(lang), missingTip].filter(Boolean).join("\n")
                   : fromMenuTip
               }
             >
@@ -1290,50 +1327,57 @@ const DishRows = memo(function DishRows({
         </td>
       </tr>
       {open
-        ? bySize(dish.variants).map((group) => (
-            <Fragment key={`${dish.id}:${group.label}`}>
-              <tr className="border-b border-[#f2f3f6] bg-[#fafbfc] text-[#4a5263]">
-                <td
-                  className="py-2 pl-[34px] pr-2"
-                  title={group.list.map(variantTitle).join("\n")}
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleSize(group.label)}
-                    className="mr-2 text-[#1b40c8]"
-                    aria-label={
-                      openSizes.has(group.label)
-                        ? "Ocultar productos"
-                        : "Ver productos"
-                    }
+        ? bySize(dish.variants, lang, d.menu.screens.drill.noSize).map(
+            (group) => (
+              <Fragment key={`${dish.id}:${group.label}`}>
+                <tr className="border-b border-[#f2f3f6] bg-[#fafbfc] text-[#4a5263]">
+                  <td
+                    className="py-2 pl-[34px] pr-2"
+                    title={group.list.map((v) => variantTitle(v, t)).join("\n")}
                   >
-                    {openSizes.has(group.label) ? "▾" : "▸"}
-                  </button>
-                  {group.label} · {group.list.length}{" "}
-                  {group.list.length === 1 ? "variante" : "variantes"}
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {money(group.sums.net_sales)}
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {pct(group.sums.margin_pct)}
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {pct(group.sums.food_cost_pct)}
-                </td>
-                <td colSpan={3} />
-              </tr>
-              {openSizes.has(group.label) ? (
-                <SizeProductRows
-                  variants={group.list}
-                  dishVariants={dish.variants}
-                  canLink={canLink}
-                  money={money}
-                  onLinked={onEstimated}
-                />
-              ) : null}
-            </Fragment>
-          ))
+                    <button
+                      type="button"
+                      onClick={() => toggleSize(group.label)}
+                      className="mr-2 text-[#1b40c8]"
+                      aria-label={
+                        openSizes.has(group.label)
+                          ? t.hideProducts
+                          : t.showProducts
+                      }
+                    >
+                      {openSizes.has(group.label) ? "▾" : "▸"}
+                    </button>
+                    {group.label} ·{" "}
+                    {fmt(
+                      group.list.length === 1 ? t.variantsOne : t.variantsOther,
+                      {
+                        n: group.list.length,
+                      }
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {money(group.sums.net_sales)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {pct(group.sums.margin_pct)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {pct(group.sums.food_cost_pct)}
+                  </td>
+                  <td colSpan={3} />
+                </tr>
+                {openSizes.has(group.label) ? (
+                  <SizeProductRows
+                    variants={group.list}
+                    dishVariants={dish.variants}
+                    canLink={canLink}
+                    money={money}
+                    onLinked={onEstimated}
+                  />
+                ) : null}
+              </Fragment>
+            )
+          )
         : null}
     </>
   );
@@ -1352,17 +1396,19 @@ function MovePanel({
   onMove: (variant: MenuDishVariant, target: MenuDish | string) => void;
   onPickVariant: (variant: MenuDishVariant) => void;
 }) {
+  const { d } = useT();
+  const t = d.menu.screens.dishes;
   const [target, setTarget] = useState("");
   const [newName, setNewName] = useState("");
   const variant = moving.variant;
   return (
     <section className="space-y-2 rounded-[14px] border border-[#e5e7eb] bg-[#f9fafb] px-4 py-3 text-[13px]">
       <div className="font-semibold">
-        Mover una variante de {moving.dish.name}
+        {fmt(t.moveTitle, { dish: moving.dish.name })}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <select
-          aria-label="Variante"
+          aria-label={t.variantLabel}
           value={variant?.odoo_product_id ?? ""}
           onChange={(e) => {
             const v = moving.dish.variants.find(
@@ -1372,21 +1418,21 @@ function MovePanel({
           }}
           className="max-w-md rounded-md border border-[#d5dae3] bg-white px-2 py-1"
         >
-          <option value="">Elige la variante…</option>
+          <option value="">{t.pickVariant}</option>
           {uniqueProducts(moving.dish.variants).map((v) => (
             <option key={v.odoo_product_id} value={v.odoo_product_id}>
               {v.name}
             </option>
           ))}
         </select>
-        <span>a</span>
+        <span>{t.moveTo}</span>
         <select
-          aria-label="Plato"
+          aria-label={t.dishLabel}
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           className="rounded-md border border-[#d5dae3] bg-white px-2 py-1"
         >
-          <option value="">Elige el plato…</option>
+          <option value="">{t.pickDish}</option>
           {dishes
             .filter((d) => d.id !== moving.dish.id)
             .map((d) => (
@@ -1394,13 +1440,13 @@ function MovePanel({
                 {d.name}
               </option>
             ))}
-          <option value="__nuevo">Un plato nuevo…</option>
+          <option value="__nuevo">{t.newDish}</option>
         </select>
         {target === "__nuevo" ? (
           <input
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Nombre del plato"
+            placeholder={t.newDishName}
             className="rounded-md border border-[#d5dae3] bg-white px-2 py-1"
           />
         ) : null}
@@ -1419,10 +1465,10 @@ function MovePanel({
           }}
           className="rounded-lg bg-[#1B40C8] px-3 py-1.5 font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
         >
-          Mover
+          {t.move}
         </button>
         <button type="button" onClick={onCancel} className="text-[#5b6476]">
-          Cancelar
+          {t.cancel}
         </button>
       </div>
     </section>

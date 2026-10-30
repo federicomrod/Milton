@@ -5,6 +5,7 @@
 // must belong to the resolved company (404 otherwise): the role is always
 // checked against the DRAFT's company, never a different one.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
 import {
   forbiddenResponse,
@@ -35,7 +36,7 @@ export async function kitchenManagerGuard(
         console.warn("[permissions] kitchen.drafts denied: company_mismatch");
       }
       return NextResponse.json(
-        { error: "No encontré ese borrador." },
+        { error: (await apiDictionary()).kitchen.api.draftNotFoundThat },
         { status: 404 }
       );
     }

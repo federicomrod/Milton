@@ -21,6 +21,7 @@
 //     notes?           : string
 //   }
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -55,6 +56,7 @@ const INVOICE_SELECT =
 export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId } = auth;
 
   const url = new URL(req.url);
@@ -75,7 +77,7 @@ export async function GET(req: NextRequest) {
   if (error) {
     console.error("[invoices GET]", error.message);
     return NextResponse.json(
-      { error: "No pude leer.", details: error.message },
+      { error: a.invoicesReadFailed, details: error.message },
       { status: 500 }
     );
   }
@@ -164,6 +166,7 @@ export async function GET(req: NextRequest) {
         : null,
       line_counts: summaries.get(inv.id)?.counts ?? emptyLineCounts(),
       line_preview: summaries.get(inv.id)?.preview ?? [],
+      line_amounts: summaries.get(inv.id)?.amounts,
     };
   });
 
@@ -182,16 +185,14 @@ export async function POST(req: NextRequest) {
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyHasToBeJson }, { status: 400 });
   }
 
   const invoiceDate =
@@ -199,10 +200,7 @@ export async function POST(req: NextRequest) {
       ? body.invoice_date
       : null;
   if (!invoiceDate) {
-    return NextResponse.json(
-      { error: "Falta la fecha de la factura (AAAA-MM-DD)." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.invoiceDateMissing }, { status: 400 });
   }
 
   // ---- Resolve / autocreate supplier ----
@@ -233,7 +231,7 @@ export async function POST(req: NextRequest) {
       if (createErr || !created) {
         return NextResponse.json(
           {
-            error: "No pude crear el proveedor.",
+            error: a.supplierCreateFailedShort,
             details: createErr?.message,
           },
           { status: 500 }
@@ -277,7 +275,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (invErr || !invoice) {
     return NextResponse.json(
-      { error: "No pude crear la factura.", details: invErr?.message },
+      { error: a.invoiceCreateFailed, details: invErr?.message },
       { status: 500 }
     );
   }

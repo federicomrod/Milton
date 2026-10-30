@@ -1,0 +1,23 @@
+export const configShared = {
+  title: "Configuración",
+  indexAria: "Secciones de Configuración",
+  nav: {
+    ajustes: "Ajustes",
+    restaurantes: "Restaurantes",
+    conexiones: "Conexiones",
+    objetivos: "Objetivos",
+    turnos: "Turnos",
+    equipo: "Equipo y acceso",
+    cuenta: "Mi cuenta",
+  },
+  edit: "Editar",
+  save: "Guardar",
+  saving: "Guardando…",
+  cancel: "Cancelar",
+  missing: "Falta: añadir",
+  saved: "Guardado",
+  saveFailed: "No se pudo guardar. Tus datos siguen aquí.",
+  unsaved: "Tienes cambios sin guardar. ¿Salir sin guardar?",
+  readOnly: "Solo el dueño puede cambiar esto.",
+  noCompany: "No hay una empresa conectada.",
+} as const;

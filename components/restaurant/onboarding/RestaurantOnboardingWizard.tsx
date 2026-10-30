@@ -53,9 +53,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SelectableCard } from "@/components/restaurant/onboarding/SelectableCard";
+import { useT } from "@/lib/i18n/client";
 import {
-  ONBOARDING_COPY,
   CONCEPT_TYPE_OPTIONS,
+  conceptTypeLabel,
+  countryLabel,
+  posSystemLabel,
+  priorityLabel,
   LOCATION_COUNT_OPTIONS,
   POS_SYSTEM_OPTIONS,
   PRIORITY_OPTIONS,
@@ -114,6 +118,8 @@ export function RestaurantOnboardingWizard({
   restaurantName: string;
 }) {
   const router = useRouter();
+  const { d, lang, fmt } = useT();
+  const o = d.onboarding;
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -163,26 +169,19 @@ export function RestaurantOnboardingWizard({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(
-          userErrorMessage(
-            data,
-            "No pudimos terminar la configuración. Inténtalo de nuevo."
-          )
-        );
+        throw new Error(userErrorMessage(data, o.errors.finishFailed));
       }
       setStep(4);
     } catch (err) {
       setSubmitError(
-        err instanceof Error
-          ? err.message
-          : "No pudimos terminar la configuración."
+        err instanceof Error ? err.message : o.errors.finishFailedShort
       );
     } finally {
       setSubmitting(false);
     }
   }
 
-  const nextStepCards = getNextStepCards(state.posSystem ?? "unknown");
+  const nextStepCards = getNextStepCards(state.posSystem ?? "unknown", lang);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-4 py-8 sm:px-6 sm:py-12">
@@ -200,23 +199,18 @@ export function RestaurantOnboardingWizard({
       )}
 
       {step === 1 && (
-        <StepShell title={ONBOARDING_COPY.step1.title}>
+        <StepShell title={o.step1.title}>
           <p className="text-muted-foreground -mt-4 text-sm">
-            {ONBOARDING_COPY.step1.subtitle.replace(
-              "{restaurantName}",
-              restaurantName
-            )}
+            {fmt(o.step1.subtitle, { restaurantName })}
           </p>
 
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">
-              {ONBOARDING_COPY.step1.conceptLabel}
-            </h3>
+            <h3 className="text-sm font-medium">{o.step1.conceptLabel}</h3>
             <div className="grid grid-cols-3 gap-3">
               {CONCEPT_TYPE_OPTIONS.map((opt) => (
                 <SelectableCard
                   key={opt.value}
-                  label={opt.label}
+                  label={conceptTypeLabel(opt.value, lang)}
                   icon={CONCEPT_ICONS[opt.value]}
                   selected={state.conceptType === opt.value}
                   onClick={() =>
@@ -228,9 +222,7 @@ export function RestaurantOnboardingWizard({
           </div>
 
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">
-              {ONBOARDING_COPY.step1.countryLabel}
-            </h3>
+            <h3 className="text-sm font-medium">{o.step1.countryLabel}</h3>
             <Select
               value={state.country ?? undefined}
               onValueChange={(v) =>
@@ -249,14 +241,12 @@ export function RestaurantOnboardingWizard({
               }
             >
               <SelectTrigger className="h-12 w-full text-base">
-                <SelectValue
-                  placeholder={ONBOARDING_COPY.step1.countryPlaceholder}
-                />
+                <SelectValue placeholder={o.step1.countryPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {COUNTRY_OPTIONS.map((c) => (
                   <SelectItem key={c.code} value={c.code}>
-                    {c.label}
+                    {countryLabel(c.code, lang)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -264,9 +254,7 @@ export function RestaurantOnboardingWizard({
           </div>
 
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">
-              {ONBOARDING_COPY.step1.languageLabel}
-            </h3>
+            <h3 className="text-sm font-medium">{o.step1.languageLabel}</h3>
             <div className="grid grid-cols-2 gap-3">
               {LANGUAGE_OPTIONS.map((opt) => (
                 <SelectableCard
@@ -288,11 +276,9 @@ export function RestaurantOnboardingWizard({
       )}
 
       {step === 2 && (
-        <StepShell title={ONBOARDING_COPY.step2.title}>
+        <StepShell title={o.step2.title}>
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">
-              {ONBOARDING_COPY.step2.locationsLabel}
-            </h3>
+            <h3 className="text-sm font-medium">{o.step2.locationsLabel}</h3>
             <div className="grid grid-cols-4 gap-3">
               {LOCATION_COUNT_OPTIONS.map((opt) => (
                 <SelectableCard
@@ -308,14 +294,12 @@ export function RestaurantOnboardingWizard({
           </div>
 
           <div className="space-y-3">
-            <h3 className="text-sm font-medium">
-              {ONBOARDING_COPY.step2.posLabel}
-            </h3>
+            <h3 className="text-sm font-medium">{o.step2.posLabel}</h3>
             <div className="grid grid-cols-3 gap-3">
               {POS_SYSTEM_OPTIONS.map((opt) => (
                 <SelectableCard
                   key={opt.value}
-                  label={opt.label}
+                  label={posSystemLabel(opt.value, lang)}
                   selected={state.posSystem === opt.value}
                   onClick={() =>
                     setState((s) => ({ ...s, posSystem: opt.value }))
@@ -328,9 +312,9 @@ export function RestaurantOnboardingWizard({
       )}
 
       {step === 3 && (
-        <StepShell title={ONBOARDING_COPY.step3.title}>
+        <StepShell title={o.step3.title}>
           <p className="text-muted-foreground -mt-4 text-sm">
-            {ONBOARDING_COPY.step3.subtitle}
+            {fmt(o.step3.subtitle, { max: MAX_PRIORITIES })}
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {PRIORITY_OPTIONS.map((opt) => {
@@ -340,7 +324,7 @@ export function RestaurantOnboardingWizard({
               return (
                 <SelectableCard
                   key={opt.value}
-                  label={opt.label}
+                  label={priorityLabel(opt.value, lang)}
                   icon={PRIORITY_ICONS[opt.value]}
                   selected={selected}
                   disabled={capReached}
@@ -366,14 +350,9 @@ export function RestaurantOnboardingWizard({
               className="opacity-70"
             />
             <h1 className="text-2xl font-semibold text-balance sm:text-3xl">
-              {ONBOARDING_COPY.step4.heading.replace(
-                "{restaurantName}",
-                restaurantName
-              )}
+              {fmt(o.step4.heading, { restaurantName })}
             </h1>
-            <p className="text-muted-foreground text-sm">
-              {ONBOARDING_COPY.step4.subtitle}
-            </p>
+            <p className="text-muted-foreground text-sm">{o.step4.subtitle}</p>
           </div>
 
           <div className="grid w-full gap-3 sm:grid-cols-3">
@@ -385,7 +364,7 @@ export function RestaurantOnboardingWizard({
               >
                 {i === 0 && (
                   <span className="bg-primary text-primary-foreground absolute -top-2.5 right-4 rounded-full px-2 py-0.5 text-[12px] font-semibold">
-                    Recomendado
+                    {o.step4.recommended}
                   </span>
                 )}
                 <span className="font-semibold">{card.title}</span>
@@ -407,7 +386,7 @@ export function RestaurantOnboardingWizard({
               router.refresh();
             }}
           >
-            Ir al Cockpit
+            {o.step4.goToCockpit}
           </Button>
         </div>
       )}
@@ -417,7 +396,7 @@ export function RestaurantOnboardingWizard({
           {step > 1 ? (
             <Button variant="ghost" onClick={() => setStep((s) => s - 1)}>
               <ArrowLeft className="h-4 w-4" />
-              {ONBOARDING_COPY.nav.back}
+              {o.nav.back}
             </Button>
           ) : (
             <span />
@@ -432,14 +411,12 @@ export function RestaurantOnboardingWizard({
               disabled={!canAdvance}
               onClick={() => setStep((s) => s + 1)}
             >
-              {ONBOARDING_COPY.nav.next}
+              {o.nav.next}
               <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
             <Button disabled={submitting} onClick={handleFinish}>
-              {submitting
-                ? ONBOARDING_COPY.nav.saving
-                : ONBOARDING_COPY.nav.finish}
+              {submitting ? o.nav.saving : o.nav.finish}
             </Button>
           )}
         </div>

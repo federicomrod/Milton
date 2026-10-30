@@ -5,12 +5,15 @@
 // guessed (no density tables). Used on a «Unidad distinta» line, on the price
 // error of a dish line, and on the ingredient detail.
 
-import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useState } from "react";
 import { clearEditors } from "@/lib/restaurant/recipe-costing/editor-cache";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import { clearIngredientOptionsCache } from "./ingredient-options";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { inputNumber } from "@/lib/restaurant/locale-number";
 
 export interface ConversionRow {
   id: string;
@@ -39,7 +42,10 @@ export async function listConversions(
   return res.ok ? (json.conversions ?? []) : [];
 }
 
-export async function removeConversion(id: string): Promise<string | null> {
+export async function removeConversion(
+  id: string,
+  lang: PreferredLanguage = "es"
+): Promise<string | null> {
   const res = await fetch(URL, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
@@ -50,7 +56,10 @@ export async function removeConversion(id: string): Promise<string | null> {
     return null;
   }
   const json = (await res.json().catch(() => ({}))) as { error?: string };
-  return userErrorMessage(json, "No pude quitar la conversión.");
+  return userErrorMessage(
+    json,
+    getDictionary(lang).menu.editor.conversion.removeFailed
+  );
 }
 
 export function UnitConversionForm({
@@ -76,6 +85,8 @@ export function UnitConversionForm({
   onSaved: () => void;
   onCancel?: () => void;
 }) {
+  const { d: dict, lang } = useT();
+  const d = dict.menu.editor.conversion;
   const [a, setA] = useState(unitA);
   const [b, setB] = useState(unitB);
   const [factor, setFactor] = useState("");
@@ -83,7 +94,10 @@ export function UnitConversionForm({
   const [error, setError] = useState<string | null>(null);
   /** Migration 056 is not applied in this environment. */
   const [unavailable, setUnavailable] = useState(false);
-  const n = Number(factor.replace(",", "."));
+  const n =
+    lang === "de"
+      ? inputNumber(factor, lang)
+      : Number(factor.replace(",", "."));
   const valid =
     n > 0 && Number.isFinite(n) && a.trim() !== "" && b.trim() !== "";
 
@@ -110,13 +124,13 @@ export function UnitConversionForm({
           setUnavailable(true);
           return;
         }
-        setError(userErrorMessage(json, "No pude guardar la conversión."));
+        setError(userErrorMessage(json, d.saveFailed));
         return;
       }
       forgetCostCaches();
       onSaved();
     } catch {
-      setError("No pude conectar. Intenta otra vez.");
+      setError(d.connectFailed);
     } finally {
       setSaving(false);
     }
@@ -131,7 +145,7 @@ export function UnitConversionForm({
     >
       {asQuestion ? (
         <p className="font-semibold" data-testid="unit-question">
-          ¿Cuántas {b} lleva 1 {a} de {ingredientName}?
+          {fmt(d.question, { to: b, from: a, name: ingredientName })}
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -140,18 +154,20 @@ export function UnitConversionForm({
           <input
             value={a}
             onChange={(e) => setA(e.target.value)}
-            aria-label="Unidad que usas"
+            aria-label={d.unitYouUse}
             className={unitInput}
           />
         ) : (
           <b>{a}</b>
         )}
-        <span className="min-w-0 break-words">de {ingredientName} =</span>
+        <span className="min-w-0 break-words">
+          {fmt(d.of, { name: ingredientName })}
+        </span>
         <input
           value={factor}
           onChange={(e) => setFactor(e.target.value)}
           inputMode="decimal"
-          aria-label={`Cuántos ${b}`}
+          aria-label={fmt(d.howMany, { unit: b })}
           placeholder="0"
           className="w-16 rounded-md border border-[#c6d3f5] bg-white px-1.5 py-1 text-right text-[13px] tabular-nums"
         />
@@ -159,7 +175,7 @@ export function UnitConversionForm({
           <input
             value={b}
             onChange={(e) => setB(e.target.value)}
-            aria-label="Unidad del precio"
+            aria-label={d.priceUnit}
             className={unitInput}
           />
         ) : (
@@ -172,7 +188,7 @@ export function UnitConversionForm({
             onClick={() => void save()}
             className="rounded-md bg-[#1b40c8] px-2.5 py-1 font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Guardando…" : "Guardar"}
+            {saving ? d.saving : d.save}
           </button>
         )}
         {onCancel ? (
@@ -181,7 +197,7 @@ export function UnitConversionForm({
             onClick={onCancel}
             className="rounded-md px-2 py-1 font-semibold text-[#4a5a85]"
           >
-            Cancelar
+            {d.cancel}
           </button>
         ) : null}
       </div>
@@ -190,7 +206,7 @@ export function UnitConversionForm({
           className="text-[12px] text-gray-500"
           data-testid="conversion-unavailable"
         >
-          {NOT_AVAILABLE_YET}
+          {d.notAvailableYet}
         </p>
       ) : null}
       {error ? (

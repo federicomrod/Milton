@@ -1,89 +1,36 @@
 // app/dashboard/restaurant/data/page.tsx
 //
-// Configuración: ONE page with tabs, the active one in the URL (?tab=). Each
-// tab shows only its own section:
-//   restaurante · rename the restaurants      conexiones · POS + sales file
-//   objetivos   · the goals                   turnos     · the shifts
-//   equipo      · invitations (admins)        cuenta     · account and settings
-// Ingredients, suppliers, invoices and cost files live in Menú and Costos.
-// The old /upload page and ?seccion=conexiones still land on Conexiones; the
-// old /data/restaurante, /objetivos and /turnos routes redirect here.
+// Configuración: ONE scrolling page, every section expanded, no tabs. A
+// sticky index on the left (a chip row on phones) scrolls to a section; the
+// old ?tab= / ?seccion= links and the old /data/* routes land on the matching
+// section (ConfigIndex reads them). Each section shows its current values
+// read-only and edits them in place.
+//
+//   ajustes · restaurantes · conexiones · objetivos · turnos · equipo · cuenta
 
-import Link from "next/link";
+import { Suspense } from "react";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import { ConfigTabs } from "@/components/restaurant/settings/ConfigTabs";
-import { PosSalesUploadPanel } from "@/components/restaurant/settings/PosSalesUploadPanel";
-import { RestaurantTab } from "@/components/restaurant/settings/tabs/RestaurantTab";
-import { ObjetivosTab } from "@/components/restaurant/settings/tabs/ObjetivosTab";
-import { TurnosTab } from "@/components/restaurant/settings/tabs/TurnosTab";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { ConfigProvider } from "@/components/restaurant/config/ConfigProvider";
+import { ConfigIndex } from "@/components/restaurant/config/ConfigIndex";
+import { ConfigSection } from "@/components/restaurant/config/ConfigSection";
+import { AjustesSection } from "@/components/restaurant/config/sections/AjustesSection";
+import { RestaurantesSection } from "@/components/restaurant/config/sections/RestaurantesSection";
+import { ConexionesSection } from "@/components/restaurant/config/sections/ConexionesSection";
+import { ObjetivosSection } from "@/components/restaurant/config/sections/ObjetivosSection";
+import { TurnosSection } from "@/components/restaurant/config/sections/TurnosSection";
+import { EquipoSection } from "@/components/restaurant/config/sections/EquipoSection";
+import { CuentaSection } from "@/components/restaurant/config/sections/CuentaSection";
+import { SectionSkeleton } from "@/components/restaurant/config/SectionSkeleton";
+import { I18nProvider } from "@/lib/i18n/client";
+import { getDictionary } from "@/lib/i18n";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import {
-  DATA_SETTINGS_SECTION_ANCHORS,
-  dataSettingsLinkLabel,
-  routesForSection,
-  type DataSettingsSectionId,
-} from "@/lib/restaurant/navigation";
-import { parseConfigTab } from "@/lib/restaurant/config-tabs";
+  CONFIG_SECTION_IDS,
+  sectionForLegacyTab,
+} from "@/lib/restaurant/config-sections";
+import { DATA_SETTINGS_SECTION_ANCHORS } from "@/lib/restaurant/navigation";
 
 export const dynamic = "force-dynamic";
-
-const linkClass =
-  "block px-4 py-2.5 text-[13px] font-medium text-[#151c2c] hover:bg-[#f6f8fe] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1B40C8]";
-
-/** Rows of a tab that are plain links to a screen (Conexiones also has the sales upload). */
-function LinkRows({
-  section,
-  isAdmin,
-  lang,
-  uploadOpen = false,
-}: {
-  section: DataSettingsSectionId;
-  isAdmin: boolean;
-  lang: PreferredLanguage;
-  uploadOpen?: boolean;
-}) {
-  const links = routesForSection(section, { isAdmin });
-  if (links.length === 0) {
-    return (
-      <p className="text-[13px] text-[#8a92a3]">
-        {t(lang, "Nothing here yet.", "Aún no hay nada aquí.")}
-      </p>
-    );
-  }
-  return (
-    <ul className="divide-y divide-[#eef0f4] overflow-hidden rounded-[14px] border border-[#eef0f4] bg-white">
-      {links.map((route) =>
-        route.id === "pos-sales" ? (
-          <li key={route.id}>
-            <details open={uploadOpen} className="group">
-              <summary
-                className={`${linkClass} flex cursor-pointer list-none items-center justify-between`}
-              >
-                {dataSettingsLinkLabel(route.id, lang)}
-                <span
-                  aria-hidden
-                  className="text-[#6b7385] transition-transform group-open:rotate-90"
-                >
-                  ›
-                </span>
-              </summary>
-              <div className="px-4 pb-4 pt-1">
-                <PosSalesUploadPanel lang={lang} />
-              </div>
-            </details>
-          </li>
-        ) : (
-          <li key={route.id}>
-            <Link href={route.href} className={linkClass}>
-              {dataSettingsLinkLabel(route.id, lang)}
-            </Link>
-          </li>
-        )
-      )}
-    </ul>
-  );
-}
 
 export default async function ConfiguracionPage({
   searchParams,
@@ -95,45 +42,48 @@ export default async function ConfiguracionPage({
     aplica?: string;
   }>;
 }) {
-  const [{ lang, isAdmin }, params] = await Promise.all([
+  const [{ lang }, params] = await Promise.all([
     loadRestaurantShellChrome(),
     searchParams,
   ]);
-  const tab = parseConfigTab(params, isAdmin);
-  // Only Conexiones opens the sales upload, and only when asked for.
+  const s = getDictionary(lang).config.shared;
+  // The sales-file panel opens when the old link asks for Conexiones.
   const uploadOpen =
-    tab === "conexiones" &&
+    sectionForLegacyTab(params.tab ?? params.seccion) === "conexiones" &&
     (params.seccion === DATA_SETTINGS_SECTION_ANCHORS.connections ||
       params.tab === DATA_SETTINGS_SECTION_ANCHORS.connections);
 
+  const body: Record<(typeof CONFIG_SECTION_IDS)[number], React.ReactNode> = {
+    ajustes: <AjustesSection />,
+    restaurantes: <RestaurantesSection location={params.location} />,
+    conexiones: <ConexionesSection uploadOpen={uploadOpen} />,
+    objetivos: <ObjetivosSection aplica={params.aplica} />,
+    turnos: <TurnosSection />,
+    equipo: <EquipoSection />,
+    cuenta: <CuentaSection />,
+  };
+
   return (
-    <div className="w-full max-w-3xl space-y-4 px-[26px] pb-10 pt-4">
-      <OperatingPageHeader
-        title={t(lang, "Settings", "Configuración")}
-        lang={lang}
-        showDateRange={false}
-      />
-
-      <ConfigTabs active={tab} lang={lang} isAdmin={isAdmin} />
-
-      {tab === "restaurante" ? (
-        <RestaurantTab location={params.location} />
-      ) : tab === "conexiones" ? (
-        <LinkRows
-          section="connections"
-          isAdmin={isAdmin}
-          lang={lang}
-          uploadOpen={uploadOpen}
-        />
-      ) : tab === "objetivos" ? (
-        <ObjetivosTab aplica={params.aplica} />
-      ) : tab === "turnos" ? (
-        <TurnosTab />
-      ) : tab === "equipo" ? (
-        <LinkRows section="team" isAdmin={isAdmin} lang={lang} />
-      ) : (
-        <LinkRows section="account" isAdmin={isAdmin} lang={lang} />
-      )}
-    </div>
+    <I18nProvider lang={lang}>
+      <ConfigProvider>
+        <div className="w-full px-[26px] pb-16 pt-4">
+          <OperatingPageHeader
+            title={s.title}
+            lang={lang}
+            showDateRange={false}
+          />
+          <div className="mt-4 lg:flex lg:gap-8">
+            <ConfigIndex sections={[...CONFIG_SECTION_IDS]} />
+            <div className="mt-4 min-w-0 max-w-[880px] flex-1 space-y-4 lg:mt-0">
+              {CONFIG_SECTION_IDS.map((id) => (
+                <ConfigSection key={id} id={id} title={s.nav[id]}>
+                  <Suspense fallback={<SectionSkeleton />}>{body[id]}</Suspense>
+                </ConfigSection>
+              ))}
+            </div>
+          </div>
+        </div>
+      </ConfigProvider>
+    </I18nProvider>
   );
 }

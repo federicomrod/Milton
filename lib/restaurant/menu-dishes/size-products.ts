@@ -5,8 +5,9 @@
 //   the one that sells most. It is a shared link, never a copy;
 // - the «Aprobado N de M» tooltip names the products that are not approved.
 
-import { DISH_STATUS_LABELS } from "@/lib/restaurant/costing/dish-status";
-import { UNCONFIRMED_LINK_LABEL } from "@/lib/restaurant/costing/dish-state";
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { dishStatusLabel, unconfirmedLinkLabel } from "./status-labels";
 import { dishSums, type MenuDishVariant } from "./menu-dishes";
 
 export interface SizeProduct {
@@ -51,17 +52,17 @@ export function productsOf(
 }
 
 /** The chip text of a product: its status, or the unconfirmed-link label. */
-export function productStatusLabel(p: {
-  status: string;
-  state_reason?: MenuDishVariant["state_reason"];
-}): string {
+export function productStatusLabel(
+  p: {
+    status: string;
+    state_reason?: MenuDishVariant["state_reason"];
+  },
+  lang: PreferredLanguage = "es"
+): string {
   if (p.status === "aprobado" && p.state_reason === "vinculo_sin_confirmar") {
-    return UNCONFIRMED_LINK_LABEL;
+    return unconfirmedLinkLabel(lang);
   }
-  return (
-    (DISH_STATUS_LABELS as Record<string, string>)[p.status] ??
-    (p.status === "borrador" ? "Borrador" : p.status)
-  );
+  return dishStatusLabel(p.status, lang);
 }
 
 /** Only a product with no recipe lines of its own can take a sibling's recipe. */
@@ -93,13 +94,16 @@ export function pickApprovedSibling(
 
 /** «Faltan: Parrillada Demo 6 oz Eventos (Sin receta), …» or null. */
 export function missingProductsTip(
-  dishVariants: readonly MenuDishVariant[]
+  dishVariants: readonly MenuDishVariant[],
+  lang: PreferredLanguage = "es"
 ): string | null {
   const missing = productsOf(dishVariants).filter(
     (p) => p.status !== "aprobado"
   );
   if (missing.length === 0) return null;
-  return `Faltan: ${missing
-    .map((p) => `${p.name} (${productStatusLabel(p)})`)
-    .join(", ")}`;
+  return fmt(getDictionary(lang).menu.screens.dishes.missingTip, {
+    list: missing
+      .map((p) => `${p.name} (${productStatusLabel(p, lang)})`)
+      .join(", "),
+  });
 }

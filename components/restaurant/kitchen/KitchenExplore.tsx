@@ -36,9 +36,12 @@ export function KitchenExplore({
   locations: { id: string; name: string }[];
 }) {
   const chips: { id: KitchenAnalysisTab; label: string }[] = [
-    { id: "running_out", label: t(lang, "Running low", "Se agota") },
-    { id: "waste", label: t(lang, "Waste", "Merma") },
-    { id: "history", label: t(lang, "History", "Historial") },
+    {
+      id: "running_out",
+      label: t(lang, "Running low", "Se agota", "Wird knapp"),
+    },
+    { id: "waste", label: t(lang, "Waste", "Merma", "Ausschuss") },
+    { id: "history", label: t(lang, "History", "Historial", "Verlauf") },
   ];
   const active: KitchenAnalysisTab =
     tab === "running_out" || tab === "waste" || tab === "history"
@@ -54,13 +57,23 @@ export function KitchenExplore({
     >
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-sm font-semibold text-[#0D1117]">
-          {t(lang, "History and analysis", "Historial y análisis")}
+          {t(
+            lang,
+            "History and analysis",
+            "Historial y análisis",
+            "Verlauf und Analyse"
+          )}
         </h2>
       </div>
       <div
         className="flex gap-4 overflow-x-auto"
         role="tablist"
-        aria-label={t(lang, "History and analysis", "Historial y análisis")}
+        aria-label={t(
+          lang,
+          "History and analysis",
+          "Historial y análisis",
+          "Verlauf und Analyse"
+        )}
         data-testid="kitchen-explore-switcher"
       >
         {chips.map((chip) => {
@@ -89,7 +102,12 @@ export function KitchenExplore({
       {active === "running_out" ? (
         insights.explore.running_out.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">
-            {t(lang, "Nothing is running low.", "Nada se está agotando.")}
+            {t(
+              lang,
+              "Nothing is running low.",
+              "Nada se está agotando.",
+              "Nichts wird knapp."
+            )}
           </p>
         ) : (
           <KitchenReportsCard
@@ -106,7 +124,8 @@ export function KitchenExplore({
             {t(
               lang,
               "No waste reports in this period.",
-              "No hay reportes de merma en este periodo."
+              "No hay reportes de merma en este periodo.",
+              "Keine Ausschussmeldungen in diesem Zeitraum."
             )}
           </p>
         ) : (
@@ -124,7 +143,8 @@ export function KitchenExplore({
             {t(
               lang,
               "No reports in this period.",
-              "No hay reportes en este periodo."
+              "No hay reportes en este periodo.",
+              "Keine Meldungen in diesem Zeitraum."
             )}
           </p>
         ) : (

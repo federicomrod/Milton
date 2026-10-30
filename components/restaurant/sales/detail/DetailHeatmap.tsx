@@ -14,7 +14,8 @@ import {
   type HeatMetric,
 } from "@/lib/restaurant/sales-detail";
 import { heatColor } from "@/lib/restaurant/ui/heat-scale";
-import { WEEKDAYS_LONG, WEEKDAYS_SHORT, hourLabel } from "./format";
+import { useT } from "@/lib/i18n/client";
+import { hourLabel, weekdaysLong, weekdaysShort } from "./format";
 
 function hoursOf(grids: HeatGrid[]): number[] {
   let lo = 24;
@@ -49,6 +50,9 @@ function Grid({
   compact?: boolean;
   onCell?: (wd: number, h: number) => void;
 }) {
+  const { d, fmt, lang } = useT();
+  const WEEKDAYS_SHORT = weekdaysShort(lang);
+  const WEEKDAYS_LONG = weekdaysLong(lang);
   const cell = compact ? "h-[9px]" : "h-[17px]";
   return (
     <div
@@ -84,8 +88,10 @@ function Grid({
                 aria-label={`${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}`}
                 title={
                   v === null
-                    ? `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}: sin ventas`
-                    : `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}${onCell ? " · clic para filtrar" : ""}`
+                    ? fmt(d.sales.detail.heat.cellNoSales, {
+                        cell: `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}`,
+                      })
+                    : `${WEEKDAYS_LONG[wd - 1]} ${hourLabel(h)}${onCell ? d.sales.detail.heat.clickFilter : ""}`
                 }
                 onClick={() => onCell?.(wd, h)}
                 className={`${cell} rounded-[3px]`}
@@ -102,16 +108,6 @@ function Grid({
     </div>
   );
 }
-
-const WEEKDAY_NAMES = [
-  "lunes",
-  "martes",
-  "miércoles",
-  "jueves",
-  "viernes",
-  "sábado",
-  "domingo",
-];
 
 export function DetailHeatmap({
   grid,
@@ -136,6 +132,9 @@ export function DetailHeatmap({
   onCross: (c: CrossKey) => void;
   onCell: (wd: number, h: number) => void;
 }) {
+  const { d, lang } = useT();
+  const h0 = d.sales.detail.heat;
+  const WEEKDAY_NAMES = weekdaysLong(lang);
   const grids = useMemo(
     () => [grid, ...cross.map((c) => c.grid)],
     [grid, cross]
@@ -159,17 +158,17 @@ export function DetailHeatmap({
       data-testid="sales-heatmap"
     >
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-[13px] font-bold">Hora × día</h2>
+        <h2 className="text-[13px] font-bold">{h0.title}</h2>
         <div
           role="group"
-          aria-label="Métrica del mapa"
+          aria-label={h0.metricAria}
           className="inline-flex rounded-[9px] bg-[#e9ecf2] p-[2px]"
         >
           {(
             [
-              ["ventas", "Ventas"],
-              ["tickets", "Tickets"],
-              ["ticket", "Ticket prom."],
+              ["ventas", h0.sales],
+              ["tickets", h0.tickets],
+              ["ticket", h0.avgTicket],
             ] as const
           ).map(([k, label]) => (
             <button
@@ -190,9 +189,7 @@ export function DetailHeatmap({
         </div>
       </div>
       {hours.length === 0 ? (
-        <p className="py-8 text-center text-[12px] text-[#8a92a3]">
-          Sin ventas con hora en este período.
-        </p>
+        <p className="py-8 text-center text-[12px] text-[#8a92a3]">{h0.none}</p>
       ) : (
         <Grid
           grid={grid}
@@ -206,7 +203,7 @@ export function DetailHeatmap({
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[#6b7385]">
         {peak ? (
           <span>
-            Pico:{" "}
+            {h0.peak}{" "}
             <b className="text-[#151c2c]">
               {WEEKDAY_NAMES[peak.wd - 1]} {hourLabel(peak.h)}
             </b>{" "}
@@ -214,17 +211,17 @@ export function DetailHeatmap({
           </span>
         ) : null}
         <label className="ml-auto inline-flex items-center gap-1.5">
-          Cruzar con:
+          {h0.cross}
           <select
-            aria-label="Cruzar con"
+            aria-label={h0.cross.replace(/:$/, "")}
             value={crossKey}
             onChange={(e) => onCross(e.target.value as CrossKey)}
             className="rounded-md border border-[#dfe3ea] bg-white px-1.5 py-0.5 text-[12px] font-semibold text-[#1b40c8]"
           >
-            <option value="ninguno">Ninguno</option>
-            <option value="canal">Canal</option>
-            <option value="pago">Pago</option>
-            <option value="categoria">Categoría</option>
+            <option value="ninguno">{h0.crossNone}</option>
+            <option value="canal">{d.sales.detail.filter.channel}</option>
+            <option value="pago">{d.sales.detail.filter.payment}</option>
+            <option value="categoria">{d.sales.detail.filter.category}</option>
           </select>
         </label>
       </div>

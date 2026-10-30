@@ -40,11 +40,11 @@ import {
   getCachedEditor,
   putEditor,
 } from "@/lib/restaurant/recipe-costing/editor-cache";
-import {
-  UNIT_MISMATCH_LABEL,
-  formatMoneyEs,
-  unitMismatchHint,
-} from "@/lib/restaurant/recipe-costing/format";
+import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
+import { useT } from "@/lib/i18n/client";
+import { formatTypedNumber, inputNumber } from "@/lib/restaurant/locale-number";
+import { fmt, getDictionary, type Dictionary } from "@/lib/i18n";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
 import { UnitConversionForm } from "./UnitConversionForm";
 import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
@@ -56,18 +56,40 @@ export interface EditorFocusRequest {
   nonce: number;
 }
 
+type EditorDict = Dictionary["menu"]["editor"];
+
+/** Kitchen units whose label is a word (the rest are symbols: g, kg, oz…). */
+const WORD_UNITS = new Set(["pza", "unidad", "orden"]);
+
 /** The one list of units for a line and for a price. */
-function unitOptions(current: string | null | undefined): Array<{
+function unitOptions(
+  current: string | null | undefined,
+  d: EditorDict
+): Array<{
   value: string;
   label: string;
 }> {
+  const UNIT_LABEL: Record<string, string> = d.units;
   const list: Array<{ value: string; label: string }> = KITCHEN_UNITS.map(
-    (u) => ({ value: u.value, label: u.label })
+    (u) => ({
+      value: u.value,
+      label: WORD_UNITS.has(u.value)
+        ? (UNIT_LABEL[u.value] ?? u.label)
+        : u.label,
+    })
   );
   if (current && !list.some((u) => u.value === current)) {
     list.push({ value: current, label: UNIT_LABEL[current] ?? current });
   }
   return list;
+}
+
+/** Bold the {placeholders} of a dictionary line (names, units). */
+function rich(template: string, vars: Record<string, string>): React.ReactNode {
+  return template.split(/(\{\w+\})/g).map((part, i) => {
+    const key = /^\{(\w+)\}$/.exec(part)?.[1];
+    return key && key in vars ? <b key={i}>{vars[key]}</b> : part;
+  });
 }
 
 /** The dropdown value for a unit as the editor stores it («unit» is «unidad»). */
@@ -87,39 +109,28 @@ import { userErrorMessage } from "@/lib/restaurant/user-error";
 const MASS = ["oz", "lb", "g", "kg"];
 /** "Ninguna / Pendiente": none of the readings is right. */
 const NO_PRICE = "none";
-const NO_PRICE_LABEL = "Ninguna / Pendiente";
 const VOLUME = ["ml", "l", "gal"];
-
-const UNIT_LABEL: Record<string, string> = {
-  oz: "onza",
-  lb: "libra",
-  g: "gramo",
-  kg: "kilo",
-  ml: "ml",
-  l: "litro",
-  gal: "galón",
-  unit: "unidad",
-  portion: "porción",
-  orden: "orden",
-};
 
 /** Why a line has no amount, in one short chip. */
 export function pendingReasonOf(
   line: EditorLine,
-  prepUnitProblem = false
+  prepUnitProblem = false,
+  lang: PreferredLanguage = "es"
 ): string {
-  if (line.unit_question) return "Unidad por confirmar";
+  const d = getDictionary(lang).menu.editor.lines;
+  if (line.unit_question) return d.reasonUnitToConfirm;
   if (line.kind === "component") {
-    return prepUnitProblem ? "Unidad distinta" : "Preparación sin costo";
+    // «Unidad distinta» is UNIT_MISMATCH_LABEL of recipe-costing/format.
+    return prepUnitProblem ? d.reasonDifferentUnit : d.reasonPrepNoCost;
   }
   if (
     line.price !== null &&
     line.price.unit != null &&
     line.flags.includes(FLAG_PENDING_UNIT)
   ) {
-    return "Unidad distinta";
+    return d.reasonDifferentUnit;
   }
-  return "Falta precio";
+  return d.reasonMissingPrice;
 }
 
 function money(value: number): string {
@@ -130,45 +141,59 @@ function money(value: number): string {
 /** «Precio estimado ≈ $X / unidad…»: Milton's estimate, never the line's cost. */
 export function estimatedPriceMessage(
   estimate: { unit_price: number; unit: string },
-  currency: string
+  currency: string,
+  lang: PreferredLanguage = "es"
 ): string {
+  const d = getDictionary(lang).menu.editor;
+  const UNIT_LABEL: Record<string, string> = d.units;
   const decimals = estimate.unit_price >= 1 ? 2 : 4;
-  return `Precio estimado ≈ ${formatMoneyEs(estimate.unit_price, currency, { decimals })} / ${UNIT_LABEL[estimate.unit] ?? estimate.unit}. Registra el precio real (factura o Costos) para aprobar.`;
+  return fmt(d.lines.estimatedPrice, {
+    price: formatMoneyEs(estimate.unit_price, currency, { decimals }),
+    unit: UNIT_LABEL[estimate.unit] ?? estimate.unit,
+  });
 }
 
-function monthLabel(date: string | null): string | null {
+function monthLabel(date: string | null, locale: string): string | null {
   if (!date) return null;
   const d = new Date(`${date}T00:00:00`);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("es", { month: "short", year: "numeric" });
+  return d.toLocaleDateString(locale, { month: "short", year: "numeric" });
 }
 
 /** Where a price came from, in the owner's words. */
-function sourceLabel(source: string | null): string | null {
+function sourceLabel(source: string | null, d: EditorDict): string | null {
   if (!source) return null;
-  if (source === "lista") return "lista de precios";
-  if (source === "recetas" || source === "importada") return "Excel";
+  if (source === "lista") return d.lines.sourceList;
+  if (source === "recetas" || source === "importada")
+    return d.lines.sourceExcel;
+  if (source === "preparación") return d.lines.sourcePreparation;
   return source;
 }
 
-function priceLabel(option: {
-  unit: string | null;
-  unit_cost: number | null;
-  price_date: string | null;
-  price_source: string | null;
-}): string {
-  if (option.unit_cost === null) return "sin precio";
+function priceLabel(
+  option: {
+    unit: string | null;
+    unit_cost: number | null;
+    price_date: string | null;
+    price_source: string | null;
+  },
+  d: EditorDict,
+  locale: string
+): string {
+  const UNIT_LABEL: Record<string, string> = d.units;
+  if (option.unit_cost === null) return d.lines.noPriceLower;
   const parts = [
     `${money(option.unit_cost)}/${UNIT_LABEL[option.unit ?? ""] ?? option.unit ?? ""}`,
   ];
-  const month = monthLabel(option.price_date);
+  const month = monthLabel(option.price_date, locale);
   if (month) parts.push(month);
-  if (option.price_source) parts.push(sourceLabel(option.price_source)!);
+  if (option.price_source) parts.push(sourceLabel(option.price_source, d)!);
   return parts.join(" · ");
 }
 
 async function call(
   url: string,
+  d: EditorDict,
   init?: RequestInit
 ): Promise<
   | { ok: true; state: EditorState }
@@ -183,13 +208,13 @@ async function call(
     if (!res.ok) {
       return {
         ok: false,
-        error: userErrorMessage(json, "No pude guardar el cambio."),
+        error: userErrorMessage(json, d.lines.saveFailed),
         conversion: json.conversion,
       };
     }
     return { ok: true, state: json };
   } catch {
-    return { ok: false, error: "No pude conectar. Intenta otra vez." };
+    return { ok: false, error: d.lines.connectFailed };
   }
 }
 
@@ -241,6 +266,8 @@ export function RecipeLinesEditor({
   /** The parent already shows this recipe as approved (R1-13): read-only now. */
   forceLocked?: boolean;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor;
   // R1-12: a dish seen (or read ahead) a moment ago opens with its lines
   // already on screen; the server's answer still replaces them below.
   const [state, setState] = useState<EditorState | null>(() => {
@@ -339,7 +366,10 @@ export function RecipeLinesEditor({
         if (hit.fresh) return;
       }
       const omit = cachedPickerOptions() ? "&omit_options=1" : "";
-      const res = await call(`/api/restaurant/recipes/editor?${query}${omit}`);
+      const res = await call(
+        `/api/restaurant/recipes/editor?${query}${omit}`,
+        d
+      );
       if (cancelled || editSeq.current !== seqAtStart) return;
       if (res.ok) {
         putEditor(query, res.state, { productId: odooProductId ?? null });
@@ -352,7 +382,7 @@ export function RecipeLinesEditor({
     return () => {
       cancelled = true;
     };
-  }, [query, reloadKey, withOptions, odooProductId]);
+  }, [query, reloadKey, withOptions, odooProductId, d]);
 
   /** A conversion was saved: every dish using the ingredient costs differently. */
   async function refresh() {
@@ -360,7 +390,7 @@ export function RecipeLinesEditor({
     dropEditor(query);
     clearEditors();
     invalidatePickerOptions();
-    const res = await call(`/api/restaurant/recipes/editor?${query}`);
+    const res = await call(`/api/restaurant/recipes/editor?${query}`, d);
     if (res.ok) {
       putEditor(query, res.state, { productId: odooProductId ?? null });
       setState(withOptions(res.state));
@@ -421,7 +451,7 @@ export function RecipeLinesEditor({
         Number(body.unit_cost)
       );
     if (changesCatalog && !patchedList) invalidatePickerOptions();
-    const res = await call("/api/restaurant/recipes/editor", {
+    const res = await call("/api/restaurant/recipes/editor", d, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -467,9 +497,7 @@ export function RecipeLinesEditor({
 
   if (!state) {
     return (
-      <p className="py-3 text-xs text-[#5b6476]">
-        {error ?? "Cargando los ingredientes…"}
-      </p>
+      <p className="py-3 text-xs text-[#5b6476]">{error ?? d.lines.loading}</p>
     );
   }
 
@@ -478,12 +506,12 @@ export function RecipeLinesEditor({
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-[15px] font-semibold">Ingredientes por porción</h2>
+        <h2 className="text-[15px] font-semibold">{d.lines.title}</h2>
         <span className="text-[12px] text-[#8a92a3]">
           {state.editable
-            ? "Elige de tu lista de ingredientes y preparaciones"
+            ? d.lines.hintEditable
             : state.version_id
-              ? "Receta aprobada · para cambiar cantidades, crea una versión nueva"
+              ? d.lines.hintApproved
               : (state.locked_reason ?? "")}
         </span>
         {state.editable || sourceButtons ? (
@@ -494,7 +522,7 @@ export function RecipeLinesEditor({
                 disabled={busy}
                 onClick={() => setPicking({ mode: "add" })}
               >
-                + Agregar ingrediente
+                {d.lines.addIngredient}
               </GhostBtn>
             ) : null}
           </div>
@@ -504,7 +532,7 @@ export function RecipeLinesEditor({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label="Más acciones de la receta"
+                aria-label={d.lines.moreActions}
                 className={`${sourceButtons ? "" : "ml-auto "}rounded-md p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]`}
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -515,7 +543,7 @@ export function RecipeLinesEditor({
                 disabled={busy}
                 onClick={() => void send({ action: "new_version" })}
               >
-                Crear versión nueva
+                {d.lines.newVersion}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -624,11 +652,11 @@ export function RecipeLinesEditor({
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-left text-[12px] font-semibold text-[#8a92a3]">
-            <th className="pb-1.5">Ingrediente</th>
-            <th className="pb-1.5 text-right">Cantidad</th>
-            <th className="pb-1.5">Unidad</th>
-            <th className="pb-1.5 text-right">Precio</th>
-            <th className="pb-1.5 text-right">Aporte</th>
+            <th className="pb-1.5">{d.lines.colIngredient}</th>
+            <th className="pb-1.5 text-right">{d.lines.colQuantity}</th>
+            <th className="pb-1.5">{d.lines.colUnit}</th>
+            <th className="pb-1.5 text-right">{d.lines.colPrice}</th>
+            <th className="pb-1.5 text-right">{d.lines.colContribution}</th>
             <th className="pb-1.5" />
           </tr>
         </thead>
@@ -636,8 +664,7 @@ export function RecipeLinesEditor({
           {state.lines.length === 0 ? (
             <tr>
               <td colSpan={6} className="py-4 text-sm text-[#5b6476]">
-                Esta receta no tiene ingredientes. Agrégalos de tu lista, o crea
-                un ingrediente o una preparación nueva.
+                {d.lines.empty}
               </td>
             </tr>
           ) : null}
@@ -649,11 +676,11 @@ export function RecipeLinesEditor({
               editable={editable && !line.key.startsWith(SAVING_LINE_PREFIX)}
               saveNote={
                 line.key.startsWith(SAVING_LINE_PREFIX)
-                  ? "guardando…"
+                  ? d.lines.saving
                   : justAdded &&
                       (line.ingredient_id === justAdded ||
                         line.component_id === justAdded)
-                    ? "✓ guardado"
+                    ? d.lines.saved
                     : null
               }
               onResolve={(option, amount) =>
@@ -787,19 +814,23 @@ export function RecipeLinesEditor({
 
 /** The dish's cost per portion: the LIVE sum of the lines above (never a stored snapshot). */
 export function DishTotalRow({ lines }: { lines: EditorLine[] }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor;
   const { total, missing } = recipeLinesTotal(lines);
   return (
     <tr className="border-t border-[#f2f3f6]" data-testid="dish-total-row">
       <td colSpan={4} className="py-2 text-right font-semibold">
-        Costo por porción vendible
+        {d.lines.dishTotal}
       </td>
       <td className="py-2 text-right text-sm font-bold">
         {total !== null ? (
           money(total)
         ) : (
           <span className="text-[#6b7280]">
-            Sin precio · {missing}{" "}
-            {missing === 1 ? "línea pendiente" : "líneas pendientes"}
+            {fmt(
+              missing === 1 ? d.lines.dishPendingOne : d.lines.dishPendingOther,
+              { count: missing }
+            )}
           </span>
         )}
       </td>
@@ -810,6 +841,8 @@ export function DishTotalRow({ lines }: { lines: EditorLine[] }) {
 
 /** R1-15a: the preparation's total cost under "Aporte" (sum of its lines). */
 function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor;
   const { total, missing } = recipeLinesTotal(lines);
   return (
     <tr
@@ -817,18 +850,17 @@ function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
       data-testid="preparation-total-row"
     >
       <td colSpan={4} className="py-2 text-right font-semibold">
-        Total de la preparación
+        {d.lines.prepTotal}
         {total === null ? (
           <span className="ml-2 rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
-            incompleto ·{" "}
             {missing === 1
-              ? "1 línea sin precio"
-              : `${missing} líneas sin precio`}
+              ? d.lines.prepIncompleteOne
+              : fmt(d.lines.prepIncompleteOther, { count: missing })}
           </span>
         ) : null}
       </td>
       <td className="py-2 text-right text-sm font-bold">
-        {total === null ? "Sin precio" : money(total)}
+        {total === null ? d.lines.noPrice : money(total)}
       </td>
       <td />
     </tr>
@@ -900,6 +932,9 @@ function Row({
   /** Another screen asked to open this line's price or unit question. */
   focus?: EditorFocusRequest | null;
 }) {
+  const { d: dict, locale, lang } = useT();
+  const d = dict.menu.editor;
+  const UNIT_LABEL: Record<string, string> = d.units;
   const [correcting, setCorrecting] = useState(false);
   const [correctUnit, setCorrectUnit] = useState("");
   const [fixOpened, setFixOpened] = useState(false);
@@ -916,7 +951,9 @@ function Row({
     if (focus.what === "price") setEditingPrice(true);
     else setQuestionForced(true);
   }
-  const [qty, setQty] = useState(String(line.qty || ""));
+  const [qty, setQty] = useState(
+    line.qty ? formatTypedNumber(line.qty, lang) : ""
+  );
   const [price, setPrice] = useState("");
   /** One click on a price opens the field to type a new one. */
   // An INGREDIENT's price is ingredient data, not recipe data: it can be set on
@@ -928,7 +965,7 @@ function Row({
       <span
         role="button"
         tabIndex={0}
-        title="Clic para cambiar el precio"
+        title={d.lines.clickToChangePrice}
         onClick={() => setEditingPrice(true)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -980,7 +1017,7 @@ function Row({
   // before it is matched or created. Never an assumed quantity.
   const fromMenu = unresolved && needsTypedQuantity(line);
   const [menuUnit, setMenuUnit] = useState("");
-  const typedQty = Number(qty);
+  const typedQty = inputNumber(qty, lang);
   const typed: TypedAmount | undefined =
     fromMenu && Number.isFinite(typedQty) && typedQty > 0 && menuUnit
       ? { quantity: typedQty, line_unit: menuUnit }
@@ -994,7 +1031,8 @@ function Row({
       ? lineUnitValue === line.component_unit
         ? lineUnitValue
         : (line.component_unit ?? lineUnitValue)
-      : lineUnitValue
+      : lineUnitValue,
+    d
   );
   if (!shownUnits.some((u) => u.value === lineUnitValue)) {
     shownUnits.push({
@@ -1002,7 +1040,7 @@ function Row({
       label: UNIT_LABEL[lineUnitValue] ?? lineUnitValue,
     });
   }
-  const priceUnitOptions = unitOptions(priceUnit);
+  const priceUnitOptions = unitOptions(priceUnit, d);
 
   return (
     <tr
@@ -1018,8 +1056,7 @@ function Row({
             <b>{line.raw_name}</b>
             {line.catalog_question ? (
               <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
-                Está en tu lista de precios, pero no dice en qué unidad viene el
-                precio. ¿Cuál es?
+                {d.lines.catalogQuestion}
                 {editable ? (
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {line.catalog_question.options.map((option) => (
@@ -1033,8 +1070,10 @@ function Row({
                           )
                         }
                       >
-                        {money(option.unit_cost)} por{" "}
-                        {UNIT_LABEL[option.unit] ?? option.unit}
+                        {fmt(d.lines.catalogOption, {
+                          price: money(option.unit_cost),
+                          unit: UNIT_LABEL[option.unit] ?? option.unit,
+                        })}
                       </GhostBtn>
                     ))}
                     <GhostBtn
@@ -1046,7 +1085,7 @@ function Row({
                         )
                       }
                     >
-                      {NO_PRICE_LABEL}
+                      {d.lines.catalogNone}
                     </GhostBtn>
                   </div>
                 ) : null}
@@ -1055,19 +1094,17 @@ function Row({
             {/* C5: one combobox per line (search, create or choose) and a
                 chip, instead of a sentence and three buttons. */}
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              {fromMenu ? <Chip tone="sug">Del menú</Chip> : null}
+              {fromMenu ? <Chip tone="sug">{d.lines.fromMenu}</Chip> : null}
               {line.possible_match ||
               line.flags.includes(FLAG_NEW_SUGGESTED) ? (
-                <Chip tone="pur">Sugerido</Chip>
+                <Chip tone="pur">{d.lines.suggested}</Chip>
               ) : null}
               {editable ? (
                 <button
                   type="button"
                   disabled={waitingForAmount}
                   title={
-                    waitingForAmount
-                      ? "Escribe primero cuánto lleva."
-                      : undefined
+                    waitingForAmount ? d.lines.typeQuantityFirst : undefined
                   }
                   onClick={() => onPick(typed)}
                   className="inline-flex min-w-44 items-center justify-between gap-2 rounded-md border border-[#e5e7eb] bg-white px-2 py-0.5 text-left text-[12px] disabled:opacity-45"
@@ -1075,7 +1112,7 @@ function Row({
                   <span className="truncate">
                     {line.possible_match
                       ? line.possible_match.name
-                      : "Buscar, crear o elegir…"}
+                      : d.lines.searchCreateChoose}
                   </span>
                   <span aria-hidden>▾</span>
                 </button>
@@ -1084,8 +1121,12 @@ function Row({
                 <button
                   type="button"
                   disabled={waitingForAmount}
-                  title={`Usar «${line.possible_match.name}»`}
-                  aria-label={`Usar «${line.possible_match.name}»`}
+                  title={fmt(d.lines.useMatch, {
+                    name: line.possible_match.name,
+                  })}
+                  aria-label={fmt(d.lines.useMatch, {
+                    name: line.possible_match.name,
+                  })}
                   onClick={() =>
                     onResolve(
                       {
@@ -1113,7 +1154,7 @@ function Row({
             <div className="text-[12px] text-[#8a92a3]">
               {line.kind === "component" ? (
                 <>
-                  Preparación
+                  {d.lines.preparation}
                   {onOpenPreparation && !waitingPrep ? (
                     <>
                       {" · "}
@@ -1122,7 +1163,7 @@ function Row({
                         className="font-semibold text-[#3557c9]"
                         onClick={onOpenPreparation}
                       >
-                        revisar
+                        {d.lines.review}
                       </button>
                     </>
                   ) : null}
@@ -1132,7 +1173,7 @@ function Row({
               line.name &&
               line.raw_name.trim().toLowerCase() !==
                 line.name.trim().toLowerCase()
-                ? `${line.kind === "component" ? " · " : ""}del Excel: ${line.raw_name}`
+                ? `${line.kind === "component" ? " · " : ""}${fmt(d.lines.fromExcel, { name: line.raw_name })}`
                 : null}
             </div>
             {waitingPrep ? (
@@ -1142,24 +1183,22 @@ function Row({
               >
                 {line.component_missing && line.component_missing.length > 0 ? (
                   <>
-                    <b>{line.name}</b> no tiene costo todavía: falta precio en{" "}
-                    <b>{line.component_missing.join(", ")}</b>.
+                    {rich(d.lines.prepNoCostMissing, {
+                      name: line.name ?? "",
+                      missing: line.component_missing.join(", "),
+                    })}
                   </>
                 ) : (
-                  <>
-                    <b>{line.name}</b> no tiene costo todavía.
-                  </>
+                  <>{rich(d.lines.prepNoCostYet, { name: line.name ?? "" })}</>
                 )}
                 {onOpenPreparation ? (
                   <div className="mt-1">
                     <GhostBtn onClick={onOpenPreparation}>
-                      Abrir {line.name}
+                      {fmt(d.lines.openPrep, { name: line.name ?? "" })}
                     </GhostBtn>
                   </div>
                 ) : null}
-                <div className="mt-1 text-[#6b7280]">
-                  O escribe aquí el precio de esta línea.
-                </div>
+                <div className="mt-1 text-[#6b7280]">{d.lines.orTypePrice}</div>
               </div>
             ) : null}
             {line.name_hint ? (
@@ -1167,19 +1206,21 @@ function Row({
                 className="mt-1 text-[12px] text-[#6b7385]"
                 data-testid="name-hint"
               >
-                ¿Es <b>{line.name_hint.name}</b>
-                {line.name_hint.kind === "component"
-                  ? " (preparación)"
-                  : ""}?{" "}
+                {rich(
+                  line.name_hint.kind === "component"
+                    ? d.lines.nameHintPreparation
+                    : d.lines.nameHintIngredient,
+                  { name: line.name_hint.name }
+                )}{" "}
                 {line.name_hint.kind === "component" ? (
-                  <>Para usarla, crea una versión nueva y cambia la línea. </>
+                  <>{d.lines.nameHintUseNew} </>
                 ) : null}
                 {line.ingredient_id ? (
                   <Link
                     href={ingredientHref(line.ingredient_id)}
                     className="font-semibold text-[#1b40c8] underline"
                   >
-                    Ver ingrediente
+                    {d.lines.viewIngredient}
                   </Link>
                 ) : null}
               </div>
@@ -1189,26 +1230,26 @@ function Row({
                 className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px] text-[#6b7280]"
                 data-testid="prep-unit-problem"
               >
-                La preparación <b>{line.name}</b> ya está aprobada, pero esta
-                línea está en {UNIT_LABEL[line.unit] ?? line.unit} y la
-                preparación rinde en{" "}
-                <b>
-                  {UNIT_LABEL[line.component_unit ?? ""] ??
+                {rich(d.lines.prepUnitProblem, {
+                  name: line.name ?? "",
+                  lineUnit: UNIT_LABEL[line.unit] ?? line.unit,
+                  yieldUnit:
+                    UNIT_LABEL[line.component_unit ?? ""] ??
                     line.component_unit ??
-                    "otra unidad"}
-                </b>
-                . Elige esa unidad en la lista de unidades de la línea.
+                    d.lines.otherUnit,
+                })}
               </div>
             ) : null}
             {line.unit_question ? (
               <div className="mt-1 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-2 py-1 text-[12px]">
-                Tu archivo dice{" "}
-                {UNIT_LABEL[line.unit_question.written] ??
-                  line.unit_question.written}
-                , pero su precio corresponde a{" "}
-                {UNIT_LABEL[line.unit_question.suggested] ??
-                  line.unit_question.suggested}
-                . ¿Cuál es?
+                {fmt(d.lines.unitQuestion, {
+                  written:
+                    UNIT_LABEL[line.unit_question.written] ??
+                    line.unit_question.written,
+                  suggested:
+                    UNIT_LABEL[line.unit_question.suggested] ??
+                    line.unit_question.suggested,
+                })}
                 {editable ? (
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {[
@@ -1231,7 +1272,7 @@ function Row({
           <input
             value={qty}
             disabled={!editable}
-            placeholder="Pendiente"
+            placeholder={d.lines.pending}
             onChange={(event) => setQty(event.target.value)}
             className="inline-block w-20 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right"
           />
@@ -1243,7 +1284,7 @@ function Row({
             disabled={!editable}
             onChange={(event) => setQty(event.target.value)}
             onBlur={() => {
-              const n = Number(qty);
+              const n = inputNumber(qty, lang);
               if (Number.isFinite(n) && n > 0 && n !== line.qty) onQty(n);
             }}
             className="inline-block min-w-11 rounded-md border border-[#d5dae3] bg-white px-1.5 py-0.5 text-right"
@@ -1265,7 +1306,7 @@ function Row({
                   d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
                 />
               </svg>
-              Estimado por Milton
+              {d.lines.miltonEstimate}
             </span>
           </div>
         ) : null}
@@ -1293,7 +1334,7 @@ function Row({
           <select
             value={lineUnitValue}
             disabled={!editable}
-            aria-label="Unidad de la línea"
+            aria-label={d.lines.lineUnitLabel}
             onChange={(event) => onUnit(event.target.value)}
             className="rounded-md border border-[#d5dae3] bg-white px-1 py-0.5"
           >
@@ -1311,7 +1352,7 @@ function Row({
             <input
               value={linePrice}
               autoFocus
-              placeholder="Precio"
+              placeholder={d.lines.price}
               onChange={(event) => setLinePrice(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") setEditingPrice(false);
@@ -1342,7 +1383,7 @@ function Row({
                 }
               }}
             >
-              Guardar
+              {d.lines.save}
             </GhostBtn>
             {line.own_cost ? (
               <button
@@ -1353,7 +1394,7 @@ function Row({
                   onLineCost(null);
                 }}
               >
-                usar la lista
+                {d.lines.useList}
               </button>
             ) : null}
           </div>
@@ -1365,8 +1406,8 @@ function Row({
               {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
               <div className="text-[12px] text-[#8a92a3]">
                 {line.cost_source === "manual"
-                  ? "precio de esta línea"
-                  : "del Excel"}
+                  ? d.lines.lineOwnPrice
+                  : d.lines.fromExcelShort}
               </div>
             </span>
           )
@@ -1374,9 +1415,7 @@ function Row({
           !line.price &&
           line.catalog_question ? (
           <div className="text-left text-[12px]">
-            <div className="text-[#6b7280]">
-              Tu lista no deja clara la unidad. ¿Cuál es?
-            </div>
+            <div className="text-[#6b7280]">{d.lines.listUnclear}</div>
             <div className="mt-1 flex flex-wrap justify-end gap-1">
               {line.catalog_question.options.map((option) => (
                 <GhostBtn
@@ -1386,8 +1425,10 @@ function Row({
                     onCatalogUnit(line.catalog_question!.item_id, option.unit)
                   }
                 >
-                  {money(option.unit_cost)} por{" "}
-                  {UNIT_LABEL[option.unit] ?? option.unit}
+                  {fmt(d.lines.catalogOption, {
+                    price: money(option.unit_cost),
+                    unit: UNIT_LABEL[option.unit] ?? option.unit,
+                  })}
                 </GhostBtn>
               ))}
               <GhostBtn
@@ -1396,7 +1437,7 @@ function Row({
                   onCatalogUnit(line.catalog_question!.item_id, NO_PRICE)
                 }
               >
-                {NO_PRICE_LABEL}
+                {d.lines.catalogNone}
               </GhostBtn>
             </div>
           </div>
@@ -1404,7 +1445,7 @@ function Row({
           <div className="flex items-center justify-end gap-1">
             <input
               value={price}
-              placeholder="Precio"
+              placeholder={d.lines.price}
               disabled={!canFixPrice}
               onChange={(event) => setPrice(event.target.value)}
               className="w-16 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right font-bold"
@@ -1418,23 +1459,27 @@ function Row({
             <GhostBtn
               disabled={!canFixPrice}
               onClick={() => {
-                const n = Number(price);
+                const n = inputNumber(price, lang);
                 if (Number.isFinite(n) && n > 0) onPrice(priceUnit, n);
               }}
             >
-              Agregar precio
+              {d.lines.addPrice}
             </GhostBtn>
           </div>
         ) : line.price ? (
           editPrice(
             <span
-              title={priceLabel({
-                ...line.price,
-                unit: line.price.unit,
-                unit_cost: line.price.unit_cost,
-                price_date: line.price.date,
-                price_source: line.price.source,
-              })}
+              title={priceLabel(
+                {
+                  ...line.price,
+                  unit: line.price.unit,
+                  unit_cost: line.price.unit_cost,
+                  price_date: line.price.date,
+                  price_source: line.price.source,
+                },
+                d,
+                locale
+              )}
             >
               {money(line.price.unit_cost)}/
               {UNIT_LABEL[line.price.unit] ?? line.price.unit}
@@ -1445,20 +1490,28 @@ function Row({
                   onClick={(event) => event.stopPropagation()}
                   className="block text-[12px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
                 >
-                  {[sourceLabel(line.price.source), monthLabel(line.price.date)]
+                  {[
+                    sourceLabel(line.price.source, d),
+                    monthLabel(line.price.date, locale),
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                 </Link>
               ) : (
                 <div className="text-[12px] text-[#8a92a3]">
-                  {[sourceLabel(line.price.source), monthLabel(line.price.date)]
+                  {[
+                    sourceLabel(line.price.source, d),
+                    monthLabel(line.price.date, locale),
+                  ]
                     .filter(Boolean)
                     .join(" · ")}
                 </div>
               )}
               {line.excel_unit_cost !== null ? (
                 <div className="text-[12px] text-[#8a92a3]">
-                  en tu Excel: {money(line.excel_unit_cost)}
+                  {fmt(d.lines.inYourExcel, {
+                    price: money(line.excel_unit_cost),
+                  })}
                 </div>
               ) : null}
             </span>
@@ -1468,7 +1521,7 @@ function Row({
             `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`
           )
         ) : (
-          editPrice("Pendiente")
+          editPrice(d.lines.pending)
         )}
       </td>
       <td className="py-1.5 text-right align-top font-semibold">
@@ -1476,13 +1529,13 @@ function Row({
           money(line.amount)
         ) : priceUnitMismatch ? (
           <span
-            title={unitMismatchHint(
-              UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
-              UNIT_LABEL[line.unit] ?? line.unit
-            )}
+            title={fmt(d.lines.unitMismatchHint, {
+              priceUnit: UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
+              lineUnit: UNIT_LABEL[line.unit] ?? line.unit,
+            })}
             className="text-[#6b7280]"
           >
-            {UNIT_MISMATCH_LABEL}
+            {d.lines.reasonDifferentUnit}
           </span>
         ) : (
           <span
@@ -1490,9 +1543,10 @@ function Row({
             data-testid="pending-reason"
           >
             {line.milton_price_estimate &&
-            pendingReasonOf(line, prepUnitProblem) === "Falta precio"
-              ? "Sin precio"
-              : pendingReasonOf(line, prepUnitProblem)}
+            pendingReasonOf(line, prepUnitProblem, lang) ===
+              d.lines.reasonMissingPrice
+              ? d.lines.noPrice
+              : pendingReasonOf(line, prepUnitProblem, lang)}
           </span>
         )}
         {line.amount === null &&
@@ -1502,7 +1556,7 @@ function Row({
             className="text-left text-[12px] font-normal text-[#6b7280]"
             data-testid="milton-price-estimate"
           >
-            {estimatedPriceMessage(line.milton_price_estimate, currency)}
+            {estimatedPriceMessage(line.milton_price_estimate, currency, lang)}
           </div>
         ) : null}
         {line.amount !== null && line.unit_question ? (
@@ -1511,7 +1565,7 @@ function Row({
               className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
               data-testid="pending-reason"
             >
-              Unidad por confirmar
+              {d.lines.reasonUnitToConfirm}
             </span>
           </div>
         ) : null}
@@ -1520,8 +1574,11 @@ function Row({
             className="text-left text-[12px] font-normal text-[#6b7280]"
             data-testid="legacy-line-price"
           >
-            en tu Excel: {money(line.legacy_price.unit_cost)}/
-            {UNIT_LABEL[line.legacy_price.unit] ?? line.legacy_price.unit}
+            {fmt(d.lines.inYourExcelUnit, {
+              price: money(line.legacy_price.unit_cost),
+              unit:
+                UNIT_LABEL[line.legacy_price.unit] ?? line.legacy_price.unit,
+            })}
             {canFixPrice ? (
               <>
                 {" · "}
@@ -1535,7 +1592,7 @@ function Row({
                   }
                   className="font-semibold text-[#1b40c8] underline"
                 >
-                  Usar como precio del ingrediente
+                  {d.lines.adoptLegacy}
                 </button>
               </>
             ) : null}
@@ -1551,7 +1608,7 @@ function Row({
               }}
               className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
             >
-              Corregir unidad del precio
+              {d.lines.correctPriceUnit}
             </button>
           </div>
         ) : null}
@@ -1560,14 +1617,14 @@ function Row({
             className="mt-1 text-left text-[12px] font-normal"
             data-testid="correct-price-unit"
           >
-            {money(line.price.unit_cost)} por{" "}
+            {fmt(d.lines.pricePer, { price: money(line.price.unit_cost) })}{" "}
             <select
               value={correctUnit}
-              aria-label="Unidad del precio"
+              aria-label={d.lines.priceUnitLabel}
               onChange={(e) => setCorrectUnit(e.target.value)}
               className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
             >
-              {unitOptions(unitValue(correctUnit || line.unit)).map((u) => (
+              {unitOptions(unitValue(correctUnit || line.unit), d).map((u) => (
                 <option key={u.value} value={u.value}>
                   {u.label}
                 </option>
@@ -1582,7 +1639,7 @@ function Row({
               }}
               className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white"
             >
-              Guardar
+              {d.lines.save}
             </button>
             <div className="text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</div>
           </div>
@@ -1631,7 +1688,7 @@ function Row({
             className="block w-full text-right text-[12px] font-normal text-[#3557c9]"
             onClick={() => setEditingPrice(true)}
           >
-            editar precio
+            {d.lines.editPrice}
           </button>
         ) : null}
       </td>
@@ -1644,7 +1701,7 @@ function Row({
                 className="font-semibold text-[#3557c9]"
                 onClick={onChange}
               >
-                Cambiar
+                {d.lines.change}
               </button>
             ) : null}
             <button
@@ -1652,7 +1709,7 @@ function Row({
               className="font-semibold text-[#c03535]"
               onClick={onRemove}
             >
-              Quitar
+              {d.lines.remove}
             </button>
           </div>
         ) : null}
@@ -1672,11 +1729,12 @@ function PriceUnitSelect({
   onChange: (unit: string) => void;
   disabled?: boolean;
 }) {
+  const { d: dict } = useT();
   return (
     <select
       value={value}
       disabled={disabled}
-      aria-label="Unidad del precio"
+      aria-label={dict.menu.editor.lines.priceUnitLabel}
       onChange={(event) => onChange(event.target.value)}
       className="rounded-md border border-[#d5dae3] bg-white px-1 py-0.5 text-[12px]"
     >
@@ -1724,6 +1782,9 @@ function Picker({
   onCreate: (draft: CreateDraft) => void;
   onCreatePreparation: (draft: PreparationDraft) => void;
 }) {
+  const { d: dict, locale, lang } = useT();
+  const d = dict.menu.editor;
+  const UNIT_LABEL: Record<string, string> = d.units;
   const startQuery =
     target.mode === "resolve"
       ? (target.line.possible_match?.name ?? target.line.raw_name)
@@ -1767,8 +1828,8 @@ function Picker({
 
   function add() {
     if (!active || busy) return;
-    if (target.mode === "add" && !(Number(qty) > 0)) return;
-    onPick(active, Number(qty) || 1, unit);
+    if (target.mode === "add" && !(inputNumber(qty, lang) > 0)) return;
+    onPick(active, inputNumber(qty, lang) || 1, unit);
   }
 
   function move(step: number) {
@@ -1802,10 +1863,10 @@ function Picker({
               onCancel();
             }
           }}
-          placeholder="Escribe para buscar en tus ingredientes y preparaciones"
+          placeholder={d.picker.searchPlaceholder}
           className="min-w-56 flex-1 rounded-md border border-[#d5dae3] bg-white px-2 py-1"
         />
-        <GhostBtn onClick={onCancel}>Cancelar</GhostBtn>
+        <GhostBtn onClick={onCancel}>{d.picker.cancel}</GhostBtn>
       </div>
 
       {creating === null ? (
@@ -1826,7 +1887,11 @@ function Picker({
                   onClick={() => choose(o)}
                   onDoubleClick={() => {
                     choose(o);
-                    onPick(o, Number(qty) || 1, unitsLike(o.unit)[0] ?? "unit");
+                    onPick(
+                      o,
+                      inputNumber(qty, lang) || 1,
+                      unitsLike(o.unit)[0] ?? "unit"
+                    );
                   }}
                   className={
                     "flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1 text-left last:border-b-0 " +
@@ -1844,17 +1909,15 @@ function Picker({
                       (selected ? "text-white/80" : "text-[#8a92a3]")
                     }
                   >
-                    {o.kind === "component" ? "Preparación · " : ""}
-                    {priceLabel(o)}
+                    {o.kind === "component" ? d.picker.preparationPrefix : ""}
+                    {priceLabel(o, d, locale)}
                   </span>
                 </button>
               );
             })}
           </div>
           {shown.length === 0 ? (
-            <p className="text-[#6b7385]">
-              No hay nada con ese nombre en tu lista.
-            </p>
+            <p className="text-[#6b7385]">{d.picker.nothingFound}</p>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
@@ -1886,45 +1949,47 @@ function Picker({
             ) : null}
             <PrimaryBtn
               disabled={
-                busy || !active || (target.mode === "add" && !(Number(qty) > 0))
+                busy ||
+                !active ||
+                (target.mode === "add" && !(inputNumber(qty, lang) > 0))
               }
               onClick={add}
             >
-              {target.mode === "add" ? "Agregar" : "Usar este"}
+              {target.mode === "add" ? d.picker.add : d.picker.useThis}
             </PrimaryBtn>
-            <span className="text-[12px] text-[#8a92a3]">o Enter</span>
+            <span className="text-[12px] text-[#8a92a3]">
+              {d.picker.orEnter}
+            </span>
             <span className="ml-auto flex flex-wrap gap-3">
               <button
                 type="button"
                 className="font-semibold text-[#3557c9]"
                 onClick={() => setCreating("ingredient")}
               >
-                ¿No está? Agregar ingrediente
+                {d.picker.notThere}
               </button>
               <button
                 type="button"
                 className="font-semibold text-[#3557c9]"
                 onClick={() => setCreating("preparation")}
               >
-                Crear preparación
+                {d.picker.createPreparation}
               </button>
             </span>
           </div>
         </>
       ) : creating === "ingredient" ? (
         <div className="space-y-2">
-          <p className="text-[#6b7385]">
-            Revisa que no esté ya en tu lista con otro nombre.
-          </p>
+          <p className="text-[#6b7385]">{d.picker.checkDuplicates}</p>
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
-              placeholder="Nombre"
+              placeholder={d.picker.name}
               className="min-w-48 flex-1 rounded-md border border-[#d5dae3] bg-white px-2 py-1"
             />
             <label className="inline-flex items-center gap-1">
-              Lo compras por
+              {d.picker.buyBy}
               <select
                 value={newUnit}
                 onChange={(event) => {
@@ -1941,7 +2006,7 @@ function Picker({
               </select>
             </label>
             <label className="inline-flex items-center gap-1">
-              Precio por esa unidad (opcional)
+              {d.picker.pricePerUnit}
               <input
                 value={newPrice}
                 onChange={(event) => setNewPrice(event.target.value)}
@@ -1977,27 +2042,25 @@ function Picker({
                 });
               }}
             >
-              Agregar y usar
+              {d.picker.addAndUse}
             </GhostBtn>
             <GhostBtn onClick={() => setCreating(null)}>
-              Volver a la lista
+              {d.picker.backToList}
             </GhostBtn>
           </div>
         </div>
       ) : (
         <div className="space-y-2">
-          <p className="text-[#6b7385]">
-            Queda como borrador; sus ingredientes se agregan en Preparaciones.
-          </p>
+          <p className="text-[#6b7385]">{d.picker.draftNote}</p>
           <div className="flex flex-wrap items-center gap-2">
             <input
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
-              placeholder="Nombre de la preparación"
+              placeholder={d.picker.preparationName}
               className="min-w-48 flex-1 rounded-md border border-[#d5dae3] bg-white px-2 py-1"
             />
             <label className="inline-flex items-center gap-1">
-              Una tanda rinde
+              {d.picker.batchYields}
               <input
                 value={yieldQty}
                 onChange={(event) => setYieldQty(event.target.value)}
@@ -2046,10 +2109,10 @@ function Picker({
                 })
               }
             >
-              Crear y usar
+              {d.picker.createAndUse}
             </GhostBtn>
             <GhostBtn onClick={() => setCreating(null)}>
-              Volver a la lista
+              {d.picker.backToList}
             </GhostBtn>
           </div>
         </div>
@@ -2071,10 +2134,13 @@ function LineAmount({
   onQty: (value: string) => void;
   onUnit: (value: string) => void;
 }) {
+  const { d: dict } = useT();
+  const d = dict.menu.editor;
+  const UNIT_LABEL: Record<string, string> = d.units;
   const shown = units.includes(unit) ? units : [unit, ...units];
   return (
     <label className="flex flex-wrap items-center gap-1">
-      Esta receta lleva
+      {d.picker.recipeUses}
       <input
         value={qty}
         onChange={(event) => onQty(event.target.value)}

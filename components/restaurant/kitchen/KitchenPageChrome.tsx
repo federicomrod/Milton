@@ -25,7 +25,7 @@ export function KitchenPageHeader({
 }) {
   return (
     <OperatingPageHeader
-      title={t(lang, "Kitchen", "Cocina")}
+      title={t(lang, "Kitchen", "Cocina", "Küche")}
       lang={lang}
       dateRange={
         <Suspense fallback={<PageSkeleton width="16rem" height="2rem" />}>

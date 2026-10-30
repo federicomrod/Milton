@@ -3,6 +3,8 @@
 // tab passes its own view so only that tab's data is built.
 
 import { Suspense } from "react";
+import { getDictionary } from "@/lib/i18n";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { loadRecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace-server";
 import { loadDishEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
@@ -24,10 +26,9 @@ export async function MenuWorkspacePage({
 }) {
   const auth = await authAndCompany();
   if (!auth.ok) {
+    const d = getDictionary(await apiLanguage()).menu.screens;
     return (
-      <p className="text-sm text-[#5b6476]">
-        Conecta tu cuenta a una empresa para armar recetas y costos.
-      </p>
+      <p className="text-sm text-[#5b6476]">{d.workspace.connectCompany}</p>
     );
   }
   const selected =

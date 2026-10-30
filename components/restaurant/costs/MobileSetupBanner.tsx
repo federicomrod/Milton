@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
 import { READ_MENU_HREF } from "./CostsSetupSection";
 import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
 
@@ -34,6 +35,8 @@ export function MobileSetupBanner({
   setup: SetupData;
   onFileAction: () => void;
 }) {
+  const { d, fmt } = useT();
+  const s = d.costs.setup;
   const [showSteps, setShowSteps] = useState(false);
 
   if (setup.complete) {
@@ -51,7 +54,7 @@ export function MobileSetupBanner({
       >
         <div className="flex items-center justify-between gap-2">
           <span className="text-[13px] font-semibold text-[#151c2c]">
-            {setup.done} de {setup.total} listos
+            {fmt(s.readyCount, { done: setup.done, total: setup.total })}
           </span>
           {setup.next ? (
             <span className="text-[12px] text-[#4a5a85] truncate">
@@ -71,14 +74,14 @@ export function MobileSetupBanner({
         <div className="rounded-lg border border-[#dfe3ea] bg-white p-4 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-[14px] font-bold text-[#151c2c]">
-              Configura tus costos
+              {s.configureShort}
             </h3>
             <button
               type="button"
               onClick={() => setShowSteps(false)}
               className="text-[12px] font-semibold text-[#1B40C8]"
             >
-              Cerrar
+              {s.close}
             </button>
           </div>
 

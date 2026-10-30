@@ -115,10 +115,13 @@ describe("an approved recipe with a line that has no price", () => {
       "utf8"
     );
     expect(src).toMatch(
-      /<DropdownMenuItem[\s\S]{0,160}new_version[\s\S]{0,80}Crear versión nueva/
+      /<DropdownMenuItem[\s\S]{0,160}new_version[\s\S]{0,80}d\.lines\.newVersion/
     );
     expect(src).not.toMatch(
-      /<(PrimaryBtn|GhostBtn)[^>]*>\s*Crear versión nueva/
+      /<(PrimaryBtn|GhostBtn)[^>]*>\s*\{d\.lines\.newVersion/
+    );
+    expect(readFileSync("lib/i18n/es/menu-editor.ts", "utf8")).toContain(
+      'newVersion: "Crear versión nueva"'
     );
     expect(src).not.toContain("approved-pending-banner");
     expect(src).toContain(

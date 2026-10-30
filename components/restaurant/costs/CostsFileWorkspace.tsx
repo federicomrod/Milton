@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 import { CostsSetupSection } from "./CostsSetupSection";
 import {
   COSTS_FILE_ANCHOR,
@@ -26,6 +27,7 @@ export function CostsFileWorkspace({
   locationId: string | null;
   companyId: string | null;
 }) {
+  const { d } = useT();
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hasWork, setHasWork] = useState(false);
@@ -75,14 +77,14 @@ export function CostsFileWorkspace({
       {visible ? (
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-[15px] font-bold text-[#151c2c]">
-            Archivo de costos
+            {d.costs.setup.costsFile}
           </h2>
           {!busy && !hasWork ? (
             <button
               type="button"
               onClick={handleClose}
               className="rounded-lg p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
-              aria-label="Cerrar"
+              aria-label={d.costs.setup.close}
             >
               <X className="h-5 w-5" />
             </button>

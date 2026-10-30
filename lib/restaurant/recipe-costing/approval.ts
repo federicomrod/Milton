@@ -1,4 +1,9 @@
 import { can, normalizeRole, type Actor } from "@/lib/auth/capabilities";
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { confirmPosProductLinkError } from "@/lib/restaurant/pos-product-links";
 import type { SuggestionEvidenceView, SuggestionLineView } from "./evidence";
 
@@ -75,14 +80,15 @@ export function actorCanApprove(
     confirmed_by?: string;
     confirmed_at?: string;
     confirmed_how?: string;
-  }
+  },
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): { ok: true } | { ok: false; error: string } {
+  const e = getDictionary(lang).menu.workspace.approval.error;
   if (actorCanApproveDirectly(actor)) return { ok: true };
   if (normalizeRole(actor.role) === "manager" && !actor.is_milton_staff) {
     return {
       ok: false,
-      error:
-        "Como gerente puedes enviar a aprobación, pero solo el dueño o un admin aprueba.",
+      error: e.managerCannotApprove,
     };
   }
   if (actor.is_milton_staff) {
@@ -90,15 +96,14 @@ export function actorCanApprove(
     if (missing) {
       return {
         ok: false,
-        error:
-          "Si apruebas en nombre del cliente, registra cómo lo confirmó (quién, cuándo y cómo).",
+        error: e.staffNeedsHow,
       };
     }
     return { ok: true };
   }
   return {
     ok: false,
-    error: "Solo el dueño o un admin puede aprobar esta receta.",
+    error: e.ownerOnly,
   };
 }
 
@@ -113,15 +118,16 @@ export function actorCanConfirmLink(
     confirmed_by?: string;
     confirmed_at?: string;
     confirmed_how?: string;
-  }
+  },
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): { ok: true } | { ok: false; error: string } {
+  const e = getDictionary(lang).menu.workspace.approval.error;
   if (actorNeedsClientConfirmation(actor)) {
     const missing = confirmPosProductLinkError(confirmation);
     if (missing) {
       return {
         ok: false,
-        error:
-          "Si confirmas en nombre del cliente, indica cómo lo confirmó (en persona, WhatsApp, correo o llamada).",
+        error: e.clientNeedsHow,
       };
     }
   }
@@ -168,7 +174,12 @@ export function buildApprovalChecklist(input: {
   yield_confirmed?: boolean;
   odoo_name?: string | null;
   odoo_product_id?: number | null;
+  lang?: PreferredLanguage;
 }): ApprovalChecklist {
+  const a = getDictionary(input.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE)
+    .menu.workspace.approval;
+  const b = a.blocker;
+  const it = a.item;
   const linked = input.link_state === "confirmado";
   const hasLines = input.evidence.lines.length > 0;
   const noPending =
@@ -194,21 +205,21 @@ export function buildApprovalChecklist(input: {
     null;
 
   const blockers: string[] = [];
-  if (!hasLines) blockers.push("La receta no tiene ingredientes.");
+  if (!hasLines) blockers.push(b.noIngredients);
   if (!hasComputedCost) {
-    blockers.push("La receta no tiene un costo calculado.");
+    blockers.push(b.noCost);
   }
   if (!hasKnownYield) {
-    blockers.push("La receta no tiene un rendimiento conocido.");
+    blockers.push(b.noYield);
   }
   if (!noPending && hasLines) {
-    blockers.push("Hay líneas pendientes. No dejes ninguna en $0.");
+    blockers.push(b.pendingLines);
   }
   if (hasKnownYield && !yieldConfirmed) {
-    blockers.push("Confirma el rendimiento antes de aprobar.");
+    blockers.push(b.confirmYield);
   }
   if (!unitsValid && hasLines) {
-    blockers.push("Hay unidades que no se pueden convertir.");
+    blockers.push(b.unitsNotConvertible);
   }
 
   const items: ApprovalChecklist["items"] = [
@@ -218,67 +229,66 @@ export function buildApprovalChecklist(input: {
       warn: !linked,
       label: linked
         ? input.odoo_name && input.odoo_product_id
-          ? `Vinculado al POS: ${input.odoo_name} (Odoo #${input.odoo_product_id})`
-          : "Vinculado al POS"
-        : "Todavía no está Confirmado el vínculo con el POS",
+          ? fmt(it.linkedTo, {
+              name: input.odoo_name,
+              id: input.odoo_product_id,
+            })
+          : it.linked
+        : it.notLinked,
     },
     {
       id: "ingredients",
       ok: hasLines,
       warn: !hasLines,
-      label: hasLines
-        ? "La receta tiene ingredientes"
-        : "La receta no tiene ingredientes",
+      label: hasLines ? it.hasIngredients : it.noIngredients,
     },
     {
       id: "prices",
       ok: pricesPresent,
       warn: !pricesPresent,
       label: !hasLines
-        ? "La receta no tiene ingredientes"
+        ? it.noIngredients
         : pricesPresent
-          ? "Todos los ingredientes tienen precio"
-          : "Falta el precio de al menos un ingrediente",
+          ? it.allPriced
+          : it.somePriceMissing,
     },
     {
       id: "units",
       ok: unitsValid,
       warn: !unitsValid,
       label: !hasLines
-        ? "La receta no tiene ingredientes"
+        ? it.noIngredients
         : unitsValid
-          ? "Todas las unidades se pueden convertir"
-          : "Hay unidades que no se pueden convertir",
+          ? it.unitsOk
+          : it.unitsBad,
     },
     {
       id: "yield",
       ok: yieldConfirmed,
       warn: !yieldConfirmed,
       label: !hasKnownYield
-        ? "La receta no tiene un rendimiento conocido"
+        ? it.yieldUnknown
         : yieldConfirmed
-          ? "Rendimiento confirmado"
+          ? it.yieldConfirmed
           : yieldName
-            ? `Rendimiento de ${yieldName} por confirmar`
-            : "Rendimiento por confirmar",
+            ? fmt(it.yieldOfToConfirm, { name: yieldName })
+            : it.yieldToConfirm,
     },
     {
       id: "cost",
       ok: hasComputedCost,
       warn: !hasComputedCost,
-      label: hasComputedCost
-        ? "La receta tiene un costo calculado"
-        : "La receta no tiene un costo calculado",
+      label: hasComputedCost ? it.costOk : it.costNo,
     },
     {
       id: "excel",
       ok: excelOk,
       warn: !excelOk && excelMatch !== "mismatch",
       label: excelOk
-        ? "Cuadra con Excel"
+        ? it.excelOk
         : excelMatch === "mismatch"
-          ? "Diferencia con Excel mayor a 2% o $0.05 (o explícala)"
-          : "Sin dato de Excel para comparar",
+          ? it.excelDiff
+          : it.excelNone,
     },
   ];
 

@@ -10,6 +10,8 @@ import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import { dishHref } from "@/lib/restaurant/menu-links";
 import type { MenuDishVariant } from "@/lib/restaurant/menu-dishes/menu-dishes";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
 import {
   canUseSiblingRecipe,
   pickApprovedSibling,
@@ -31,8 +33,8 @@ const BTN =
 const BTN_FILLED =
   "inline-flex items-center justify-center rounded-lg bg-[#1B40C8] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1533A3] focus:outline-none focus:ring-2 focus:ring-[#1B40C8] focus:ring-opacity-40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40";
 
-const pct = (n: number | null) =>
-  n === null ? "Sin precio" : `${Math.round(n)}%`;
+const pct = (n: number | null, noPrice: string) =>
+  n === null ? noPrice : `${Math.round(n)}%`;
 
 function ProductRow({
   product,
@@ -47,6 +49,8 @@ function ProductRow({
   money: (n: number) => string;
   onLinked?: () => void;
 }) {
+  const { d, lang } = useT();
+  const t = d.menu.screens.sizeRows;
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -68,13 +72,13 @@ function ProductRow({
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setNote(userErrorMessage(json, "No pude cambiar el vínculo."));
+        setNote(userErrorMessage(json, t.linkFailed));
         return;
       }
       setConfirming(false);
       onLinked?.();
     } catch {
-      setNote("No pude cambiar el vínculo.");
+      setNote(t.linkFailed);
     } finally {
       setBusy(false);
     }
@@ -90,10 +94,10 @@ function ProductRow({
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <Link
             href={dishHref(product.odoo_product_id)}
-            aria-label={`Abrir ${product.name}`}
+            aria-label={fmt(t.openAria, { name: product.name })}
             className={BTN}
           >
-            Abrir
+            {t.open}
           </Link>
           {offer && !confirming ? (
             <button
@@ -101,19 +105,21 @@ function ProductRow({
               className={BTN_FILLED}
               onClick={() => setConfirming(true)}
             >
-              Usar la receta de {sibling.name}
+              {fmt(t.useSibling, { sibling: sibling.name })}
             </button>
           ) : null}
         </div>
         {offer && confirming ? (
           <div
             role="group"
-            aria-label="Confirmar receta compartida"
+            aria-label={t.confirmGroup}
             className="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-[#151c2c]"
           >
             <span>
-              {product.name} usará la receta de {sibling.name}. Comparten la
-              misma receta.
+              {fmt(t.confirmText, {
+                product: product.name,
+                sibling: sibling.name,
+              })}
             </span>
             <button
               type="button"
@@ -121,7 +127,7 @@ function ProductRow({
               className={BTN_FILLED}
               onClick={() => void confirm()}
             >
-              {busy ? "Guardando…" : "Confirmar"}
+              {busy ? t.saving : t.confirm}
             </button>
             <button
               type="button"
@@ -129,7 +135,7 @@ function ProductRow({
               className={BTN}
               onClick={() => setConfirming(false)}
             >
-              Cancelar
+              {t.cancel}
             </button>
           </div>
         ) : null}
@@ -143,15 +149,15 @@ function ProductRow({
         {money(product.sums.net_sales)}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {pct(product.sums.margin_pct)}
+        {pct(product.sums.margin_pct, d.menu.screens.noPrice)}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {pct(product.sums.food_cost_pct)}
+        {pct(product.sums.food_cost_pct, d.menu.screens.noPrice)}
       </td>
       <td />
       <td className="px-2 py-2">
         <Chip tone={TONES[product.status] ?? "grey"}>
-          {productStatusLabel(product)}
+          {productStatusLabel(product, lang)}
         </Chip>
       </td>
       <td />

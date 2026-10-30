@@ -6,6 +6,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { loadRecipeActor } from "@/lib/restaurant/recipe-costing/actor-server";
 import { confirmDishYield } from "@/lib/restaurant/recipe-costing/dish-yield-server";
 
@@ -15,21 +17,20 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const lang = await apiLanguage();
+  const msg = getDictionary(lang).menu.editor.api;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.bodyNotJson }, { status: 400 });
   }
   const odooProductId = Number(body.odoo_product_id);
   const yieldValue = Number(body.yield_value);
   if (!Number.isInteger(odooProductId) || odooProductId <= 0) {
     return NextResponse.json(
-      { error: "Indica el producto de Odoo." },
+      { error: msg.odooProductRequired },
       { status: 400 }
     );
   }
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
       locationId:
         typeof body.location_id === "string" ? body.location_id : null,
       yieldValue,
+      lang,
     });
     if (!result.ok) {
       return NextResponse.json(
@@ -57,9 +59,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[recipes/dish-yield]", err);
-    return NextResponse.json(
-      { error: "No pude guardar el rendimiento." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.yieldSaveFailed }, { status: 500 });
   }
 }

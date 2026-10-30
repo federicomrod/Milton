@@ -35,6 +35,7 @@ import {
   destinationVars,
 } from "./kitchen-copy";
 import { sendTelegramMessage, type InlineKeyboardMarkup } from "./send";
+import { joinProducts } from "./price-flow";
 import { processPriceUpdateSafe, type KitchenActor } from "./kitchen-media";
 import {
   classifyKitchenReport,
@@ -53,13 +54,9 @@ import {
   answerFor,
   completePendingQuestion,
 } from "./kitchen-pending-answer";
-import { joinProducts } from "./price-flow";
 import {
   amountItemsOfQuestion,
   findOpenUnitQuestion,
-  openAmountQuestion,
-  openUnitQuestion,
-  type AmountQuestionItem,
 } from "./price-unit-question";
 import {
   currencyCodeFromText,
@@ -69,10 +66,12 @@ import {
   parsePriceItems,
   parsePriceMessage,
   PRICE_UPDATE_MAX_ITEMS,
-  type PriceUpdateItem,
+  type DraftLine,
 } from "./price-update";
-import { maybeCleanupPending } from "./kitchen-routing";
-import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  inAppPipeline,
+  recordPipelineEvent,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 
 export type AiHandlerContext = {
   admin: SupabaseClient;
@@ -156,6 +155,9 @@ export async function answerWithoutAi(ctx: AiHandlerContext): Promise<void> {
       const stored =
         (ctx.origin ?? "text") === "text" || (await setReportType(ctx, type));
       reply = stored ? stockSavedReply(ctx.staff, type, [], ctx.text) : null;
+      if (stored) {
+        recordPipelineEvent({ kind: "stock", reportType: type, products: [] });
+      }
       // A mixed message («se acabó el aguacate y ahora está a 3.50 la libra»)
       // with the AI down: the stock report is kept, the price is NOT, and the
       // cook is told so instead of finding out later.
@@ -336,12 +338,17 @@ async function setReportType(
       patch.text = ctx.text.slice(0, 2000);
       patch.transcript = ctx.text.slice(0, 2000);
     }
-    const { error } = await ctx.admin
+    // An app report has no Telegram ids: it is found by its own id.
+    const base = ctx.admin
       .from("kitchen_reports")
       .update(patch)
-      .eq("company_id", ctx.staff.company_id)
-      .eq("telegram_chat_id", ctx.chatId)
-      .eq("telegram_message_id", ctx.messageId);
+      .eq("company_id", ctx.staff.company_id);
+    const { error } =
+      inAppPipeline() && ctx.reportId
+        ? await base.eq("id", ctx.reportId)
+        : await base
+            .eq("telegram_chat_id", ctx.chatId)
+            .eq("telegram_message_id", ctx.messageId);
     if (error) {
       console.error("[kitchen-ai-handler] stock report not stored");
       return false;
@@ -419,88 +426,30 @@ async function handleActions(
       ? hints.find((h) => h.id === i.matched_ingredient_id)?.name
       : undefined) ?? i.product;
 
-  const saved: PriceUpdateItem[] = [];
-  const needUnit: Array<{
-    name: string;
-    price: number;
-    currency: string | null;
-  }> = [];
+  // Every product becomes a Compras line: nothing is dropped and the cook is
+  // never asked a follow-up. A price without a unit keeps «Falta» for the unit;
+  // an ambiguous amount («150») is not guessed: the line has no price.
+  const saved: DraftLine[] = [];
   const unreadable: string[] = [];
   for (const i of priced) {
-    if (saved.length + needUnit.length >= PRICE_UPDATE_MAX_ITEMS) {
+    if (saved.length >= PRICE_UPDATE_MAX_ITEMS) {
       unreadable.push(i.product);
-    } else if (i.unit) {
+    } else {
       saved.push({
         name: nameOf(i),
         price: i.amount,
         unit: i.unit,
         currency: i.currency,
       });
-    } else {
-      needUnit.push({ name: nameOf(i), price: i.amount, currency: i.currency });
     }
   }
-
-  const lines: string[] = [];
-
-  // --- one question per message: the amount first, else the unit -------------
-  let asked = false;
-  if (ask && ctx.link) {
-    const q: AmountQuestionItem = {
-      product: ask.product,
-      options: ask.options,
-      unit: ask.unit,
-      currency: ask.currency,
-    };
-    const opened = await openAmountQuestion({
-      chatId: ctx.chatId,
-      messageId: ctx.messageId,
-      link: ctx.link,
-      items: [q],
-    });
-    if (opened.ok) {
-      maybeCleanupPending();
-      asked = true;
-      if (opened.created) {
-        const cur =
-          q.currency ??
-          (await resolveCompanyCurrency(
-            ctx.admin as never,
-            ctx.staff.company_id
-          ).catch(() => null));
-        lines.push(amountAskReply(q, currencySymbolFor(cur)));
-      }
-    } else {
-      unreadable.push(ask.product);
-    }
+  if (ask && saved.length < PRICE_UPDATE_MAX_ITEMS) {
+    saved.push({ name: ask.product, price: null, unit: ask.unit });
   } else if (ask) {
     unreadable.push(ask.product);
   }
-  if (needUnit.length > 0) {
-    if (asked || !ctx.link) {
-      unreadable.push(...needUnit.map((i) => i.name));
-    } else {
-      const opened = await openUnitQuestion({
-        chatId: ctx.chatId,
-        messageId: ctx.messageId,
-        link: ctx.link,
-        items: needUnit,
-      });
-      if (opened.ok) {
-        maybeCleanupPending();
-        asked = true;
-        if (opened.created) {
-          lines.push(
-            renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
-              producto: joinProducts(needUnit.map((i) => i.name)),
-            })
-          );
-        }
-      } else {
-        unreadable.push(...needUnit.map((i) => i.name));
-      }
-    }
-  }
+
+  const lines: string[] = [];
 
   // --- the stock part ---------------------------------------------------------
   let stockLine: string | null = null;
@@ -508,14 +457,15 @@ async function handleActions(
     const kind: KitchenReportType =
       reportWords === "unclassified" ? "running_out" : reportWords;
     const stored =
-      reportWords === kind && origin === "text"
-        ? true // already stored with this very type by the webhook
+      reportWords === kind && origin === "text" && !inAppPipeline()
+        ? true // already stored with this very type by the webhook (not for the app: its report starts unclassified)
         : await setReportType(ctx, kind);
     if (stored) {
       const names = [
         ...new Set(result.items.map((i) => nameOf(i)).filter(Boolean)),
       ];
       stockLine = stockSavedReply(ctx.staff, kind, names, text);
+      recordPipelineEvent({ kind: "stock", reportType: kind, products: names });
     }
   }
 
@@ -528,7 +478,7 @@ async function handleActions(
   }
 
   const nothingToSay =
-    saved.length === 0 && !asked && !stockLine && unreadable.length === 0;
+    saved.length === 0 && !stockLine && unreadable.length === 0;
   if (nothingToSay) {
     // The AI called it a price/stock message but gave nothing usable.
     await say(

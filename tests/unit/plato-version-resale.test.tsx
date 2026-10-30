@@ -253,7 +253,7 @@ describe("shared version pick (dish-version.ts)", () => {
 describe("source rules", () => {
   const plato = read("components/restaurant/recipes-costing/PlatoScreen.tsx");
   it("the Excel comparison is gray, not red", () => {
-    const i = plato.indexOf("Excel: {money(dish.excel_total)}");
+    const i = plato.indexOf("fmt(w.excelTotal");
     const before = plato.slice(Math.max(0, i - 260), i);
     expect(before).toContain("#6b7280");
     expect(before).not.toContain("#c03535");

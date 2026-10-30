@@ -144,16 +144,15 @@ const totalCells = () => {
 };
 
 describe("Compras list row", () => {
-  it("a pending price update shows the label in Total, never the summed prices", () => {
+  it("a pending price update keeps its label in Total, with «Sin precio» when its line has none (never blank, never summed prices)", () => {
     renderPage([priceUpdate()]);
     const cell = totalCells()[0];
     expect(
       within(cell as HTMLElement).getByTestId("price-update-label")
     ).toBeTruthy();
-    expect(cell.textContent).toBe("Actualización de precio");
+    expect(cell.textContent).toBe("Sin precioActualización de precio");
     expect(document.body.textContent).not.toContain("5.75");
     expect(cell.textContent).not.toContain("$0");
-    expect(cell.textContent).not.toContain("Sin precio");
   });
 
   it("a real invoice keeps its amount", () => {

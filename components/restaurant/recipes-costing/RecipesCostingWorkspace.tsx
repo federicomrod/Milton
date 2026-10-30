@@ -49,6 +49,7 @@ import { PlatoScreen } from "./PlatoScreen";
 import { MenuDishesScreen } from "@/components/restaurant/menu/MenuDishesScreen";
 import { PreparacionesScreen } from "./PreparacionesScreen";
 import { ResumenScreen } from "./ResumenScreen";
+import { useT } from "@/lib/i18n/client";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 type WorkspaceTab = "resumen" | "plato" | "preparaciones";
@@ -96,6 +97,8 @@ export function RecipesCostingWorkspace({
   /** «Estimado por Milton»: read apart from the economics, shown muted. */
   estimates?: DishEstimateRow[];
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.workspaceScreen;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -174,7 +177,7 @@ export function RecipesCostingWorkspace({
       const res = await fetch(
         `/api/restaurant/recipes/costing?${params.toString()}`
       );
-      if (!res.ok) throw new Error("No pude recargar el avance.");
+      if (!res.ok) throw new Error(w.reloadFailed);
       return (await res.json()) as RecipeCostingWorkspace;
     },
     [searchParams, selectedId, view]
@@ -400,7 +403,7 @@ export function RecipesCostingWorkspace({
       dishPayloads.current.clear();
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Algo falló.");
+      setError(err instanceof Error ? err.message : w.failed);
     } finally {
       setBusy(false);
     }
@@ -438,7 +441,7 @@ export function RecipesCostingWorkspace({
       body: JSON.stringify(body),
     });
     const json = (await res.json()) as { error?: string };
-    if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
+    if (!res.ok) throw new Error(userErrorMessage(json, w.saveFailed));
   }
 
   const postAndReload = (url: string, body: Record<string, unknown>) =>
@@ -482,7 +485,10 @@ export function RecipesCostingWorkspace({
         plato_queue: queueBefore,
       }));
       setError(
-        `No se pudo cambiar cómo se costea ${name || "el producto"}: ${err instanceof Error ? err.message : "intenta otra vez."}`
+        fmt(w.treatmentFailed, {
+          name: name || w.theProduct,
+          error: err instanceof Error ? err.message : w.tryAgain,
+        })
       );
     });
   };
@@ -609,7 +615,7 @@ export function RecipesCostingWorkspace({
           }
           applyDishPayload(id, json);
         })
-        .catch(() => setError("No pude abrir ese plato. Intenta otra vez."));
+        .catch(() => setError(w.openDishFailed));
     },
     [applyDishPayload, dishPayloadKey, fetchWorkspace, pathname]
   );
@@ -685,7 +691,7 @@ export function RecipesCostingWorkspace({
       setData(before);
       selectDish(id);
       setError(
-        `${editor.odoo_name}: ${err instanceof Error ? err.message : "no se pudo aprobar."}`
+        `${editor.odoo_name}: ${err instanceof Error ? err.message : w.approveFailedShort}`
       );
     }
   }
@@ -742,7 +748,7 @@ export function RecipesCostingWorkspace({
                     );
                   }}
                 >
-                  Platos
+                  {w.crumbDishes}
                 </button>
                 {data.selected_dish?.menu_dish_name ? (
                   <>
@@ -813,7 +819,7 @@ export function RecipesCostingWorkspace({
 
       <ConfirmHowDialog
         open={howOpen}
-        title="Aprobar en nombre del cliente"
+        title={w.approveForClient}
         onCancel={() => setHowOpen(false)}
         onConfirm={(how) => {
           setHowOpen(false);

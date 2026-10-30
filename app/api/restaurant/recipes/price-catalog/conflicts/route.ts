@@ -7,6 +7,9 @@ import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createSupabaseCostWorkbookRepo } from "@/lib/restaurant/cost-workbook";
 import { COST_CONFLICT_KIND } from "@/lib/restaurant/price-catalog/apply";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,7 +34,7 @@ export async function GET() {
   } catch (err) {
     console.error("[recipes/price-catalog/conflicts]", err);
     return NextResponse.json(
-      { error: "No pude leer las decisiones pendientes." },
+      { error: (await apiMsg()).conflictsReadFailed },
       { status: 500 }
     );
   }

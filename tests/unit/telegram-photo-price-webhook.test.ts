@@ -799,12 +799,12 @@ describe("price updates", () => {
     );
   });
 
-  it("unclear: asks for price and unit, no draft", async () => {
+  it("a product with no price is kept as a line «Sin precio», nothing is asked", async () => {
     await send({ text: "el aguacate subió" });
-    expect(replies).toEqual([
-      "No entendí el precio. Escribe producto, precio y unidad, por ejemplo: «aguacate $1.50 la libra».",
-    ]);
-    expect(invoices()).toHaveLength(0);
+    expect(invoices()).toHaveLength(1);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("aguacate");
+    expect(replies[0]).not.toContain("¿");
   });
 
   it("duplicate delivery creates one draft and one reply", async () => {

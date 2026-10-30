@@ -4,7 +4,8 @@
 // short reason, optional link.
 
 import Link from "next/link";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 
 export function NotAvailableYet({
   lang = "es",
@@ -22,8 +23,9 @@ export function NotAvailableYet({
   /** Tight cell for the KPI strip — same copy, final slot size. */
   compact?: boolean;
 }) {
-  const heading = title ?? t(lang, "Not available yet", "Aún no disponible");
-  const fallbackLink = t(lang, "Add costs →", "Agregar costos →");
+  const d = getDictionary(lang).shell.notAvailable;
+  const heading = title ?? d.title;
+  const fallbackLink = d.addCosts;
 
   return (
     <div

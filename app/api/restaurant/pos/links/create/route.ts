@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { toRecipeActor } from "@/lib/restaurant/recipe-costing/approval";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -16,7 +18,7 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: d.connect.api.bodyMustBeJson },
       { status: 400 }
     );
   }
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
     typeof body.odoo_name === "string" ? body.odoo_name.trim() : "";
   if (!Number.isInteger(odooProductId) || odooProductId <= 0 || !odooName) {
     return NextResponse.json(
-      { error: "Indica el producto de Odoo y su nombre." },
+      { error: d.connect.api.linkCreateMissing },
       { status: 400 }
     );
   }
@@ -55,7 +57,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[pos/links/create]", err);
     return NextResponse.json(
-      { error: "No pude crear la receta." },
+      { error: d.connect.api.recipeCreateFailed },
       { status: 500 }
     );
   }

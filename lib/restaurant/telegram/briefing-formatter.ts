@@ -21,14 +21,22 @@
 
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { BriefingOutput } from "@/lib/restaurant/briefing-prompt";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 // Telegram's hard limit for a single sendMessage `text` field.
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 
-function fmtCurrency(amount: number, currency: string): string {
+function fmtCurrency(
+  amount: number,
+  currency: string,
+  lang: PreferredLanguage
+): string {
   try {
-    return new Intl.NumberFormat("es-MX", {
+    return new Intl.NumberFormat(localeFor(lang), {
       style: "currency",
       currency,
       maximumFractionDigits: 0,
@@ -39,7 +47,7 @@ function fmtCurrency(amount: number, currency: string): string {
 }
 
 function fmtNumber(n: number, lang: PreferredLanguage): string {
-  return n.toLocaleString(lang === "es" ? "es-MX" : "en-US");
+  return n.toLocaleString(localeFor(lang));
 }
 
 /**
@@ -58,27 +66,29 @@ export function formatBriefingForTelegram(
 
   const lines: string[] = [];
 
-  lines.push(t(lang, "Good morning 👋", "Buenos días 👋"));
+  lines.push(t(lang, "Good morning 👋", "Buenos días 👋", "Guten Morgen 👋"));
   lines.push(
     t(
       lang,
       "Here's your latest Milton briefing.",
-      "Aquí tienes tu último briefing de Milton."
+      "Aquí tienes tu último briefing de Milton.",
+      "Hier ist Ihr aktuelles Milton-Briefing."
     )
   );
   lines.push(`📍 ${ctx.restaurant_name} · ${ctx.period_label}`);
   lines.push("");
 
   // 💰 Sales
-  lines.push(t(lang, "💰 Sales", "💰 Ventas"));
+  lines.push(t(lang, "💰 Sales", "💰 Ventas", "💰 Umsatz"));
   if (k.revenue > 0) {
-    const parts = [fmtCurrency(k.revenue, c)];
+    const parts = [fmtCurrency(k.revenue, c, lang)];
     if (k.orders !== null) {
       parts.push(
         t(
           lang,
           `${fmtNumber(k.orders, lang)} orders`,
-          `${fmtNumber(k.orders, lang)} órdenes`
+          `${fmtNumber(k.orders, lang)} órdenes`,
+          `${fmtNumber(k.orders, lang)} Bestellungen`
         )
       );
     }
@@ -86,8 +96,9 @@ export function formatBriefingForTelegram(
       parts.push(
         t(
           lang,
-          `${fmtCurrency(k.avg_ticket, c)} avg ticket`,
-          `${fmtCurrency(k.avg_ticket, c)} de ticket promedio`
+          `${fmtCurrency(k.avg_ticket, c, lang)} avg ticket`,
+          `${fmtCurrency(k.avg_ticket, c, lang)} de ticket promedio`,
+          `${fmtCurrency(k.avg_ticket, c, lang)} Ø Bon`
         )
       );
     }
@@ -97,34 +108,41 @@ export function formatBriefingForTelegram(
       t(
         lang,
         "No POS revenue recorded yet.",
-        "Aún no hay ingresos de POS registrados."
+        "Aún no hay ingresos de POS registrados.",
+        "Noch kein Kassenumsatz erfasst."
       )
     );
   }
   lines.push("");
 
   // 📊 Margin
-  lines.push(t(lang, "📊 Margin", "📊 Margen"));
+  lines.push(t(lang, "📊 Margin", "📊 Margen", "📊 Marge"));
   if (k.estimated_gross_margin_pct !== null) {
     const foodCost = k.food_cost_pct !== null ? `${k.food_cost_pct}%` : "—";
     lines.push(
       t(
         lang,
         `Est. gross margin ${k.estimated_gross_margin_pct}% · Food cost ${foodCost}`,
-        `Margen bruto est. ${k.estimated_gross_margin_pct}% · Costo de alimentos ${foodCost}`
+        `Margen bruto est. ${k.estimated_gross_margin_pct}% · Costo de alimentos ${foodCost}`,
+        `Gesch. Bruttomarge ${k.estimated_gross_margin_pct} % · Wareneinsatz ${foodCost}`
       )
     );
   } else {
     lines.push(
       k.estimated_gross_margin_pct_reason ??
-        t(lang, "Margin not available yet.", "Margen aún no disponible.")
+        t(
+          lang,
+          "Margin not available yet.",
+          "Margen aún no disponible.",
+          "Marge noch nicht verfügbar."
+        )
     );
   }
 
   // ⚠️ Watch (top risks, already bilingual + proper-noun-safe from `briefing`)
   if (briefing.top_risks.length > 0) {
     lines.push("");
-    lines.push(t(lang, "⚠️ Watch", "⚠️ Atención"));
+    lines.push(t(lang, "⚠️ Watch", "⚠️ Atención", "⚠️ Beobachten"));
     for (const risk of briefing.top_risks.slice(0, 3)) {
       lines.push(`• ${risk}`);
     }
@@ -133,7 +151,7 @@ export function formatBriefingForTelegram(
   // ✅ Actions
   if (briefing.recommended_actions.length > 0) {
     lines.push("");
-    lines.push(t(lang, "✅ Actions", "✅ Acciones"));
+    lines.push(t(lang, "✅ Actions", "✅ Acciones", "✅ Maßnahmen"));
     briefing.recommended_actions.slice(0, 3).forEach((action, i) => {
       lines.push(`${i + 1}. ${action}`);
     });

@@ -16,6 +16,8 @@
 // happens only when the user runs the /approve route on a needs_review
 // invoice.
 
+import { fmt as f } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -64,23 +66,21 @@ export async function POST(req: NextRequest) {
     });
     const denied = requireCapability(actor, "prices.edit");
     if (denied) return denied;
+    const a = (await apiDictionary()).costs.api;
     const { supabase, companyId, userId } = auth;
 
     // --- Form parsing ----------------------------------------------------
     const formData = await req.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
+      return NextResponse.json({ error: a.uploadAFile }, { status: 400 });
     }
     if (file.size === 0) {
-      return NextResponse.json(
-        { error: "El archivo está vacío." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: a.fileEmpty }, { status: 400 });
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
+        { error: f(a.fileTooBig, { mb: MAX_FILE_BYTES / 1024 / 1024 }) },
         { status: 400 }
       );
     }
@@ -107,10 +107,7 @@ export async function POST(req: NextRequest) {
           : ",";
       const lines = text.split("\n").filter((l) => l.trim().length > 0);
       if (lines.length < 2) {
-        return NextResponse.json(
-          { error: "El archivo está vacío." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: a.fileEmpty }, { status: 400 });
       }
       headers = lines[0]
         .split(delimiter)
@@ -133,10 +130,7 @@ export async function POST(req: NextRequest) {
       });
       const sheetName = workbook.SheetNames[0];
       if (!sheetName) {
-        return NextResponse.json(
-          { error: "El archivo no tiene hojas." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: a.fileNoSheets }, { status: 400 });
       }
       const sheet = workbook.Sheets[sheetName];
       const json = XLSX.utils.sheet_to_json(sheet, {
@@ -152,7 +146,9 @@ export async function POST(req: NextRequest) {
     if (!colCheck.ok) {
       return NextResponse.json(
         {
-          error: `Faltan columnas: ${colCheck.missingRequired.join(", ")}.`,
+          error: f(a.missingColumns, {
+            cols: colCheck.missingRequired.join(", "),
+          }),
           missing_columns: colCheck.missingRequired,
           resolved_columns: colCheck.resolved,
         },
@@ -199,7 +195,7 @@ export async function POST(req: NextRequest) {
     if (normalized.length === 0) {
       return NextResponse.json(
         {
-          error: "El archivo no tiene filas válidas.",
+          error: a.fileNoRows,
           failed_rows: failed,
           resolved_columns: resolved,
         },
@@ -301,12 +297,15 @@ export async function POST(req: NextRequest) {
       default_currency: defaultCurrency,
       currency_mismatch_rows: currencyMismatchRows,
       warning: [
-        `Applied company currency ${defaultCurrency} to rows without a currency column.`,
+        f(a.warnCompanyCurrency, { currency: defaultCurrency }),
         formCurrencyIgnored
-          ? `Form default ${formCurrency} was ignored because it differs from the company currency.`
+          ? f(a.warnFormCurrency, { currency: formCurrency })
           : null,
         currencyMismatchRows > 0
-          ? `${currencyMismatchRows} row(s) were rejected because their currency differs from ${defaultCurrency}.`
+          ? f(a.warnRowsRejected, {
+              n: currencyMismatchRows,
+              currency: defaultCurrency,
+            })
           : null,
       ]
         .filter(Boolean)
@@ -350,7 +349,9 @@ export async function POST(req: NextRequest) {
         for (const r of g.rows) {
           result.failed_rows.push({
             rowIndex: r.rowIndex,
-            reason: `Invoice insert failed: ${invErr?.message ?? "unknown"}`,
+            reason: f(a.invoiceInsertFailed, {
+              error: invErr?.message ?? a.unknownError,
+            }),
             description: r.description,
           });
         }
@@ -404,7 +405,7 @@ export async function POST(req: NextRequest) {
         for (const r of g.rows) {
           result.failed_rows.push({
             rowIndex: r.rowIndex,
-            reason: `Line insert failed: ${linesErr.message}`,
+            reason: f(a.lineInsertFailed, { error: linesErr.message }),
             description: r.description,
           });
         }
@@ -428,10 +429,11 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ summary: result });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unexpected error";
+    const ca = (await apiDictionary()).costs.api;
+    const msg = err instanceof Error ? err.message : ca.unexpectedError;
     console.error("[invoices/upload] crash:", msg);
     return NextResponse.json(
-      { error: "No se pudo subir el archivo.", details: msg },
+      { error: ca.uploadFailedApi, details: msg },
       { status: 500 }
     );
   }

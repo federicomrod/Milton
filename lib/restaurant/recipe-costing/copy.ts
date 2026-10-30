@@ -1,5 +1,12 @@
 import type { SuggestionEvidenceView } from "./evidence";
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { formatMoneyEs, formatPctLabel } from "./format";
+
+const DEFAULT_LANG = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
 
 export const CONFIRMED_HOW_OPTIONS = [
   { value: "en_pantalla", label: "En esta pantalla" },
@@ -10,6 +17,25 @@ export const CONFIRMED_HOW_OPTIONS = [
 ] as const;
 
 export type ConfirmedHow = (typeof CONFIRMED_HOW_OPTIONS)[number]["value"];
+
+const CONFIRMED_HOW_KEYS = {
+  en_pantalla: "onScreen",
+  en_persona: "inPerson",
+  whatsapp: "whatsapp",
+  correo: "email",
+  llamada: "call",
+} as const;
+
+/** The options with their labels in the person's language. */
+export function confirmedHowOptions(
+  lang: PreferredLanguage = DEFAULT_LANG
+): Array<{ value: ConfirmedHow; label: string }> {
+  const labels = getDictionary(lang).menu.workspace.copy.confirmedHow;
+  return CONFIRMED_HOW_OPTIONS.map((option) => ({
+    value: option.value,
+    label: labels[CONFIRMED_HOW_KEYS[option.value]],
+  }));
+}
 
 export function isConfirmedHow(value: unknown): value is ConfirmedHow {
   return (
@@ -50,6 +76,31 @@ export const TODO_KIND_ACTIONS: Record<TodoKind, string> = {
   sin_vincular: "Vincular",
 };
 
+const TODO_KEYS = {
+  por_revisar: "porRevisar",
+  sugerido: "sugerido",
+  ambiguo: "ambiguo",
+  sin_receta: "sinReceta",
+  falta_precio: "faltaPrecio",
+  combo: "combo",
+  reventa: "reventa",
+  sin_vincular: "sinVincular",
+} as const;
+
+export function todoKindLabel(
+  kind: TodoKind,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  return getDictionary(lang).menu.workspace.copy.todoKinds[TODO_KEYS[kind]];
+}
+
+export function todoKindAction(
+  kind: TodoKind,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  return getDictionary(lang).menu.workspace.copy.todoActions[TODO_KEYS[kind]];
+}
+
 export function productReason(input: {
   kind: TodoKind;
   evidence: SuggestionEvidenceView;
@@ -59,15 +110,18 @@ export function productReason(input: {
   /** Combo parts marked excluido. */
   excluded_parts?: readonly string[];
   currency?: string;
+  lang?: PreferredLanguage;
 }): string {
+  const lang = input.lang ?? DEFAULT_LANG;
+  const r = getDictionary(lang).menu.workspace.copy.reason;
   const first = input.evidence.reasons.find((reason) => reason.trim());
   if (input.kind === "falta_precio") {
     const line = input.evidence.lines.find((row) => row.pending);
     return (
       first ??
       (line
-        ? `Falta el precio de ${line.raw_name}.`
-        : "Falta el precio de un ingrediente.")
+        ? fmt(r.priceMissingFor, { name: line.raw_name })
+        : r.priceMissingGeneric)
     );
   }
   if (
@@ -76,18 +130,29 @@ export function productReason(input: {
   ) {
     const milton =
       input.evidence.milton_cost != null
-        ? formatMoneyEs(input.evidence.milton_cost, input.currency)
-        : "sin costo";
+        ? formatMoneyEs(
+            input.evidence.milton_cost,
+            input.currency,
+            undefined,
+            lang
+          )
+        : r.noCost;
     const excel =
       input.evidence.excel_total != null
-        ? formatMoneyEs(input.evidence.excel_total, input.currency)
-        : "sin dato";
+        ? formatMoneyEs(
+            input.evidence.excel_total,
+            input.currency,
+            undefined,
+            lang
+          )
+        : r.noData;
     const pct =
       input.evidence.variance_pct != null
         ? formatPctLabel(Math.abs(input.evidence.variance_pct))
         : null;
-    const gap = pct ? ` es ${pct} menor` : " no coincide";
-    const sentence = `El costo de Milton (${milton})${gap} que tu Excel (${excel}).`;
+    const sentence = pct
+      ? fmt(r.mismatchLower, { milton, pct, excel })
+      : fmt(r.mismatchGeneric, { milton, excel });
     if (first && !/excel|costo de milton/i.test(first)) {
       return `${sentence} ${first}`;
     }
@@ -95,42 +160,48 @@ export function productReason(input: {
   }
   if (input.kind === "sugerido") {
     const name = input.evidence.block_name ?? input.odoo_name;
-    return `Milton sugiere «${name}». Confírmalo.`;
+    return fmt(r.suggests, { name });
   }
   if (input.kind === "combo" && input.excluded_parts?.length) {
-    return `Una parte está marcada como «no es comida» (${input.excluded_parts.join(", ")}): sin su costo el combo no cuenta.`;
+    return fmt(r.comboExcluded, { parts: input.excluded_parts.join(", ") });
   }
   if (input.kind === "reventa") {
-    return "Se vende como lo compras: elige qué compras y su costo es lo que pagas.";
+    return r.resale;
   }
   if (first) return first;
   if (input.kind === "ambiguo") {
-    return "Hay más de una receta posible en tu archivo. Elige una.";
+    return r.ambiguous;
   }
   if (input.kind === "combo") {
-    return input.has_components
-      ? "Odoo registra cada parte vendida."
-      : "Pendiente: combo";
+    return input.has_components ? r.comboRecorded : r.comboPending;
   }
   if (input.kind === "sin_receta" || input.kind === "sin_vincular") {
-    return "No hay receta en tu archivo para este plato.";
+    return r.noRecipeInFile;
   }
-  return "Este plato todavía no tiene un costo aprobado.";
+  return r.noApprovedCost;
 }
 
-export function evidenceSentence(evidence: SuggestionEvidenceView): string {
+export function evidenceSentence(
+  evidence: SuggestionEvidenceView,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
   if (evidence.evidence_text) return evidence.evidence_text;
+  const e = getDictionary(lang).menu.workspace.copy.evidence;
   const bits: string[] = [];
   if (evidence.block_name) bits.push(`«${evidence.block_name}»`);
-  if (evidence.tab) bits.push(`hoja ${evidence.tab}`);
-  if (evidence.excel_match === "match") bits.push("cuadra con tu Excel");
-  if (evidence.excel_match === "mismatch") bits.push("no cuadra con tu Excel");
-  return bits.join(" · ") || "Sin evidencia todavía";
+  if (evidence.tab) bits.push(fmt(e.sheet, { tab: evidence.tab }));
+  if (evidence.excel_match === "match") bits.push(e.matches);
+  if (evidence.excel_match === "mismatch") bits.push(e.noMatch);
+  return bits.join(" · ") || e.none;
 }
 
-export function whoApprovesNote(companyName: string | null): string {
-  const who = companyName?.trim() || "tu restaurante";
-  return `Quién aprueba: el dueño o un admin de ${who}. Milton prepara; una persona confirma.`;
+export function whoApprovesNote(
+  companyName: string | null,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  const c = getDictionary(lang).menu.workspace.copy;
+  const who = companyName?.trim() || c.yourRestaurant;
+  return fmt(c.whoApproves, { who });
 }
 
 export const COSTING_FOOTERS = {
@@ -143,6 +214,18 @@ export const COSTING_FOOTERS = {
   "menu-costeado":
     "Base: el POS dice qué se vende; el Excel solo aporta recetas y costos.",
 } as const;
+
+export function costingFooter(
+  view: keyof typeof COSTING_FOOTERS,
+  lang: PreferredLanguage = DEFAULT_LANG
+): string {
+  const f = getDictionary(lang).menu.workspace.copy.footers;
+  return view === "plato"
+    ? f.plato
+    : view === "preparaciones"
+      ? f.preparaciones
+      : f.resumen;
+}
 
 export function isAmbiguousEvidence(evidence: SuggestionEvidenceView): boolean {
   const text = `${evidence.reasons.join(" ")} ${evidence.evidence_text ?? ""}`;

@@ -6,8 +6,9 @@
 // «Equipo de cocina» (linked). Reuses the existing QR create endpoint and
 // KitchenQrResult / KitchenStaffCard / KitchenQrCard.
 
-import { KITCHEN_TELEGRAM_INTRO } from "@/lib/restaurant/ui-copy";
 import { useEffect, useState } from "react";
+import { useT } from "@/lib/i18n/client";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cookInitials } from "@/lib/restaurant/kitchen-draft-source";
+import { KitchenAppInviteCard } from "./KitchenAppInviteCard";
 import { KitchenQrCard } from "./KitchenQrCard";
 import {
   KitchenQrResult,
@@ -79,6 +81,28 @@ export function resetKitchenQrLoad() {
   qrLoad = null;
 }
 
+const loadFailedText = (lang: PreferredLanguage) =>
+  t(
+    lang,
+    "Could not load the kitchen QR.",
+    "No se pudo cargar el QR de cocina.",
+    "Der Küchen-QR-Code konnte nicht geladen werden."
+  );
+const ownersOnlyText = (lang: PreferredLanguage) =>
+  t(
+    lang,
+    "Only owners can create the QR.",
+    "Solo los dueños pueden crear el QR.",
+    "Nur Inhaber können den QR-Code erstellen."
+  );
+const createFailedText = (lang: PreferredLanguage) =>
+  t(
+    lang,
+    "Could not create the QR.",
+    "No se pudo crear el QR.",
+    "Der QR-Code konnte nicht erstellt werden."
+  );
+
 function emptyLoad(
   over: Partial<QrLoad> & Pick<QrLoad, "locationName">
 ): QrLoad {
@@ -93,7 +117,8 @@ function emptyLoad(
 
 async function loadConnectQr(
   canManage: boolean,
-  fallbackName: string
+  fallbackName: string,
+  lang: PreferredLanguage
 ): Promise<QrLoad> {
   if (qrLoad) return qrLoad;
   const pending = (async (): Promise<QrLoad> => {
@@ -101,7 +126,7 @@ async function loadConnectQr(
     if (!res.ok) {
       return emptyLoad({
         locationName: fallbackName,
-        error: "No se pudo cargar el QR de cocina.",
+        error: loadFailedText(lang),
       });
     }
     const data = (await res.json()) as { locations?: LocationStatus[] };
@@ -141,8 +166,8 @@ async function loadConnectQr(
         hasActiveQr: false,
         error:
           created.status === 403
-            ? "Solo los dueños pueden crear el QR."
-            : "No se pudo crear el QR.",
+            ? ownersOnlyText(lang)
+            : createFailedText(lang),
       };
     }
     const payload = (await created.json()) as KitchenQrPayload;
@@ -168,7 +193,8 @@ async function loadConnectQr(
 
 async function rotateConnectQr(
   locationId: string,
-  locationName: string
+  locationName: string,
+  lang: PreferredLanguage
 ): Promise<QrLoad> {
   qrLoad = null;
   const created = await fetch("/api/restaurant/kitchen/qr", {
@@ -183,9 +209,7 @@ async function rotateConnectQr(
       locationId,
       hasActiveQr: true,
       error:
-        created.status === 403
-          ? "Solo los dueños pueden crear el QR."
-          : "No se pudo crear el QR.",
+        created.status === 403 ? ownersOnlyText(lang) : createFailedText(lang),
     };
   }
   const payload = (await created.json()) as KitchenQrPayload;
@@ -202,12 +226,14 @@ async function rotateConnectQr(
 }
 
 function QrMissing({
+  lang,
   canManage,
   locationId,
   hasActiveQr,
   busy,
   onGenerate,
 }: {
+  lang: PreferredLanguage;
   canManage: boolean;
   locationId: string | null;
   hasActiveQr: boolean;
@@ -223,11 +249,21 @@ function QrMissing({
           className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3] disabled:opacity-60"
           onClick={onGenerate}
         >
-          Generar QR nuevo
+          {t(
+            lang,
+            "Generate new QR",
+            "Generar QR nuevo",
+            "Neuen QR-Code erzeugen"
+          )}
         </Button>
         {hasActiveQr ? (
           <p className="text-center text-[12px] text-muted-foreground">
-            Esto reemplaza el QR anterior.
+            {t(
+              lang,
+              "This replaces the previous QR.",
+              "Esto reemplaza el QR anterior.",
+              "Dies ersetzt den bisherigen QR-Code."
+            )}
           </p>
         ) : null}
       </div>
@@ -235,7 +271,12 @@ function QrMissing({
   }
   return (
     <p className="text-sm text-[#0D1117]" data-testid="kitchen-qr-ask-owner">
-      Pide al dueño que te comparta el QR.
+      {t(
+        lang,
+        "Ask the owner to share the QR with you.",
+        "Pide al dueño que te comparta el QR.",
+        "Bitten Sie den Inhaber, den QR-Code mit Ihnen zu teilen."
+      )}
     </p>
   );
 }
@@ -251,9 +292,12 @@ export function KitchenConnectCard({
   linkedCooks: { id: string; name: string }[];
   variant: "full" | "compact";
 }) {
+  const { lang, d } = useT();
+  const kitchenWord = t(lang, "kitchen", "cocina", "Küche");
+  const qrIntro = d.kitchen.qrIntro;
   const [qr, setQr] = useState<KitchenQrPayload | null>(null);
   const [locationName, setLocationName] = useState(
-    locations[0]?.name ?? "cocina"
+    locations[0]?.name ?? kitchenWord
   );
   const [locationId, setLocationId] = useState<string | null>(
     locations[0]?.id ?? null
@@ -274,25 +318,26 @@ export function KitchenConnectCard({
 
   useEffect(() => {
     let cancelled = false;
-    void loadConnectQr(canManage, locations[0]?.name ?? "cocina")
+    void loadConnectQr(canManage, locations[0]?.name ?? kitchenWord, lang)
       .then((next) => {
         if (!cancelled) apply(next);
       })
       .catch(() => {
         if (!cancelled) {
-          setError("No se pudo cargar el QR de cocina.");
+          setError(loadFailedText(lang));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [canManage, locations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManage, locations, lang]);
 
   const generate = async () => {
     if (!locationId) return;
     setBusy(true);
     try {
-      apply(await rotateConnectQr(locationId, locationName));
+      apply(await rotateConnectQr(locationId, locationName, lang));
     } finally {
       setBusy(false);
     }
@@ -302,6 +347,7 @@ export function KitchenConnectCard({
     <KitchenQrResult qr={qr} locationName={locationName} variant="print" />
   ) : (
     <QrMissing
+      lang={lang}
       canManage={canManage}
       locationId={locationId}
       hasActiveQr={hasActiveQr}
@@ -319,10 +365,12 @@ export function KitchenConnectCard({
       >
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-[#0D1117]">
-            Equipo de cocina{" "}
+            {t(lang, "Kitchen team", "Equipo de cocina", "Küchenteam")}{" "}
             <span className="font-normal text-[#1B40C8]">
               · {linkedCooks.length}{" "}
-              {linkedCooks.length === 1 ? "conectado" : "conectados"}
+              {linkedCooks.length === 1
+                ? t(lang, "connected", "conectado", "verbunden")
+                : t(lang, "connected", "conectados", "verbunden")}
             </span>
           </h2>
           <button
@@ -330,7 +378,7 @@ export function KitchenConnectCard({
             className="text-xs font-semibold text-[#1B40C8] hover:text-[#1533A3] underline-offset-2 hover:underline"
             onClick={() => setShowTeam(true)}
           >
-            Ver equipo
+            {t(lang, "View team", "Ver equipo", "Team anzeigen")}
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -349,16 +397,21 @@ export function KitchenConnectCard({
             size="sm"
             onClick={() => setShowQr(true)}
           >
-            Mostrar QR
+            {t(lang, "Show QR", "Mostrar QR", "QR-Code anzeigen")}
           </Button>
         </div>
         <Dialog open={showQr} onOpenChange={setShowQr}>
           <DialogContent className="sm:max-w-sm">
             <DialogHeader>
-              <DialogTitle>Conecta tu cocina</DialogTitle>
-              {qr ? (
-                <DialogDescription>{KITCHEN_TELEGRAM_INTRO}</DialogDescription>
-              ) : null}
+              <DialogTitle>
+                {t(
+                  lang,
+                  "Connect your kitchen",
+                  "Conecta tu cocina",
+                  "Küche verbinden"
+                )}
+              </DialogTitle>
+              {qr ? <DialogDescription>{qrIntro}</DialogDescription> : null}
             </DialogHeader>
             {qrBlock}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
@@ -367,13 +420,16 @@ export function KitchenConnectCard({
         <Dialog open={showTeam} onOpenChange={setShowTeam}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Equipo de cocina</DialogTitle>
+              <DialogTitle>
+                {t(lang, "Kitchen team", "Equipo de cocina", "Küchenteam")}
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Equipo de cocina
+                {t(lang, "Kitchen team", "Equipo de cocina", "Küchenteam")}
               </DialogDescription>
             </DialogHeader>
             <KitchenStaffCard canManage={canManage} locations={locations} />
             <KitchenQrCard canManage={canManage} />
+            {canManage ? <KitchenAppInviteCard locations={locations} /> : null}
           </DialogContent>
         </Dialog>
       </section>
@@ -387,22 +443,30 @@ export function KitchenConnectCard({
       className="rounded-md border border-border bg-background px-3 py-3 space-y-3"
     >
       <h2 className="text-sm font-semibold text-[#0D1117]">
-        Conecta tu cocina
+        {t(
+          lang,
+          "Connect your kitchen",
+          "Conecta tu cocina",
+          "Küche verbinden"
+        )}
       </h2>
       {qr ? (
         <div className="mx-auto w-[180px] max-md:w-[200px] max-md:[&_img]:h-[200px] max-md:[&_img]:w-[200px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={qr.qr_png_data_url}
-            alt={`QR de cocina para ${locationName}`}
+            alt={t(
+              lang,
+              `Kitchen QR code of ${locationName}`,
+              `QR de cocina para ${locationName}`,
+              `Küchen-QR-Code für ${locationName}`
+            )}
             data-testid="kitchen-qr"
             className="h-[180px] w-[180px] max-md:h-[200px] max-md:w-[200px]"
           />
         </div>
       ) : null}
-      {qr ? (
-        <p className="text-sm text-[#0D1117]">{KITCHEN_TELEGRAM_INTRO}</p>
-      ) : null}
+      {qr ? <p className="text-sm text-[#0D1117]">{qrIntro}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {qr ? (
         <>
@@ -417,24 +481,35 @@ export function KitchenConnectCard({
                 )
               }
             >
-              Descargar QR para imprimir
+              {t(
+                lang,
+                "Download QR to print",
+                "Descargar QR para imprimir",
+                "QR-Code zum Drucken herunterladen"
+              )}
             </Button>
             <p className="text-center text-[12px] text-muted-foreground">
-              Pégalo en la cocina.
+              {t(
+                lang,
+                "Stick it up in the kitchen.",
+                "Pégalo en la cocina.",
+                "Hängen Sie ihn in der Küche auf."
+              )}
             </p>
           </div>
           <div className="md:hidden">
             <Button
               type="button"
               className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3]"
-              onClick={() => void shareOrDownloadQr(qr, locationName)}
+              onClick={() => void shareOrDownloadQr(qr, locationName, lang)}
             >
-              Compartir QR
+              {t(lang, "Share QR", "Compartir QR", "QR-Code teilen")}
             </Button>
           </div>
         </>
       ) : (
         <QrMissing
+          lang={lang}
           canManage={canManage}
           locationId={locationId}
           hasActiveQr={hasActiveQr}

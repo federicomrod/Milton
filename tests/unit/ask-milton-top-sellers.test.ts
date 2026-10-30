@@ -71,10 +71,18 @@ function ctxFor(rows: SalesFactRow[], question = Q) {
 describe("salesItemKind (Menú's rule)", () => {
   it("drops discounts, charges and lines with no positive net", () => {
     expect(
-      salesItemKind({ name: "40% Descuento Banco Demo", category: null, net_revenue: 10 })
+      salesItemKind({
+        name: "40% Descuento Banco Demo",
+        category: null,
+        net_revenue: 10,
+      })
     ).toBeNull();
     expect(
-      salesItemKind({ name: "Promo 2x1", category: "Descuentos", net_revenue: 5 })
+      salesItemKind({
+        name: "Promo 2x1",
+        category: "Descuentos",
+        net_revenue: 5,
+      })
     ).toBeNull();
     expect(
       salesItemKind({ name: "Comida", category: "Empleados", net_revenue: 5 })
@@ -88,16 +96,26 @@ describe("salesItemKind (Menú's rule)", () => {
   });
 
   it("tags drinks and extras from the category or a drink name", () => {
-    expect(salesItemKind({ name: "Sodas", category: null, net_revenue: 5 })).toBe("drink");
-    expect(salesItemKind({ name: "Horchata", category: "Bebidas", net_revenue: 5 })).toBe("drink");
-    expect(salesItemKind({ name: "Queso", category: "Extras", net_revenue: 5 })).toBe("extra");
-    expect(salesItemKind({ name: "Pupusa", category: "Desayunos", net_revenue: 5 })).toBe("food");
+    expect(
+      salesItemKind({ name: "Sodas", category: null, net_revenue: 5 })
+    ).toBe("drink");
+    expect(
+      salesItemKind({ name: "Horchata", category: "Bebidas", net_revenue: 5 })
+    ).toBe("drink");
+    expect(
+      salesItemKind({ name: "Queso", category: "Extras", net_revenue: 5 })
+    ).toBe("extra");
+    expect(
+      salesItemKind({ name: "Pupusa", category: "Desayunos", net_revenue: 5 })
+    ).toBe("food");
   });
 });
 
 describe("cleanPosItemName", () => {
   it("keeps the dish before the first bracket, in sentence case", () => {
-    expect(cleanPosItemName("Tortilla Normal (U) (Maíz)")).toBe("Tortilla normal");
+    expect(cleanPosItemName("Tortilla Normal (U) (Maíz)")).toBe(
+      "Tortilla normal"
+    );
     expect(cleanPosItemName("Tortilla Normal (U)")).toBe("Tortilla normal");
     expect(cleanPosItemName("PUPUSA DE QUESO")).toBe("Pupusa de queso");
     expect(cleanPosItemName("Tipico Nicaragüense (Huevo, Queso)")).toBe(
@@ -109,7 +127,9 @@ describe("cleanPosItemName", () => {
     const snap = buildSalesSnapshot(weekRows(), ES_TZ, { question: Q });
     const named = applyCanonicalItemNames(snap, ["Típico Nicaragüense"]);
     expect(named.top_dishes_by_units[0].name).toBe("Típico nicaragüense");
-    expect(named.top_items_by_units.map((i) => i.name)).toContain("Tortilla normal");
+    expect(named.top_items_by_units.map((i) => i.name)).toContain(
+      "Tortilla normal"
+    );
   });
 });
 
@@ -136,10 +156,17 @@ describe("buildSalesSnapshot item lists", () => {
 
 describe("top-selling answer", () => {
   it("answers a «plato» question with dishes, a numbered list and the drink apart", () => {
-    const out = buildDeterministicAnswer(ctxFor(weekRows()), Q, "top_selling_items", none);
+    const out = buildDeterministicAnswer(
+      ctxFor(weekRows()),
+      Q,
+      "top_selling_items",
+      none
+    );
     const year = new Date().getFullYear();
     const range =
-      year === 2026 ? "del 20 al 26 de octubre" : "del 20 al 26 de octubre de 2026";
+      year === 2026
+        ? "del 20 al 26 de octubre"
+        : "del 20 al 26 de octubre de 2026";
     expect(out.answer.split("\n")).toEqual([
       `Tu plato más vendido en los últimos 7 días con ventas (${range}) es Tipico nicaragüense: 153 unidades por $1,224.`,
       "Le siguen:",
@@ -162,7 +189,12 @@ describe("top-selling answer", () => {
   });
 
   it("chips open Ventas on the same dates and Platos; follow-ups are on topic", () => {
-    const out = buildDeterministicAnswer(ctxFor(weekRows()), Q, "top_selling_items", none);
+    const out = buildDeterministicAnswer(
+      ctxFor(weekRows()),
+      Q,
+      "top_selling_items",
+      none
+    );
     expect(out.related_links).toEqual([
       {
         label: "Ventas",
@@ -175,7 +207,9 @@ describe("top-selling answer", () => {
       "¿Qué día de la semana vendo más?",
       "¿Cuál es mi plato más rentable?",
     ]);
-    expect(out.related_links.map((l) => l.label)).not.toContain("Panel principal");
+    expect(out.related_links.map((l) => l.label)).not.toContain(
+      "Panel principal"
+    );
   });
 
   it("the model path keeps its words but uses the rule path's chips", () => {
@@ -185,15 +219,27 @@ describe("top-selling answer", () => {
       supporting_facts: [],
       related_links: [
         { label: "Panel principal", href: "/dashboard/restaurant" },
-        { label: "Conexiones", href: "/dashboard/restaurant/data?seccion=conexiones" },
+        {
+          label: "Conexiones",
+          href: "/dashboard/restaurant/data?seccion=conexiones",
+        },
       ],
       suggested_followups: ["¿Qué días vendemos más desayunos?"],
       confidence_notes: [],
     };
-    const { answer, source } = resolveAskMiltonAnswer(ai, ctx, Q, "top_selling_items", none);
+    const { answer, source } = resolveAskMiltonAnswer(
+      ai,
+      ctx,
+      Q,
+      "top_selling_items",
+      none
+    );
     expect(source).toBe("openai");
     expect(answer.answer).toBe(ai.answer);
-    expect(answer.related_links.map((l) => l.label)).toEqual(["Ventas", "Platos"]);
+    expect(answer.related_links.map((l) => l.label)).toEqual([
+      "Ventas",
+      "Platos",
+    ]);
   });
 
   it("grounding rejects a drink as the top plato and «USD» amounts", () => {

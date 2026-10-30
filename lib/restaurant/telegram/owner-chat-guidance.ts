@@ -12,6 +12,8 @@ import {
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "@/lib/restaurant/telegram/kitchen-copy";
+import { withKitchenLanguage } from "@/lib/restaurant/telegram/kitchen-language";
+import { resolveRestaurantCockpitLanguage } from "@/lib/restaurant/language";
 import { sendTelegramMessage } from "@/lib/restaurant/telegram/send";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -46,14 +48,17 @@ export async function maybeGuideOwnerChat(
   lastGuidanceAt.set(chatId, now);
   const { data: company } = await admin
     .from("companies")
-    .select("name")
+    .select("name, preferred_language")
     .eq("id", conn.company_id)
     .maybeSingle();
-  await sendTelegramMessage(
-    chatId,
+  const lang = resolveRestaurantCockpitLanguage(
+    (company as { preferred_language?: unknown } | null)?.preferred_language
+  );
+  const text = withKitchenLanguage(lang, () =>
     renderKitchenCopy(KITCHEN_COPY.OWNER_CHAT_NOT_COOK, {
-      empresa: company?.name?.trim() || "tu restaurante",
+      empresa: company?.name?.trim() || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
     })
   );
+  await sendTelegramMessage(chatId, text);
   return true;
 }

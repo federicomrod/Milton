@@ -16,11 +16,14 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
 import { PasswordInput } from "@/components/auth/password-input";
 import { CheckEmail } from "@/components/auth/check-email";
 import { authCallbackUrl } from "@/lib/auth/email-confirmation";
 
 export function SignupForm() {
+  const { d } = useT();
+  const a = d.auth.signup;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -60,7 +63,7 @@ export function SignupForm() {
       }
 
       if (!authData.user) {
-        throw new Error("No pudimos crear tu cuenta. Inténtalo de nuevo.");
+        throw new Error(a.createFailed);
       }
 
       // Create profile and company via API endpoint (uses admin client to bypass RLS)
@@ -78,15 +81,9 @@ export function SignupForm() {
       if (!response.ok) {
         const errorData = await response.json();
         if (errorData.error === "pending_invite") {
-          throw new Error(
-            errorData.message ||
-              "Este correo tiene una invitación pendiente. Usa el enlace de tu invitación."
-          );
+          throw new Error(errorData.message || a.pendingInvite);
         }
-        throw new Error(
-          errorData.error ||
-            "No pudimos crear el perfil de tu restaurante. Inténtalo de nuevo."
-        );
+        throw new Error(errorData.error || a.profileFailed);
       }
 
       // The profile and company exist now (signup-complete needs no session).
@@ -102,10 +99,7 @@ export function SignupForm() {
       router.refresh();
     } catch (err: unknown) {
       console.error("Signup error:", err);
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : "Ocurrió un error al crear tu cuenta.";
+      const errorMessage = err instanceof Error ? err.message : a.genericFailed;
       setError(errorMessage);
       setLoading(false);
     }
@@ -116,11 +110,8 @@ export function SignupForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Crea tu cuenta</CardTitle>
-        <CardDescription>
-          Ventas, costos, proveedores y recetas de tu restaurante en un solo
-          lugar.
-        </CardDescription>
+        <CardTitle>{a.title}</CardTitle>
+        <CardDescription>{a.description}</CardDescription>
       </CardHeader>
       <form onSubmit={handleSignup}>
         <CardContent className="space-y-4">
@@ -130,29 +121,29 @@ export function SignupForm() {
             </Alert>
           )}
           <div className="space-y-2">
-            <Label htmlFor="company">Nombre del restaurante</Label>
+            <Label htmlFor="company">{a.restaurantName}</Label>
             <Input
               id="company"
               type="text"
-              placeholder="Mi restaurante"
+              placeholder={a.restaurantPlaceholder}
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="email">Correo</Label>
+            <Label htmlFor="email">{a.email}</Label>
             <Input
               id="email"
               type="email"
-              placeholder="tu@correo.com"
+              placeholder={a.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Contraseña</Label>
+            <Label htmlFor="password">{a.password}</Label>
             <PasswordInput
               id="password"
               autoComplete="new-password"
@@ -161,17 +152,17 @@ export function SignupForm() {
               required
               minLength={6}
             />
-            <p className="text-xs text-muted-foreground">Mínimo 6 caracteres</p>
+            <p className="text-xs text-muted-foreground">{a.minChars}</p>
           </div>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4 pt-6">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Creando tu cuenta…" : "Crear cuenta"}
+            {loading ? a.submitting : a.submit}
           </Button>
           <p className="text-sm text-center text-muted-foreground">
-            ¿Ya tienes cuenta?{" "}
+            {a.haveAccount}{" "}
             <Link href="/auth/login" className="text-primary hover:underline">
-              Inicia sesión
+              {a.signIn}
             </Link>
           </p>
         </CardFooter>

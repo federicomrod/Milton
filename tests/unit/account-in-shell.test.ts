@@ -67,24 +67,32 @@ describe("the old top navigation is gone", () => {
   });
 });
 
-describe("Cuenta and Ajustes pages", () => {
-  const account = read("app/dashboard/account/page.tsx");
-  const settings = read("app/dashboard/settings/page.tsx");
+describe("Cuenta and Ajustes sections (Configuración is one page)", () => {
+  const account = read("components/restaurant/config/account/AccountCards.tsx");
+  const ajustes = [
+    "components/restaurant/config/ajustes/AjustesClient.tsx",
+    "components/restaurant/config/ajustes/CompanyCard.tsx",
+  ]
+    .map(read)
+    .join("\n");
+  it("the old routes redirect to their section", () => {
+    expect(read("app/dashboard/account/page.tsx")).toContain("tab=cuenta");
+    expect(read("app/dashboard/settings/page.tsx")).toContain("tab=ajustes");
+  });
   it("keep their content and drop the two buttons that were disabled forever", () => {
-    for (const heading of [
-      "Estado de la cuenta",
-      "TelegramConnectionCard",
-      "EmailBriefingCard",
-    ])
+    for (const heading of ["TelegramConnectionCard", "EmailBriefingCard"])
       expect(account).toContain(heading);
     expect(account).not.toContain("Información de la empresa");
-    expect(settings).toContain("Información de la empresa");
+    expect(read("lib/i18n/es/config-ajustes.ts")).toContain("Razón social");
+    expect(ajustes).toContain("CompanyCard");
     expect(account).not.toContain("Administrar facturación");
     expect(account).not.toContain('href="/dashboard">');
   });
   it("Ajustes is in Spanish", () => {
-    expect(settings).toContain("Guardar");
-    expect(settings).not.toMatch(/Save Preferences|Company Name|Timezone/);
+    expect(read("lib/i18n/es/common.ts")).toContain("Guardar");
+    expect(read("lib/i18n/es/config-shared.ts")).toContain("Guardar");
+    expect(ajustes).toContain("d.config.ajustes");
+    expect(ajustes).not.toMatch(/Save Preferences|Company Name|Timezone/);
   });
   it("primary buttons are brand blue (not black), secondary are white with a blue border", () => {
     const css = read("app/globals.css");

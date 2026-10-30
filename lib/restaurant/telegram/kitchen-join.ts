@@ -17,6 +17,10 @@ import { createHash, randomBytes } from "crypto";
 import { can, type Actor } from "@/lib/auth/capabilities";
 import { loadCompanyRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  resolveRestaurantCockpitLanguage,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 export const KITCHEN_PAYLOAD_PREFIX = "kq1_";
 export const RATE_LIMIT_PER_HOUR = 20;
@@ -188,6 +192,8 @@ export async function consumeKitchenJoin(input: {
   telegramUserId: number;
   chatId: number;
   displayName: string;
+  /** Called with the company's language once the QR is known to be valid. */
+  onLanguage?: (lang: PreferredLanguage) => void;
 }): Promise<ConsumeKitchenJoinResult> {
   if (!isKitchenPayload(input.payload)) return { kind: "invalid" };
   const admin = createAdminClient();
@@ -212,10 +218,15 @@ export async function consumeKitchenJoin(input: {
 
   const { data: company } = await admin
     .from("companies")
-    .select("name")
+    .select("name, preferred_language")
     .eq("id", token.company_id)
     .maybeSingle();
   const companyName: string = company?.name ?? "";
+  input.onLanguage?.(
+    resolveRestaurantCockpitLanguage(
+      (company as { preferred_language?: unknown } | null)?.preferred_language
+    )
+  );
 
   const { data: mine, error: staffError } = await admin
     .from("kitchen_staff")

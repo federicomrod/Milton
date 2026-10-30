@@ -11,6 +11,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getInviteStatus, hashInviteToken } from "@/lib/auth/invite-token";
+import { getDictionary, fmt } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
 import { InviteAcceptForm } from "@/components/auth/invite-accept-form";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -23,19 +25,19 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ERROR_COPY: Record<string, string> = {
-  invalid: "This invite link isn't valid.",
-  expired: "This invite link has expired.",
-  accepted: "This invite link has already been used.",
-  revoked: "This invite has been cancelled.",
-};
-
 export default async function InvitePage({
   searchParams,
 }: {
   searchParams: Promise<{ token?: string | string[] }>;
 }) {
   const sp = await searchParams;
+  const a = getDictionary(await requestLanguage()).auth.invite;
+  const ERROR_COPY: Record<string, string> = {
+    invalid: a.stateInvalid,
+    expired: a.stateExpired,
+    accepted: a.stateAccepted,
+    revoked: a.stateRevoked,
+  };
   const token = typeof sp.token === "string" ? sp.token : "";
 
   let state: "invalid" | "expired" | "accepted" | "revoked" | "pending" =
@@ -61,7 +63,7 @@ export default async function InvitePage({
             .select("name")
             .eq("id", invite.company_id)
             .maybeSingle();
-          workspaceName = (company?.name as string) ?? "your workspace";
+          workspaceName = (company?.name as string) ?? a.yourWorkspace;
           const supabase = await createClient();
           const {
             data: { user },
@@ -80,20 +82,18 @@ export default async function InvitePage({
         <CardHeader>
           <CardTitle>
             {state === "pending"
-              ? `Join ${workspaceName}`
-              : "Invite unavailable"}
+              ? fmt(a.join, { workspace: workspaceName })
+              : a.unavailable}
           </CardTitle>
           <CardDescription>
-            {state === "pending"
-              ? "Activate your Milton account."
-              : "Ask your Milton contact for a new link."}
+            {state === "pending" ? a.activateDescription : a.askNewLink}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {state !== "pending" && (
             <Alert variant="destructive">
               <AlertDescription>
-                {ERROR_COPY[state]} Ask your Milton contact for a new link.
+                {ERROR_COPY[state]} {a.askNewLink}
               </AlertDescription>
             </Alert>
           )}
@@ -106,7 +106,7 @@ export default async function InvitePage({
           )}
           <p className="text-sm text-center text-muted-foreground">
             <Link href="/auth/login" className="text-primary hover:underline">
-              Back to log in
+              {a.backToLogin}
             </Link>
           </p>
         </CardContent>

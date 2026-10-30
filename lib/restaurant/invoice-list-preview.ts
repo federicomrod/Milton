@@ -4,6 +4,11 @@
 // GET /api/restaurant/invoices): line counts («1 de 1 asignadas») and the
 // first lines of each invoice («Productos» column), so they cannot drift.
 
+import {
+  parseMissing,
+  type MissingField,
+} from "@/lib/restaurant/invoice-missing";
+
 export interface InvoiceLineCounts {
   total: number;
   matched: number;
@@ -18,11 +23,23 @@ export interface InvoiceLinePreview {
   unit: string | null;
   unit_cost: number | null;
   matched: boolean;
+  /** Fields the kitchen could not read: shown as «Falta» (invoice-missing.ts). */
+  missing?: MissingField[];
+}
+
+/**
+ * What the Total column shows for an invoice whose lines the kitchen filled in.
+ * `total` = the sum of qty × price when EVERY line has one, else null.
+ */
+export interface InvoiceAmounts {
+  total: number | null;
+  /** At least one line has a price (a unit cost or a line total). */
+  priced: boolean;
 }
 
 /** Columns the list builders must select from supplier_invoice_lines. */
 export const INVOICE_LINE_PREVIEW_SELECT =
-  "invoice_id, ingredient_id, supplier_item_name, description, quantity, unit, unit_cost, created_at, id, match_status, review_status";
+  "invoice_id, ingredient_id, supplier_item_name, description, quantity, unit, unit_cost, line_total, notes, created_at, id, match_status, review_status";
 
 export interface InvoiceLinePreviewRow {
   id?: string | null;
@@ -33,6 +50,8 @@ export interface InvoiceLinePreviewRow {
   quantity?: number | string | null;
   unit?: string | null;
   unit_cost?: number | string | null;
+  line_total?: number | string | null;
+  notes?: string | null;
   created_at?: string | null;
   match_status: string;
   review_status: string;
@@ -80,14 +99,29 @@ export function buildInvoiceLineSummaries(
   invoiceIds: readonly string[],
   lines: readonly InvoiceLinePreviewRow[],
   ingredientNameById: ReadonlyMap<string, string>
-): Map<string, { counts: InvoiceLineCounts; preview: InvoiceLinePreview[] }> {
+): Map<
+  string,
+  {
+    counts: InvoiceLineCounts;
+    preview: InvoiceLinePreview[];
+    amounts: InvoiceAmounts;
+  }
+> {
   const grouped = new Map<string, InvoiceLinePreviewRow[]>();
   const out = new Map<
     string,
-    { counts: InvoiceLineCounts; preview: InvoiceLinePreview[] }
+    {
+      counts: InvoiceLineCounts;
+      preview: InvoiceLinePreview[];
+      amounts: InvoiceAmounts;
+    }
   >();
   for (const id of invoiceIds) {
-    out.set(id, { counts: emptyLineCounts(), preview: [] });
+    out.set(id, {
+      counts: emptyLineCounts(),
+      preview: [],
+      amounts: { total: null, priced: false },
+    });
     grouped.set(id, []);
   }
   for (const l of lines) {
@@ -105,6 +139,22 @@ export function buildInvoiceLineSummaries(
   }
   for (const [id, rows] of grouped) {
     const entry = out.get(id)!;
+    // Total = qty × price of every line, only when none is incomplete.
+    let sum = 0;
+    let complete = rows.length > 0;
+    let priced = false;
+    for (const l of rows) {
+      const missing = parseMissing(l.notes);
+      const total = num(l.line_total);
+      const cost = num(l.unit_cost);
+      if ((total !== null && total > 0) || (cost !== null && cost > 0)) {
+        priced = true;
+      }
+      if (missing.includes("quantity") || total === null || total <= 0) {
+        complete = false;
+      } else sum += total;
+    }
+    entry.amounts = { total: complete ? sum : null, priced };
     entry.preview = [...rows]
       .sort(byCreatedThenId)
       .slice(0, PREVIEW_LIMIT)
@@ -124,6 +174,7 @@ export function buildInvoiceLineSummaries(
           unit: unit || null,
           unit_cost: num(l.unit_cost),
           matched: !!ingName,
+          missing: parseMissing(l.notes),
         };
       });
   }

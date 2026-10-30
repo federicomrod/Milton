@@ -6,6 +6,8 @@
 // add/remove lines, pick menu item, confirm or reject. English UI (cook-facing bot
 // stays Spanish). Confirm disabled until all lines resolved.
 
+import { useT } from "@/lib/i18n/client";
+import { t } from "@/lib/restaurant/language";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,7 +47,11 @@ import {
   stripParenthetical,
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import { KITCHEN_UNITS, mapKitchenUnit } from "@/lib/restaurant/kitchen-units";
+import {
+  KITCHEN_UNITS,
+  kitchenUnitLabel,
+  mapKitchenUnit,
+} from "@/lib/restaurant/kitchen-units";
 import { sentenceCase } from "@/lib/restaurant/sentence-case";
 import {
   isPreparationName,
@@ -214,6 +220,7 @@ export function KitchenRecipeDraftsCard({
   /** Changes when something outside (a file upload) added drafts: reload. */
   reloadSignal?: number;
 }) {
+  const { lang } = useT();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   // The active list is known (an empty list is a real answer, not "loading").
@@ -265,7 +272,14 @@ export function KitchenRecipeDraftsCard({
       );
       if (cancelled) return;
       if (!res.ok) {
-        setError("No se pudieron cargar los borradores.");
+        setError(
+          t(
+            lang,
+            "Could not load the drafts.",
+            "No se pudieron cargar los borradores.",
+            "Die Entwürfe konnten nicht geladen werden."
+          )
+        );
         return;
       }
       const data = await res.json();
@@ -472,7 +486,15 @@ export function KitchenRecipeDraftsCard({
       if (!res.ok) {
         setModalMessage({
           kind: "error",
-          text: userErrorMessage(data, "No se pudo guardar el borrador."),
+          text: userErrorMessage(
+            data,
+            t(
+              lang,
+              "Could not save the draft.",
+              "No se pudo guardar el borrador.",
+              "Der Entwurf konnte nicht gespeichert werden."
+            )
+          ),
         });
         return false;
       }
@@ -503,7 +525,15 @@ export function KitchenRecipeDraftsCard({
       setBaseline(
         editorSnapshot(saved, lines, selectedMenuItem, newSellingPrice)
       );
-      setModalMessage({ kind: "ok", text: "Borrador guardado." });
+      setModalMessage({
+        kind: "ok",
+        text: t(
+          lang,
+          "Draft saved.",
+          "Borrador guardado.",
+          "Entwurf gespeichert."
+        ),
+      });
       return true;
     } finally {
       setSaving(false);
@@ -555,7 +585,15 @@ export function KitchenRecipeDraftsCard({
       const data = await res.json().catch(() => ({}));
       setModalMessage({
         kind: "error",
-        text: userErrorMessage(data, "No se pudo confirmar."),
+        text: userErrorMessage(
+          data,
+          t(
+            lang,
+            "Could not confirm.",
+            "No se pudo confirmar.",
+            "Die Freigabe war nicht möglich."
+          )
+        ),
       });
     }
   };
@@ -645,7 +683,15 @@ export function KitchenRecipeDraftsCard({
     }
     return {
       ok: false,
-      error: userErrorMessage(json, "No pude crear el ingrediente."),
+      error: userErrorMessage(
+        json,
+        t(
+          lang,
+          "I could not create the ingredient.",
+          "No pude crear el ingrediente.",
+          "Ich konnte die Zutat nicht anlegen."
+        )
+      ),
     };
   };
 
@@ -812,7 +858,12 @@ export function KitchenRecipeDraftsCard({
       <div data-testid="kitchen-recipes-list">
         <div className="mb-2 flex items-center gap-2">
           <h3 className="text-sm font-semibold text-[#0D1117]">
-            Recetas para revisar
+            {t(
+              lang,
+              "Recipes to review",
+              "Recetas para revisar",
+              "Rezepte zur Prüfung"
+            )}
           </h3>
           <span
             data-testid="kitchen-recipes-count"
@@ -825,10 +876,22 @@ export function KitchenRecipeDraftsCard({
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
               className={`${selectClass} ml-auto`}
-              aria-label="Filtrar por ubicación"
+              aria-label={t(
+                lang,
+                "Filter by location",
+                "Filtrar por ubicación",
+                "Nach Standort filtern"
+              )}
               data-testid="kitchen-recipes-location"
             >
-              <option value="">Todas las ubicaciones</option>
+              <option value="">
+                {t(
+                  lang,
+                  "All locations",
+                  "Todas las ubicaciones",
+                  "Alle Standorte"
+                )}
+              </option>
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {loc.name}
@@ -843,8 +906,12 @@ export function KitchenRecipeDraftsCard({
             className="text-sm text-muted-foreground py-2"
             data-testid="kitchen-recipes-empty"
           >
-            No tienes recetas por revisar. Sube tus recetas o pide a tu equipo
-            que te las mande por nota de voz.
+            {t(
+              lang,
+              "You have no recipes to review. Upload your recipes or ask your team to send them by voice note.",
+              "No tienes recetas por revisar. Sube tus recetas o pide a tu equipo que te las mande por nota de voz.",
+              "Es gibt keine Rezepte zur Prüfung. Laden Sie Ihre Rezepte hoch oder bitten Sie Ihr Team, sie per Sprachnachricht zu senden."
+            )}
           </p>
         ) : (
           <div className="space-y-2">
@@ -862,24 +929,38 @@ export function KitchenRecipeDraftsCard({
                     </p>
                     {draft.is_preparation ||
                     isPreparationName(draft.dish_name) ? (
-                      <Badge variant="outline">Preparación</Badge>
+                      <Badge variant="outline">
+                        {t(lang, "Preparation", "Preparación", "Zubereitung")}
+                      </Badge>
                     ) : null}
                     {draft.approved_exists ? (
                       <Badge variant="outline">
-                        Ya existe una receta aprobada
+                        {t(
+                          lang,
+                          "An approved recipe already exists",
+                          "Ya existe una receta aprobada",
+                          "Es gibt bereits ein freigegebenes Rezept"
+                        )}
                       </Badge>
                     ) : null}
                     {draft.status === "awaiting_portions" ? (
-                      <Badge variant="outline">Faltan porciones</Badge>
+                      <Badge variant="outline">
+                        {t(
+                          lang,
+                          "Portions missing",
+                          "Faltan porciones",
+                          "Portionen fehlen"
+                        )}
+                      </Badge>
                     ) : null}
                     {newIds.has(draft.id) ? (
                       <Badge variant="outline" className="text-[#1B40C8]">
-                        Nuevo
+                        {t(lang, "New", "Nuevo", "Neu")}
                       </Badge>
                     ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground truncate">
-                    {draftSourceLabel(draft.staff_name)}
+                    {draftSourceLabel(draft.staff_name, lang)}
                   </p>
                   <DraftListCost
                     draft={draft}
@@ -904,7 +985,12 @@ export function KitchenRecipeDraftsCard({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="inline-flex items-center rounded-full bg-[#D8D0F8] px-2 py-0.5 text-[11px] font-semibold text-[#0D1117]">
-                    Borrador de Milton
+                    {t(
+                      lang,
+                      "Milton draft",
+                      "Borrador de Milton",
+                      "Entwurf von Milton"
+                    )}
                   </span>
                   {canManage ? (
                     <>
@@ -913,14 +999,14 @@ export function KitchenRecipeDraftsCard({
                         variant="outline"
                         onClick={() => openEditor(draft)}
                       >
-                        Revisar
+                        {t(lang, "Review", "Revisar", "Prüfen")}
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleReject(draft.id)}
                       >
-                        Rechazar
+                        {t(lang, "Reject", "Rechazar", "Ablehnen")}
                       </Button>
                     </>
                   ) : null}
@@ -936,7 +1022,12 @@ export function KitchenRecipeDraftsCard({
             className="mt-2 text-sm font-semibold text-[#1B40C8] hover:text-[#1533A3]"
             onClick={() => setListExpanded(true)}
           >
-            Ver las {drafts.length}
+            {t(
+              lang,
+              `See all ${drafts.length}`,
+              `Ver las ${drafts.length}`,
+              `Alle ${drafts.length} anzeigen`
+            )}
           </button>
         ) : null}
       </div>
@@ -950,9 +1041,16 @@ export function KitchenRecipeDraftsCard({
         >
           <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[960px] max-sm:left-0 max-sm:top-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none">
             <DialogHeader className="px-5 pb-2 pt-5">
-              <DialogTitle>Revisar receta</DialogTitle>
+              <DialogTitle>
+                {t(lang, "Review recipe", "Revisar receta", "Rezept prüfen")}
+              </DialogTitle>
               <DialogDescription>
-                Revisa los ingredientes y confirma.
+                {t(
+                  lang,
+                  "Review the ingredients and confirm.",
+                  "Revisa los ingredientes y confirma.",
+                  "Prüfen Sie die Zutaten und geben Sie das Rezept frei."
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -961,8 +1059,12 @@ export function KitchenRecipeDraftsCard({
                 role="note"
                 className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
               >
-                Esta es una preparación (sub-receta). Por ahora créala en Menú ›
-                Preparaciones; aquí se confirmaría como plato.
+                {t(
+                  lang,
+                  "This is a preparation (sub-recipe). For now, create it in Menu › Preparations; here it would be confirmed as a dish.",
+                  "Esta es una preparación (sub-receta). Por ahora créala en Menú › Preparaciones; aquí se confirmaría como plato.",
+                  "Dies ist eine Zubereitung (Unterrezept). Legen Sie sie vorerst unter Speisekarte › Zubereitungen an; hier würde sie als Gericht freigegeben."
+                )}
               </p>
             ) : null}
             {editingApprovedExists ? (
@@ -970,25 +1072,41 @@ export function KitchenRecipeDraftsCard({
                 role="note"
                 className="mx-5 mb-2 rounded-md border border-[#dfe3ea] bg-[#f6f8fe] px-3 py-2 text-sm text-[#151c2c]"
               >
-                Ya hay una receta aprobada con este nombre. Confirmar NO la
-                cambia: crea una versión nueva para revisar.
+                {t(
+                  lang,
+                  "An approved recipe with this name already exists. Confirming does NOT change it: it creates a new version to review.",
+                  "Ya hay una receta aprobada con este nombre. Confirmar NO la cambia: crea una versión nueva para revisar.",
+                  "Es gibt bereits ein freigegebenes Rezept mit diesem Namen. Die Freigabe ändert es NICHT: Es entsteht eine neue Version zur Prüfung."
+                )}
               </p>
             ) : null}
 
             {/* Top fields: one row on desktop. */}
             <div className="grid grid-cols-1 gap-3 px-5 pb-3 md:grid-cols-[2fr_1fr_2fr_1fr]">
               <div>
-                <Label>Nombre del plato</Label>
+                <Label>
+                  {t(
+                    lang,
+                    "Dish name",
+                    "Nombre del plato",
+                    "Name des Gerichts"
+                  )}
+                </Label>
                 <Input
-                  aria-label="Nombre del plato"
+                  aria-label={t(
+                    lang,
+                    "Dish name",
+                    "Nombre del plato",
+                    "Name des Gerichts"
+                  )}
                   value={editedDraft.dish_name}
                   onChange={(e) => updateDishName(e.target.value)}
                 />
               </div>
               <div>
-                <Label>Porciones</Label>
+                <Label>{t(lang, "Portions", "Porciones", "Portionen")}</Label>
                 <Input
-                  aria-label="Porciones"
+                  aria-label={t(lang, "Portions", "Porciones", "Portionen")}
                   type="number"
                   min="1"
                   value={editedDraft.portions ?? ""}
@@ -1001,21 +1119,47 @@ export function KitchenRecipeDraftsCard({
                 {editedDraft.portions === null &&
                 selectedDraft?.status === "awaiting_portions" ? (
                   <p className="mt-1 text-[12px] text-[#6b7385]">
-                    El cocinero no dijo para cuántas porciones. Escríbelo aquí.
+                    {t(
+                      lang,
+                      "The cook did not say how many portions. Enter it here.",
+                      "El cocinero no dijo para cuántas porciones. Escríbelo aquí.",
+                      "Der Koch hat nicht angegeben, für wie viele Portionen. Tragen Sie es hier ein."
+                    )}
                   </p>
                 ) : null}
               </div>
               <div>
-                <Label>Plato del menú</Label>
+                <Label>
+                  {t(
+                    lang,
+                    "Menu dish",
+                    "Plato del menú",
+                    "Gericht der Speisekarte"
+                  )}
+                </Label>
                 <Select
                   value={selectedMenuItem}
                   onValueChange={setSelectedMenuItem}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Crear uno nuevo o elegir uno" />
+                    <SelectValue
+                      placeholder={t(
+                        lang,
+                        "Create a new one or choose one",
+                        "Crear uno nuevo o elegir uno",
+                        "Neu anlegen oder eines auswählen"
+                      )}
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">Crear plato nuevo</SelectItem>
+                    <SelectItem value="new">
+                      {t(
+                        lang,
+                        "Create new dish",
+                        "Crear plato nuevo",
+                        "Neues Gericht anlegen"
+                      )}
+                    </SelectItem>
                     {menuItems.map((item) => (
                       <SelectItem key={item.id} value={item.id}>
                         {item.name}
@@ -1025,13 +1169,20 @@ export function KitchenRecipeDraftsCard({
                 </Select>
               </div>
               <div>
-                <Label>Precio de venta</Label>
+                <Label>
+                  {t(lang, "Selling price", "Precio de venta", "Verkaufspreis")}
+                </Label>
                 <Input
-                  aria-label="Precio de venta"
+                  aria-label={t(
+                    lang,
+                    "Selling price",
+                    "Precio de venta",
+                    "Verkaufspreis"
+                  )}
                   type="number"
                   min="0"
                   step="0.01"
-                  placeholder="Sin precio"
+                  placeholder={t(lang, "No price", "Sin precio", "Kein Preis")}
                   className="placeholder:text-[#8a92a3]"
                   disabled={!priceEditable}
                   value={
@@ -1049,9 +1200,11 @@ export function KitchenRecipeDraftsCard({
             {/* The ingredient table: only this part scrolls. */}
             <div className="flex min-h-0 flex-1 flex-col border-t border-[#eef0f4]">
               <div className="flex items-center justify-between px-5 py-2">
-                <Label>Ingredientes</Label>
+                <Label>
+                  {t(lang, "Ingredients", "Ingredientes", "Zutaten")}
+                </Label>
                 <Button size="sm" variant="outline" onClick={addLine}>
-                  Agregar línea
+                  {t(lang, "Add line", "Agregar línea", "Zeile hinzufügen")}
                 </Button>
               </div>
               <div className="min-h-0 flex-1 overflow-auto px-5 pb-3">
@@ -1059,12 +1212,16 @@ export function KitchenRecipeDraftsCard({
                   <thead>
                     <tr className="text-left text-[12px] text-[#6b7385]">
                       <th className="w-[44%] pb-1 font-semibold">
-                        Ingrediente
+                        {t(lang, "Ingredient", "Ingrediente", "Zutat")}
                       </th>
-                      <th className="w-[14%] pb-1 font-semibold">Cantidad</th>
-                      <th className="w-[16%] pb-1 font-semibold">Unidad</th>
+                      <th className="w-[14%] pb-1 font-semibold">
+                        {t(lang, "Quantity", "Cantidad", "Menge")}
+                      </th>
+                      <th className="w-[16%] pb-1 font-semibold">
+                        {t(lang, "Unit", "Unidad", "Einheit")}
+                      </th>
                       <th className="w-[20%] pb-1 text-right font-semibold">
-                        Costo
+                        {t(lang, "Cost", "Costo", "Kosten")}
                       </th>
                       <th className="w-[6%] pb-1" />
                     </tr>
@@ -1093,14 +1250,26 @@ export function KitchenRecipeDraftsCard({
                               ingredients={ingredients}
                               value={line.ingredient_id}
                               rawName={line.raw_name}
-                              placeholder="Elegir ingrediente"
-                              ariaLabel={`Ingrediente de la línea ${idx + 1}`}
+                              placeholder={t(
+                                lang,
+                                "Choose ingredient",
+                                "Elegir ingrediente",
+                                "Zutat wählen"
+                              )}
+                              ariaLabel={t(
+                                lang,
+                                `Ingredient of line ${idx + 1}`,
+                                `Ingrediente de la línea ${idx + 1}`,
+                                `Zutat der Zeile ${idx + 1}`
+                              )}
                               onSelect={(ing) => updateLineIngredient(idx, ing)}
                               onCreate={(name) => createIngredient(idx, name)}
                             />
                             {suggestion ? (
                               <p className="mt-0.5 text-[12px] text-[#6b7385]">
-                                ¿Es <b>{sentenceCase(suggestion.name)}</b>?{" "}
+                                {t(lang, "Is it", "¿Es", "Ist es")}{" "}
+                                <b>{sentenceCase(suggestion.name)}</b>
+                                {t(lang, "?", "?", "?")}{" "}
                                 <button
                                   type="button"
                                   className="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
@@ -1108,7 +1277,12 @@ export function KitchenRecipeDraftsCard({
                                     updateLineIngredient(idx, suggestion)
                                   }
                                 >
-                                  Sí, usarlo
+                                  {t(
+                                    lang,
+                                    "Yes, use it",
+                                    "Sí, usarlo",
+                                    "Ja, verwenden"
+                                  )}
                                 </button>
                               </p>
                             ) : null}
@@ -1117,11 +1291,21 @@ export function KitchenRecipeDraftsCard({
                                 data-testid="preparation-hint"
                                 className="mt-0.5 text-[12px] text-[#6b7280]"
                               >
-                                Parece la preparación «
+                                {t(
+                                  lang,
+                                  "Looks like the preparation “",
+                                  "Parece la preparación «",
+                                  "Sieht aus wie die Zubereitung „"
+                                )}
                                 {sentenceCase(
                                   stripParenthetical(preparation.name)
                                 )}
-                                ». Créala en Menú › Preparaciones.
+                                {t(
+                                  lang,
+                                  "”. Create it in Menu › Preparations.",
+                                  "». Créala en Menú › Preparaciones.",
+                                  "“. Legen Sie sie unter Speisekarte › Zubereitungen an."
+                                )}
                               </p>
                             ) : null}
                           </td>
@@ -1129,8 +1313,13 @@ export function KitchenRecipeDraftsCard({
                             <Input
                               type="number"
                               step="0.001"
-                              aria-label={`Cantidad de la línea ${idx + 1}`}
-                              placeholder="Cant."
+                              aria-label={t(
+                                lang,
+                                `Quantity of line ${idx + 1}`,
+                                `Cantidad de la línea ${idx + 1}`,
+                                `Menge der Zeile ${idx + 1}`
+                              )}
+                              placeholder={t(lang, "Qty.", "Cant.", "Menge")}
                               value={line.total_quantity ?? ""}
                               onChange={(e) =>
                                 updateLineQuantity(
@@ -1144,13 +1333,23 @@ export function KitchenRecipeDraftsCard({
                             {line.total_quantity === null ||
                             line.total_quantity <= 0 ? (
                               <p className="mt-0.5 text-[12px] text-[#6b7280]">
-                                falta cantidad
+                                {t(
+                                  lang,
+                                  "quantity missing",
+                                  "falta cantidad",
+                                  "Menge fehlt"
+                                )}
                               </p>
                             ) : null}
                           </td>
                           <td className="py-1 pr-2">
                             <select
-                              aria-label={`Unidad de la línea ${idx + 1}`}
+                              aria-label={t(
+                                lang,
+                                `Unit of line ${idx + 1}`,
+                                `Unidad de la línea ${idx + 1}`,
+                                `Einheit der Zeile ${idx + 1}`
+                              )}
                               className="h-9 w-full rounded-md border border-[#e3e7ee] bg-white px-2 text-sm focus:border-[#1B40C8] focus:outline-none focus:ring-2 focus:ring-[#c6d3f5]"
                               value={line.unit ?? ""}
                               onChange={(e) =>
@@ -1158,11 +1357,13 @@ export function KitchenRecipeDraftsCard({
                               }
                             >
                               <option value="">
-                                {line.raw_unit ? `${line.raw_unit}?` : "Unidad"}
+                                {line.raw_unit
+                                  ? `${line.raw_unit}?`
+                                  : t(lang, "Unit", "Unidad", "Einheit")}
                               </option>
                               {KITCHEN_UNITS.map((u) => (
                                 <option key={u.value} value={u.value}>
-                                  {u.label}
+                                  {kitchenUnitLabel(u, lang)}
                                 </option>
                               ))}
                             </select>
@@ -1183,7 +1384,12 @@ export function KitchenRecipeDraftsCard({
                             <Button
                               size="sm"
                               variant="ghost"
-                              aria-label={`Quitar la línea ${idx + 1}`}
+                              aria-label={t(
+                                lang,
+                                `Remove line ${idx + 1}`,
+                                `Quitar la línea ${idx + 1}`,
+                                `Zeile ${idx + 1} entfernen`
+                              )}
                               onClick={() => removeLine(idx)}
                             >
                               ×
@@ -1221,7 +1427,7 @@ export function KitchenRecipeDraftsCard({
                   </p>
                 ) : null}
                 <Button variant="outline" onClick={requestClose}>
-                  Cancelar
+                  {t(lang, "Cancel", "Cancelar", "Abbrechen")}
                 </Button>
                 <Button
                   variant="outline"
@@ -1229,13 +1435,18 @@ export function KitchenRecipeDraftsCard({
                   disabled={saving}
                   onClick={() => void handleSaveDraft()}
                 >
-                  Guardar borrador
+                  {t(
+                    lang,
+                    "Save draft",
+                    "Guardar borrador",
+                    "Entwurf speichern"
+                  )}
                 </Button>
                 <Button
                   onClick={handleConfirm}
                   disabled={!canConfirm || saving}
                 >
-                  Confirmar
+                  {t(lang, "Confirm", "Confirmar", "Freigeben")}
                 </Button>
               </div>
             </div>
@@ -1243,11 +1454,21 @@ export function KitchenRecipeDraftsCard({
               <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/85 p-4">
                 <div
                   role="alertdialog"
-                  aria-label="¿Guardar cambios?"
+                  aria-label={t(
+                    lang,
+                    "Save changes?",
+                    "¿Guardar cambios?",
+                    "Änderungen speichern?"
+                  )}
                   className="w-full max-w-sm space-y-3 rounded-lg border border-[#e3e7ee] bg-white p-4 shadow-lg"
                 >
                   <p className="font-semibold text-[#151c2c]">
-                    ¿Guardar cambios?
+                    {t(
+                      lang,
+                      "Save changes?",
+                      "¿Guardar cambios?",
+                      "Änderungen speichern?"
+                    )}
                   </p>
                   <div className="flex flex-wrap justify-end gap-2">
                     <Button
@@ -1258,7 +1479,12 @@ export function KitchenRecipeDraftsCard({
                         closeEditor();
                       }}
                     >
-                      Salir sin guardar
+                      {t(
+                        lang,
+                        "Leave without saving",
+                        "Salir sin guardar",
+                        "Ohne Speichern verlassen"
+                      )}
                     </Button>
                     <Button
                       disabled={saving}
@@ -1268,7 +1494,7 @@ export function KitchenRecipeDraftsCard({
                         if (ok) closeEditor();
                       }}
                     >
-                      Guardar
+                      {t(lang, "Save", "Guardar", "Speichern")}
                     </Button>
                   </div>
                 </div>
@@ -1301,6 +1527,7 @@ function LineCost({
   onSaved: () => void;
   onConversionSaved: () => void;
 }) {
+  const { lang } = useT();
   const [defining, setDefining] = useState(false);
   if (!ingredient) return <span className="text-[#aeb4c2]">—</span>;
   // A stored price of 0 or null is «Sin precio», never $0.00.
@@ -1312,14 +1539,26 @@ function LineCost({
   if (price && costLine?.reason === "conversion" && unit) {
     return (
       <div className="text-right">
-        <span className="text-[12px] text-[#6b7385]">Falta conversión</span>{" "}
+        <span className="text-[12px] text-[#6b7385]">
+          {t(
+            lang,
+            "Conversion missing",
+            "Falta conversión",
+            "Umrechnung fehlt"
+          )}
+        </span>{" "}
         <button
           type="button"
           className="text-[12px] font-semibold text-[#1B40C8] underline"
-          aria-label={`Definir conversión de ${sentenceCase(ingredient.name)}`}
+          aria-label={t(
+            lang,
+            `Define conversion of ${sentenceCase(ingredient.name)}`,
+            `Definir conversión de ${sentenceCase(ingredient.name)}`,
+            `Umrechnung für ${sentenceCase(ingredient.name)} festlegen`
+          )}
           onClick={() => setDefining((open) => !open)}
         >
-          Definir
+          {t(lang, "Define", "Definir", "Festlegen")}
         </button>
         {defining ? (
           <div className="text-left">
@@ -1349,7 +1588,12 @@ function LineCost({
       initialPrice={price?.unit_cost ?? null}
       initialUnit={price?.unit ?? null}
       draftId={draftId}
-      triggerLabel={`Precio de ${sentenceCase(ingredient.name)}`}
+      triggerLabel={t(
+        lang,
+        `Price of ${sentenceCase(ingredient.name)}`,
+        `Precio de ${sentenceCase(ingredient.name)}`,
+        `Preis von ${sentenceCase(ingredient.name)}`
+      )}
       triggerClassName={
         price && lineCost !== null
           ? "rounded px-1 font-semibold text-[#151c2c] hover:bg-[#f6f8fe] hover:underline"
@@ -1358,13 +1602,13 @@ function LineCost({
       onSaved={onSaved}
     >
       {!price
-        ? "Sin precio"
+        ? t(lang, "No price", "Sin precio", "Kein Preis")
         : lineCost !== null
-          ? formatMoneyEs(lineCost, currency)
+          ? formatMoneyEs(lineCost, currency, undefined, lang)
           : !quantity || quantity <= 0
-            ? "Falta cantidad"
+            ? t(lang, "Quantity missing", "Falta cantidad", "Menge fehlt")
             : !unit
-              ? "Falta unidad"
+              ? t(lang, "Unit missing", "Falta unidad", "Einheit fehlt")
               : "—"}
     </PricePopover>
   );
@@ -1382,14 +1626,25 @@ export function CostFooter({
   hasLines: boolean;
   sellingPrice: number | null;
 }) {
+  const { lang } = useT();
   if (!hasLines) return null;
-  const money = (n: number) => formatMoneyEs(n, currency);
+  const money = (n: number) => formatMoneyEs(n, currency, undefined, lang);
   const parts: string[] = [];
   if (cost.complete && cost.total !== null) {
     parts.push(
       cost.per_portion !== null
-        ? `Costo por porción: ${money(cost.per_portion)}`
-        : "Indica las porciones para ver el costo por porción"
+        ? t(
+            lang,
+            `Cost per portion: ${money(cost.per_portion)}`,
+            `Costo por porción: ${money(cost.per_portion)}`,
+            `Kosten pro Portion: ${money(cost.per_portion)}`
+          )
+        : t(
+            lang,
+            "Enter the portions to see the cost per portion",
+            "Indica las porciones para ver el costo por porción",
+            "Geben Sie die Portionen an, um die Kosten pro Portion zu sehen"
+          )
     );
   } else {
     const prices = cost.lines.filter(
@@ -1397,19 +1652,65 @@ export function CostFooter({
     ).length;
     const conversions = cost.unconverted_count;
     const bits: string[] = [];
-    if (prices > 0) bits.push(prices === 1 ? "1 precio" : `${prices} precios`);
+    if (prices > 0)
+      bits.push(
+        prices === 1
+          ? t(lang, "1 price", "1 precio", "1 Preis")
+          : t(lang, `${prices} prices`, `${prices} precios`, `${prices} Preise`)
+      );
     if (conversions > 0)
       bits.push(
-        conversions === 1 ? "1 conversión" : `${conversions} conversiones`
+        conversions === 1
+          ? t(lang, "1 conversion", "1 conversión", "1 Umrechnung")
+          : t(
+              lang,
+              `${conversions} conversions`,
+              `${conversions} conversiones`,
+              `${conversions} Umrechnungen`
+            )
       );
-    const verb = prices + conversions === 1 ? "falta" : "faltan";
-    parts.push(`Costo parcial · ${verb} ${bits.join(" y ")}`);
+    const joined = bits.join(t(lang, " and ", " y ", " und "));
+    parts.push(
+      prices + conversions === 1
+        ? t(
+            lang,
+            `Partial cost · ${joined} missing`,
+            `Costo parcial · falta ${joined}`,
+            `Teilkosten · ${joined} fehlt`
+          )
+        : t(
+            lang,
+            `Partial cost · ${joined} missing`,
+            `Costo parcial · faltan ${joined}`,
+            `Teilkosten · ${joined} fehlen`
+          )
+    );
   }
   if (cost.margin_pct !== null) {
-    parts.push(`Margen: ${Math.round(cost.margin_pct * 10) / 10}%`);
+    parts.push(
+      t(
+        lang,
+        `Margin: ${Math.round(cost.margin_pct * 10) / 10}%`,
+        `Margen: ${Math.round(cost.margin_pct * 10) / 10}%`,
+        `Marge: ${Math.round(cost.margin_pct * 10) / 10} %`
+      )
+    );
   } else if (sellingPrice === null || sellingPrice <= 0) {
-    parts.push("Agrega un precio de venta para ver el margen");
+    parts.push(
+      t(
+        lang,
+        "Add a selling price to see the margin",
+        "Agrega un precio de venta para ver el margen",
+        "Fügen Sie einen Verkaufspreis hinzu, um die Marge zu sehen"
+      )
+    );
   }
+  const estimateNote = t(
+    lang,
+    "This is an estimate; it does not count in costs until approved.",
+    "Es un estimado; no cuenta en costos hasta que se apruebe.",
+    "Dies ist eine Schätzung; sie zählt erst nach der Freigabe in den Kosten."
+  );
   return (
     <p className="text-sm text-[#26314a]" data-testid="cost-footer">
       <span className={cost.complete ? "font-semibold" : "text-[#6b7385]"}>
@@ -1418,8 +1719,8 @@ export function CostFooter({
       <span
         role="img"
         tabIndex={0}
-        aria-label="Es un estimado; no cuenta en costos hasta que se apruebe."
-        title="Es un estimado; no cuenta en costos hasta que se apruebe."
+        aria-label={estimateNote}
+        title={estimateNote}
         className="cursor-help rounded-full border border-[#aeb4c2] px-1 text-[11px] text-[#8a92a3]"
       >
         i
@@ -1448,7 +1749,8 @@ function DraftListCost({
   onToggle: () => void;
   onPriceSaved: () => void;
 }) {
-  const money = (n: number) => formatMoneyEs(n, currency);
+  const { lang } = useT();
+  const money = (n: number) => formatMoneyEs(n, currency, undefined, lang);
   if (draft.lines.length === 0) return null;
   // The distinct ingredients (chosen) that still have no price.
   const unpriced = [
@@ -1465,26 +1767,48 @@ function DraftListCost({
     <div className="space-y-1 text-sm">
       {cost.complete && cost.per_portion !== null && draft.portions ? (
         <p>
-          {draft.portions} {draft.portions > 1 ? "porciones" : "porción"} •
-          Costo: {money(cost.per_portion)} por porción
+          {draft.portions}{" "}
+          {draft.portions > 1
+            ? t(lang, "portions", "porciones", "Portionen")
+            : t(lang, "portion", "porción", "Portion")}{" "}
+          • {t(lang, "Cost", "Costo", "Kosten")}: {money(cost.per_portion)}{" "}
+          {t(lang, "per portion", "por porción", "pro Portion")}
         </p>
       ) : cost.missing.length > 0 ? (
         <p className="text-[#6b7385]">
-          Costo parcial · faltan{" "}
-          {cost.unconverted_count > 0 ? "precios o conversiones" : "precios"} de{" "}
+          {t(
+            lang,
+            "Partial cost · missing",
+            "Costo parcial · faltan",
+            "Teilkosten · es fehlen"
+          )}{" "}
+          {cost.unconverted_count > 0
+            ? t(
+                lang,
+                "prices or conversions",
+                "precios o conversiones",
+                "Preise oder Umrechnungen"
+              )
+            : t(lang, "prices", "precios", "Preise")}{" "}
+          {t(lang, "for", "de", "für")}{" "}
           {cost.missing.map(sentenceCase).join(", ")}
         </p>
       ) : null}
       {cost.unpriced_count > 0 ? (
         <p className="flex items-center gap-2">
-          <Badge variant="outline">Faltan precios: {cost.unpriced_count}</Badge>
+          <Badge variant="outline">
+            {t(lang, "Prices missing", "Faltan precios", "Preise fehlen")}:{" "}
+            {cost.unpriced_count}
+          </Badge>
           {canManage && unpriced.length > 0 ? (
             <button
               type="button"
               className="text-[12px] font-semibold text-[#1B40C8] underline"
               onClick={onToggle}
             >
-              {open ? "Ocultar" : "Poner precios"}
+              {open
+                ? t(lang, "Hide", "Ocultar", "Ausblenden")
+                : t(lang, "Set prices", "Poner precios", "Preise festlegen")}
             </button>
           ) : null}
         </p>
@@ -1500,11 +1824,16 @@ function DraftListCost({
                   default_unit: ing.default_unit ?? null,
                 }}
                 draftId={draft.id}
-                triggerLabel={`Poner precio a ${sentenceCase(ing.name)}`}
+                triggerLabel={t(
+                  lang,
+                  `Set price for ${sentenceCase(ing.name)}`,
+                  `Poner precio a ${sentenceCase(ing.name)}`,
+                  `Preis für ${sentenceCase(ing.name)} festlegen`
+                )}
                 triggerClassName="rounded border border-[#1B40C8] px-1.5 font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
                 onSaved={onPriceSaved}
               >
-                Poner precio
+                {t(lang, "Set price", "Poner precio", "Preis festlegen")}
               </PricePopover>
             </div>
           ))

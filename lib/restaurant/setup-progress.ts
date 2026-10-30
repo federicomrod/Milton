@@ -10,12 +10,7 @@ import type {
 
 export type SetupStepStatus = "done" | "review" | "missing";
 
-export type SetupStepId =
-  | "pos"
-  | "costs"
-  | "menu"
-  | "recipes"
-  | "invoices";
+export type SetupStepId = "pos" | "costs" | "menu" | "recipes" | "invoices";
 
 export interface SetupStepProgress {
   id: SetupStepId;

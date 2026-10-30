@@ -8,7 +8,7 @@
 // chip — it is never saved as 0.
 
 import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   COMPARISONS,
@@ -25,28 +25,36 @@ import {
 import type { ObjetivosReferences } from "@/lib/restaurant/objetivos-references";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { fmt } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { formatTypedNumber, typedNumber } from "@/lib/restaurant/locale-number";
+import {
+  EditorButtons,
+  useInlineEditor,
+} from "@/components/restaurant/config/InlineEditCard";
 
-const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-const MONTHS = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-];
-const dateEs = (ymd: string) =>
-  `${Number(ymd.slice(8))} ${MONTHS[Number(ymd.slice(5, 7)) - 1]} ${ymd.slice(0, 4)}`;
+/** "2026-10-29" as a short date in the person's language (29 oct 2026 / Oct 29, 2026 / 29. Okt. 2026). */
+const dateIn = (ymd: string, locale: string) =>
+  new Date(
+    Date.UTC(
+      Number(ymd.slice(0, 4)),
+      Number(ymd.slice(5, 7)) - 1,
+      Number(ymd.slice(8, 10))
+    )
+  ).toLocaleDateString(locale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 
 /** "$34,500" / "34500" / "34.500,5" → 34500; empty or junk → null. */
-function parseNumber(raw: string): number | null {
+function parseNumber(
+  raw: string,
+  lang: PreferredLanguage = "es"
+): number | null {
+  if (lang === "de") return typedNumber(raw, "de");
   const cleaned = raw.replace(/[^\d.,-]/g, "").replace(/,(?=\d{1,2}$)/, ".");
   const plain = cleaned.replace(/,/g, "");
   if (plain === "" || !/^\d*\.?\d+$/.test(plain)) return null;
@@ -76,6 +84,10 @@ export interface ObjetivosFormProps {
 export function ObjetivosForm(props: ObjetivosFormProps) {
   const { currency, refs, cost30, today, available, canEdit } = props;
   const router = useRouter();
+  const editor = useInlineEditor();
+  const { d, locale, lang } = useT();
+  const g = d.settings.goals;
+  const DAYS = d.common.weekdaysShort;
   const money = (n: number, d = 0) =>
     formatMoneyEs(n, currency, { decimals: d });
 
@@ -96,16 +108,16 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
   const ticket = level("avg_ticket");
 
   const [revenue, setRevenue] = useState(
-    monthlyRow ? String(monthlyRow.target_value) : ""
+    monthlyRow ? formatTypedNumber(monthlyRow.target_value, lang) : ""
   );
   const [foodPct, setFoodPct] = useState(
-    food.value !== null ? String(food.value) : ""
+    food.value !== null ? formatTypedNumber(food.value, lang) : ""
   );
   const [marginPct, setMarginPct] = useState(
-    margin.value !== null ? String(margin.value) : ""
+    margin.value !== null ? formatTypedNumber(margin.value, lang) : ""
   );
   const [avgTicket, setAvgTicket] = useState(
-    ticket.value !== null ? String(ticket.value) : ""
+    ticket.value !== null ? formatTypedNumber(ticket.value, lang) : ""
   );
   const [comparison, setComparison] = useState<Comparison>(
     props.defaultComparison
@@ -126,9 +138,10 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
   >({ kind: "idle" });
   const [start, setStart] = useState(props.startOptions[0].value);
   const startLabel =
-    props.startOptions.find((o) => o.value === start)?.label ?? dateEs(start);
+    props.startOptions.find((o) => o.value === start)?.label ??
+    dateIn(start, locale);
 
-  const monthly = parseNumber(revenue);
+  const monthly = parseNumber(revenue, lang);
   const weights =
     edited ?? monthlyRow?.weekday_weights ?? refs.suggestedWeights ?? null;
   const dim = daysInMonth(today);
@@ -144,7 +157,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
 
   const dirty = useMemo(() => {
     const same = (draft: string, saved: number | null) =>
-      (parseNumber(draft) ?? null) === saved;
+      (parseNumber(draft, lang) ?? null) === saved;
     return !(
       same(revenue, monthlyRow ? monthlyRow.target_value : null) &&
       same(foodPct, food.value) &&
@@ -170,6 +183,12 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     start,
   ]);
 
+  // Unsaved edits warn before leaving the page.
+  useEffect(() => {
+    editor.setDirty(dirty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty]);
+
   async function save() {
     // Never a silent button: always say what happened or why nothing did.
     if (!available) {
@@ -182,12 +201,12 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     if (!canEdit) {
       setStatus({
         kind: "error",
-        message: "Tu rol no puede cambiar los objetivos.",
+        message: d.settings.noEditTargets,
       });
       return;
     }
     if (!dirty) {
-      setStatus({ kind: "info", message: "No hay cambios que guardar." });
+      setStatus({ kind: "info", message: g.noChanges });
       return;
     }
     setStatus({ kind: "saving" });
@@ -199,7 +218,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     };
     // A number sets it; a field the person emptied clears it; an untouched empty one is left alone.
     const put = (key: string, draft: string, saved: number | null) => {
-      const n = parseNumber(draft);
+      const n = parseNumber(draft, lang);
       if (n !== null) body[key] = n;
       else if (saved !== null) body[key] = null;
     };
@@ -211,7 +230,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     put("food_cost_pct", foodPct, food.value);
     put("gross_margin_pct", marginPct, margin.value);
     put("avg_ticket", avgTicket, ticket.value);
-    if (parseNumber(revenue) !== null) {
+    if (parseNumber(revenue, lang) !== null) {
       body.weekday_weights = useSplit && weights ? weights : null;
     }
     try {
@@ -221,179 +240,193 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
         body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok)
-        throw new Error(
-          userErrorMessage(json, "No pude guardar los objetivos.")
-        );
-      setStatus({
-        kind: "ok",
-        message: `Objetivos guardados. Vigentes desde ${startLabel.split(" · ")[0]} — ya se ven en el Cockpit.`,
-      });
+      if (!res.ok) throw new Error(userErrorMessage(json, g.saveFailed));
+      const message = fmt(g.savedMsg, { date: startLabel.split(" · ")[0] });
+      setStatus({ kind: "ok", message });
       setEdited(null);
+      editor.saved(message);
       router.refresh();
     } catch (err) {
-      setStatus({
-        kind: "error",
-        message:
-          err instanceof Error ? err.message : "No pude guardar los objetivos.",
-      });
+      const message = err instanceof Error ? err.message : g.saveFailed;
+      setStatus({ kind: "error", message });
+      editor.failed(message);
     }
   }
 
   const input =
-    "h-9 w-[112px] rounded-lg border border-[#c6d3f5] bg-white px-2.5 text-right text-[14px] text-[#151c2c] outline-none focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20 disabled:bg-[#f4f6fb] disabled:text-[#8a92a3]";
+    "h-9 w-[112px] rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-right text-[14px] text-[#151c2c] outline-none focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20 disabled:bg-[#f4f6fb] disabled:text-[#8a92a3]";
   const dash = "—";
 
   return (
-    <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[1.7fr_1fr]">
-      <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+      className="grid grid-cols-1 gap-[14px]"
+    >
+      <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-4">
         <div className="mb-2 flex items-center">
-          <h2 className="text-[14px] font-bold">Tus objetivos</h2>
+          <h2 className="text-[14px] font-bold">{g.title}</h2>
           <span className="ml-auto text-[12px] text-[#8a92a3]">
-            Déjalo vacío para no tener objetivo
+            {g.leaveEmpty}
           </span>
         </div>
         {!available ? (
           <p
             role="status"
-            className="mb-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]"
+            className="mb-3 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-3 py-2 text-[13px]"
           >
-            {NOT_AVAILABLE_YET} Mientras tanto el Cockpit funciona sin
-            objetivos.
+            {NOT_AVAILABLE_YET} {g.unavailableNote}
           </p>
         ) : null}
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-b border-[#dbe3f7] text-left text-[12px] font-semibold text-[#4a5a85]">
-              <th className="py-1.5">Objetivo</th>
-              <th className="py-1.5 text-right">Meta</th>
-              <th className="px-3 py-1.5">Cómo se usa</th>
-              <th className="py-1.5">Referencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-[#eef0f4]">
-              <td className="py-3 font-bold">Ventas mensuales</td>
-              <td className="py-3 text-right">
-                <input
-                  aria-label="Ventas mensuales"
-                  inputMode="decimal"
-                  className={input}
-                  disabled={disabled}
-                  value={revenue}
-                  placeholder="$"
-                  onChange={(e) => setRevenue(e.target.value)}
-                />
-              </td>
-              <td className="px-3 py-3 text-[12px] text-[#6b7385]">
-                {monthly !== null && flatDaily !== null
-                  ? `= ${money(flatDaily)} por día (${dim} días)${weights && useSplit ? " · según el reparto por día de la semana" : ""}`
-                  : legacyDaily !== null
-                    ? `Objetivo diario anterior: ${money(legacyDaily)} por día`
-                    : "—"}
-              </td>
-              <td className="py-3 text-[12px] text-[#6b7385]">
-                {refs.avgMonthly6 !== null ? (
-                  <>
-                    Promedio 6 meses: {money(refs.avgMonthly6)}
-                    {refs.span6Note ? ` (${refs.span6Note})` : ""}
-                  </>
-                ) : (
-                  dash
-                )}
-              </td>
-            </tr>
-            <tr className="border-b border-[#eef0f4]">
-              <td className="py-3 font-bold">Costo de comida</td>
-              <td className="py-3 text-right">
-                <input
-                  aria-label="Costo de comida %"
-                  inputMode="decimal"
-                  className={input}
-                  disabled={disabled}
-                  value={foodPct}
-                  placeholder={
-                    food.inherited !== null
-                      ? `${food.inherited} % (todos)`
-                      : "%"
-                  }
-                  onChange={(e) => setFoodPct(e.target.value)}
-                />
-              </td>
-              <td className="px-3 py-3 text-[12px] text-[#6b7385]">
-                {parseNumber(foodPct) !== null
-                  ? `Rojo cuando pasa de ${parseNumber(foodPct)}%`
-                  : "Sin objetivo"}
-              </td>
-              <td className="py-3 text-[12px] text-[#6b7385]">
-                {cost30?.food_cost_pct != null
-                  ? `Actual 30 d: ${Math.round(cost30.food_cost_pct)}%`
-                  : dash}
-              </td>
-            </tr>
-            <tr className="border-b border-[#eef0f4]">
-              <td className="py-3 font-bold">Margen bruto</td>
-              <td className="py-3 text-right">
-                <input
-                  aria-label="Margen bruto %"
-                  inputMode="decimal"
-                  className={input}
-                  disabled={disabled}
-                  value={marginPct}
-                  placeholder={
-                    margin.inherited !== null
-                      ? `${margin.inherited} % (todos)`
-                      : "%"
-                  }
-                  onChange={(e) => setMarginPct(e.target.value)}
-                />
-              </td>
-              <td className="px-3 py-3 text-[12px] text-[#6b7385]">
-                {parseNumber(marginPct) !== null
-                  ? `Verde cuando llega a ${parseNumber(marginPct)}%`
-                  : "Sin objetivo"}
-              </td>
-              <td className="py-3 text-[12px] text-[#6b7385]">
-                {cost30?.gross_margin_pct != null
-                  ? `Actual 30 d: ${Math.round(cost30.gross_margin_pct)}%`
-                  : dash}
-              </td>
-            </tr>
-            <tr>
-              <td className="py-3 font-bold">Ticket promedio</td>
-              <td className="py-3 text-right">
-                <input
-                  aria-label="Ticket promedio"
-                  inputMode="decimal"
-                  className={input}
-                  disabled={disabled}
-                  value={avgTicket}
-                  placeholder={
-                    ticket.inherited !== null
-                      ? `${money(ticket.inherited, 2)} (todos)`
-                      : "$"
-                  }
-                  onChange={(e) => setAvgTicket(e.target.value)}
-                />
-              </td>
-              <td className="px-3 py-3 text-[12px] text-[#6b7385]">Opcional</td>
-              <td className="py-3 text-[12px] text-[#6b7385]">
-                {refs.ticket30 !== null
-                  ? `Actual 30 d: ${money(refs.ticket30, 2)}`
-                  : dash}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] text-[13px]">
+            <thead>
+              <tr className="border-b border-[#E5E7EB] text-left text-[12px] font-semibold text-[#4a5a85]">
+                <th className="py-1.5">{g.colGoal}</th>
+                <th className="py-1.5 text-right">{g.colTarget}</th>
+                <th className="px-3 py-1.5">{g.colUse}</th>
+                <th className="py-1.5">{g.colReference}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-[#eef0f4]">
+                <td className="py-3 font-bold">{g.monthlySales}</td>
+                <td className="py-3 text-right">
+                  <input
+                    aria-label={g.monthlySales}
+                    inputMode="decimal"
+                    className={input}
+                    disabled={disabled}
+                    value={revenue}
+                    placeholder="$"
+                    onChange={(e) => setRevenue(e.target.value)}
+                  />
+                </td>
+                <td className="px-3 py-3 text-[12px] text-[#6b7385]">
+                  {monthly !== null && flatDaily !== null
+                    ? `${fmt(g.perDay, { amount: money(flatDaily), days: dim })}${weights && useSplit ? g.perDaySplit : ""}`
+                    : legacyDaily !== null
+                      ? fmt(g.legacyDaily, { amount: money(legacyDaily) })
+                      : "—"}
+                </td>
+                <td className="py-3 text-[12px] text-[#6b7385]">
+                  {refs.avgMonthly6 !== null ? (
+                    <>
+                      {fmt(g.avg6, { amount: money(refs.avgMonthly6) })}
+                      {refs.span6Note ? ` (${refs.span6Note})` : ""}
+                    </>
+                  ) : (
+                    dash
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-[#eef0f4]">
+                <td className="py-3 font-bold">{g.foodCost}</td>
+                <td className="py-3 text-right">
+                  <input
+                    aria-label={g.foodCostAria}
+                    inputMode="decimal"
+                    className={input}
+                    disabled={disabled}
+                    value={foodPct}
+                    placeholder={
+                      food.inherited !== null
+                        ? fmt(g.allSuffix, { value: food.inherited })
+                        : "%"
+                    }
+                    onChange={(e) => setFoodPct(e.target.value)}
+                  />
+                </td>
+                <td className="px-3 py-3 text-[12px] text-[#6b7385]">
+                  {parseNumber(foodPct, lang) !== null
+                    ? fmt(g.redAbove, {
+                        value: parseNumber(foodPct, lang) as number,
+                      })
+                    : g.noGoal}
+                </td>
+                <td className="py-3 text-[12px] text-[#6b7385]">
+                  {cost30?.food_cost_pct != null
+                    ? fmt(g.current30, {
+                        value: `${Math.round(cost30.food_cost_pct)}%`,
+                      })
+                    : dash}
+                </td>
+              </tr>
+              <tr className="border-b border-[#eef0f4]">
+                <td className="py-3 font-bold">{g.grossMargin}</td>
+                <td className="py-3 text-right">
+                  <input
+                    aria-label={g.grossMarginAria}
+                    inputMode="decimal"
+                    className={input}
+                    disabled={disabled}
+                    value={marginPct}
+                    placeholder={
+                      margin.inherited !== null
+                        ? fmt(g.allSuffix, { value: margin.inherited })
+                        : "%"
+                    }
+                    onChange={(e) => setMarginPct(e.target.value)}
+                  />
+                </td>
+                <td className="px-3 py-3 text-[12px] text-[#6b7385]">
+                  {parseNumber(marginPct, lang) !== null
+                    ? fmt(g.greenFrom, {
+                        value: parseNumber(marginPct, lang) as number,
+                      })
+                    : g.noGoal}
+                </td>
+                <td className="py-3 text-[12px] text-[#6b7385]">
+                  {cost30?.gross_margin_pct != null
+                    ? fmt(g.current30, {
+                        value: `${Math.round(cost30.gross_margin_pct)}%`,
+                      })
+                    : dash}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-3 font-bold">{g.avgTicket}</td>
+                <td className="py-3 text-right">
+                  <input
+                    aria-label={g.avgTicket}
+                    inputMode="decimal"
+                    className={input}
+                    disabled={disabled}
+                    value={avgTicket}
+                    placeholder={
+                      ticket.inherited !== null
+                        ? fmt(g.allSuffix, {
+                            value: money(ticket.inherited, 2),
+                          })
+                        : "$"
+                    }
+                    onChange={(e) => setAvgTicket(e.target.value)}
+                  />
+                </td>
+                <td className="px-3 py-3 text-[12px] text-[#6b7385]">
+                  {g.optional}
+                </td>
+                <td className="py-3 text-[12px] text-[#6b7385]">
+                  {refs.ticket30 !== null
+                    ? fmt(g.current30, { value: money(refs.ticket30, 2) })
+                    : dash}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-[12px] text-[#4a5a85]">
-            Vigente desde
+            {g.effectiveFrom}
             <select
-              aria-label="Vigente desde"
+              aria-label={g.effectiveFrom}
               value={start}
               disabled={disabled}
               onChange={(e) => setStart(e.target.value)}
-              className="rounded-lg border border-[#c6d3f5] bg-white px-2 py-1 text-[12px] outline-none focus:border-[#1b40c8]"
+              className="rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-[12px] outline-none focus:border-[#1b40c8]"
             >
               {props.startOptions.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -403,45 +436,38 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
             </select>
           </label>
           <span className="text-[12px] text-[#8a92a3]">
-            Vigente desde {startLabel.split(" · ")[0]} · los meses anteriores
-            guardan su objetivo
+            {fmt(g.effectiveNote, { date: startLabel.split(" · ")[0] })}
           </span>
           {status.kind === "ok" || status.kind === "info" ? (
-            <span
-              role="status"
-              className={`text-[12px] font-semibold ${status.kind === "ok" ? "text-[#15803d]" : "text-[#4a5a85]"}`}
-            >
+            <span role="status" className="text-[12px] text-[#64748B]">
               {status.message}
             </span>
           ) : null}
           {status.kind === "error" ? (
-            <span role="alert" className="text-[12px] text-[#c03535]">
-              {status.message}
+            <span
+              role="alert"
+              className="rounded-md border border-[#0F172A] px-2 py-1 text-[12px] text-[#0F172A]"
+            >
+              ⚑ {status.message}
             </span>
           ) : null}
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={status.kind === "saving"}
-            className="ml-auto rounded-lg bg-[#1b40c8] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-50"
-          >
-            {status.kind === "saving" ? "Guardando…" : "Guardar objetivos"}
-          </button>
         </div>
+        <EditorButtons
+          saving={status.kind === "saving"}
+          onCancel={editor.close}
+        />
       </section>
 
       <div className="space-y-[14px]">
-        <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
-          <h2 className="text-[14px] font-bold">
-            Reparto diario sugerido por Milton
-          </h2>
+        <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-4">
+          <h2 className="text-[14px] font-bold">{g.splitTitle}</h2>
           {weights ? (
             <>
               <p className="mb-2 text-[12px] text-[#8a92a3]">
-                Según cómo vendes cada día (últimos 6 meses).
+                {g.splitBasis}
                 {monthly !== null
-                  ? ` Suma ${money(monthly)}/mes.`
-                  : " Escribe tu venta mensual para ver los montos."}
+                  ? fmt(g.splitSum, { amount: money(monthly) })
+                  : g.splitEnterMonthly}
               </p>
               <div className="flex gap-1.5">
                 {DAYS.map((day, i) => (
@@ -450,14 +476,17 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                     {editing === i && amounts ? (
                       <input
                         autoFocus
-                        aria-label={`Monto de ${day}`}
-                        defaultValue={String(Math.round(amounts[i]))}
+                        aria-label={fmt(g.amountOf, { day })}
+                        defaultValue={formatTypedNumber(
+                          Math.round(amounts[i]),
+                          lang
+                        )}
                         className="mt-1 w-full rounded-md border border-[#1b40c8] px-1 py-1 text-center text-[13px] outline-none"
                         onBlur={() => setEditing(null)}
                         onKeyDown={(e) => {
                           if (e.key === "Escape") setEditing(null);
                           if (e.key === "Enter") {
-                            const n = parseNumber(e.currentTarget.value);
+                            const n = parseNumber(e.currentTarget.value, lang);
                             if (n !== null) {
                               const next = [...amounts];
                               next[i] = n;
@@ -476,10 +505,8 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                         type="button"
                         disabled={disabled || !amounts}
                         onClick={() => amounts && setEditing(i)}
-                        title={
-                          amounts ? "Clic para cambiar este día" : undefined
-                        }
-                        className="mt-1 block w-full rounded-md border border-[#c6d3f5] bg-white px-1 py-1 text-[13px] disabled:bg-[#f4f6fb]"
+                        title={amounts ? g.clickToChange : undefined}
+                        className="mt-1 block w-full rounded-md border border-[#E5E7EB] bg-white px-1 py-1 text-[13px] disabled:bg-[#f4f6fb]"
                       >
                         {amounts
                           ? money(amounts[i])
@@ -497,32 +524,29 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                   onChange={(e) => setUseSplit(e.target.checked)}
                   className="accent-[#1b40c8]"
                 />
-                Usar este reparto (si no, el objetivo se reparte parejo todos
-                los días)
+                {g.useSplit}
               </label>
-              <p className="mt-1 text-[12px] text-[#8a92a3]">
-                Clic en un día para cambiarlo.
-              </p>
+              <p className="mt-1 text-[12px] text-[#8a92a3]">{g.clickDay}</p>
             </>
           ) : (
             <p className="mt-1 text-[12px] text-[#8a92a3]">
-              Aún no hay ventas de todos los días de la semana para sugerir un
-              reparto: el objetivo se reparte parejo
-              {flatDaily !== null ? ` (${money(flatDaily)} por día)` : ""}.
+              {g.noSplit}
+              {flatDaily !== null
+                ? fmt(g.noSplitDaily, { amount: money(flatDaily) })
+                : ""}
+              .
             </p>
           )}
         </section>
 
-        <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
-          <h2 className="text-[14px] font-bold">
-            Comparación por defecto en Cockpit
-          </h2>
+        <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-4">
+          <h2 className="text-[14px] font-bold">{g.comparisonTitle}</h2>
           <select
-            aria-label="Comparación por defecto"
+            aria-label={g.comparisonAria}
             value={comparison}
             disabled={disabled}
             onChange={(e) => setComparison(e.target.value as Comparison)}
-            className="mt-2 rounded-lg border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px] outline-none focus:border-[#1b40c8]"
+            className="mt-2 rounded-lg border border-[#E5E7EB] bg-white px-3 py-1.5 text-[13px] outline-none focus:border-[#1b40c8]"
           >
             {COMPARISONS.map((c) => (
               <option key={c} value={c}>
@@ -532,6 +556,6 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
           </select>
         </section>
       </div>
-    </div>
+    </form>
   );
 }

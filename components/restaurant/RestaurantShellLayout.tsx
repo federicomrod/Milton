@@ -3,10 +3,10 @@
 // account / settings pages reached from Configuración. (Server component.)
 
 import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
-import { createClient } from "@/lib/supabase/server";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import {
   getCachedAuthUser,
+  getCachedActor,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
@@ -16,8 +16,12 @@ export default async function RestaurantShellLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const chrome = await loadRestaurantShellChrome();
-  const capabilities = await loadCapabilityFlags();
+  // Independent reads, started together (both share the cached user, company
+  // and membership lookups, so nothing is asked twice).
+  const [chrome, capabilities] = await Promise.all([
+    loadRestaurantShellChrome(),
+    loadCapabilityFlags(),
+  ]);
   return (
     <RestaurantShell
       locations={chrome.locations}
@@ -39,10 +43,7 @@ async function loadCapabilityFlags() {
     if (!user?.id) return undefined;
     const companyId = await getCachedCompanyId(user.id);
     if (!companyId) return undefined;
-    const actor = await resolveActor(await createClient(), user.id, {
-      companyId,
-    });
-    return capabilityFlags(actor);
+    return capabilityFlags(await getCachedActor(user.id, companyId));
   } catch {
     return undefined;
   }

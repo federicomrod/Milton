@@ -3,6 +3,9 @@
 // carry.
 // Pure; used to order the Preparaciones list by impact (premise 10).
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
+
 export interface ImpactDish {
   odoo_product_id: number;
   net_sales: number;
@@ -55,10 +58,17 @@ export function preparationImpact(input: {
 
 /** Spanish one-liner used on the list:
  *  "Desbloquea 7 platos · 24% de ventas de comida". */
-export function impactLabel(impact: PreparationImpact | undefined): string {
-  if (!impact || impact.dishes === 0) return "Ningún plato vendido la usa";
-  const dishes = `${impact.dishes} ${impact.dishes === 1 ? "plato" : "platos"}`;
-  return `Desbloquea ${dishes} · ${impact.share_pct.toLocaleString("es", {
-    maximumFractionDigits: 1,
-  })}% de ventas de comida`;
+export function impactLabel(
+  impact: PreparationImpact | undefined,
+  lang: PreferredLanguage = "es"
+): string {
+  const d = getDictionary(lang).menu.editor.preparations;
+  if (!impact || impact.dishes === 0) return d.impactNone;
+  const dishes = `${impact.dishes} ${impact.dishes === 1 ? d.impactDishOne : d.impactDishOther}`;
+  return fmt(d.impactLabel, {
+    dishes,
+    pct: impact.share_pct.toLocaleString(localeFor(lang), {
+      maximumFractionDigits: 1,
+    }),
+  });
 }

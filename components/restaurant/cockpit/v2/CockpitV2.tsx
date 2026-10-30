@@ -11,9 +11,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   COMPARISONS,
-  COMPARISON_LABEL,
   type Comparison,
 } from "@/lib/restaurant/cockpit-comparison";
+import { I18nProvider } from "@/lib/i18n/client";
+import { fmt, getDictionary, type Dictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+import { formatMoney, rangeLabel } from "@/lib/restaurant/cockpit-format";
 import {
   PERIODS,
   computeCockpit,
@@ -32,7 +38,6 @@ import {
   SALES_DETAIL_HREF,
   withShellParams,
 } from "@/lib/restaurant/navigation";
-import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import {
   DailyBarsChart,
   MixDonut,
@@ -50,6 +55,8 @@ export interface CockpitV2Props {
   restaurants: Array<{ id: string; name: string }>;
   locationId: string | null;
   defaultComparison: Comparison;
+  /** Language of the company; the Cockpit defaults to Spanish. */
+  lang?: PreferredLanguage;
 }
 
 type CostState =
@@ -60,23 +67,64 @@ type CostState =
 // Kept for the session: coming back to the Cockpit does not read it again.
 const costCache = new Map<string, MixDayRow[]>();
 
-function ChipView({ c }: { c: Chip }) {
+const PERIOD_KEYS: Record<PeriodKey, keyof Dictionary["cockpit"]["periods"]> = {
+  hoy: "today",
+  "7d": "d7",
+  "30d": "d30",
+  trimestre: "quarter",
+};
+
+const COMPARISON_KEYS: Record<
+  Comparison,
+  keyof Dictionary["cockpit"]["comparisons"]
+> = {
+  last_week: "lastWeek",
+  last_month: "lastMonth",
+  months_3: "months3",
+  months_6: "months6",
+  months_12: "months12",
+};
+
+/** The chip text in the company's language; the view keeps the chip KEY, not its words. */
+function chipLabel(
+  c: Chip,
+  comparison: Comparison,
+  d: Dictionary["cockpit"]
+): string {
+  if (c.key === "target") return d.chips.vsTarget;
+  if (c.key === "month") return d.chips.vsLastMonth;
+  if (c.key === "week") return d.chips.vsLastWeek;
+  return fmt(d.chips.vsBaseline, {
+    what: d.comparisonsShort[COMPARISON_KEYS[comparison]],
+  });
+}
+
+function ChipView({
+  c,
+  comparison,
+  d,
+}: {
+  c: Chip;
+  comparison: Comparison;
+  d: Dictionary["cockpit"];
+}) {
   const arrow = c.value > 0 ? "▲" : c.value < 0 ? "▼" : "=";
   const abs = Math.abs(c.value);
+  const label = chipLabel(c, comparison, d);
   const text =
     c.unit === "pts"
-      ? c.label === "vs objetivo"
+      ? c.key === "target"
         ? c.value > 0
-          ? `${arrow} ${abs} pts sobre objetivo`
+          ? fmt(d.chips.ptsAboveTarget, { arrow, abs })
           : c.value < 0
-            ? `${arrow} ${abs} pts bajo objetivo`
-            : "= objetivo"
+            ? fmt(d.chips.ptsBelowTarget, { arrow, abs })
+            : d.chips.atTarget
         : c.value === 0
-          ? `= ${c.label}`
-          : `${arrow} ${abs} pts ${c.label}`
+          ? fmt(d.chips.equal, { label })
+          : fmt(d.chips.pts, { arrow, abs, label })
       : c.value === 0
-        ? `= ${c.label}`
-        : `${arrow} ${Math.round(abs)}% ${c.label}`;
+        ? fmt(d.chips.equal, { label })
+        : fmt(d.chips.pct, { arrow, abs: Math.round(abs), label });
   const tone =
     c.tone === "good"
       ? "bg-[#A7F3D0] text-[#0F172A]"
@@ -99,6 +147,8 @@ function Card({
   chips,
   note,
   loading,
+  comparison,
+  d,
 }: {
   label: string;
   value: string;
@@ -106,6 +156,8 @@ function Card({
   chips: Chip[];
   note?: string | null;
   loading?: boolean;
+  comparison: Comparison;
+  d: Dictionary["cockpit"];
 }) {
   return (
     <div className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-3.5">
@@ -118,7 +170,7 @@ function Card({
       ) : null}
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {chips.map((c) => (
-          <ChipView key={c.key} c={c} />
+          <ChipView key={c.key} c={c} comparison={comparison} d={d} />
         ))}
       </div>
       {note ? (
@@ -129,6 +181,17 @@ function Card({
 }
 
 export function CockpitV2(props: CockpitV2Props) {
+  const lang = props.lang ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  return (
+    <I18nProvider lang={lang}>
+      <CockpitV2Body {...props} lang={lang} />
+    </I18nProvider>
+  );
+}
+
+function CockpitV2Body(props: CockpitV2Props & { lang: PreferredLanguage }) {
+  const { lang } = props;
+  const d = getDictionary(lang).cockpit;
   const router = useRouter();
   const [period, setPeriod] = useState<PeriodKey>("30d");
   const [comparison, setComparison] = useState<Comparison>(
@@ -186,6 +249,7 @@ export function CockpitV2(props: CockpitV2Props) {
         scope,
         costRows,
         category,
+        lang,
       }),
     [
       props.daily,
@@ -198,12 +262,14 @@ export function CockpitV2(props: CockpitV2Props) {
       scope,
       costRows,
       category,
+      lang,
     ]
   );
 
   const money = (n: number) =>
-    formatMoneyEs(n, props.currency, { decimals: 0 });
-  const periodLabel = PERIODS.find((p) => p.key === period)!.label;
+    formatMoney(n, props.currency, lang, { decimals: 0 });
+  const periodText = (key: PeriodKey) => d.periods[PERIOD_KEYS[key]];
+  const periodLabel = periodText(period);
   // Ventas reads p=custom&desde&hasta (not from/to).
   const toSales = (from: string, to: string) => {
     const base = withShellParams(SALES_DETAIL_HREF, {
@@ -217,21 +283,21 @@ export function CockpitV2(props: CockpitV2Props) {
   if (view.empty) {
     return (
       <p className="rounded-[14px] border border-[#dbe3f7] bg-white px-4 py-6 text-[13px] text-[#6b7385]">
-        Aún no hay ventas para mostrar.
+        {d.v2.noSales}
       </p>
     );
   }
 
   const loadingCost = cost.kind === "loading";
   const c = view.cost;
-  const insight = buildInsight(view, props.targets.length > 0);
+  const insight = buildInsight(view, props.targets.length > 0, lang);
 
   return (
     <div className="space-y-3" data-testid="cockpit-v2">
       <div className="flex flex-wrap items-center gap-3">
         <div
           role="group"
-          aria-label="Periodo"
+          aria-label={d.periods.label}
           className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
         >
           {PERIODS.map((p) => (
@@ -247,28 +313,28 @@ export function CockpitV2(props: CockpitV2Props) {
                   : "text-[#4a5a85] hover:text-[#1b40c8]")
               }
             >
-              {p.label}
+              {periodText(p.key)}
             </button>
           ))}
         </div>
         <label className="inline-flex items-center gap-1.5 rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px]">
-          Comparar con:
+          {d.v2.compareWith}
           <select
-            aria-label="Comparar con"
+            aria-label={d.v2.compareAria}
             value={comparison}
             onChange={(e) => setComparison(e.target.value as Comparison)}
             className="bg-transparent font-bold outline-none"
           >
             {COMPARISONS.map((k) => (
               <option key={k} value={k}>
-                {COMPARISON_LABEL[k]}
+                {d.comparisons[COMPARISON_KEYS[k]]}
               </option>
             ))}
           </select>
         </label>
         <label className="ml-auto inline-flex items-center gap-1.5 rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px]">
           <select
-            aria-label="Restaurante"
+            aria-label={d.v2.restaurantAria}
             value={props.locationId ?? ""}
             onChange={(e) =>
               router.push(
@@ -279,7 +345,7 @@ export function CockpitV2(props: CockpitV2Props) {
             }
             className="bg-transparent outline-none"
           >
-            <option value="">Todos los restaurantes</option>
+            <option value="">{d.v2.allRestaurants}</option>
             {props.restaurants.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
@@ -293,52 +359,60 @@ export function CockpitV2(props: CockpitV2Props) {
             onClick={() => setCategory(null)}
             className="rounded-full border border-[#1b40c8] bg-[#e6ecfb] px-3 py-1 text-[12px] font-semibold text-[#1b40c8]"
           >
-            Filtrando: {category} ×
+            {fmt(d.v2.filtering, { category })}
           </button>
         ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Card
-          label="Venta promedio diaria"
+          label={d.v2.avgDaily}
+          comparison={comparison}
+          d={d}
           value={view.avgDaily === null ? "—" : money(view.avgDaily)}
           sub={
             view.dailyTargetAvg !== null
-              ? `objetivo ${money(view.dailyTargetAvg)}`
+              ? fmt(d.v2.target, { amount: money(view.dailyTargetAvg) })
               : undefined
           }
           chips={view.avgChips}
           note={view.baselineNote}
         />
         <Card
-          label={`Ventas · ${periodLabel}`}
+          label={fmt(d.v2.salesCard, { period: periodLabel })}
+          comparison={comparison}
+          d={d}
           value={money(view.sales)}
           chips={view.salesChips}
         />
         <Card
-          label="Costo de comida"
+          label={d.v2.foodCost}
+          comparison={comparison}
+          d={d}
           loading={loadingCost}
           value={
             c?.food_cost_pct != null
               ? `${Math.round(c.food_cost_pct)}%`
-              : "Sin precio"
+              : d.v2.noPrice
           }
           sub={
             cost.kind === "error"
-              ? "No pude calcular el costo ahora"
+              ? d.v2.costFailed
               : c
-                ? `${view.foodCostTarget !== null ? `objetivo ${view.foodCostTarget}% · ` : ""}cobertura ${Math.round(c.coverage_pct ?? 0)}% de las ventas`
-                : "Calculando…"
+                ? `${view.foodCostTarget !== null ? fmt(d.v2.targetDot, { pct: view.foodCostTarget }) : ""}${fmt(d.v2.coverage, { pct: Math.round(c.coverage_pct ?? 0) })}`
+                : d.v2.calculating
           }
           chips={view.costChips}
         />
         <Card
-          label="Margen bruto"
+          label={d.v2.grossMargin}
+          comparison={comparison}
+          d={d}
           loading={loadingCost}
-          value={c?.margin != null ? money(c.margin) : "Sin precio"}
+          value={c?.margin != null ? money(c.margin) : d.v2.noPrice}
           sub={
             c
-              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? ` · objetivo ${view.marginTarget}%` : ""}`
+              ? `${c.margin_pct != null ? `${Math.round(c.margin_pct)}%` : "—"}${view.marginTarget !== null ? fmt(d.v2.marginTarget, { pct: view.marginTarget }) : ""}`
               : undefined
           }
           chips={view.marginChips}
@@ -353,7 +427,7 @@ export function CockpitV2(props: CockpitV2Props) {
           }}
           className="text-[12px] font-semibold text-[#1b40c8] underline"
         >
-          Reintentar el costo
+          {d.v2.retryCost}
         </button>
       ) : null}
 
@@ -371,11 +445,13 @@ export function CockpitV2(props: CockpitV2Props) {
                 : "border-[#dbe3f7] bg-white hover:border-[#a9bcf0]")
             }
           >
-            <span className="font-semibold">{r.label}</span>
+            <span className="font-semibold">{periodText(r.key)}</span>
             <span className="text-right tabular-nums">
               <b>{money(r.sales)}</b>
               <span className="block text-[12px] text-[#8a92a3]">
-                {r.avgDaily === null ? "—" : `${money(r.avgDaily)}/día`}
+                {r.avgDaily === null
+                  ? "—"
+                  : fmt(d.v2.perDay, { amount: money(r.avgDaily) })}
               </span>
             </span>
           </button>
@@ -385,12 +461,12 @@ export function CockpitV2(props: CockpitV2Props) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-1 flex flex-wrap items-baseline gap-2">
-            <h2 className="text-[14px] font-bold">Ventas diarias</h2>
+            <h2 className="text-[14px] font-bold">{d.v2.dailySales}</h2>
           </div>
           <DailyBarsChart
             bars={view.bars}
             baselineAvg={view.baselineAvgDaily}
-            baselineLabel={view.baselineLabel}
+            baselineLabel={d.comparisonsShort[COMPARISON_KEYS[comparison]]}
             money={money}
             onDay={(d) => toSales(d, d)}
           />
@@ -401,14 +477,16 @@ export function CockpitV2(props: CockpitV2Props) {
                   props.targets,
                   scope,
                   view.bars.map((b) => b.date)
-                )
+                ),
+                d,
+                lang
               )}
             </p>
           ) : null}
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-2 flex items-baseline">
-            <h2 className="text-[14px] font-bold">Mezcla de ventas</h2>
+            <h2 className="text-[14px] font-bold">{d.v2.salesMix}</h2>
           </div>
           <MixDonut
             slices={view.mix}
@@ -420,8 +498,9 @@ export function CockpitV2(props: CockpitV2Props) {
           />
           {view.uncategorizedPct !== null && view.uncategorizedPct > 0 ? (
             <p className="mt-2 text-[12px] text-[#8a92a3]">
-              {Math.round(view.uncategorizedPct * 10) / 10}% de las ventas no
-              tiene categoría.
+              {fmt(d.v2.uncategorized, {
+                pct: Math.round(view.uncategorizedPct * 10) / 10,
+              })}
             </p>
           ) : null}
         </section>
@@ -430,10 +509,10 @@ export function CockpitV2(props: CockpitV2Props) {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-2 flex items-baseline">
-            <h2 className="text-[14px] font-bold">Semana vs semana</h2>
+            <h2 className="text-[14px] font-bold">{d.v2.weekVsWeek}</h2>
             <span className="ml-auto text-[12px] text-[#8a92a3]">
               {view.weeks.some((w) => w.target !== null)
-                ? "línea = objetivo semanal"
+                ? d.v2.weeklyTargetLine
                 : ""}
             </span>
           </div>
@@ -445,10 +524,10 @@ export function CockpitV2(props: CockpitV2Props) {
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
           <div className="mb-2 flex items-baseline">
-            <h2 className="text-[14px] font-bold">Costo de comida por día</h2>
+            <h2 className="text-[14px] font-bold">{d.v2.foodCostByDay}</h2>
             <span className="ml-auto text-[12px] text-[#8a92a3]">
               {view.foodCostTarget !== null
-                ? `línea = ${view.foodCostTarget}%`
+                ? fmt(d.v2.costLine, { pct: view.foodCostTarget })
                 : ""}
             </span>
           </div>
@@ -459,7 +538,7 @@ export function CockpitV2(props: CockpitV2Props) {
           />
         </section>
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
-          <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
+          <h2 className="mb-2 text-[14px] font-bold">{d.v2.miltonTitle}</h2>
           <ul
             className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed"
             data-testid="cockpit-milton-summary"
@@ -474,8 +553,8 @@ export function CockpitV2(props: CockpitV2Props) {
               className="inline-block rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
             >
               {props.targets.length > 0
-                ? "Ajusta tus objetivos"
-                : "Definir objetivos"}
+                ? d.v2.adjustTargets
+                : d.v2.defineTargets}
             </a>
             {insight.action === "days" ? (
               <button
@@ -483,7 +562,7 @@ export function CockpitV2(props: CockpitV2Props) {
                 onClick={() => toSales(view.range.from, view.range.to)}
                 className="ml-2 rounded-lg border border-[#c6d3f5] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1b40c8] hover:bg-[#eef2fc]"
               >
-                Ver días bajo objetivo
+                {d.v2.viewDaysBelow}
               </button>
             ) : null}
           </div>
@@ -493,40 +572,28 @@ export function CockpitV2(props: CockpitV2Props) {
   );
 }
 
-const MONTHS_ES = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-];
 function missingGoalText(
-  gap: ReturnType<typeof explainMissingSalesTarget>
+  gap: ReturnType<typeof explainMissingSalesTarget>,
+  d: Dictionary["cockpit"],
+  lang: PreferredLanguage
 ): string {
   if (gap?.reason === "starts_later") {
-    const d = gap.from;
-    return `Tus objetivos empiezan el ${Number(d.slice(8))} ${MONTHS_ES[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)} y estos datos son anteriores: elige «Vigente desde» antes en Configuración › Objetivos.`;
+    return fmt(d.v2.goalStartsLater, {
+      date: rangeLabel(gap.from, gap.from, lang),
+    });
   }
-  if (gap?.reason === "company_only") {
-    return "Tu objetivo de ventas es para todos los restaurantes: elige «Todos los restaurantes» o define uno para este restaurante.";
-  }
-  return "Sin objetivo de ventas.";
+  if (gap?.reason === "company_only") return d.v2.goalCompanyOnly;
+  return d.v2.noSalesTarget;
 }
 
 /** The Milton box: lines from the daily bars; the button follows the days below objetivo. */
 function buildInsight(
   view: ReturnType<typeof computeCockpit>,
-  hasTargets: boolean
+  hasTargets: boolean,
+  lang: PreferredLanguage
 ): { lines: string[]; action: "days" | "targets" } {
   return {
-    lines: cockpitSummaryLines(view, hasTargets),
+    lines: cockpitSummaryLines(view, hasTargets, lang),
     action: view.belowDays > 0 ? "days" : "targets",
   };
 }

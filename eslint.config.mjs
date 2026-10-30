@@ -13,13 +13,14 @@ export default typescriptEslint.config(
       "build/**",
       ".turbo/**",
       "dist/**",
+      "apps/mobile/**",
     ],
   },
   js.configs.recommended,
   ...typescriptEslint.configs.recommended,
   // Node scripts (require, __dirname, console) — avoid no-undef errors
   {
-    files: ["scripts/**/*.js"],
+    files: ["scripts/**/*.js", "scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         require: "readonly",

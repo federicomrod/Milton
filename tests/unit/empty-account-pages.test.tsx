@@ -51,7 +51,8 @@ vi.mock("@/lib/supabase/admin", () => ({
   // the role read: an empty account has no memberships
   createAdminClient: () => fake(),
 }));
-vi.mock("@/lib/restaurant/auth-user", () => ({
+vi.mock("@/lib/restaurant/auth-user", async (orig) => ({
+  ...(await orig<typeof import("@/lib/restaurant/auth-user")>()),
   getCachedAuthUser: async () => ({ id: "u1", email: "a@b.co" }),
   getCachedCompanyId: async () => "11111111-1111-4111-8111-111111111111",
 }));

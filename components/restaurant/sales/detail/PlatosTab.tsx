@@ -10,6 +10,9 @@ import { useEffect, useMemo, useState } from "react";
 import { DrillView } from "@/components/restaurant/menu/DrillView";
 import { DrillErrorBoundary } from "@/components/restaurant/menu/DrillErrorBoundary";
 import type { MenuDish } from "@/lib/restaurant/menu-dishes/menu-dishes";
+import { useT } from "@/lib/i18n/client";
+import { NO_CATEGORY_LABEL } from "@/lib/restaurant/sales-detail-cube";
+import { categoryLabel } from "@/lib/restaurant/sales-detail";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface DishesPayload {
@@ -45,6 +48,8 @@ export function PlatosTab({
   channelsActive: boolean;
   money: (n: number, d?: number) => string;
 }) {
+  const { d, lang, locale } = useT();
+  const p0 = d.sales.detail.dishes;
   const [open, setOpen] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const requestKey = `${range.from}|${range.to}|${locationId ?? ""}`;
@@ -66,8 +71,7 @@ export function PlatosTab({
         const json = (await res
           .json()
           .catch(() => ({}))) as Partial<DishesPayload> & { error?: string };
-        if (!res.ok)
-          throw new Error(userErrorMessage(json, "No pude cargar los platos."));
+        if (!res.ok) throw new Error(userErrorMessage(json, p0.loadFailed));
         return json as DishesPayload;
       })
       .then((j) => !cancelled && setAnswer({ key: requestKey, data: j }))
@@ -76,13 +80,13 @@ export function PlatosTab({
           !cancelled &&
           setAnswer({
             key: requestKey,
-            error:
-              e instanceof Error ? e.message : "No pude cargar los platos.",
+            error: e instanceof Error ? e.message : p0.loadFailed,
           })
       );
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range.from, range.to, locationId, requestKey]);
 
   const wanted = useMemo(
@@ -93,12 +97,12 @@ export function PlatosTab({
     const all = data?.menu_dishes ?? [];
     const q = query.trim().toLowerCase();
     return all
-      .filter((d) =>
+      .filter((dish) =>
         wanted.size === 0
           ? true
-          : wanted.has((d.category ?? "Sin categoría").toLowerCase())
+          : wanted.has((dish.category ?? NO_CATEGORY_LABEL).toLowerCase())
       )
-      .filter((d) => (q ? d.name.toLowerCase().includes(q) : true))
+      .filter((dish) => (q ? dish.name.toLowerCase().includes(q) : true))
       .sort((a, b) => b.net_sales - a.net_sales);
   }, [data, wanted, query]);
 
@@ -117,7 +121,7 @@ export function PlatosTab({
           canEdit={false}
           money={(n) => money(n, 0)}
           onBack={() => setOpen(null)}
-          backLabel="Platos"
+          backLabel={p0.back}
           restaurants={restaurants}
           showRestaurants={!locationId}
         />
@@ -129,21 +133,21 @@ export function PlatosTab({
     <section data-testid="sales-platos">
       <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px] text-[#6b7385]">
         <input
-          aria-label="Buscar plato"
-          placeholder="Buscar plato…"
+          aria-label={p0.searchAria}
+          placeholder={p0.searchPlaceholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="h-8 w-52 rounded-lg border border-[#dfe3ea] bg-white px-2.5 text-[12.5px] outline-none focus:border-[#1b40c8]"
         />
         {categories.length > 0 ? (
           <span>
-            Categoría:{" "}
+            {p0.categoryLabel}{" "}
             <b className="text-[#1b40c8]">{categories.join(" + ")}</b>
           </span>
         ) : null}
         {channelsActive ? (
           <span className="rounded-md bg-[#f9fafb] px-2 py-0.5 text-[#6b7280]">
-            Canal, pago y turno no filtran Platos.
+            {p0.notFiltered}
           </span>
         ) : null}
       </div>
@@ -156,49 +160,49 @@ export function PlatosTab({
         </p>
       ) : !data ? (
         <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#8a92a3]">
-          Cargando platos…
+          {p0.loading}
         </p>
       ) : dishes.length === 0 ? (
         <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#8a92a3]">
-          Sin platos con estos filtros.
+          {p0.none}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-[14px] border border-[#eef0f4] bg-white px-3 py-1.5">
           <table className="w-full text-[12.5px]">
             <thead>
               <tr className="border-b border-[#eef0f4] text-[11px] font-semibold text-[#8a92a3]">
-                <th className="px-2 py-1.5 text-left">Plato</th>
-                <th className="px-2 py-1.5 text-left">Categoría</th>
-                <th className="px-2 py-1.5 text-right">Ventas ▾</th>
-                <th className="px-2 py-1.5 text-right">Unid.</th>
-                <th className="px-2 py-1.5 text-right">Costo</th>
+                <th className="px-2 py-1.5 text-left">{p0.colDish}</th>
+                <th className="px-2 py-1.5 text-left">{p0.colCategory}</th>
+                <th className="px-2 py-1.5 text-right">{p0.colSales}</th>
+                <th className="px-2 py-1.5 text-right">{p0.colUnits}</th>
+                <th className="px-2 py-1.5 text-right">{p0.colCost}</th>
                 <th className="px-2 py-1.5" />
               </tr>
             </thead>
             <tbody>
-              {dishes.map((d) => (
+              {dishes.map((dish) => (
                 <tr
-                  key={d.id}
-                  onClick={() => setOpen(d.id)}
+                  key={dish.id}
+                  onClick={() => setOpen(dish.id)}
                   className="cursor-pointer border-b border-[#f2f3f6] hover:bg-[#f7f9ff]"
                 >
-                  <td className="px-2 py-1 font-bold">{d.name}</td>
+                  <td className="px-2 py-1 font-bold">{dish.name}</td>
                   <td className="px-2 py-1 text-[#6b7385]">
-                    {d.category ?? "Sin categoría"}
+                    {categoryLabel(dish.category ?? NO_CATEGORY_LABEL, lang)}
                   </td>
                   <td className="px-2 py-1 text-right font-bold">
-                    {money(d.net_sales)}
+                    {money(dish.net_sales)}
                   </td>
                   <td className="px-2 py-1 text-right">
-                    {Math.round(d.units).toLocaleString("es-MX")}
+                    {Math.round(dish.units).toLocaleString(locale)}
                   </td>
                   <td className="px-2 py-1 text-right">
-                    {d.food_cost_pct === null
-                      ? "Sin precio"
-                      : `${Math.round(d.food_cost_pct)}%`}
+                    {dish.food_cost_pct === null
+                      ? p0.noPrice
+                      : `${Math.round(dish.food_cost_pct)}%`}
                   </td>
                   <td className="px-2 py-1 text-right text-[11.5px] font-semibold text-[#1b40c8]">
-                    Desglose →
+                    {p0.breakdown}
                   </td>
                 </tr>
               ))}

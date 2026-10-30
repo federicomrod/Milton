@@ -202,7 +202,7 @@ async function callInsightOpenAI(
             "1. Use ONLY the numbers and names in each insight's facts.",
             "2. Do not invent, round into a new figure, or add extra numbers.",
             "3. Copy numeric values exactly as given (you may add $ or %).",
-            "4. Write in the requested language. Neutral Latin American Spanish with tú when es.",
+            "4. Write in the requested language. Neutral Latin American Spanish with tú when es; formal German with Sie when de (no jargon, hedge estimates).",
             "5. Each insight: one title (max 12 words) and one body (max 2 sentences).",
             "6. Do not include URLs. Do not contradict the sign of delta_pct / vs_average_pct.",
             '7. JSON only: {"insights":[{"id","title","body"}]}',

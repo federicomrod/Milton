@@ -36,6 +36,11 @@ import {
 } from "@/lib/restaurant/telegram/send";
 import { loadDraftMatchingCatalog } from "@/lib/restaurant/kitchen-draft-catalog";
 import { resolvePreferredLanguage, t } from "@/lib/restaurant/language";
+import {
+  currentKitchenLanguage,
+  languageFromTelegramCode,
+  setKitchenLanguage,
+} from "@/lib/restaurant/telegram/kitchen-language";
 import { isValidWebhookSecret } from "@/lib/restaurant/telegram/webhook-secret";
 import {
   buildDisplayName,
@@ -61,42 +66,29 @@ import {
   type KitchenActor,
   parseKindFollowUp,
   processInvoicePhoto,
-  currencyName,
-  processPriceUpdateSafe,
   routeCaption,
 } from "@/lib/restaurant/telegram/kitchen-media";
 import { maybeGuideOwnerChat } from "@/lib/restaurant/telegram/owner-chat-guidance";
 import { classifyKitchenPhoto } from "@/lib/restaurant/telegram/photo-classify";
 import { copyTelegramReportMediaToStorage } from "@/lib/restaurant/telegram/media-copy";
 import {
-  currencySymbolFor,
   hasPriceNumber,
   looksLikePriceIntent,
   parsePriceMessage,
 } from "@/lib/restaurant/telegram/price-update";
+import { isActionable, rulesStage } from "@/lib/restaurant/telegram/price-flow";
 import {
-  aiStage,
-  isActionable,
-  joinProducts,
-  overLimitLine,
-  routeOf,
-  rulesStage,
-  unclearLine,
-  type PriceFlowResult,
-  type PriceItemsResult,
-} from "@/lib/restaurant/telegram/price-flow";
-import { askPriceAi } from "@/lib/restaurant/telegram/price-update-ai";
+  applyPriceResult,
+  logPriceRoute,
+  runMessagePipeline,
+} from "@/lib/restaurant/kitchen/pipeline/message-pipeline";
+
+import { findOpenUnitQuestion } from "@/lib/restaurant/telegram/price-unit-question";
 import {
-  findOpenUnitQuestion,
-  openAmountQuestion,
-  openUnitQuestion,
-} from "@/lib/restaurant/telegram/price-unit-question";
-import {
-  amountAskReply,
   questionClosedReply,
   tryPendingAnswer,
 } from "@/lib/restaurant/telegram/kitchen-pending-answer";
-import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+
 import {
   listActiveLinks,
   validateLink,
@@ -119,7 +111,6 @@ import {
   anchorMessageId,
   isAnchor,
   isUnitQuestion,
-  linkLabel,
   linkToActor,
   maybeCleanupPending,
   messageFromPayload,
@@ -136,12 +127,17 @@ export const maxDuration = 120;
 
 interface TelegramUpdate {
   message?: TelegramIncomingMessage & {
-    from?: { id?: number; first_name?: string; last_name?: string };
+    from?: {
+      id?: number;
+      first_name?: string;
+      last_name?: string;
+      language_code?: string;
+    };
     chat?: { id?: number; type?: string };
   };
   callback_query?: {
     id?: string;
-    from?: { id?: number };
+    from?: { id?: number; language_code?: string };
     message?: {
       message_id?: number;
       text?: string;
@@ -160,19 +156,23 @@ function verifyWebhookSecret(req: NextRequest): boolean {
 
 const GENERIC_INVALID_CODE_MESSAGE =
   "This code is invalid or has expired. Generate a new one from Milton.\n\n" +
-  "Este código no es válido o expiró. Genera uno nuevo desde Milton.";
+  "Este código no es válido o expiró. Genera uno nuevo desde Milton.\n\n" +
+  "Dieser Code ist ungültig oder abgelaufen. Erzeugen Sie in Milton einen neuen.";
 
 const GENERIC_ALREADY_CONNECTED_MESSAGE =
   "This chat or company is already connected to Milton.\n\n" +
-  "Este chat o empresa ya está conectado a Milton.";
+  "Este chat o empresa ya está conectado a Milton.\n\n" +
+  "Dieser Chat oder dieses Unternehmen ist bereits mit Milton verbunden.";
 
 const GENERIC_USAGE_MESSAGE =
   "Please use the connection link from Milton to pair this chat.\n\n" +
-  "Usa el enlace de conexión de Milton para vincular este chat.";
+  "Usa el enlace de conexión de Milton para vincular este chat.\n\n" +
+  "Bitte verwenden Sie den Verbindungslink aus Milton, um diesen Chat zu koppeln.";
 
 const GENERIC_ERROR_MESSAGE =
   "Something went wrong. Please try again from Milton.\n\n" +
-  "Ocurrió un error. Inténtalo de nuevo desde Milton.";
+  "Ocurrió un error. Inténtalo de nuevo desde Milton.\n\n" +
+  "Es ist ein Fehler aufgetreten. Bitte versuchen Sie es in Milton erneut.";
 
 type TelegramMessage = NonNullable<TelegramUpdate["message"]>;
 
@@ -186,12 +186,20 @@ async function handleKitchenJoin(
   const fromId = message.from?.id;
   if (message.chat?.type !== "private" || !fromId) return;
   try {
+    let companyLang: ReturnType<typeof languageFromTelegramCode> | null = null;
     const result = await consumeKitchenJoin({
       payload,
       telegramUserId: fromId,
       chatId,
       displayName: buildDisplayName(message.from ?? {}),
+      onLanguage: (lang) => {
+        companyLang = lang;
+      },
     });
+    // The company's language once the QR is valid; Telegram's own otherwise.
+    setKitchenLanguage(
+      companyLang ?? languageFromTelegramCode(message.from?.language_code)
+    );
     let reply: string;
     switch (result.kind) {
       case "invalid":
@@ -202,19 +210,19 @@ async function handleKitchenJoin(
         break;
       case "already_joined":
         reply = renderKitchenCopy(KITCHEN_COPY.ALREADY_JOINED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
         break;
       case "added":
         reply = renderKitchenCopy(KITCHEN_COPY.JOINED_ADDED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
         break;
       default:
         reply = renderKitchenCopy(KITCHEN_COPY.JOINED, {
-          empresa: result.companyName || "tu restaurante",
+          empresa: result.companyName || KITCHEN_COPY.FRAG_YOUR_RESTAURANT,
           local: result.locationName,
         });
     }
@@ -404,6 +412,7 @@ async function handleKitchenReport(
   );
   try {
     const links = await listActiveLinks(fromId);
+    if (links.length > 0) setKitchenLanguage(links[0].language ?? "es");
     if (links.length === 0) {
       // Not a cook. If this chat is an owner-paired briefing chat, say once
       // how to send invoices. Unknown chats stay silent. Nothing is captured.
@@ -532,7 +541,12 @@ async function handleKitchenReport(
           result.ok
             ? renderKitchenCopy(KITCHEN_COPY.RECIPE_PORTIONS_SET, {
                 ...destinationVars(linkToActor(awaiting.link)),
-                porciones: `${portions} ${portions === 1 ? "porción" : "porciones"}`,
+                porciones:
+                  portions === 1
+                    ? KITCHEN_COPY.FRAG_PORTION_ONE
+                    : renderKitchenCopy(KITCHEN_COPY.FRAG_PORTIONS, {
+                        n: String(portions),
+                      }),
               })
             : KITCHEN_COPY.RECIPE_PORTIONS_UNCLEAR
         );
@@ -607,6 +621,7 @@ async function processReport(args: {
   markup?: InlineKeyboardMarkup;
 }): Promise<void> {
   const { link, chatId, message, report, markup } = args;
+  if (link.language) setKitchenLanguage(link.language);
   const staff = linkToActor(link);
   const admin = createAdminClient();
   const messageId = message.message_id ?? 0;
@@ -711,6 +726,7 @@ async function handleRestaurantCommand(
   try {
     const links = await listActiveLinks(fromId);
     if (links.length === 0) return;
+    setKitchenLanguage(links[0].language ?? "es");
     if (links.length === 1) {
       await sendTelegramMessage(
         chatId,
@@ -829,6 +845,7 @@ async function handleCallbackQuery(
         return reject("bad_index");
       }
       const links = await listActiveLinks(fromId);
+      if (links.length > 0) setKitchenLanguage(links[0].language ?? "es");
       const entries = entriesFor(pending.optionStaffIds, links);
       if (entries.length === 0) return reject("link_gone");
       const kind = parsed.kind === "item" ? "item" : "default";
@@ -874,6 +891,7 @@ async function handleCallbackQuery(
     if (!staffId) return reject("bad_index");
     const link = await validateLink(fromId, staffId);
     if (!link) return reject("link_gone");
+    if (link.language) setKitchenLanguage(link.language);
 
     const resolved = await resolvePendingItem(pending.id, staffId);
     if (!resolved.ok) {
@@ -935,206 +953,6 @@ async function handleCallbackQuery(
       // nothing more to do
     }
   }
-}
-
-interface PriceCtx {
-  admin: ReturnType<typeof createAdminClient>;
-  staff: KitchenActor;
-  /** The restaurant link the unit question belongs to. */
-  link: KitchenLink | null;
-  chatId: number;
-  messageId: number;
-  reportId: string | null;
-  dateSec: number | null;
-  origin: "text" | "voice";
-  /** Length of the text / transcript (the only thing ever logged about it). */
-  len: number;
-  markup?: InlineKeyboardMarkup;
-}
-
-// One line per message: ids and counts only, NEVER the text.
-function logPriceRoute(
-  ctx: Pick<PriceCtx, "origin" | "len">,
-  route: string,
-  r: PriceItemsResult | undefined,
-  aiCalled: boolean
-) {
-  const lenKey = ctx.origin === "voice" ? "transcript_len" : "text_len";
-  console.info(
-    `[telegram-webhook] price_flow ${lenKey}=${ctx.len} route=${route}` +
-      ` items_saved=${r?.saved.length ?? 0}` +
-      ` items_unit_asked=${r?.needUnit.length ?? 0}` +
-      ` items_amount_asked=${r?.ambiguous.length ?? 0}` +
-      ` items_unclear=${r?.unclear.length ?? 0}` +
-      ` items_skipped_no_price=${r?.skippedNoPrice.length ?? 0}` +
-      ` ai_called=${aiCalled}`
-  );
-}
-
-// What to say when nothing could be saved or asked but the message read like a
-// price (the rules' «No entendí…» / «No pude leer los precios ahora»).
-function unclearReply(result: PriceFlowResult): string | null {
-  if (result.kind !== "items") return null;
-  const line = unclearLine(result.r, true);
-  if (!line) return null;
-  return result.aiFailed && line === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR
-    ? KITCHEN_COPY.PRICE_UPDATE_FAILED
-    : line;
-}
-
-// The first currency the cook SAID that differs from the company's, if any.
-async function replyIfCurrencyMismatch(
-  r: PriceItemsResult,
-  ctx: PriceCtx
-): Promise<boolean> {
-  const said = [
-    ...r.saved.map((i) => i.currency),
-    ...r.needUnit.map((i) => (i as { currency?: string | null }).currency),
-    ...r.ambiguous.map((i) => i.currency),
-  ].filter((c): c is string => typeof c === "string" && c.length > 0);
-  if (said.length === 0) return false;
-  const company = await resolveCompanyCurrency(
-    ctx.admin as never,
-    ctx.staff.company_id
-  ).catch(() => null);
-  if (!company) return false;
-  const wrong = said.find((c) => c.toUpperCase() !== company.toUpperCase());
-  if (!wrong) return false;
-  await sendTelegramMessage(
-    ctx.chatId,
-    renderKitchenCopy(KITCHEN_COPY.PRICE_CURRENCY_MISMATCH, {
-      ...destinationVars(ctx.staff),
-      moneda_dicha: currencyName(wrong),
-      moneda_empresa: currencyName(company),
-    }),
-    ctx.markup ? { replyMarkup: ctx.markup } : undefined
-  );
-  return true;
-}
-
-// Acts on the pipeline's verdict. true = the message was answered.
-// ONE reply per message: what was saved, the question (amount or unit, only
-// ONE), what was not understood, what went over the limit.
-async function applyPriceResult(
-  result: PriceFlowResult,
-  ctx: PriceCtx
-): Promise<boolean> {
-  if (result.kind === "none") return false;
-  let r = result.r;
-
-  // A currency that is not the company's («150 pesos» for a USD restaurant):
-  // nothing is saved and no question is asked; the cook is told to resend it.
-  if (await replyIfCurrencyMismatch(r, ctx)) {
-    logPriceRoute(ctx, "currency_mismatch", r, result.aiCalled);
-    return true;
-  }
-
-  // «aguacate a 150»: 1.50 or 150? Asked once, nothing saved yet.
-  let askLine: string | null = null;
-  if (r.ambiguous.length > 0) {
-    const first = r.ambiguous[0];
-    const opened = ctx.link
-      ? await openAmountQuestion({
-          chatId: ctx.chatId,
-          messageId: ctx.messageId,
-          link: ctx.link,
-          items: [
-            {
-              product: first.product,
-              options: first.options,
-              unit: first.unit,
-              currency: first.currency,
-            },
-          ],
-        })
-      : ({ ok: false } as const);
-    if (!opened.ok) {
-      r = {
-        ...r,
-        ambiguous: [],
-        unclear: [...r.unclear, { label: first.product }],
-      };
-    } else {
-      maybeCleanupPending();
-      if (opened.created) {
-        const cur =
-          first.currency ??
-          (await resolveCompanyCurrency(
-            ctx.admin as never,
-            ctx.staff.company_id
-          ).catch(() => null));
-        askLine = amountAskReply(first, currencySymbolFor(cur));
-      }
-    }
-  }
-
-  // Prices without a unit: ask once, for those items only.
-  if (r.needUnit.length > 0) {
-    const opened = ctx.link
-      ? await openUnitQuestion({
-          chatId: ctx.chatId,
-          messageId: ctx.messageId,
-          link: ctx.link,
-          items: r.needUnit,
-        })
-      : ({ ok: false } as const);
-    if (!opened.ok) {
-      // The question could not be kept open: say they were not understood.
-      r = {
-        ...r,
-        needUnit: [],
-        unclear: [...r.unclear, ...r.needUnit.map((i) => ({ label: i.name }))],
-      };
-    } else {
-      maybeCleanupPending();
-      if (opened.created) {
-        askLine = renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
-          producto: joinProducts(r.needUnit.map((i) => i.name)),
-        });
-      }
-    }
-  }
-
-  logPriceRoute(ctx, routeOf(r), r, result.aiCalled);
-  const standalone =
-    r.saved.length === 0 && r.needUnit.length === 0 && r.ambiguous.length === 0;
-  let lines = [askLine, unclearLine(r, standalone), overLimitLine(r)].filter(
-    (l): l is string => l !== null
-  );
-
-  // S1: When AI was called but failed (threw or timed out) and everything is unclear,
-  // send PRICE_UPDATE_FAILED instead of PRICE_UPDATE_UNCLEAR
-  if (
-    result.aiFailed &&
-    standalone &&
-    lines.some((l) => l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR)
-  ) {
-    lines = lines.map((l) =>
-      l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR
-        ? KITCHEN_COPY.PRICE_UPDATE_FAILED
-        : l
-    );
-  }
-
-  const suffix = lines.join("\n\n");
-
-  if (r.saved.length > 0) {
-    // Never throws: a failure is logged and the cook is told (PRICE_SAVE_FAILED).
-    await processPriceUpdateSafe({
-      admin: ctx.admin,
-      staff: ctx.staff,
-      chatId: ctx.chatId,
-      reportId: ctx.reportId,
-      dateSec: ctx.dateSec,
-      items: r.saved,
-      origin: ctx.origin,
-      replyMarkup: ctx.markup,
-      replySuffix: suffix || undefined,
-    });
-    return true;
-  }
-  if (suffix) await sendTelegramMessage(ctx.chatId, suffix);
-  return true;
 }
 
 // Could this still be a price (so a closed question needs no notice)?
@@ -1201,81 +1019,6 @@ async function answerPendingFromText(
   return false;
 }
 
-// The whole text / transcript pipeline, in one place (typed text and voice):
-//   1. rules (+ the price AI for the parts the rules could not read)
-//      -> saved / asked: answered (applyPriceResult)
-//   2. a recipe -> the caller continues with the recipe draft
-//   3. the AI interpreter (handleWithAi) with context, BEFORE any reply
-//   4. its timeout/failure -> a deterministic reply (never a bare «Recibido»)
-// "handled" = a reply was sent; "recipe" = continue with the recipe flow.
-async function runMessagePipeline(
-  text: string,
-  ctx: PriceCtx
-): Promise<"handled" | "recipe"> {
-  const logCtx = { origin: ctx.origin, len: ctx.len };
-  try {
-    const stage = rulesStage(text);
-    const result: PriceFlowResult = stage.done
-      ? stage.result
-      : await aiStage(text, stage.read, askPriceAi);
-    if (isActionable(result)) {
-      if (await applyPriceResult(result, ctx)) return "handled";
-    }
-
-    const { detectRecipeIntent } =
-      await import("@/lib/restaurant/telegram/kitchen-recipe-drafts");
-    if (detectRecipeIntent(text).isRecipe) {
-      logPriceRoute(logCtx, "recipe", undefined, result.aiCalled);
-      return "recipe";
-    }
-
-    // The rules' own reading of a price that could not be understood. Not
-    // for stock talk: that gets the stock copy.
-    const hasStockWords = classifyKitchenReport(text) !== "unclassified";
-    const unclear = hasStockWords ? null : unclearReply(result);
-
-    const { handleWithAi } =
-      await import("@/lib/restaurant/telegram/kitchen-ai-handler");
-    const handled = await handleWithAi({
-      admin: ctx.admin,
-      staff: ctx.staff,
-      chatId: ctx.chatId,
-      messageId: ctx.messageId,
-      text,
-      markup: ctx.markup,
-      reportId: ctx.reportId,
-      dateSec: ctx.dateSec,
-      origin: ctx.origin,
-      link: ctx.link,
-      // If this AI fails too: the rules' own «no entendí» (or «no pude leer los
-      // precios ahora» when the price AI was down), never stock talk's.
-      fallbackReply:
-        unclear ??
-        (result.aiFailed && !hasStockWords
-          ? KITCHEN_COPY.PRICE_UPDATE_FAILED
-          : null),
-    });
-    if (handled) {
-      logPriceRoute(logCtx, "ai_handled", undefined, result.aiCalled);
-      return "handled";
-    }
-    logPriceRoute(logCtx, "recipe", undefined, result.aiCalled);
-    return "recipe";
-  } catch {
-    console.error("[telegram-webhook] message pipeline failed");
-    try {
-      await sendTelegramMessage(
-        ctx.chatId,
-        KITCHEN_COPY.PRICE_UPDATE_FAILED,
-        ctx.markup ? { replyMarkup: ctx.markup } : undefined
-      );
-    } catch {
-      // Guard the send itself so it can't throw
-    }
-    return "handled";
-  }
-}
-
 async function processRecipeDraftAsync(
   staff: KitchenActor,
   chatId: number,
@@ -1330,7 +1073,10 @@ async function processRecipeDraftAsync(
           feature: "telegram-voice",
           companyId: staff.company_id,
           timeoutMs: 20000,
-          params: { file, model: "whisper-1", language: "es" },
+          params:
+            currentKitchenLanguage() === "es"
+              ? { file, model: "whisper-1", language: "es" }
+              : { file, model: "whisper-1" },
         });
         if (transcription.ok) {
           finalTextContent = transcription.value.text ?? "";
@@ -1583,6 +1329,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true }); // malformed body — nothing to do
   }
 
+  // Until the company of the cook is known, Telegram's own language.
+  setKitchenLanguage(
+    languageFromTelegramCode(
+      (update.callback_query?.from ?? update.message?.from)?.language_code
+    )
+  );
+
   if (update.callback_query) {
     await handleCallbackQuery(update.callback_query);
     return NextResponse.json({ ok: true });
@@ -1662,7 +1415,8 @@ export async function POST(req: NextRequest) {
     confirmation = t(
       lang,
       `✅ Connected${name ? ` to ${name}` : ""}! You'll receive Milton briefings here.`,
-      `✅ ¡Conectado${name ? ` a ${name}` : ""}! Recibirás los briefings de Milton aquí.`
+      `✅ ¡Conectado${name ? ` a ${name}` : ""}! Recibirás los briefings de Milton aquí.`,
+      `✅ Verbunden${name ? ` mit ${name}` : ""}! Hier erhalten Sie die Milton-Briefings.`
     );
   } catch (err) {
     console.error(

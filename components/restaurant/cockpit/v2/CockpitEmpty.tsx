@@ -8,7 +8,11 @@
 import Link from "next/link";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
-import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
+import { fmt, getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 export type EmptyReason =
   | "unauthenticated"
@@ -16,18 +20,6 @@ export type EmptyReason =
   | "no_sales"
   | "supabase_error"
   | "env_missing";
-
-const REASON_COPY: Record<EmptyReason, string> = {
-  no_sales: "Aún no hay ventas. Conecta tu POS o sube un archivo de ventas.",
-  unauthenticated: "Entra a tu cuenta para ver tus números.",
-  no_company: "Tu cuenta todavía no está ligada a un restaurante.",
-  supabase_error:
-    "No pudimos leer tus ventas ahora. Recarga la página; si sigue igual, avísanos.",
-  env_missing: NOT_AVAILABLE_YET,
-};
-
-const PERIODS = ["Hoy", "7 d", "30 d", "Trimestre"];
-const NO_DATA = "Sin datos aún";
 
 function Card({ label, sub }: { label: string; sub?: string }) {
   return (
@@ -45,16 +37,18 @@ function Card({ label, sub }: { label: string; sub?: string }) {
 
 function Panel({
   title,
+  noData,
   children,
 }: {
   title: string;
+  noData: string;
   children?: React.ReactNode;
 }) {
   return (
     <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
       <h2 className="mb-2 text-[14px] font-bold">{title}</h2>
       {children ?? (
-        <p className="py-6 text-center text-[12px] text-[#8a92a3]">{NO_DATA}</p>
+        <p className="py-6 text-center text-[12px] text-[#8a92a3]">{noData}</p>
       )}
     </section>
   );
@@ -62,9 +56,26 @@ function Panel({
 
 export function CockpitEmpty({
   reason = "no_sales",
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
 }: {
   reason?: EmptyReason;
+  lang?: PreferredLanguage;
 }) {
+  const d = getDictionary(lang).cockpit;
+  const REASON_COPY: Record<EmptyReason, string> = {
+    no_sales: d.empty.noSales,
+    unauthenticated: d.empty.unauthenticated,
+    no_company: d.empty.noCompany,
+    supabase_error: d.empty.supabaseError,
+    env_missing: d.uiCopy.notAvailableYet,
+  };
+  const NO_DATA = d.empty.noData;
+  const PERIODS = [
+    d.periods.today,
+    d.periods.d7,
+    d.periods.d30,
+    d.periods.quarter,
+  ];
   return (
     <div className="space-y-3" data-testid="cockpit-v2-empty">
       <p
@@ -94,15 +105,18 @@ export function CockpitEmpty({
           ))}
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px] text-[#8a92a3]">
-          Comparar con: <b>Últimos 6 meses</b>
+          {d.v2.compareWith} <b>{d.comparisons.months6}</b>
         </span>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card label="Venta promedio diaria" sub={NO_DATA} />
-        <Card label="Ventas · 30 d" sub={NO_DATA} />
-        <Card label="Costo de comida" sub="Sube tus costos para calcularlo" />
-        <Card label="Margen bruto" />
+        <Card label={d.v2.avgDaily} sub={NO_DATA} />
+        <Card
+          label={fmt(d.v2.salesCard, { period: d.periods.d30 })}
+          sub={NO_DATA}
+        />
+        <Card label={d.v2.foodCost} sub={d.empty.uploadCostsHint} />
+        <Card label={d.v2.grossMargin} />
       </div>
 
       <div
@@ -124,28 +138,28 @@ export function CockpitEmpty({
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
-        <Panel title="Ventas diarias" />
-        <Panel title="Mezcla de ventas" />
+        <Panel title={d.v2.dailySales} noData={NO_DATA} />
+        <Panel title={d.v2.salesMix} noData={NO_DATA} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <Panel title="Semana vs semana" />
-        <Panel title="Costo de comida por día" />
+        <Panel title={d.v2.weekVsWeek} noData={NO_DATA} />
+        <Panel title={d.v2.foodCostByDay} noData={NO_DATA} />
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
-          <h2 className="mb-2 text-[14px] font-bold">✦ Milton</h2>
-          <p className="text-[13px] leading-relaxed">Empieza por aquí:</p>
+          <h2 className="mb-2 text-[14px] font-bold">{d.v2.miltonTitle}</h2>
+          <p className="text-[13px] leading-relaxed">{d.empty.startHere}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               href={CONNECT_DATA_PATH}
               className="inline-block rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6]"
             >
-              Conecta tu POS
+              {d.empty.connectPos}
             </Link>
             <Link
               href={costsTabHref("precios")}
               className="inline-block rounded-lg border border-[#c6d3f5] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1b40c8] hover:bg-[#eef2fd]"
             >
-              Sube tus costos
+              {d.empty.uploadCosts}
             </Link>
           </div>
         </section>

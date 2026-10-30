@@ -5,15 +5,38 @@
 // price edit. No I/O, so tests can pin the rules.
 
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { typedNumber } from "@/lib/restaurant/locale-number";
 
 export type PriceSource = "excel" | "lista" | "factura" | "manual" | "telegram";
 
+/** The price source in a language (Spanish by default). */
+export function priceSourceLabel(
+  source: PriceSource,
+  lang: PreferredLanguage = "es"
+): string {
+  const d = getDictionary(lang).menu.screens.ingredientes;
+  switch (source) {
+    case "excel":
+      return d.sourceExcel;
+    case "lista":
+      return d.sourceList;
+    case "factura":
+      return d.sourceInvoice;
+    case "manual":
+      return d.sourceManual;
+    default:
+      return d.sourceTelegram;
+  }
+}
+
 export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
-  excel: "Excel",
-  lista: "lista de precios",
-  factura: "factura",
-  manual: "manual",
-  telegram: "Telegram",
+  excel: priceSourceLabel("excel"),
+  lista: priceSourceLabel("lista"),
+  factura: priceSourceLabel("factura"),
+  manual: priceSourceLabel("manual"),
+  telegram: priceSourceLabel("telegram"),
 };
 
 /**
@@ -115,7 +138,11 @@ export function sortIngredientes<T extends SortableRow>(
 }
 
 /** "$12.40", "12,40", "€ 12.4" → 12.4; anything else → null. */
-export function parsePriceInput(raw: string): number | null {
+export function parsePriceInput(
+  raw: string,
+  lang: PreferredLanguage = "es"
+): number | null {
+  if (lang === "de") return typedNumber(raw, "de");
   const cleaned = raw.replace(/[^\d.,-]/g, "").replace(/,(?=\d{1,4}$)/, ".");
   const plain = cleaned.replace(/,/g, "");
   if (plain === "" || !/^\d*\.?\d+$/.test(plain)) return null;

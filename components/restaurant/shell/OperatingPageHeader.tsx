@@ -7,7 +7,8 @@
 "use client";
 
 import { Suspense, useSyncExternalStore, type ReactNode } from "react";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import { formatLastSyncedAgo } from "@/lib/restaurant/last-synced";
 import type { PageDateRange } from "@/lib/restaurant/page-date-range";
 import { DateRangeControl } from "@/components/restaurant/shell/DateRangeControl";
@@ -84,7 +85,7 @@ function AskMiltonHeaderButton({ lang }: { lang: PreferredLanguage }) {
       onClick={() => openAskMilton()}
       className="hidden lg:inline-flex h-8 items-center rounded-lg bg-[#151c2c] px-3 text-xs font-semibold text-white hover:bg-[#26314a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
     >
-      ✦ {t(lang, "Ask Milton", "Preguntar a Milton")}
+      ✦ {getDictionary(lang).shell.sidebar.askMilton}
     </button>
   );
 }
@@ -122,16 +123,6 @@ export function operatingPageTitle(
   page: "cockpit" | "sales" | "menu" | "costs" | "kitchen",
   lang: PreferredLanguage
 ): string {
-  switch (page) {
-    case "cockpit":
-      return t(lang, "Cockpit", "Cockpit");
-    case "sales":
-      return t(lang, "Sales", "Ventas");
-    case "menu":
-      return t(lang, "Menu", "Menú");
-    case "costs":
-      return t(lang, "Costs", "Costos");
-    case "kitchen":
-      return t(lang, "Kitchen", "Cocina");
-  }
+  const nav = getDictionary(lang).shell.nav;
+  return nav[page];
 }

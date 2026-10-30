@@ -3,6 +3,7 @@
 // aliases and archive state go back exactly as the undo record says.
 
 import { requireCapability } from "@/lib/auth/permissions";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import {
   UUID,
@@ -14,36 +15,27 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const g = await gate();
   if (!g.ok) return g.response;
   const denied = requireCapability(g.actor, "ingredients.manage", {
-    message: "Tu rol no puede unir ni descartar ingredientes.",
+    message: api.roleMerge,
   });
   if (denied) return denied;
   let body: { merge_id?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   if (typeof body.merge_id !== "string" || !UUID.test(body.merge_id)) {
-    return NextResponse.json(
-      { error: "Falta la unión que se deshace." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.missingUndo }, { status: 400 });
   }
   const { data, error } = await g.auth.supabase.rpc("ingredient_merge_undo", {
     p_company_id: g.auth.companyId,
     p_merge_id: body.merge_id,
   });
   if (error)
-    return failureResponse(
-      error,
-      "No pude deshacer la unión.",
-      "ingredient-merge-undo"
-    );
+    return failureResponse(error, api.undoFailed, "ingredient-merge-undo");
   return NextResponse.json({ ok: true, result: data });
 }

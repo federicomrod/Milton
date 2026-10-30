@@ -21,6 +21,8 @@ import {
   MAX_ROWS_PER_SHEET,
   MAX_WORKBOOK_TABS,
 } from "@/lib/restaurant/cost-workbook/limits";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
+import { uploadMsg } from "./messages";
 
 export type RecipeChunkKind = "text" | "image" | "pdf_file";
 
@@ -48,13 +50,10 @@ export const CHUNK_CHAR_LIMIT = 12_000;
 /** A PDF page with fewer non-space characters than this is a scan. */
 export const SCANNED_PAGE_MIN_CHARS = 40;
 
-export const PDF_TOO_LONG_MESSAGE =
-  "Este PDF tiene más de 30 páginas. Divídelo en partes.";
-export const CHUNK_CAP_MESSAGE =
-  "Leí las primeras 30 hojas/páginas; sube el resto en otro archivo.";
-export const FILE_UNREADABLE_MESSAGE =
-  "No pude leer este archivo. Revisa que no esté dañado y vuelve a subirlo.";
-export const NO_TEXT_MESSAGE = "No encontré texto en este archivo.";
+export const PDF_TOO_LONG_MESSAGE = uploadMsg("es", "pdfTooLong");
+export const CHUNK_CAP_MESSAGE = uploadMsg("es", "chunkCap");
+export const FILE_UNREADABLE_MESSAGE = uploadMsg("es", "fileUnreadable");
+export const NO_TEXT_MESSAGE = uploadMsg("es", "noText");
 
 export interface FileToChunksResult {
   chunks: RecipeChunk[];
@@ -67,6 +66,8 @@ export interface FileToChunksInput {
   buffer: Buffer;
   fileName: string;
   mime: string;
+  /** Language of the notes and errors (default Spanish). */
+  lang?: PreferredLanguage;
 }
 
 function baseName(fileName: string): string {
@@ -144,18 +145,21 @@ function pushTabChunks(
   });
 }
 
-function xlsxToChunks(buffer: Buffer): RecipeChunk[] {
+function xlsxToChunks(
+  buffer: Buffer,
+  lang: PreferredLanguage = "es"
+): RecipeChunk[] {
   let wb: XLSX.WorkBook;
   try {
     wb = XLSX.read(buffer, { type: "buffer", cellDates: true });
   } catch {
-    throw new UploadFileError(FILE_UNREADABLE_MESSAGE);
+    throw new UploadFileError(uploadMsg(lang, "fileUnreadable"));
   }
   const sheetsMeta = wb.Workbook?.Sheets ?? [];
   const visible = wb.SheetNames.filter((_, i) => !sheetsMeta[i]?.Hidden);
   if (visible.length > MAX_WORKBOOK_TABS) {
     throw new UploadFileError(
-      `Este archivo tiene más de ${MAX_WORKBOOK_TABS} hojas. Divídelo en partes.`
+      uploadMsg(lang, "tooManyTabs", { max: MAX_WORKBOOK_TABS })
     );
   }
   const out: RecipeChunk[] = [];
@@ -165,7 +169,9 @@ function xlsxToChunks(buffer: Buffer): RecipeChunk[] {
     const range = XLSX.utils.decode_range(ws["!ref"]);
     if (range.e.r - range.s.r + 1 > MAX_ROWS_PER_SHEET) {
       throw new UploadFileError(
-        `Una hoja tiene más de ${MAX_ROWS_PER_SHEET.toLocaleString("es")} filas. Divídela en partes.`
+        uploadMsg(lang, "sheetTooManyRows", {
+          rows: MAX_ROWS_PER_SHEET.toLocaleString(localeFor(lang)),
+        })
       );
     }
     const csv = XLSX.utils.sheet_to_csv(ws, {
@@ -183,14 +189,20 @@ function decodeText(buffer: Buffer): string {
   return text.replace(/^\uFEFF/, "");
 }
 
-function csvToChunks(buffer: Buffer, fileName: string): RecipeChunk[] {
+function csvToChunks(
+  buffer: Buffer,
+  fileName: string,
+  lang: PreferredLanguage = "es"
+): RecipeChunk[] {
   const parsed = Papa.parse<string[]>(decodeText(buffer), {
     skipEmptyLines: false,
   });
   const rows = parsed.data as string[][];
   if (rows.length > MAX_ROWS_PER_SHEET + 1) {
     throw new UploadFileError(
-      `El archivo tiene más de ${MAX_ROWS_PER_SHEET.toLocaleString("es")} filas. Divídelo en partes.`
+      uploadMsg(lang, "fileTooManyRows", {
+        rows: MAX_ROWS_PER_SHEET.toLocaleString(localeFor(lang)),
+      })
     );
   }
   const lines = rows.map((row) =>
@@ -265,7 +277,8 @@ export function splitDocumentText(
 
 async function docxToChunks(
   buffer: Buffer,
-  fileName: string
+  fileName: string,
+  lang: PreferredLanguage = "es"
 ): Promise<RecipeChunk[]> {
   let value = "";
   try {
@@ -279,7 +292,7 @@ async function docxToChunks(
     if (!extract) throw new Error("mammoth unavailable");
     value = (await extract({ buffer })).value ?? "";
   } catch {
-    throw new UploadFileError(FILE_UNREADABLE_MESSAGE);
+    throw new UploadFileError(uploadMsg(lang, "fileUnreadable"));
   }
   const parts = splitDocumentText(value);
   const name = baseName(fileName);
@@ -290,7 +303,10 @@ async function docxToChunks(
   }));
 }
 
-async function pdfToChunks(buffer: Buffer): Promise<RecipeChunk[]> {
+async function pdfToChunks(
+  buffer: Buffer,
+  lang: PreferredLanguage = "es"
+): Promise<RecipeChunk[]> {
   let pages: string[];
   try {
     const { extractText } = await import("unpdf");
@@ -300,10 +316,10 @@ async function pdfToChunks(buffer: Buffer): Promise<RecipeChunk[]> {
     });
     pages = Array.isArray(res.text) ? res.text : [String(res.text ?? "")];
   } catch {
-    throw new UploadFileError(FILE_UNREADABLE_MESSAGE);
+    throw new UploadFileError(uploadMsg(lang, "fileUnreadable"));
   }
   if (pages.length > MAX_PDF_PAGES) {
-    throw new UploadFileError(PDF_TOO_LONG_MESSAGE);
+    throw new UploadFileError(uploadMsg(lang, "pdfTooLong"));
   }
   const scanned = pages.some(
     (p) => p.replace(/\s/g, "").length < SCANNED_PAGE_MIN_CHARS
@@ -366,30 +382,31 @@ function imageToChunks(
 export async function fileToChunks(
   input: FileToChunksInput
 ): Promise<FileToChunksResult> {
+  const lang = input.lang ?? "es";
   let chunks: RecipeChunk[];
   switch (input.kind) {
     case "xlsx":
-      chunks = xlsxToChunks(input.buffer);
+      chunks = xlsxToChunks(input.buffer, lang);
       break;
     case "csv":
-      chunks = csvToChunks(input.buffer, input.fileName);
+      chunks = csvToChunks(input.buffer, input.fileName, lang);
       break;
     case "docx":
-      chunks = await docxToChunks(input.buffer, input.fileName);
+      chunks = await docxToChunks(input.buffer, input.fileName, lang);
       break;
     case "pdf":
-      chunks = await pdfToChunks(input.buffer);
+      chunks = await pdfToChunks(input.buffer, lang);
       break;
     case "image":
       chunks = imageToChunks(input.buffer, input.fileName, input.mime);
       break;
     default:
-      throw new UploadFileError(FILE_UNREADABLE_MESSAGE);
+      throw new UploadFileError(uploadMsg(lang, "fileUnreadable"));
   }
   const notices: string[] = [];
   if (chunks.length > MAX_CHUNKS_PER_FILE) {
     chunks = chunks.slice(0, MAX_CHUNKS_PER_FILE);
-    notices.push(CHUNK_CAP_MESSAGE);
+    notices.push(uploadMsg(lang, "chunkCap"));
   }
   return { chunks, notices };
 }

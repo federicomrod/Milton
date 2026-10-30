@@ -20,10 +20,7 @@ import type {
   VincularProductRow,
 } from "@/lib/restaurant/recipe-costing/workspace";
 import { TREATMENT_RULES } from "@/lib/restaurant/pos-treatments";
-import {
-  DISH_STATUS_LABELS,
-  type DishStatus,
-} from "@/lib/restaurant/costing/dish-status";
+import { type DishStatus } from "@/lib/restaurant/costing/dish-status";
 import {
   fixStepFor,
   type FocusRequest,
@@ -38,7 +35,7 @@ import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service
 import type { EditorLine } from "@/lib/restaurant/recipe-costing/editor";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
-  ESTIMATE_BADGE,
+  estimateCopy,
   estimateForProduct,
   estimateText,
   overlayAllowed,
@@ -50,19 +47,10 @@ import { dropEditorsForProduct } from "@/lib/restaurant/recipe-costing/editor-ca
 import { LastFileDialog, useLastFileRecipe } from "./LastFileRecipe";
 import { TreatmentControl, type PostFn } from "./TreatmentPanel";
 import { Chip, GhostBtn } from "./ui";
+import { useT } from "@/lib/i18n/client";
 
 /** "por_clasificar" filters on the treatment, not the cost status (B6). */
 type ListFilter = DishStatus | "por_clasificar";
-
-const FILTERS: Array<{ id: ListFilter | null; label: string }> = [
-  { id: null, label: "Todos" },
-  { id: "aprobado", label: DISH_STATUS_LABELS.aprobado },
-  { id: "estimado", label: DISH_STATUS_LABELS.estimado },
-  { id: "falta_precio", label: DISH_STATUS_LABELS.falta_precio },
-  { id: "borrador", label: DISH_STATUS_LABELS.borrador },
-  { id: "sin_receta", label: DISH_STATUS_LABELS.sin_receta },
-  { id: "por_clasificar", label: "Por clasificar" },
-];
 
 interface ListRow {
   odoo_product_id: number;
@@ -115,6 +103,19 @@ export function PlatoScreen({
   /** Every editor answer: the dish's live cost and chip. */
   onEditorState?: (state: EditorState) => void;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.platoScreen;
+  const statusLabels = d.menu.screens.status as Record<DishStatus, string>;
+  const toClassify = d.menu.workspace.treatment.porClasificar.label;
+  const FILTERS: Array<{ id: ListFilter | null; label: string }> = [
+    { id: null, label: w.filterAll },
+    { id: "aprobado", label: statusLabels.aprobado },
+    { id: "estimado", label: statusLabels.estimado },
+    { id: "falta_precio", label: statusLabels.falta_precio },
+    { id: "borrador", label: statusLabels.borrador },
+    { id: "sin_receta", label: statusLabels.sin_receta },
+    { id: "por_clasificar", label: toClassify },
+  ];
   const [query, setQuery] = useState("");
   const product = data.selected;
   const editor = data.editor;
@@ -134,14 +135,14 @@ export function PlatoScreen({
               note: q.status_note,
             }
           : {
-              label: p.is_combo ? "Combo" : p.treatment_label,
+              label: p.is_combo ? w.combo : p.treatment_label,
               tone: "grey" as const,
             },
         status: q?.dish_status ?? null,
         unclassified: p.classification === "por_clasificar",
       };
     });
-  }, [data.plato_queue, data.products]);
+  }, [data.plato_queue, data.products, w.combo]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -164,7 +165,7 @@ export function PlatoScreen({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar plato…"
+          placeholder={w.searchPlaceholder}
           className="m-2.5 rounded-[9px] border border-[#dfe3ea] px-2.5 py-[7px] text-[13px] outline-none focus:border-[#1B40C8]"
         />
         <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
@@ -192,8 +193,8 @@ export function PlatoScreen({
               {statusFilter
                 .map((s) =>
                   s === "por_clasificar"
-                    ? "Por clasificar"
-                    : (DISH_STATUS_LABELS[s as DishStatus] ?? s)
+                    ? toClassify
+                    : (statusLabels[s as DishStatus] ?? s)
                 )
                 .join(" · ")}
             </span>
@@ -217,7 +218,7 @@ export function PlatoScreen({
               <span className="min-w-0">
                 <b className="block truncate font-semibold">{row.name}</b>
                 <span className="text-[12px] text-[#8a92a3]">
-                  {row.share_label} de ventas de comida
+                  {fmt(w.foodSalesShare, { share: row.share_label })}
                 </span>
               </span>
               <span
@@ -233,7 +234,7 @@ export function PlatoScreen({
           ))}
           {visible.length === 0 ? (
             <p className="px-[14px] py-3 text-[13px] text-[#5b6476]">
-              No hay platos con ese filtro.
+              {w.noMatch}
             </p>
           ) : null}
         </div>
@@ -257,7 +258,7 @@ export function PlatoScreen({
         />
       ) : (
         <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-[14px] text-[13px] text-[#5b6476]">
-          Elige un plato de la lista.
+          {w.pickOne}
         </section>
       )}
     </div>
@@ -292,6 +293,9 @@ function Dish({
   onConfirm: () => void;
   onOpenPreparation: (componentId: string) => void;
 }) {
+  const { d, fmt, lang } = useT();
+  const w = d.menu.workspace.platoScreen;
+  const estimateBadge = estimateCopy(lang).badge;
   // This dish in the last uploaded cost file (saved upload, nothing re-uploaded).
   const [bringOpen, setBringOpen] = useState(false);
   const [editorKey, setEditorKey] = useState(0);
@@ -321,8 +325,14 @@ function Dish({
     },
     [onEditorState]
   );
+  const versionLabels: Record<string, string> = {
+    aprobada: w.versionApproved,
+    listo: w.versionApproved,
+    por_aprobar: w.versionToApprove,
+    borrador: w.versionDraft,
+  };
   const dish = data.selected_dish;
-  const money = (n: number) => formatMoneyEs(n, data.currency);
+  const money = (n: number) => formatMoneyEs(n, data.currency, undefined, lang);
   const takesRecipe =
     !product.is_combo && TREATMENT_RULES[product.treatment].needs_recipe;
   // Same rule as the engine (dish-version.ts): the recipe id is the row's or
@@ -372,7 +382,8 @@ function Dish({
         hasRecipe,
         liveLines
           ? { lines: liveLines, classification_unsaved: classificationUnsaved }
-          : null
+          : null,
+        lang
       )
     : null;
   const blocker = action && !action.enabled ? action.blocker : null;
@@ -383,7 +394,9 @@ function Dish({
     else if (step.do === "focus_line") setFocusRequest(step.request);
     else
       document
-        .querySelector<HTMLElement>('select[aria-label="Cómo se costea"]')
+        .querySelector<HTMLElement>(
+          `select[aria-label="${d.menu.editor.treatment.howCosted}"]`
+        )
         ?.focus();
   };
   const bringButton =
@@ -394,7 +407,7 @@ function Dish({
         onClick={() => setBringOpen(true)}
         className="rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe] disabled:opacity-45"
       >
-        Traer receta del último archivo
+        {w.bringFromFile}
       </button>
     ) : null;
   // «Estimado por Milton»: shown apart, and only while the dish has no real
@@ -416,7 +429,7 @@ function Dish({
       ? rawEstimate
       : null;
   const estimateLine = estimate
-    ? estimateText(estimate, data.currency, dish?.avg_net_price ?? null)
+    ? estimateText(estimate, data.currency, dish?.avg_net_price ?? null, lang)
     : null;
   const missing = dish?.lines_missing_price ?? 0;
   const costTip = [editor?.variance_note, editor?.yield_note]
@@ -433,11 +446,11 @@ function Dish({
           <div className="text-[12px] text-[#8a92a3]">
             {[
               product.pos_price_label
-                ? `Precio ${product.pos_price_label}`
+                ? fmt(w.posPrice, { price: product.pos_price_label })
                 : null,
               product.in_food_sales
-                ? `${product.share_label} de ventas de comida`
-                : "No cuenta en ventas de comida",
+                ? fmt(w.foodSalesShare, { share: product.share_label })
+                : w.notInFoodSales,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -449,7 +462,7 @@ function Dish({
             >
               <span className="inline-flex items-center gap-1 rounded-full bg-[var(--ai-lavender)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-ink)]">
                 <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
-                {ESTIMATE_BADGE}
+                {estimateBadge}
               </span>
               <span>
                 {estimateLine.text.split(/(\$[\d,.]+|[\d]+%)/).map((part, i) =>
@@ -486,7 +499,7 @@ function Dish({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                aria-label="Más acciones"
+                aria-label={w.moreActions}
                 className="rounded-md p-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -495,7 +508,7 @@ function Dish({
             <DropdownMenuContent align="end" className="w-64">
               {fileRecipe?.differs ? (
                 <DropdownMenuItem onClick={() => setBringOpen(true)}>
-                  Traer receta del último archivo…
+                  {w.bringFromFileMenu}
                 </DropdownMenuItem>
               ) : null}
               {product.can_undo ? (
@@ -507,7 +520,7 @@ function Dish({
                     })
                   }
                 >
-                  Deshacer el vínculo confirmado
+                  {w.undoLink}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -556,7 +569,7 @@ function Dish({
 
       {action && !action.enabled && missing > 0 ? (
         <div title={action.hint ?? undefined}>
-          <Chip tone="warn">Falta precio · {missing}</Chip>
+          <Chip tone="warn">{fmt(w.missingPriceChip, { n: missing })}</Chip>
         </div>
       ) : null}
 
@@ -566,10 +579,12 @@ function Dish({
         <>
           <div className="flex flex-wrap gap-10">
             <Big
-              label="Costo"
+              label={w.cost}
               tip={costTip || undefined}
               value={
-                dish?.unit_cost != null ? money(dish.unit_cost) : "Sin precio"
+                dish?.unit_cost != null
+                  ? money(dish.unit_cost)
+                  : d.menu.screens.noPrice
               }
               note={
                 <>
@@ -578,12 +593,17 @@ function Dish({
                       className="block font-semibold text-[#6b7280]"
                       data-testid="header-pending"
                     >
-                      Sin precio · {pendingNames.length}{" "}
-                      {pendingNames.length === 1
-                        ? "línea pendiente"
-                        : "líneas pendientes"}
-                      : {pendingNames.slice(0, 3).join(", ")}
-                      {pendingNames.length > 3 ? "…" : ""}
+                      {fmt(
+                        pendingNames.length === 1
+                          ? w.pendingOne
+                          : w.pendingOther,
+                        {
+                          n: pendingNames.length,
+                          names:
+                            pendingNames.slice(0, 3).join(", ") +
+                            (pendingNames.length > 3 ? "…" : ""),
+                        }
+                      )}
                     </span>
                   ) : null}
                   {dish?.excel_total != null ? (
@@ -594,14 +614,14 @@ function Dish({
                           : "text-[#8a92a3]"
                       }
                     >
-                      Excel: {money(dish.excel_total)}
+                      {fmt(w.excelTotal, { amount: money(dish.excel_total) })}
                     </span>
                   ) : null}
                 </>
               }
             />
             <Big
-              label="Costo %"
+              label={w.costPct}
               value={
                 dish?.food_cost_pct != null
                   ? `${Math.round(dish.food_cost_pct)}%`
@@ -609,7 +629,7 @@ function Dish({
               }
             />
             <Big
-              label="Margen"
+              label={w.margin}
               value={dish?.unit_margin != null ? money(dish.unit_margin) : "—"}
             />
           </div>
@@ -628,17 +648,14 @@ function Dish({
           ) : null}
           {hasRecipe && bringButton ? (
             <div className="flex items-center gap-3 text-[13px] text-[#5b6476]">
-              <span>
-                Este plato no tiene líneas, pero el archivo trae su receta.
-              </span>
+              <span>{w.fileHasRecipe}</span>
               {bringButton}
             </div>
           ) : null}
           {hasRecipe && editor ? (
             <div data-testid="version-chip">
               <Chip tone={editor.recipe_status === "aprobada" ? "ok" : "grey"}>
-                {VERSION_STATUS_LABEL[editor.recipe_status] ??
-                  editor.version_label}
+                {versionLabels[editor.recipe_status] ?? editor.version_label}
               </Chip>
             </div>
           ) : null}
@@ -661,7 +678,7 @@ function Dish({
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-3 text-[13px] text-[#5b6476]">
-                <span>Este plato todavía no tiene receta.</span>
+                <span>{w.noRecipeYet}</span>
                 {bringButton}
                 {data.actor.can_submit ? (
                   <>
@@ -674,7 +691,7 @@ function Dish({
                         })
                       }
                     >
-                      Crear receta
+                      {w.createRecipe}
                     </GhostBtn>
                     {sourceActions.buttons}
                   </>
@@ -687,8 +704,8 @@ function Dish({
       ) : (
         <p className="text-[13px] text-[#5b6476]">
           {product.is_combo
-            ? "Este combo se costea por sus partes."
-            : `No lleva receta (${product.treatment_label}).`}
+            ? w.comboByParts
+            : fmt(w.noRecipeNeeded, { treatment: product.treatment_label })}
         </p>
       )}
       {fileRecipe ? (
@@ -710,13 +727,6 @@ function Dish({
     </section>
   );
 }
-
-const VERSION_STATUS_LABEL: Record<string, string> = {
-  aprobada: "Receta aprobada",
-  listo: "Receta aprobada",
-  por_aprobar: "Receta por aprobar",
-  borrador: "Receta en borrador",
-};
 
 function Big({
   label,

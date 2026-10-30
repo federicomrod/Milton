@@ -3,7 +3,11 @@
 // Backend readiness for the compact Data Health indicator + drawer.
 // The UI never guesses these items.
 
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { formatLastSyncedAgo } from "@/lib/restaurant/last-synced";
 
 export type DataHealthTone = "ok" | "warn" | "error";
@@ -53,31 +57,62 @@ export function buildCockpitDataHealth(
 
   items.push({
     id: "pos",
-    label: t(lang, "POS connected", "POS conectado"),
+    label: t(lang, "POS connected", "POS conectado", "POS verbunden"),
     detail: input.posConnected
-      ? t(lang, "Active POS connection.", "Hay una conexión POS activa.")
-      : t(lang, "No active POS connection.", "No hay una conexión POS activa."),
+      ? t(
+          lang,
+          "Active POS connection.",
+          "Hay una conexión POS activa.",
+          "Es besteht eine aktive POS-Verbindung."
+        )
+      : t(
+          lang,
+          "No active POS connection.",
+          "No hay una conexión POS activa.",
+          "Keine aktive POS-Verbindung."
+        ),
     tone: input.posConnected ? "ok" : "warn",
     issue: !input.posConnected,
   });
 
   items.push({
     id: "sales",
-    label: t(lang, "Sales synced", "Ventas sincronizadas"),
+    label: t(
+      lang,
+      "Sales synced",
+      "Ventas sincronizadas",
+      "Umsatz synchronisiert"
+    ),
     detail: input.salesLoaded
-      ? t(lang, "Sales rows are loaded.", "Las ventas ya están cargadas.")
-      : t(lang, "No sales rows loaded yet.", "Aún no hay ventas cargadas."),
+      ? t(
+          lang,
+          "Sales rows are loaded.",
+          "Las ventas ya están cargadas.",
+          "Die Umsatzdaten sind geladen."
+        )
+      : t(
+          lang,
+          "No sales rows loaded yet.",
+          "Aún no hay ventas cargadas.",
+          "Noch keine Umsatzdaten geladen."
+        ),
     tone: input.salesLoaded ? "ok" : input.readError ? "error" : "warn",
     issue: !input.salesLoaded || input.readError,
   });
 
   items.push({
     id: "currency",
-    label: t(lang, `Currency ${input.currency}`, `Divisa ${input.currency}`),
+    label: t(
+      lang,
+      `Currency ${input.currency}`,
+      `Divisa ${input.currency}`,
+      `Währung ${input.currency}`
+    ),
     detail: t(
       lang,
       "Company currency. Rows in another currency are excluded, not converted.",
-      "Divisa de la empresa. Las filas en otra divisa se excluyen; no se convierten."
+      "Divisa de la empresa. Las filas en otra divisa se excluyen; no se convierten.",
+      "Währung des Unternehmens. Zeilen in anderen Währungen werden ausgeschlossen, nicht umgerechnet."
     ),
     tone: "ok",
     issue: false,
@@ -87,13 +122,15 @@ export function buildCockpitDataHealth(
     id: "lines",
     label: t(
       lang,
-      `${input.saleLineCount.toLocaleString(lang === "es" ? "es-MX" : "en-US")} sale lines`,
-      `${input.saleLineCount.toLocaleString("es-MX")} líneas de venta`
+      `${input.saleLineCount.toLocaleString(localeFor(lang))} sale lines`,
+      `${input.saleLineCount.toLocaleString(localeFor(lang))} líneas de venta`,
+      `${input.saleLineCount.toLocaleString(localeFor(lang))} Verkaufspositionen`
     ),
     detail: t(
       lang,
       "POS lines in the loaded company data.",
-      "Líneas del POS en los datos cargados de la empresa."
+      "Líneas del POS en los datos cargados de la empresa.",
+      "POS-Positionen in den geladenen Unternehmensdaten."
     ),
     tone: input.saleLineCount > 0 ? "ok" : "warn",
     issue: input.saleLineCount === 0,
@@ -106,13 +143,20 @@ export function buildCockpitDataHealth(
         ? t(
             lang,
             `${input.otherCurrencyExcluded} rows in another currency excluded`,
-            `${input.otherCurrencyExcluded} ${input.otherCurrencyExcluded === 1 ? "fila en otra divisa excluida" : "filas en otra divisa excluidas"}`
+            `${input.otherCurrencyExcluded} ${input.otherCurrencyExcluded === 1 ? "fila en otra divisa excluida" : "filas en otra divisa excluidas"}`,
+            `${input.otherCurrencyExcluded} ${input.otherCurrencyExcluded === 1 ? "Zeile in anderer Währung ausgeschlossen" : "Zeilen in anderer Währung ausgeschlossen"}`
           )
-        : t(lang, "No other-currency rows", "No hay filas en otra divisa"),
+        : t(
+            lang,
+            "No other-currency rows",
+            "No hay filas en otra divisa",
+            "Keine Zeilen in anderer Währung"
+          ),
     detail: t(
       lang,
       "Mixed-currency rows are dropped from totals. There is no FX conversion.",
-      "Las filas en otra divisa no entran en los totales. No hay conversión de tipo de cambio."
+      "Las filas en otra divisa no entran en los totales. No hay conversión de tipo de cambio.",
+      "Zeilen in gemischten Währungen fließen nicht in die Summen ein. Es gibt keine Währungsumrechnung."
     ),
     tone: input.otherCurrencyExcluded > 0 ? "warn" : "ok",
     issue: input.otherCurrencyExcluded > 0,
@@ -125,17 +169,20 @@ export function buildCockpitDataHealth(
         ? t(
             lang,
             `${input.dishesWithoutRecipe} dishes without a recipe`,
-            `${input.dishesWithoutRecipe} ${input.dishesWithoutRecipe === 1 ? "plato sin receta" : "platos sin receta"}`
+            `${input.dishesWithoutRecipe} ${input.dishesWithoutRecipe === 1 ? "plato sin receta" : "platos sin receta"}`,
+            `${input.dishesWithoutRecipe} ${input.dishesWithoutRecipe === 1 ? "Gericht ohne Rezept" : "Gerichte ohne Rezept"}`
           )
         : t(
             lang,
             "Every sold dish has a recipe",
-            "Todos los platos vendidos tienen receta"
+            "Todos los platos vendidos tienen receta",
+            "Alle verkauften Gerichte haben ein Rezept"
           ),
     detail: t(
       lang,
       "Sold dishes without a recipe cannot be costed.",
-      "Los platos vendidos sin receta no se pueden costear."
+      "Los platos vendidos sin receta no se pueden costear.",
+      "Verkaufte Gerichte ohne Rezept können nicht kalkuliert werden."
     ),
     tone: input.dishesWithoutRecipe > 0 ? "warn" : "ok",
     issue: input.dishesWithoutRecipe > 0,
@@ -152,17 +199,20 @@ export function buildCockpitDataHealth(
         ? t(
             lang,
             "Recipe coverage unavailable",
-            "Cobertura de recetas no disponible"
+            "Cobertura de recetas no disponible",
+            "Rezeptabdeckung nicht verfügbar"
           )
         : t(
             lang,
             `Recipe coverage ${recipePct.toFixed(1)}% — sold dishes with a recipe`,
-            `Cobertura de recetas ${recipePct.toFixed(1)}% — platos vendidos con receta`
+            `Cobertura de recetas ${recipePct.toFixed(1)}% — platos vendidos con receta`,
+            `Rezeptabdeckung ${recipePct.toFixed(1)} % — verkaufte Gerichte mit Rezept`
           ),
     detail: t(
       lang,
       "Share of net sales from sold dishes that have a recipe.",
-      "Parte de las ventas netas que viene de platos vendidos con receta."
+      "Parte de las ventas netas que viene de platos vendidos con receta.",
+      "Anteil des Nettoumsatzes aus verkauften Gerichten, die ein Rezept haben."
     ),
     tone: recipePct === null ? "warn" : recipePct < 80 ? "warn" : "ok",
     issue: recipePct === null || recipePct < 80,
@@ -176,7 +226,8 @@ export function buildCockpitDataHealth(
       ? t(
           lang,
           `${input.ingredientsWithCost} of ${input.ingredientsTotal} ingredients have a cost`,
-          `${input.ingredientsWithCost} de ${input.ingredientsTotal} ingredientes con costo`
+          `${input.ingredientsWithCost} de ${input.ingredientsTotal} ingredientes con costo`,
+          `${input.ingredientsWithCost} von ${input.ingredientsTotal} Zutaten mit Kosten`
         )
       : undefined;
   items.push({
@@ -184,12 +235,14 @@ export function buildCockpitDataHealth(
     label: t(
       lang,
       `Cost coverage ${costPct.toFixed(1)}% of this period`,
-      `Cobertura de costos ${costPct.toFixed(1)}% de este periodo`
+      `Cobertura de costos ${costPct.toFixed(1)}% de este periodo`,
+      `Kostenabdeckung ${costPct.toFixed(1)} % dieses Zeitraums`
     ),
     detail: t(
       lang,
       "Share of net sales in the selected period from dishes that have a cost — not the share of ingredients mapped.",
-      "Parte de las ventas netas del periodo seleccionado que viene de platos con costo — no el porcentaje de ingredientes ligados."
+      "Parte de las ventas netas del periodo seleccionado que viene de platos con costo — no el porcentaje de ingredientes ligados.",
+      "Anteil des Nettoumsatzes im gewählten Zeitraum aus Gerichten mit Kosten — nicht der Anteil der zugeordneten Zutaten."
     ),
     tone: costPct === 0 ? "warn" : costPct < 80 ? "warn" : "ok",
     issue: costPct < 80,
@@ -206,12 +259,14 @@ export function buildCockpitDataHealth(
       label: t(
         lang,
         `All-time cost coverage ${allTimePct.toFixed(1)}% of sales`,
-        `Cobertura de costos histórica ${allTimePct.toFixed(1)}% de las ventas`
+        `Cobertura de costos histórica ${allTimePct.toFixed(1)}% de las ventas`,
+        `Gesamte Kostenabdeckung ${allTimePct.toFixed(1)} % des Umsatzes`
       ),
       detail: t(
         lang,
         "All loaded sales, not just the selected period.",
-        "Todas las ventas cargadas, no solo el periodo seleccionado."
+        "Todas las ventas cargadas, no solo el periodo seleccionado.",
+        "Alle geladenen Umsätze, nicht nur der gewählte Zeitraum."
       ),
       tone: allTimePct === 0 ? "warn" : allTimePct < 80 ? "warn" : "ok",
       issue: false,
@@ -225,10 +280,20 @@ export function buildCockpitDataHealth(
   );
   items.push({
     id: "last_sync",
-    label: t(lang, "Last sync", "Última sincronización"),
+    label: t(
+      lang,
+      "Last sync",
+      "Última sincronización",
+      "Letzte Synchronisierung"
+    ),
     detail:
       lastSync ??
-      t(lang, "No sync timestamp yet.", "Aún no hay hora de sincronización."),
+      t(
+        lang,
+        "No sync timestamp yet.",
+        "Aún no hay hora de sincronización.",
+        "Noch kein Synchronisierungszeitpunkt."
+      ),
     tone: input.lastSyncedAt ? "ok" : "warn",
     issue: !input.lastSyncedAt,
   });
@@ -239,12 +304,14 @@ export function buildCockpitDataHealth(
       label: t(
         lang,
         "Totals are unavailable",
-        "Los totales no están disponibles"
+        "Los totales no están disponibles",
+        "Summen nicht verfügbar"
       ),
       detail: t(
         lang,
         "Could not load all sales rows. Totals are unavailable — they are not a smaller number from a partial read.",
-        "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial."
+        "No se pudieron cargar todas las ventas. Los totales no están disponibles: no son un número más chico de una lectura parcial.",
+        "Es konnten nicht alle Umsatzzeilen geladen werden. Die Summen sind nicht verfügbar — es ist keine kleinere Zahl aus einem Teilabruf."
       ),
       tone: "error",
       issue: true,
@@ -255,12 +322,14 @@ export function buildCockpitDataHealth(
       label: t(
         lang,
         "Totals may be incomplete",
-        "Los totales pueden estar incompletos"
+        "Los totales pueden estar incompletos",
+        "Summen möglicherweise unvollständig"
       ),
       detail: t(
         lang,
         "This view stopped after the safety cap. The numbers shown are partial.",
-        "Esta vista se detuvo al llegar al tope de seguridad. Los números que ves son parciales."
+        "Esta vista se detuvo al llegar al tope de seguridad. Los números que ves son parciales.",
+        "Diese Ansicht wurde am Sicherheitslimit beendet. Die angezeigten Zahlen sind unvollständig."
       ),
       tone: "error",
       issue: true,

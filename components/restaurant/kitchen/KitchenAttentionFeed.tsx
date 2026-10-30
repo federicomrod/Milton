@@ -20,18 +20,18 @@ const ICON: Record<
   { bg: string; fg: string; mark: string }
 > = {
   running_out: {
-    bg: "bg-red-50 dark:bg-red-950/40",
-    fg: "text-red-600",
+    bg: "bg-[#FDE68A]",
+    fg: "text-[#0F172A]",
     mark: "!",
   },
   waste: {
-    bg: "bg-red-50 dark:bg-red-950/40",
-    fg: "text-red-600",
+    bg: "bg-[#FDE68A]",
+    fg: "text-[#0F172A]",
     mark: "♻",
   },
   drafts: {
-    bg: "bg-blue-50 dark:bg-blue-950/40",
-    fg: "text-blue-700 dark:text-blue-300",
+    bg: "bg-[#E7EDFD]",
+    fg: "text-[#1B40C8]",
     mark: "✎",
   },
 };
@@ -65,23 +65,24 @@ export function KitchenAttentionFeed({
       label: t(
         lang,
         `All (${insights.counts.all})`,
-        `Todo (${insights.counts.all})`
+        `Todo (${insights.counts.all})`,
+        `Alle (${insights.counts.all})`
       ),
       count: insights.counts.all,
     },
     {
       id: "running_out",
-      label: t(lang, "Running low", "Se agota"),
+      label: t(lang, "Running low", "Se agota", "Wird knapp"),
       count: insights.counts.running_out,
     },
     {
       id: "waste",
-      label: t(lang, "Waste", "Merma"),
+      label: t(lang, "Waste", "Merma", "Ausschuss"),
       count: insights.counts.waste,
     },
     {
       id: "drafts",
-      label: t(lang, "Recipes", "Recetas"),
+      label: t(lang, "Recipes", "Recetas", "Rezepte"),
       count: insights.counts.drafts,
     },
   ];
@@ -97,15 +98,30 @@ export function KitchenAttentionFeed({
     >
       <div className="flex items-center gap-2 flex-wrap mb-2">
         <h2 className="text-sm font-semibold">
-          {t(lang, "Needs attention today", "Necesita atención hoy")}
+          {t(
+            lang,
+            "Needs attention today",
+            "Necesita atención hoy",
+            "Heute zu beachten"
+          )}
         </h2>
         <span className="text-[12px] text-muted-foreground">
-          {t(lang, "Reports from your team", "Reportes de tu equipo")}
+          {t(
+            lang,
+            "Reports from your team",
+            "Reportes de tu equipo",
+            "Meldungen Ihres Teams"
+          )}
         </span>
         <div
           className="ml-auto flex gap-3"
           role="tablist"
-          aria-label={t(lang, "Attention filter", "Filtro de atención")}
+          aria-label={t(
+            lang,
+            "Attention filter",
+            "Filtro de atención",
+            "Filter"
+          )}
         >
           {chips.map((chip) => {
             const on = filter === chip.id;
@@ -173,7 +189,9 @@ export function KitchenAttentionFeed({
                   onClick={() => onAction(item)}
                   className="text-xs rounded-md border border-[#1B40C8] bg-white px-2.5 py-1 text-[#1B40C8] hover:bg-[#E7EDFD] disabled:opacity-60 whitespace-nowrap"
                 >
-                  {busy ? t(lang, "Saving…", "Guardando…") : item.action_label}
+                  {busy
+                    ? t(lang, "Saving…", "Guardando…", "Wird gespeichert …")
+                    : item.action_label}
                 </button>
               </li>
             );
@@ -187,7 +205,8 @@ export function KitchenAttentionFeed({
             {t(
               lang,
               `Showing ${shown.length} of ${insights.counts[filter === "all" ? "all" : filter]}`,
-              `Mostrando ${shown.length} de ${insights.counts[filter === "all" ? "all" : filter]}`
+              `Mostrando ${shown.length} de ${insights.counts[filter === "all" ? "all" : filter]}`,
+              `${shown.length} von ${insights.counts[filter === "all" ? "all" : filter]} angezeigt`
             )}
           </span>
           {!expanded &&
@@ -198,7 +217,7 @@ export function KitchenAttentionFeed({
               onClick={onExpand}
               className="font-semibold text-blue-700 dark:text-blue-300"
             >
-              {t(lang, "See all →", "Ver todo →")}
+              {t(lang, "See all →", "Ver todo →", "Alle anzeigen →")}
             </button>
           ) : null}
         </div>

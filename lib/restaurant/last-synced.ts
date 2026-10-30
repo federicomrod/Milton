@@ -5,7 +5,8 @@
 // UI can show nothing (never a placeholder dash).
 
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import { t } from "@/lib/restaurant/language";
+import { localeFor } from "@/lib/restaurant/language";
+import { fmt, getDictionary } from "@/lib/i18n";
 
 export function lastSyncTimestamp(lastSync: unknown): string | null {
   if (!lastSync || typeof lastSync !== "object") return null;
@@ -25,43 +26,19 @@ export function formatLastSyncedAgo(
   const when = new Date(syncedAt);
   if (Number.isNaN(when.getTime())) return null;
 
+  const d = getDictionary(lang).shell.lastSynced;
   const diffMs = Math.max(0, now.getTime() - when.getTime());
   const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) {
-    return t(lang, "Last synced just now", "Última sincronización ahora mismo");
-  }
-  if (minutes < 60) {
-    return t(
-      lang,
-      `Last synced ${minutes} min ago`,
-      `Última sincronización hace ${minutes} min`
-    );
-  }
+  if (minutes < 1) return d.now;
+  if (minutes < 60) return fmt(d.minutes, { n: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return t(
-      lang,
-      `Last synced ${hours} hr ago`,
-      `Última sincronización hace ${hours} h`
-    );
-  }
+  if (hours < 24) return fmt(d.hours, { n: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) {
-    return t(
-      lang,
-      `Last synced ${days}d ago`,
-      `Última sincronización hace ${days} d`
-    );
-  }
-  const locale = lang === "es" ? "es" : "en-GB";
-  const dateLabel = when.toLocaleDateString(locale, {
+  if (days < 7) return fmt(d.days, { n: days });
+  const dateLabel = when.toLocaleDateString(localeFor(lang), {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
-  return t(
-    lang,
-    `Last synced ${dateLabel}`,
-    `Última sincronización el ${dateLabel}`
-  );
+  return fmt(d.date, { date: dateLabel });
 }

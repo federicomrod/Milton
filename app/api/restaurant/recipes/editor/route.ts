@@ -9,6 +9,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { can, resolveActor } from "@/lib/auth/permissions";
 import { createSupabaseEditorStore } from "@/lib/restaurant/recipe-costing/editor-store";
 import {
@@ -33,20 +35,20 @@ function str(raw: unknown): string | null {
 export async function GET(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const lang = await apiLanguage();
+  const msg = getDictionary(lang).menu.editor.api;
   const componentId = str(req.nextUrl.searchParams.get("component_id"));
   const id = componentId
     ? 0
     : productId(req.nextUrl.searchParams.get("odoo_product_id"));
   if (id === null) {
-    return NextResponse.json(
-      { error: "Indica el producto que quieres editar." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.productRequired }, { status: 400 });
   }
   const started = Date.now();
   try {
     const result = await loadEditor({
-      store: createSupabaseEditorStore(auth.supabase),
+      store: createSupabaseEditorStore(auth.supabase, lang),
+      lang,
       companyId: auth.companyId,
       odooProductId: id,
       componentId: componentId ?? undefined,
@@ -73,34 +75,27 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     console.error("[recipes/editor GET]", err);
-    return NextResponse.json(
-      { error: "No pude cargar los ingredientes de esta receta." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.loadFailed }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const lang = await apiLanguage();
+  const msg = getDictionary(lang).menu.editor.api;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.bodyNotJson }, { status: 400 });
   }
   const componentId = str(body.component_id);
   const id = componentId ? 0 : productId(body.odoo_product_id);
   const action = parseEditorAction(body);
   if (id === null || !action) {
-    return NextResponse.json(
-      { error: "Faltan datos para guardar este cambio." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: msg.missingData }, { status: 400 });
   }
 
   // R1-12: the role check runs while the dish and catalog are read;
@@ -112,7 +107,7 @@ export async function POST(req: NextRequest) {
       ? null
       : {
           ok: false as const,
-          error: "Tu rol no puede editar recetas.",
+          error: msg.roleCannotEdit,
           status: 403,
         }
   );
@@ -124,7 +119,8 @@ export async function POST(req: NextRequest) {
   try {
     const result = await applyEdit(
       {
-        store: createSupabaseEditorStore(auth.supabase),
+        store: createSupabaseEditorStore(auth.supabase, lang),
+        lang,
         companyId: auth.companyId,
         odooProductId: id,
         componentId: componentId ?? undefined,
@@ -149,9 +145,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("[recipes/editor POST]", err);
-    return NextResponse.json(
-      { error: "No pude guardar el cambio." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: msg.saveFailed }, { status: 500 });
   }
 }

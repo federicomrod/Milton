@@ -4,6 +4,8 @@
 
 import { fetchMenuPage, MenuFetchError } from "./safe-fetch";
 import { htmlToText } from "./html-text";
+import { menuMsg } from "./messages";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 /** Longest menu text read (a long menu is ~30k characters). */
 export const MAX_MENU_TEXT = 120_000;
@@ -29,14 +31,15 @@ export { MenuFetchError };
 function finish(
   kind: MenuSource["kind"],
   sourceRef: string | null,
-  raw: string
+  raw: string,
+  lang: PreferredLanguage = "es"
 ): MenuText {
   const text = raw.replace(/\r\n?/g, "\n").trim();
   if (text.length < MIN_MENU_TEXT) {
     throw new MenuFetchError(
       kind === "url"
-        ? "No encontré el menú en esa página (puede que cargue con JavaScript). Pega el texto del menú."
-        : "Ese texto es muy corto para ser un menú."
+        ? menuMsg(lang, "menuNotFoundOnPage")
+        : menuMsg(lang, "textTooShort")
     );
   }
   return {
@@ -49,13 +52,14 @@ function finish(
 
 export async function readMenuSource(
   source: MenuSource,
-  deps: { fetchPage?: typeof fetchMenuPage } = {}
+  deps: { fetchPage?: typeof fetchMenuPage; lang?: PreferredLanguage } = {}
 ): Promise<MenuText> {
-  if (source.kind === "text") return finish("text", null, source.text);
-  const page = await (deps.fetchPage ?? fetchMenuPage)(source.url);
+  const lang = deps.lang ?? "es";
+  if (source.kind === "text") return finish("text", null, source.text, lang);
+  const page = await (deps.fetchPage ?? fetchMenuPage)(source.url, lang);
   const text =
     page.contentType === "text/plain"
       ? page.body
       : htmlToText(page.body, page.url);
-  return finish("url", page.url, text);
+  return finish("url", page.url, text, lang);
 }

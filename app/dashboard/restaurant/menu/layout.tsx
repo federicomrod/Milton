@@ -9,7 +9,7 @@ import { Suspense } from "react";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { MenuAreaTabs } from "@/components/restaurant/recipes-costing/MenuAreaTabs";
-import { t } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import { StickyMenuHeader } from "@/components/restaurant/ui/StickyPanel";
 
 export default async function MenuLayout({
@@ -18,12 +18,13 @@ export default async function MenuLayout({
   children: React.ReactNode;
 }) {
   const { lang } = await loadRestaurantShellChrome();
+  const d = getDictionary(lang).menu.screens;
   return (
     <div className="w-full px-[26px] pb-10">
       {/* R1-15h: header and tabs stay fixed while a long table scrolls. */}
       <StickyMenuHeader>
         <OperatingPageHeader
-          title={t(lang, "Menu", "Menú")}
+          title={d.layout.title}
           lang={lang}
           showDateRange={false}
         />

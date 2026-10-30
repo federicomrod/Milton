@@ -31,6 +31,13 @@
 //
 // All cost-entry writes are deferred to /invoices/:id/approve.
 
+import {
+  clearMissing,
+  lineIsIncomplete,
+  parseMissing,
+  type MissingField,
+} from "@/lib/restaurant/invoice-missing";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -71,16 +78,14 @@ export async function POST(
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyHasToBeJson }, { status: 400 });
   }
 
   // Verify the invoice exists for this company.
@@ -92,15 +97,12 @@ export async function POST(
     .maybeSingle();
   if (invErr) {
     return NextResponse.json(
-      { error: "No pude cargar la factura.", details: invErr.message },
+      { error: a.invoiceLoadFailed, details: invErr.message },
       { status: 500 }
     );
   }
   if (!invRow) {
-    return NextResponse.json(
-      { error: "No encontré la factura." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: a.invoiceNotFound }, { status: 404 });
   }
   const invoice = invRow as Pick<
     SupplierInvoice,
@@ -111,8 +113,7 @@ export async function POST(
   if (invoice.status === "posted") {
     return NextResponse.json(
       {
-        error:
-          "Esta factura ya está registrada; las líneas no se pueden editar.",
+        error: a.postedNoEdit,
       },
       { status: 409 }
     );
@@ -133,15 +134,12 @@ export async function POST(
       .maybeSingle();
     if (lineLoadErr) {
       return NextResponse.json(
-        { error: "No pude cargar las líneas.", details: lineLoadErr.message },
+        { error: a.linesLoadFailed, details: lineLoadErr.message },
         { status: 500 }
       );
     }
     if (!existing) {
-      return NextResponse.json(
-        { error: "No encontré la línea." },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: a.lineNotFound }, { status: 404 });
     }
     const line = existing as SupplierInvoiceLine;
 
@@ -159,7 +157,7 @@ export async function POST(
         patch.match_status = "matched" as InvoiceLineMatchStatus;
       } else {
         return NextResponse.json(
-          { error: "El ingrediente no es válido." },
+          { error: a.ingredientInvalid },
           { status: 400 }
         );
       }
@@ -168,7 +166,7 @@ export async function POST(
     if (typeof body.review_status === "string") {
       if (!isInvoiceLineReviewStatus(body.review_status)) {
         return NextResponse.json(
-          { error: "El estado de revisión no es válido." },
+          { error: a.reviewStatusInvalid },
           { status: 400 }
         );
       }
@@ -198,7 +196,7 @@ export async function POST(
       const newName = stringOrNull(newIngredientRaw.name);
       if (!newName) {
         return NextResponse.json(
-          { error: "Falta el nombre del ingrediente." },
+          { error: a.ingredientNameMissing },
           { status: 400 }
         );
       }
@@ -206,7 +204,7 @@ export async function POST(
         stringOrNull(newIngredientRaw.default_unit) ?? line.unit;
       if (!newDefaultUnit) {
         return NextResponse.json(
-          { error: "Falta la unidad del ingrediente." },
+          { error: a.ingredientUnitMissing },
           { status: 400 }
         );
       }
@@ -222,7 +220,7 @@ export async function POST(
       if (lookupErr) {
         return NextResponse.json(
           {
-            error: "No pude cargar el ingrediente.",
+            error: a.ingredientLoadFailed,
             details: lookupErr.message,
           },
           { status: 500 }
@@ -249,7 +247,7 @@ export async function POST(
         if (createErr || !createdIng) {
           return NextResponse.json(
             {
-              error: "No pude crear el ingrediente.",
+              error: a.ingredientCreateFailed,
               details: createErr?.message,
             },
             { status: 500 }
@@ -312,7 +310,7 @@ export async function POST(
       const q = numberOrNull(body.quantity);
       if (q === null || q <= 0) {
         return NextResponse.json(
-          { error: "La cantidad tiene que ser un número mayor que 0." },
+          { error: a.quantityPositive },
           { status: 400 }
         );
       }
@@ -329,7 +327,7 @@ export async function POST(
       const lt = numberOrNull(body.line_total);
       if (lt === null || lt < 0) {
         return NextResponse.json(
-          { error: "El total de la línea no puede ser negativo." },
+          { error: a.lineTotalNegative },
           { status: 400 }
         );
       }
@@ -346,11 +344,58 @@ export async function POST(
       patch.supplier_sku = stringOrNull(body.supplier_sku);
     }
 
+    // The manager filled in a quantity / unit the kitchen left out: «Falta» goes.
+    if (
+      patch.notes === undefined &&
+      parseMissing((line as { notes?: unknown }).notes).length > 0
+    ) {
+      const filled: MissingField[] = [];
+      if (patch.quantity !== undefined) filled.push("quantity");
+      if (patch.unit !== undefined) filled.push("unit");
+      if (filled.length > 0) {
+        patch.notes = clearMissing((line as { notes?: string }).notes, filled);
+        // A quantity filled in on a priced line: the total follows (qty × price).
+        const cost =
+          patch.unit_cost !== undefined
+            ? (patch.unit_cost as number | null)
+            : ((line as { unit_cost?: number | null }).unit_cost ?? null);
+        if (
+          patch.quantity !== undefined &&
+          patch.line_total === undefined &&
+          typeof cost === "number" &&
+          cost > 0
+        ) {
+          patch.line_total = Number(
+            ((patch.quantity as number) * cost).toFixed(4)
+          );
+        }
+      }
+    }
+
+    // An incomplete line cannot be approved: no price, or «Falta» still there.
+    // Filling the missing values in the same PATCH is allowed.
+    if (patch.review_status === "approved") {
+      const merged = {
+        unit_cost:
+          patch.unit_cost !== undefined
+            ? patch.unit_cost
+            : (line as { unit_cost?: unknown }).unit_cost,
+        line_total:
+          patch.line_total !== undefined
+            ? patch.line_total
+            : (line as { line_total?: unknown }).line_total,
+        notes:
+          patch.notes !== undefined
+            ? patch.notes
+            : (line as { notes?: unknown }).notes,
+      };
+      if (lineIsIncomplete(merged)) {
+        return NextResponse.json({ error: a.lineIncomplete }, { status: 400 });
+      }
+    }
+
     if (Object.keys(patch).length === 0) {
-      return NextResponse.json(
-        { error: "No hay nada que actualizar." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: a.nothingToUpdate }, { status: 400 });
     }
 
     const { data: updated, error: updErr } = await supabase
@@ -363,7 +408,7 @@ export async function POST(
       .single();
     if (updErr || !updated) {
       return NextResponse.json(
-        { error: "No se pudo guardar.", details: updErr?.message },
+        { error: a.saveFailedApi, details: updErr?.message },
         { status: 500 }
       );
     }
@@ -409,28 +454,19 @@ export async function POST(
   // ---- Mode 1: add a new line ----
   const description = stringOrNull(body.description);
   if (!description) {
-    return NextResponse.json(
-      { error: "Falta la descripción." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.descriptionMissing }, { status: 400 });
   }
   const quantity = numberOrNull(body.quantity);
   if (quantity === null || quantity <= 0) {
-    return NextResponse.json(
-      { error: "La cantidad tiene que ser un número mayor que 0." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.quantityPositive }, { status: 400 });
   }
   const unit = stringOrNull(body.unit);
   if (!unit) {
-    return NextResponse.json({ error: "Falta la unidad." }, { status: 400 });
+    return NextResponse.json({ error: a.unitMissing }, { status: 400 });
   }
   const lineTotal = numberOrNull(body.line_total);
   if (lineTotal === null || lineTotal < 0) {
-    return NextResponse.json(
-      { error: "El total de la línea no puede ser negativo." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.lineTotalNegative }, { status: 400 });
   }
   const unitCostRaw = numberOrNull(body.unit_cost);
   const unitCost =
@@ -458,7 +494,7 @@ export async function POST(
     const newName = stringOrNull(newIngredientRaw.name);
     if (!newName) {
       return NextResponse.json(
-        { error: "Falta el nombre del ingrediente." },
+        { error: a.ingredientNameMissing },
         { status: 400 }
       );
     }
@@ -476,7 +512,7 @@ export async function POST(
       .limit(1);
     if (lookupErr) {
       return NextResponse.json(
-        { error: "No pude cargar el ingrediente.", details: lookupErr.message },
+        { error: a.ingredientLoadFailed, details: lookupErr.message },
         { status: 500 }
       );
     }
@@ -501,7 +537,7 @@ export async function POST(
       if (createErr || !created) {
         return NextResponse.json(
           {
-            error: "No pude crear el ingrediente.",
+            error: a.ingredientCreateFailed,
             details: createErr?.message,
           },
           { status: 500 }
@@ -566,7 +602,7 @@ export async function POST(
     .single();
   if (createErr || !created) {
     return NextResponse.json(
-      { error: "No pude crear la línea.", details: createErr?.message },
+      { error: a.lineCreateFailed, details: createErr?.message },
       { status: 500 }
     );
   }

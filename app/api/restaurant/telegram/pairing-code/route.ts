@@ -13,6 +13,7 @@
 // let a second chat take over this company's slot. Disconnect/reconnect
 // is explicitly deferred to a later version.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -22,6 +23,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST() {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const { companyId } = auth;
@@ -36,7 +38,7 @@ export async function POST() {
     if (!result.ok) {
       return NextResponse.json(
         {
-          error: "Este restaurante ya tiene un chat de Telegram conectado.",
+          error: d.connect.api.telegramAlreadyConnected,
         },
         { status: 409 }
       );

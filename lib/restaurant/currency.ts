@@ -17,6 +17,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { currencyForCountry } from "@/lib/restaurant/onboarding-copy";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 
 export const FALLBACK_CURRENCY = "USD";
 
@@ -35,7 +36,17 @@ export function currencyOrFallback(value: unknown): string {
   return normalizeCurrency(value) ?? FALLBACK_CURRENCY;
 }
 
-export function localeForCurrency(currency: string): string {
+/**
+ * Intl locale for money. With the UI language: German is de-DE, English
+ * en-US; Spanish keeps es-MX for MXN and en-US otherwise (es-MX would print
+ * USD amounts as «USD 1,234» instead of «$1,234»). Without a language: the
+ * long-standing currency-based choice.
+ */
+export function localeForCurrency(
+  currency: string,
+  lang?: PreferredLanguage
+): string {
+  if (lang === "de" || lang === "en") return localeFor(lang);
   return currency === "MXN" ? "es-MX" : "en-US";
 }
 

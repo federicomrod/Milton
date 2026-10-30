@@ -5,6 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { actorCanSubmitForApproval, type RecipeActor } from "./approval";
 import { loadPosProductLink } from "./link-actions-server";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export async function confirmDishYield(input: {
   supabase: SupabaseClient;
@@ -13,14 +15,17 @@ export async function confirmDishYield(input: {
   odooProductId: number;
   locationId?: string | null;
   yieldValue: number;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const api = getDictionary(input.lang ?? "es").menu.editor;
   if (!actorCanSubmitForApproval(input.actor)) {
-    return { ok: false, error: "Tu rol no puede editar recetas.", status: 403 };
+    return { ok: false, error: api.api.roleCannotEdit, status: 403 };
   }
   if (!(input.yieldValue > 0) || !Number.isFinite(input.yieldValue)) {
     return {
       ok: false,
-      error: "El rendimiento tiene que ser mayor que cero.",
+      error: api.api.yieldPositive,
       status: 400,
     };
   }
@@ -33,7 +38,7 @@ export async function confirmDishYield(input: {
   if (!link?.id) {
     return {
       ok: false,
-      error: "No hay un vínculo para este producto.",
+      error: api.service.noLink,
       status: 404,
     };
   }

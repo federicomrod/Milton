@@ -2,8 +2,8 @@
 //
 // Compact channel mix bars. Shares come from the backend snapshot.
 
+import { moneyLocale } from "@/lib/restaurant/cockpit-format";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { localeForCurrency } from "@/lib/restaurant/currency";
 import type { ChannelShare } from "@/lib/restaurant/cockpit-executive";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 
@@ -16,7 +16,7 @@ export function CockpitChannelBreakdown({
   currency: string;
   channels: ChannelShare[];
 }) {
-  const locale = localeForCurrency(currency);
+  const locale = moneyLocale(currency, lang);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
@@ -30,10 +30,15 @@ export function CockpitChannelBreakdown({
       className="rounded-md border border-border px-3 py-2.5 min-h-[220px]"
     >
       <h2 className="text-sm font-semibold">
-        {t(lang, "Sales by channel", "Ventas por canal")}
+        {t(lang, "Sales by channel", "Ventas por canal", "Umsatz nach Kanal")}
       </h2>
       <p className="text-[12px] text-muted-foreground mb-2">
-        {t(lang, "Net sales, tips excluded.", "Ventas netas, sin propinas.")}
+        {t(
+          lang,
+          "Net sales, tips excluded.",
+          "Ventas netas, sin propinas.",
+          "Nettoumsatz, ohne Trinkgeld."
+        )}
       </p>
       {channels.length === 0 ? (
         <NotAvailableYet
@@ -41,7 +46,8 @@ export function CockpitChannelBreakdown({
           reason={t(
             lang,
             "No channel mix in this period.",
-            "No hay mix de canales en este periodo."
+            "No hay mix de canales en este periodo.",
+            "Kein Kanalmix in diesem Zeitraum."
           )}
         />
       ) : (

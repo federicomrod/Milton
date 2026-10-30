@@ -4,6 +4,7 @@
 // filters the page by that shift.
 
 import type { ShiftCard } from "@/lib/restaurant/sales-detail";
+import { useT } from "@/lib/i18n/client";
 
 export function ShiftCards({
   cards,
@@ -19,6 +20,7 @@ export function ShiftCards({
   money: (n: number, d?: number) => string;
   onToggle: (name: string, multi: boolean) => void;
 }) {
+  const { d, fmt } = useT();
   if (cards.length === 0) return null;
   return (
     <div
@@ -48,8 +50,15 @@ export function ShiftCards({
             {money(c.net)}
           </div>
           <div className="text-[11.5px] text-[#8a92a3]">
-            {Math.round(c.share)}% · {c.tickets} tickets
-            {c.ticket !== null ? ` · ticket ${money(c.ticket, 2)}` : ""}
+            {fmt(d.sales.detail.shift.line, {
+              share: Math.round(c.share),
+              tickets: c.tickets,
+            })}
+            {c.ticket !== null
+              ? fmt(d.sales.detail.shift.avgTicket, {
+                  amount: money(c.ticket, 2),
+                })
+              : ""}
           </div>
         </button>
       ))}

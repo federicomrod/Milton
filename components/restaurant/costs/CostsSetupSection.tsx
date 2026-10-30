@@ -13,6 +13,9 @@
 // complete it folds to one line that expands.
 
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
+import { fmt as fmtTemplate, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal } from "lucide-react";
@@ -56,15 +59,17 @@ import { ResetPanel } from "@/components/restaurant/recipes-costing/ResetPanel";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
 
-function progressText(progress: {
-  done: number;
-  total: number | null;
-}): string {
-  return `Preparando tus platos desde el archivo… ${
-    progress.total
-      ? `${Math.min(progress.done, progress.total)} de ${progress.total} platos (los que más venden primero)`
-      : "empezando por los platos que más venden"
-  }`;
+function progressText(
+  progress: { done: number; total: number | null },
+  lang: PreferredLanguage
+): string {
+  const s = getDictionary(lang).costs.setup;
+  return progress.total
+    ? fmtTemplate(s.progressCount, {
+        done: Math.min(progress.done, progress.total),
+        total: progress.total,
+      })
+    : s.progressStart;
 }
 
 /** localStorage key: the detail is open or closed, per company. */
@@ -108,7 +113,7 @@ export const READ_MENU_HREF = `${menuResumenHref()}#leer-menu`;
 
 /** The banner text for the next step: «completar 42 precios» → «Completar 42 precios». */
 export function nextStepText(action: string): string {
-  const text = action.replace(/^Continuar:\s*/i, "").trim();
+  const text = action.replace(/^(Continuar|Continue|Weiter):\s*/i, "").trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
@@ -136,6 +141,8 @@ export function CostsSetupSection({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
+  const { d, lang, fmt } = useT();
+  const st = d.costs.setup;
   const key = menuTabKey("resumen", { location: locationId });
   const [data, setData] = useState<RecipeCostingWorkspace | null>(
     () => getCachedTab(key)?.data ?? null
@@ -261,15 +268,13 @@ export function CostsSetupSection({
         role="alert"
         className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3 text-[13px]"
       >
-        <span className="text-[#c03535]">
-          No pude cargar la configuración de costos.
-        </span>{" "}
+        <span className="text-[#c03535]">{st.loadFailed}</span>{" "}
         <button
           type="button"
           onClick={() => setAttempt((a) => a + 1)}
           className="font-semibold text-[#1b40c8] underline"
         >
-          Reintentar
+          {st.retry}
         </button>
       </div>
     ) : (
@@ -293,9 +298,7 @@ export function CostsSetupSection({
       setNotice(prepareNotice(totals));
     } catch (err) {
       setError(
-        err instanceof PrepareError
-          ? prepareFailure(err)
-          : "No pude preparar tus platos desde el archivo."
+        err instanceof PrepareError ? prepareFailure(err) : st.prepareFailed
       );
     } finally {
       markTabsStale();
@@ -343,16 +346,13 @@ export function CostsSetupSection({
           { method: "POST" }
         );
         const json = (await res.json()) as { error?: string };
-        if (!res.ok)
-          throw new Error(userErrorMessage(json, "No pude deshacer el lote."));
+        if (!res.ok) throw new Error(userErrorMessage(json, st.undoFailed));
       }
       markTabsStale();
       await reload();
       router.refresh();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No pude deshacer el lote."
-      );
+      setError(err instanceof Error ? err.message : st.undoFailed);
     } finally {
       setBusy(false);
     }
@@ -362,10 +362,13 @@ export function CostsSetupSection({
   const next: SetupStep | null = importPending
     ? {
         id: "excel",
-        label: "Importar recetas",
+        label: st.importRecipes,
         done: false,
         href: null,
-        action: `Continuar: importar recetas (${importPending} ${importPending === 1 ? "plato" : "platos"})`,
+        action: fmt(
+          importPending === 1 ? st.continueImportOne : st.continueImportOther,
+          { n: importPending }
+        ),
       }
     : setup.next;
   const goToFile = () => {
@@ -402,7 +405,7 @@ export function CostsSetupSection({
     <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
       <div className="mb-1 flex items-baseline">
         <h2 className="text-[13px] font-semibold text-[#151c2c]">
-          Último archivo
+          {st.lastFile}
         </h2>
         {more}
         {data.latest_upload ? (
@@ -411,7 +414,7 @@ export function CostsSetupSection({
           </span>
         ) : (
           <span className="ml-auto text-[12px] text-[#6b7280]">
-            Aún no subes uno
+            {st.noFileYet}
           </span>
         )}
       </div>
@@ -464,7 +467,7 @@ export function CostsSetupSection({
         ) : null}
         {progress ? (
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-            {progressText(progress)}
+            {progressText(progress, lang)}
           </div>
         ) : notice ? (
           <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
@@ -476,7 +479,7 @@ export function CostsSetupSection({
       </div>
     );
   }
-  const age = ageLabel(data.latest_upload?.created_at, Date.now());
+  const age = ageLabel(data.latest_upload?.created_at, Date.now(), lang);
 
   const foldedLine =
     (setup.complete && !expanded) ||
@@ -492,16 +495,16 @@ export function CostsSetupSection({
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e7f6ee] text-[12px] font-bold text-[#1f7a45]">
               ✓
             </span>
-            <b className="text-[#151c2c]">Costos configurados</b>
+            <b className="text-[#151c2c]">{st.costsConfigured}</b>
           </>
         ) : (
           <b className="text-[#151c2c]">
-            Costos · {setup.done} de {setup.total} configurados
+            {fmt(st.foldedProgress, { done: setup.done, total: setup.total })}
           </b>
         )}
         {data.latest_upload ? (
           <span className="text-[#4b5466]">
-            · archivo {age ?? data.latest_upload.filename}
+            {fmt(st.fileAge, { age: age ?? data.latest_upload.filename })}
           </span>
         ) : null}
         <span className="ml-auto flex items-center gap-3">
@@ -518,7 +521,7 @@ export function CostsSetupSection({
             }
             className="font-semibold text-[#1b40c8] hover:underline"
           >
-            Subir nuevo
+            {st.uploadNew}
           </button>
           {!setup.complete ? (
             <button
@@ -526,7 +529,7 @@ export function CostsSetupSection({
               onClick={() => setDismissed(false)}
               className="font-semibold text-[#1b40c8] hover:underline"
             >
-              Mostrar
+              {st.show}
             </button>
           ) : null}
           {!setup.complete ? (
@@ -535,7 +538,7 @@ export function CostsSetupSection({
               onClick={() => setDetail(true)}
               className="font-semibold text-[#1b40c8] hover:underline"
             >
-              Ver detalle ▸
+              {st.viewDetail} ▸
             </button>
           ) : null}
           {more}
@@ -556,7 +559,7 @@ export function CostsSetupSection({
       ) : null}
       {progress ? (
         <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-          {progressText(progress)}
+          {progressText(progress, lang)}
         </div>
       ) : notice ? (
         <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-sm text-[#1f7a45]">
@@ -570,11 +573,11 @@ export function CostsSetupSection({
           data-testid="costs-setup-banner"
         >
           <b className="text-[#151c2c]">
-            Configura tus costos · {setup.done} de {setup.total}
+            {fmt(st.configure, { done: setup.done, total: setup.total })}
           </b>
           {next ? (
             <span className="min-w-0 truncate text-[#4a5a85]">
-              · Siguiente: {nextStepText(next.action)}
+              {fmt(st.nextStep, { step: nextStepText(next.action) })}
             </span>
           ) : null}
           <span className="ml-auto flex items-center gap-3">
@@ -593,14 +596,14 @@ export function CostsSetupSection({
               onClick={() => setDetail(!detailOpen)}
               className="font-semibold text-[#1b40c8] hover:underline"
             >
-              Ver detalle {detailOpen ? "▾" : "▸"}
+              {st.viewDetail} {detailOpen ? "▾" : "▸"}
             </button>
             <button
               type="button"
               onClick={() => setDismissed(true)}
               className="text-[13px] text-[#4b5466] hover:underline"
             >
-              Ocultar
+              {st.hide}
             </button>
             {more}
           </span>
@@ -622,7 +625,7 @@ export function CostsSetupSection({
           <section className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-3.5">
             <div className="flex items-center gap-2">
               <h2 className="text-[13px] font-semibold text-[#151c2c]">
-                Configura tus costos · {setup.done} de {setup.total}
+                {fmt(st.configure, { done: setup.done, total: setup.total })}
               </h2>
               {setup.complete ? more : null}
               {setup.complete || dismissed ? (
@@ -633,7 +636,7 @@ export function CostsSetupSection({
                   }
                   className="ml-auto text-[12px] font-semibold text-[#1b40c8]"
                 >
-                  Plegar
+                  {st.fold}
                 </button>
               ) : null}
             </div>
@@ -671,10 +674,11 @@ function NextStepButton({
   /** In the one-row banner the text says «Continuar»; the step is named next to it. */
   compact?: boolean;
 }) {
+  const { d } = useT();
   const cls =
     "inline-flex items-center rounded-lg bg-[#1b40c8] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1535a6]" +
     (compact ? " whitespace-nowrap" : "");
-  const label = compact ? "Continuar" : step.action;
+  const label = compact ? d.costs.setup.continue : step.action;
   if (step.href) {
     return (
       <Link href={step.href} className={cls}>
@@ -698,6 +702,7 @@ function SetupRow({
   index: number;
   onFile: () => void;
 }) {
+  const { d } = useT();
   const body = (
     <>
       <span
@@ -726,7 +731,7 @@ function SetupRow({
     <button type="button" className={cls} onClick={onFile}>
       {body}
       <span className="ml-auto text-[12px] font-semibold text-[#1b40c8]">
-        {step.done ? "Subir otro archivo" : "Elegir archivo"}
+        {step.done ? d.costs.setup.uploadAnother : d.costs.setup.chooseFile}
       </span>
     </button>
   );
@@ -744,13 +749,15 @@ function MoreMenu({
   onUndoBatch: (batchIds: string[]) => void;
   onReset: () => void;
 }) {
+  const { d, fmt } = useT();
+  const st = d.costs.setup;
   if (data.batches.length === 0 && !data.reset) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Más acciones"
+          aria-label={st.moreActions}
           className="ml-1 rounded-md p-1 text-[#6b7385] hover:bg-[#f1f3f7]"
         >
           <MoreHorizontal className="h-4 w-4" />
@@ -760,7 +767,7 @@ function MoreMenu({
         {data.batches.length > 0 ? (
           <>
             <DropdownMenuLabel className="text-[12px] text-[#6b7385]">
-              Deshacer una carga
+              {st.undoUpload}
             </DropdownMenuLabel>
             {canEditPrices ? null : (
               <p className="px-2 pb-1 text-[12px] text-[#6b7280]">
@@ -776,7 +783,7 @@ function MoreMenu({
                 <span className="flex-1 truncate">{batch.filename}</span>
                 {batch.uploads > 1 ? (
                   <span className="text-[12px] text-[#6b7280]">
-                    {batch.uploads} cargas
+                    {fmt(st.uploadsCount, { n: batch.uploads })}
                   </span>
                 ) : null}
               </DropdownMenuItem>
@@ -787,7 +794,7 @@ function MoreMenu({
           <>
             {data.batches.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem className="text-[#c03535]" onClick={onReset}>
-              Empezar de nuevo…
+              {st.startOver}
             </DropdownMenuItem>
           </>
         ) : null}

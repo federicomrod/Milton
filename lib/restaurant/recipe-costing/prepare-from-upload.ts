@@ -5,6 +5,9 @@
 // never loses earlier work. Moved as is from the Menú workspace when the setup
 // went to Costos (R1-18); the endpoint and its behaviour are unchanged.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+
 /** Dishes per request when generating suggestions. */
 export const SUGGESTION_CHUNK = 5;
 
@@ -24,7 +27,8 @@ export class PrepareError extends Error {
 }
 
 export async function prepareDishesFromUpload(
-  onProgress: (p: { done: number; total: number | null }) => void
+  onProgress: (p: { done: number; total: number | null }) => void,
+  lang: PreferredLanguage = "es"
 ): Promise<PrepareTotals> {
   const url = "/api/restaurant/recipes/suggestions";
   const totals: PrepareTotals = { suggested: 0, sinSugerencia: 0, skipped: 0 };
@@ -68,26 +72,38 @@ export async function prepareDishesFromUpload(
     throw new PrepareError(
       err instanceof Error
         ? err.message
-        : "No pude preparar tus platos desde el archivo.",
+        : getDictionary(lang).menu.editor.prepare.failed,
       totals
     );
   }
 }
 
 /** The message after a finished run. */
-export function prepareNotice(totals: PrepareTotals): string {
-  return (
-    `Listo: ${totals.suggested} ${totals.suggested === 1 ? "plato preparado" : "platos preparados"} desde tu archivo` +
-    `, ${totals.sinSugerencia} sin sugerencia` +
-    (totals.skipped > 0
-      ? `, ${totals.skipped} ya resueltos o con receta propia.`
-      : ".")
-  );
+export function prepareNotice(
+  totals: PrepareTotals,
+  lang: PreferredLanguage = "es"
+): string {
+  const d = getDictionary(lang).menu.editor.prepare;
+  return fmt(d.notice, {
+    suggested: totals.suggested,
+    dishes: totals.suggested === 1 ? d.noticeOne : d.noticeOther,
+    none: totals.sinSugerencia,
+    tail:
+      totals.skipped > 0
+        ? fmt(d.noticeSkipped, { skipped: totals.skipped })
+        : d.noticeEnd,
+  });
 }
 
 /** The message after a run that failed half way. */
-export function prepareFailure(err: PrepareError): string {
+export function prepareFailure(
+  err: PrepareError,
+  lang: PreferredLanguage = "es"
+): string {
   return err.totals.suggested > 0
-    ? `${err.message} Lo que ya se generó (${err.totals.suggested} platos) quedó guardado.`
+    ? fmt(getDictionary(lang).menu.editor.prepare.failureSaved, {
+        message: err.message,
+        count: err.totals.suggested,
+      })
     : err.message;
 }

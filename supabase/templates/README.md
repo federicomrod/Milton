@@ -9,12 +9,12 @@ The templates use only Supabase's standard variables: `{{ .ConfirmationURL }}`, 
 
 ## Dashboard template → subject → file
 
-| Dashboard template | Subject | File | config.toml key |
-|---|---|---|---|
-| Confirm signup | `Confirma tu cuenta de Milton / Confirm your Milton account` | `confirmation.html` | `[auth.email.template.confirmation]` |
-| Invite user | `Te invitaron a Milton / You're invited to Milton` | `invite.html` | `[auth.email.template.invite]` |
-| Magic Link | `Tu enlace para entrar a Milton / Your Milton sign-in link` | `magic_link.html` | `[auth.email.template.magic_link]` |
-| Reset Password | `Restablece tu contraseña de Milton / Reset your Milton password` | `recovery.html` | `[auth.email.template.recovery]` |
+| Dashboard template   | Subject                                                              | File                | config.toml key                      |
+| -------------------- | -------------------------------------------------------------------- | ------------------- | ------------------------------------ |
+| Confirm signup       | `Confirma tu cuenta de Milton / Confirm your Milton account`         | `confirmation.html` | `[auth.email.template.confirmation]` |
+| Invite user          | `Te invitaron a Milton / You're invited to Milton`                   | `invite.html`       | `[auth.email.template.invite]`       |
+| Magic Link           | `Tu enlace para entrar a Milton / Your Milton sign-in link`          | `magic_link.html`   | `[auth.email.template.magic_link]`   |
+| Reset Password       | `Restablece tu contraseña de Milton / Reset your Milton password`    | `recovery.html`     | `[auth.email.template.recovery]`     |
 | Change Email Address | `Confirma tu nuevo correo en Milton / Confirm your new Milton email` | `email_change.html` | `[auth.email.template.email_change]` |
 
 ## How to paste (hosted project)

@@ -64,9 +64,8 @@ describe("Centro de agentes is retired (#379)", () => {
   });
 
   it("the old URL redirects to Resumen and keeps its params", async () => {
-    const { default: AgentsRedirect } = await import(
-      "@/app/dashboard/restaurant/agents/page"
-    );
+    const { default: AgentsRedirect } =
+      await import("@/app/dashboard/restaurant/agents/page");
     await expect(
       AgentsRedirect({ searchParams: Promise.resolve({ location: "loc-1" }) })
     ).rejects.toThrow(`REDIRECT:${COCKPIT_HREF}?location=loc-1`);
@@ -82,7 +81,9 @@ describe("Centro de agentes is retired (#379)", () => {
 
   it("the briefing no longer sends people to the agent control center", () => {
     const src = read("lib/restaurant/briefing-prompt.ts");
-    expect(src).not.toMatch(/Centro de Control de Agentes|Agent Control Center/);
+    expect(src).not.toMatch(
+      /Centro de Control de Agentes|Agent Control Center/
+    );
   });
 
   it("setup progress has no agents step", () => {

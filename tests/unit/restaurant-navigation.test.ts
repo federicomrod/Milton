@@ -157,7 +157,10 @@ describe("primary restaurant navigation (#128)", () => {
     expect(page).toContain("redirect(posUploadHref(");
     expect(
       readFileSync(
-        join(process.cwd(), "app/dashboard/restaurant/data/page.tsx"),
+        join(
+          process.cwd(),
+          "components/restaurant/config/sites/ConnectionCards.tsx"
+        ),
         "utf8"
       )
     ).toContain("<PosSalesUploadPanel");

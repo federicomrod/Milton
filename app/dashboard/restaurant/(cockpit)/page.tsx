@@ -26,7 +26,8 @@ import { loadCockpitV2Model } from "@/lib/restaurant/cockpit-v2-server";
 import { CockpitHeadlineSkeleton } from "@/components/restaurant/cockpit/CockpitHeadline";
 import { CockpitHeroChartSkeleton } from "@/components/restaurant/cockpit/CockpitHeroChart";
 import { CockpitInsightsCardSkeleton } from "@/components/restaurant/cockpit/CockpitInsightsCard";
-import { t } from "@/lib/restaurant/language";
+import { fmt, getDictionary } from "@/lib/i18n";
+import { localeFor } from "@/lib/restaurant/language";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { DataHealthBanner } from "@/components/restaurant/shell/DataHealthIndicator";
 import { PageSkeleton } from "@/components/restaurant/shell/PageSkeleton";
@@ -53,43 +54,36 @@ async function CockpitLiveBody({
     return (
       <div className="w-full px-[26px] pt-4 pb-10 space-y-3">
         <OperatingPageHeader
-          title="Cockpit"
+          title={getDictionary(fast.lang).cockpit.page.title}
           lang={fast.lang}
           showDateRange={false}
           lastSyncedAt={fast.lastSyncedAt}
         />
-        <CockpitEmpty reason={fast.reason ?? "no_sales"} />
+        <CockpitEmpty reason={fast.reason ?? "no_sales"} lang={fast.lang} />
       </div>
     );
   }
   const lang = fast.lang;
+  const d = getDictionary(lang).cockpit;
   const model = await loadCockpitV2Model(fast);
   return (
     <div className="w-full px-[26px] pt-4 pb-10 space-y-3">
       <OperatingPageHeader
-        title={t(lang, "Cockpit", "Cockpit")}
+        title={d.page.title}
         lang={lang}
         showDateRange={false}
         lastSyncedAt={fast.lastSyncedAt}
       />
       {fast.readError ? (
-        <DataHealthBanner tone="error">
-          {t(
-            lang,
-            "Could not load all sales rows, so totals are not shown. Try refreshing the page.",
-            "No se pudieron cargar todas las ventas, así que no mostramos totales. Recarga la página."
-          )}
-        </DataHealthBanner>
+        <DataHealthBanner tone="error">{d.page.readError}</DataHealthBanner>
       ) : null}
       {fast.truncated && (
         <div className="rounded-md border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-3 text-sm text-red-900 dark:text-red-200 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>
-            {t(
-              lang,
-              `Totals may be incomplete. This view stopped after ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} rows. The numbers shown are partial.`,
-              `Los totales pueden estar incompletos. Esta vista se detuvo después de ${PAGINATED_READ_SAFETY_CAP.toLocaleString("es-MX")} filas. Los números que ves son parciales.`
-            )}
+            {fmt(d.page.truncated, {
+              rows: PAGINATED_READ_SAFETY_CAP.toLocaleString(localeFor(lang)),
+            })}
           </span>
         </div>
       )}
@@ -105,9 +99,10 @@ async function CockpitLiveBody({
           restaurants={model.restaurants}
           locationId={fast.scope?.locationId ?? null}
           defaultComparison={model.defaultComparison}
+          lang={lang}
         />
       ) : (
-        <CockpitEmpty reason="no_sales" />
+        <CockpitEmpty reason="no_sales" lang={lang} />
       )}
     </div>
   );

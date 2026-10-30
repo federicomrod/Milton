@@ -4,6 +4,8 @@ import "./globals.css";
 import "./chart-capture.css";
 import { ClientProviders } from "@/components/layout/client-providers";
 import { Suspense } from "react";
+import { I18nProvider } from "@/lib/i18n/client";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
 import { ConfirmedNotice } from "@/components/auth/confirmed-notice";
 import { ToastProvider } from "@/components/ui/toast-context";
 
@@ -25,26 +27,29 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const lang = await requestLanguage();
   return (
-    <html lang="es">
+    <html lang={lang}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClientProviders>
-          <ToastProvider>
-            <div className="min-h-screen bg-background">
-              <Suspense fallback={null}>
-                <ConfirmedNotice />
-              </Suspense>
-              <main>{children}</main>
-            </div>
-          </ToastProvider>
-        </ClientProviders>
+        <I18nProvider lang={lang}>
+          <ClientProviders>
+            <ToastProvider>
+              <div className="min-h-screen bg-background">
+                <Suspense fallback={null}>
+                  <ConfirmedNotice />
+                </Suspense>
+                <main>{children}</main>
+              </div>
+            </ToastProvider>
+          </ClientProviders>
+        </I18nProvider>
       </body>
     </html>
   );

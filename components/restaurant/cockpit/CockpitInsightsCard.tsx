@@ -25,15 +25,25 @@ export function CockpitInsightsCard({
       <div className="flex items-center justify-between gap-2 mb-2">
         <h2 className="text-sm font-semibold inline-flex items-center gap-1.5">
           <Sparkles className="h-3.5 w-3.5" />
-          {t(lang, "Milton briefing", "Briefing de Milton")}
+          {t(lang, "Milton briefing", "Briefing de Milton", "Milton-Briefing")}
         </h2>
         {source === "openai" ? (
           <span className="text-[12px] text-muted-foreground">
-            {t(lang, "Wording by Milton", "Redacción de Milton")}
+            {t(
+              lang,
+              "Wording by Milton",
+              "Redacción de Milton",
+              "Formulierung von Milton"
+            )}
           </span>
         ) : (
           <span className="text-[12px] text-muted-foreground">
-            {t(lang, "Automatic summary", "Resumen automático")}
+            {t(
+              lang,
+              "Automatic summary",
+              "Resumen automático",
+              "Automatische Zusammenfassung"
+            )}
           </span>
         )}
       </div>
@@ -42,7 +52,8 @@ export function CockpitInsightsCard({
           {t(
             lang,
             "No material insight for this period yet.",
-            "Aún no hay un hallazgo material para este periodo."
+            "Aún no hay un hallazgo material para este periodo.",
+            "Noch keine wesentliche Erkenntnis für diesen Zeitraum."
           )}
         </p>
       ) : (
@@ -61,7 +72,7 @@ export function CockpitInsightsCard({
               {insight.action ? (
                 <p className="mt-0.5 text-xs">
                   <span className="text-muted-foreground">
-                    {t(lang, "What to do", "Qué hacer")}:{" "}
+                    {t(lang, "What to do", "Qué hacer", "Was zu tun ist")}:{" "}
                   </span>
                   <Link
                     href={insight.action.href}

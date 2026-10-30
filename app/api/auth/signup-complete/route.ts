@@ -27,8 +27,11 @@
 
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getDictionary } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
 
 export async function POST(req: Request) {
+  const msg = getDictionary(await requestLanguage()).admin.api;
   try {
     const { userId, companyName } = await req.json();
 
@@ -68,7 +71,7 @@ export async function POST(req: Request) {
     if (authUserError || !signupEmail) {
       // Fail closed: if we can't tell, don't create a company.
       return NextResponse.json(
-        { error: "Could not verify signup. Please try again." },
+        { error: msg.signupVerifyFailed },
         { status: 500 }
       );
     }
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (inviteLookupError) {
       return NextResponse.json(
-        { error: "Could not verify signup. Please try again." },
+        { error: msg.signupVerifyFailed },
         { status: 500 }
       );
     }
@@ -91,8 +94,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error: "pending_invite",
-          message:
-            "This email has a pending invitation. Please use the invite link you were sent to activate your account.",
+          message: msg.signupPendingInvite,
         },
         { status: 409 }
       );

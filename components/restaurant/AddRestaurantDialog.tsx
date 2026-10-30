@@ -37,10 +37,14 @@ import {
   CONCEPT_TYPE_OPTIONS,
   COUNTRY_OPTIONS,
   POS_SYSTEM_OPTIONS,
+  conceptTypeLabel,
+  countryLabel,
+  posSystemLabel,
   type ConceptType,
   type PosSystemChoice,
 } from "@/lib/restaurant/onboarding-copy";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface AddRestaurantDialogProps {
@@ -63,11 +67,8 @@ export function AddRestaurantDialog({
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = name.trim().length > 0 && !submitting;
-  const submitFallback = t(
-    lang,
-    "Could not add the restaurant. Please try again.",
-    "No se pudo agregar el restaurante. Inténtalo de nuevo."
-  );
+  const d = getDictionary(lang).onboarding.addRestaurant;
+  const submitFallback = d.failed;
 
   function resetAndClose(nextOpen: boolean) {
     if (!nextOpen && !submitting) {
@@ -117,42 +118,30 @@ export function AddRestaurantDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <form onSubmit={onFormSubmit}>
           <DialogHeader>
-            <DialogTitle>
-              {t(lang, "Add a restaurant", "Agregar restaurante")}
-            </DialogTitle>
-            <DialogDescription>
-              {t(
-                lang,
-                "Add another restaurant to your account. You can switch between them any time.",
-                "Agrega otro restaurante a tu cuenta. Puedes cambiar entre ellos cuando quieras."
-              )}
-            </DialogDescription>
+            <DialogTitle>{d.title}</DialogTitle>
+            <DialogDescription>{d.description}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5 py-2">
             <div className="space-y-2">
-              <Label htmlFor="add-restaurant-name">
-                {t(lang, "Restaurant name", "Nombre del restaurante")}
-              </Label>
+              <Label htmlFor="add-restaurant-name">{d.nameLabel}</Label>
               <Input
                 id="add-restaurant-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={t(lang, "e.g. Casa Centro", "ej. Casa Centro")}
+                placeholder={d.namePlaceholder}
                 maxLength={120}
                 autoFocus
               />
             </div>
 
             <div className="space-y-2">
-              <Label>
-                {t(lang, "What best describes it?", "¿Qué lo describe mejor?")}
-              </Label>
+              <Label>{d.conceptLabel}</Label>
               <div className="grid grid-cols-3 gap-2">
                 {CONCEPT_TYPE_OPTIONS.map((opt) => (
                   <SelectableCard
                     key={opt.value}
-                    label={opt.label}
+                    label={conceptTypeLabel(opt.value, lang)}
                     selected={conceptType === opt.value}
                     onClick={() => setConceptType(opt.value)}
                     className="min-h-[64px] px-2 py-3"
@@ -162,20 +151,18 @@ export function AddRestaurantDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>{t(lang, "Country", "País")}</Label>
+              <Label>{d.countryLabel}</Label>
               <Select
                 value={country ?? undefined}
                 onValueChange={(v) => setCountry(v)}
               >
                 <SelectTrigger className="h-11 w-full">
-                  <SelectValue
-                    placeholder={t(lang, "Select a country", "Elige un país")}
-                  />
+                  <SelectValue placeholder={d.countryPlaceholder} />
                 </SelectTrigger>
                 <SelectContent>
                   {COUNTRY_OPTIONS.map((c) => (
                     <SelectItem key={c.code} value={c.code}>
-                      {c.label}
+                      {countryLabel(c.code, lang)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -183,14 +170,12 @@ export function AddRestaurantDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>
-                {t(lang, "POS system", "Sistema de punto de venta")}
-              </Label>
+              <Label>{d.posLabel}</Label>
               <div className="grid grid-cols-3 gap-2">
                 {POS_SYSTEM_OPTIONS.map((opt) => (
                   <SelectableCard
                     key={opt.value}
-                    label={opt.label}
+                    label={posSystemLabel(opt.value, lang)}
                     selected={posSystem === opt.value}
                     onClick={() => setPosSystem(opt.value)}
                     className="min-h-[64px] px-2 py-3"
@@ -209,16 +194,14 @@ export function AddRestaurantDialog({
               onClick={() => resetAndClose(false)}
               disabled={submitting}
             >
-              {t(lang, "Cancel", "Cancelar")}
+              {getDictionary(lang).common.cancel}
             </Button>
             <Button
               type="submit"
               disabled={!canSubmit}
               className="bg-[#1B40C8] text-white hover:bg-[#1533A3]"
             >
-              {submitting
-                ? t(lang, "Adding…", "Agregando…")
-                : t(lang, "Add restaurant", "Agregar restaurante")}
+              {submitting ? d.adding : d.submit}
             </Button>
           </DialogFooter>
         </form>

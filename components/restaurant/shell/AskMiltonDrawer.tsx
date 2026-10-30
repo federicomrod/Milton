@@ -5,9 +5,20 @@
 
 "use client";
 
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { MessageSquareText, X } from "lucide-react";
-import { AskMiltonWorkspace } from "@/components/restaurant/AskMiltonWorkspace";
+
+// The chat is loaded the first time the drawer opens (not with every page),
+// then stays mounted so the conversation survives close / reopen.
+const AskMiltonWorkspace = dynamic(
+  () =>
+    import("@/components/restaurant/AskMiltonWorkspace").then(
+      (m) => m.AskMiltonWorkspace
+    ),
+  { ssr: false }
+);
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   COCKPIT_HREF,
@@ -29,6 +40,8 @@ export function AskMiltonDrawer({
 }) {
   const pathname = usePathname() ?? "";
   const pageLabel = pageContextLabel(pathname, lang);
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
 
   return (
     <div
@@ -40,7 +53,7 @@ export function AskMiltonDrawer({
       <button
         type="button"
         className="absolute inset-0 bg-black/40"
-        aria-label={t(lang, "Close", "Cerrar")}
+        aria-label={t(lang, "Close", "Cerrar", "Schließen")}
         onClick={() => onOpenChange(false)}
       />
       <aside
@@ -55,25 +68,30 @@ export function AskMiltonDrawer({
               id="ask-milton-drawer-title"
               className="text-base font-semibold"
             >
-              {t(lang, "Ask Milton", "Preguntar a Milton")}
+              {t(lang, "Ask Milton", "Preguntar a Milton", "Ask Milton")}
             </h2>
             {pageLabel ? (
               <p className="text-xs text-muted-foreground mt-0.5">
-                {t(lang, `Viewing ${pageLabel}`, `Viendo ${pageLabel}`)}
+                {t(
+                  lang,
+                  `Viewing ${pageLabel}`,
+                  `Viendo ${pageLabel}`,
+                  `Aktuelle Ansicht: ${pageLabel}`
+                )}
               </p>
             ) : null}
           </div>
           <button
             type="button"
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-            aria-label={t(lang, "Close", "Cerrar")}
+            aria-label={t(lang, "Close", "Cerrar", "Schließen")}
             onClick={() => onOpenChange(false)}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
-          <AskMiltonWorkspace lang={lang} />
+          {opened ? <AskMiltonWorkspace lang={lang} /> : null}
         </div>
       </aside>
     </div>
@@ -84,24 +102,30 @@ function pageContextLabel(
   pathname: string,
   lang: PreferredLanguage
 ): string | null {
-  if (pathname === COCKPIT_HREF) return t(lang, "Cockpit", "Cockpit");
+  if (pathname === COCKPIT_HREF)
+    return t(lang, "Cockpit", "Cockpit", "Cockpit");
   if (pathname === SALES_HREF || pathname.startsWith(SALES_HREF + "/")) {
-    return t(lang, "Sales", "Ventas");
+    return t(lang, "Sales", "Ventas", "Umsatz");
   }
   if (pathname === MENU_HREF || pathname.startsWith(MENU_HREF + "/")) {
-    return t(lang, "Menu", "Menú");
+    return t(lang, "Menu", "Menú", "Speisekarte");
   }
   if (pathname === COSTS_HREF || pathname.startsWith(COSTS_HREF + "/")) {
-    return t(lang, "Costs", "Costos");
+    return t(lang, "Costs", "Costos", "Kosten");
   }
   if (pathname === KITCHEN_HREF || pathname.startsWith(KITCHEN_HREF + "/")) {
-    return t(lang, "Kitchen", "Cocina");
+    return t(lang, "Kitchen", "Cocina", "Küche");
   }
   if (
     pathname === DATA_SETTINGS_HREF ||
     pathname.startsWith(DATA_SETTINGS_HREF + "/")
   ) {
-    return t(lang, "Data & Settings", "Datos y configuración");
+    return t(
+      lang,
+      "Data & Settings",
+      "Datos y configuración",
+      "Daten und Einstellungen"
+    );
   }
   return null;
 }
@@ -121,7 +145,7 @@ export function AskMiltonButton({
       className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-primary text-primary-foreground h-10 px-4 text-sm font-semibold shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
     >
       <MessageSquareText className="h-4 w-4" />
-      {t(lang, "Ask Milton", "Preguntar a Milton")}
+      {t(lang, "Ask Milton", "Preguntar a Milton", "Ask Milton")}
     </button>
   );
 }

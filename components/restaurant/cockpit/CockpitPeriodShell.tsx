@@ -88,7 +88,7 @@ export function CockpitPeriodShell({
       <div className="w-full py-3 px-6 lg:px-10">
         <div className="space-y-3">
           <OperatingPageHeader
-            title={t(lang, "Cockpit", "Cockpit")}
+            title={t(lang, "Cockpit", "Cockpit", "Cockpit")}
             lang={lang}
             dateRange={
               <CockpitPeriodControl

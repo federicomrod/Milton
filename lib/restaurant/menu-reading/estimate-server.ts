@@ -60,6 +60,8 @@ import {
 import type { RecipeActor } from "@/lib/restaurant/recipe-costing/approval";
 import { nextVersionNumber } from "@/lib/restaurant/recipe-versions";
 import { MENU_EVIDENCE_SOURCE, menuDraftEvidence } from "./drafts";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { menuMsg } from "./messages";
 import { withMenuDraftEvidence } from "@/lib/restaurant/pos-product-links";
 import { MENU_AI_MODEL, parseMenuDishes } from "./extract";
 import {
@@ -92,18 +94,15 @@ export const ESTIMATE_PARALLEL = 3;
 export const ESTIMATE_MAX_RUN = 20;
 const AI_TIMEOUT_MS = 60_000;
 
-export const ESTIMATE_TABLES_MISSING =
-  "Falta aplicar la actualización de la base de datos (062).";
-export const ESTIMATE_APPROVED_MESSAGE =
-  "Este plato ya tiene receta aprobada; Milton no la cambia.";
-export const ESTIMATE_NOT_FOUND_MESSAGE =
-  "No hay un estimado de Milton para este plato.";
-export const ESTIMATE_NO_DRAFT_MESSAGE =
-  "Este plato no tiene un borrador del menú donde copiar el estimado.";
-export const ESTIMATE_DRAFT_CREATE_MESSAGE =
-  "No pude preparar el borrador del menú para este plato. Usa «Leer tu menú» y vuelve a intentar.";
-export const ESTIMATE_EMPTY_MESSAGE =
-  "El estimado no tiene ingredientes para copiar.";
+export const ESTIMATE_TABLES_MISSING = menuMsg("es", "estimateTablesMissing");
+export const ESTIMATE_APPROVED_MESSAGE = menuMsg("es", "estimateApproved");
+export const ESTIMATE_NOT_FOUND_MESSAGE = menuMsg("es", "estimateNotFound");
+export const ESTIMATE_NO_DRAFT_MESSAGE = menuMsg("es", "estimateNoDraft");
+export const ESTIMATE_DRAFT_CREATE_MESSAGE = menuMsg(
+  "es",
+  "estimateDraftCreate"
+);
+export const ESTIMATE_EMPTY_MESSAGE = menuMsg("es", "estimateEmpty");
 
 export class EstimateTablesMissingError extends Error {
   constructor() {
@@ -898,6 +897,8 @@ export interface EstimateRunParams {
   locationId?: string | null;
   limit?: number;
   ai?: EstimateAi;
+  /** Language of the errors (default Spanish). */
+  lang?: PreferredLanguage;
 }
 
 /**
@@ -912,7 +913,7 @@ export async function estimateDishes(
   const existing = await loadDishEstimates(supabase, params.companyId);
   if (!existing.ok) {
     if (existing.unavailable) throw new EstimateTablesMissingError();
-    throw new Error("No pude leer los estimados.");
+    throw new Error(menuMsg(params.lang ?? "es", "readEstimatesFailed"));
   }
   const limit = Math.min(
     Math.max(1, Math.floor(params.limit ?? ESTIMATE_MAX_RUN)),
@@ -1110,24 +1111,36 @@ function filledEstimateFlags(row: Record<string, unknown>): string[] {
   return flags;
 }
 
-function filledEstimateReasons(row: Record<string, unknown>): string[] {
+const ALL_LANGS: PreferredLanguage[] = ["es", "en", "de"];
+
+function filledEstimateReasons(
+  row: Record<string, unknown>,
+  lang: PreferredLanguage = "es"
+): string[] {
   const reasons = (
     Array.isArray(row.reasons)
       ? row.reasons.filter((r): r is string => typeof r === "string")
       : []
-  ).map((reason) =>
-    reason.replace(" Confírmalo y escribe cuánto lleva.", " Confírmalo.")
-  );
-  return [
-    "Estimado por Milton: revisa la cantidad y la unidad antes de aprobar.",
-    ...reasons,
-  ];
+  ).map((reason) => {
+    // The reason may have been written in any language: drop the "write how
+    // much" request from whichever one it is, now that the quantity is filled.
+    let out = reason;
+    for (const l of ALL_LANGS) {
+      out = out.replace(
+        ` ${menuMsg(l, "confirmWriteQty")}`,
+        ` ${menuMsg(l, "confirmOnly")}`
+      );
+    }
+    return out;
+  });
+  return [menuMsg(lang, "estimatedReview"), ...reasons];
 }
 
 /** One new evidence line from an estimate: pending, no unit cost, no input. */
 export function evidenceLineFromEstimate(
   estimate: EstimatedLine,
-  matchName: string | null = null
+  matchName: string | null = null,
+  lang: PreferredLanguage = "es"
 ): Record<string, unknown> {
   const matched = Boolean(matchName || estimate.ingredient_id);
   const flags = [FLAG_PENDING_INGREDIENT];
@@ -1145,9 +1158,7 @@ export function evidenceLineFromEstimate(
     unit_cost: null,
     pending: true,
     flags,
-    reasons: [
-      "Estimado por Milton: revisa la cantidad y la unidad antes de aprobar.",
-    ],
+    reasons: [menuMsg(lang, "estimatedReview")],
   };
 }
 
@@ -1162,7 +1173,10 @@ export function evidenceLineFromEstimate(
 export function applyEstimateToEvidence(
   evidence: Record<string, unknown>,
   estimateLines: readonly EstimatedLine[],
-  opts?: { matchNameOf?: (line: EstimatedLine) => string | null }
+  opts?: {
+    matchNameOf?: (line: EstimatedLine) => string | null;
+    lang?: PreferredLanguage;
+  }
 ): ApplyEstimateResult {
   const rawLines = Array.isArray(evidence.lines) ? evidence.lines : [];
   const free = new Map<string, EstimatedLine>();
@@ -1195,13 +1209,17 @@ export function applyEstimateToEvidence(
       qty: estimate.qty,
       unit: estimate.unit,
       flags: filledEstimateFlags(row),
-      reasons: filledEstimateReasons(row),
+      reasons: filledEstimateReasons(row, opts?.lang ?? "es"),
     };
   });
   for (const estimate of free.values()) {
     applied += 1;
     lines.push(
-      evidenceLineFromEstimate(estimate, opts?.matchNameOf?.(estimate) ?? null)
+      evidenceLineFromEstimate(
+        estimate,
+        opts?.matchNameOf?.(estimate) ?? null,
+        opts?.lang ?? "es"
+      )
     );
   }
   const allHaveQty =
@@ -1216,9 +1234,7 @@ export function applyEstimateToEvidence(
       lines,
       ...(applied > 0 && allHaveQty
         ? {
-            reasons: [
-              "Cantidades estimadas por Milton: revísalas antes de aprobar.",
-            ],
+            reasons: [menuMsg(opts?.lang ?? "es", "quantitiesEstimated")],
           }
         : {}),
     },
@@ -1237,7 +1253,10 @@ export type UseEstimateOutcome =
     }
   | { ok: false; status: number; error: string };
 
-function menuDraftShellEvidence(fact: DishFact): Record<string, unknown> {
+function menuDraftShellEvidence(
+  fact: DishFact,
+  lang: PreferredLanguage = "es"
+): Record<string, unknown> {
   const dishName =
     (typeof fact.evidence.menu_dish === "string" && fact.evidence.menu_dish) ||
     fact.name;
@@ -1272,6 +1291,7 @@ function menuDraftShellEvidence(fact: DishFact): Record<string, unknown> {
       typeof fact.evidence.menu_url === "string"
         ? fact.evidence.menu_url
         : null,
+    lang,
   });
 }
 
@@ -1282,14 +1302,15 @@ function menuDraftShellEvidence(fact: DishFact): Record<string, unknown> {
  */
 async function ensureMenuDraftShell(
   supabase: SupabaseClient,
-  params: { companyId: string; fact: DishFact }
+  params: { companyId: string; fact: DishFact; lang?: PreferredLanguage }
 ): Promise<
   | { ok: true; evidence: Record<string, unknown>; linkId: string }
   | { ok: false; status: number; error: string }
 > {
   const { companyId, fact } = params;
+  const lang = params.lang ?? "es";
   if (!fact.link_id) {
-    return { ok: false, status: 404, error: "No encontré ese plato." };
+    return { ok: false, status: 404, error: menuMsg(lang, "dishNotFound") };
   }
   const existingLines = Array.isArray(fact.evidence.lines)
     ? fact.evidence.lines
@@ -1304,6 +1325,7 @@ async function ensureMenuDraftShell(
     const created = await createMenuDraftVersion(supabase, {
       companyId,
       fact,
+      lang,
     });
     if (!created.ok) return created;
     versionId = created.versionId;
@@ -1316,7 +1338,11 @@ async function ensureMenuDraftShell(
         .eq("menu_item_id", fact.menu_item_id)
     );
     if (versions.error) {
-      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+      return {
+        ok: false,
+        status: 500,
+        error: menuMsg(lang, "estimateDraftCreate"),
+      };
     }
     versionId =
       versions.rows.find((row) => row.status === "in_review")?.id ??
@@ -1332,17 +1358,18 @@ async function ensureMenuDraftShell(
           ? { recipe_version_id: versionId }
           : {}),
       }
-    : { ...menuDraftShellEvidence(fact), recipe_version_id: versionId };
+    : { ...menuDraftShellEvidence(fact, lang), recipe_version_id: versionId };
   return { ok: true, evidence, linkId: fact.link_id };
 }
 
 async function createMenuDraftVersion(
   supabase: SupabaseClient,
-  params: { companyId: string; fact: DishFact }
+  params: { companyId: string; fact: DishFact; lang?: PreferredLanguage }
 ): Promise<
   { ok: true; versionId: string } | { ok: false; status: number; error: string }
 > {
   const { companyId, fact } = params;
+  const lang = params.lang ?? "es";
   try {
     const existing = await supabase
       .from("recipes")
@@ -1351,7 +1378,11 @@ async function createMenuDraftVersion(
       .eq("menu_item_id", fact.menu_item_id)
       .maybeSingle();
     if (existing.error) {
-      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+      return {
+        ok: false,
+        status: 500,
+        error: menuMsg(lang, "estimateDraftCreate"),
+      };
     }
     let recipeId =
       existing.data && typeof existing.data.id === "string"
@@ -1376,7 +1407,11 @@ async function createMenuDraftVersion(
         .select("id")
         .single();
       if (inserted.error || !inserted.data) {
-        return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+        return {
+          ok: false,
+          status: 500,
+          error: menuMsg(lang, "estimateDraftCreate"),
+        };
       }
       recipeId = String(inserted.data.id);
     }
@@ -1388,7 +1423,11 @@ async function createMenuDraftVersion(
         .eq("recipe_id", recipeId)
     );
     if (listed.error) {
-      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+      return {
+        ok: false,
+        status: 500,
+        error: menuMsg(lang, "estimateDraftCreate"),
+      };
     }
     const version = await supabase
       .from("recipe_versions")
@@ -1404,37 +1443,50 @@ async function createMenuDraftVersion(
         status: "in_review",
         effective_date: null,
         source_type: "import",
-        notes: "Borrador desde el menú",
+        notes: menuMsg(lang, "draftNote"),
       })
       .select("id")
       .single();
     if (version.error || !version.data) {
-      return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+      return {
+        ok: false,
+        status: 500,
+        error: menuMsg(lang, "estimateDraftCreate"),
+      };
     }
     return { ok: true, versionId: String(version.data.id) };
   } catch {
-    return { ok: false, status: 500, error: ESTIMATE_DRAFT_CREATE_MESSAGE };
+    return {
+      ok: false,
+      status: 500,
+      error: menuMsg(lang, "estimateDraftCreate"),
+    };
   }
 }
 
 export async function applyEstimateAsDraft(
   supabase: SupabaseClient,
-  params: { companyId: string; menuItemId: string }
+  params: { companyId: string; menuItemId: string; lang?: PreferredLanguage }
 ): Promise<UseEstimateOutcome> {
+  const lang = params.lang ?? "es";
   const estimates = await loadDishEstimates(supabase, params.companyId);
   if (!estimates.ok) {
     return estimates.unavailable
-      ? { ok: false, status: 503, error: ESTIMATE_TABLES_MISSING }
-      : { ok: false, status: 500, error: "No pude leer el estimado." };
+      ? {
+          ok: false,
+          status: 503,
+          error: menuMsg(lang, "estimateTablesMissing"),
+        }
+      : { ok: false, status: 500, error: menuMsg(lang, "readEstimateFailed") };
   }
   const estimate: DishEstimateRow | undefined = estimates.rows.find(
     (row) => row.menu_item_id === params.menuItemId
   );
   if (!estimate) {
-    return { ok: false, status: 404, error: ESTIMATE_NOT_FOUND_MESSAGE };
+    return { ok: false, status: 404, error: menuMsg(lang, "estimateNotFound") };
   }
   if (estimate.lines.length === 0) {
-    return { ok: false, status: 409, error: ESTIMATE_EMPTY_MESSAGE };
+    return { ok: false, status: 409, error: menuMsg(lang, "estimateEmpty") };
   }
 
   let facts: DishFact[];
@@ -1444,7 +1496,7 @@ export async function applyEstimateAsDraft(
       locationId: estimate.location_id,
     });
   } catch {
-    return { ok: false, status: 500, error: "No pude leer el plato." };
+    return { ok: false, status: 500, error: menuMsg(lang, "readDishFailed") };
   }
   const fact =
     facts.find(
@@ -1453,22 +1505,23 @@ export async function applyEstimateAsDraft(
         f.odoo_product_id === estimate.odoo_product_id
     ) ?? facts[0];
   if (!fact || !fact.link_id) {
-    return { ok: false, status: 404, error: "No encontré ese plato." };
+    return { ok: false, status: 404, error: menuMsg(lang, "dishNotFound") };
   }
   // Approved, Confirmado with a real recipe, Excel or hand-made: nothing
   // is written. A Confirmado link alone does not block.
   if (!dishEligibility(fact).ok) {
-    return { ok: false, status: 409, error: ESTIMATE_APPROVED_MESSAGE };
+    return { ok: false, status: 409, error: menuMsg(lang, "estimateApproved") };
   }
 
   const alreadyDraft = isMenuDraftFact(fact);
   if (!alreadyDraft && (fact.has_recipe_lines || fact.approved_with_lines)) {
-    return { ok: false, status: 409, error: ESTIMATE_NO_DRAFT_MESSAGE };
+    return { ok: false, status: 409, error: menuMsg(lang, "estimateNoDraft") };
   }
 
   const shell = await ensureMenuDraftShell(supabase, {
     companyId: params.companyId,
     fact,
+    lang,
   });
   if (!shell.ok) return shell;
 
@@ -1483,9 +1536,10 @@ export async function applyEstimateAsDraft(
       line.ingredient_id
         ? (catalogNames.get(line.ingredient_id) ?? null)
         : null,
+    lang,
   });
   if (applied.applied === 0) {
-    return { ok: false, status: 409, error: ESTIMATE_NO_DRAFT_MESSAGE };
+    return { ok: false, status: 409, error: menuMsg(lang, "estimateNoDraft") };
   }
 
   let evidenceToWrite = applied.evidence;
@@ -1518,7 +1572,7 @@ export async function applyEstimateAsDraft(
     .eq("company_id", params.companyId)
     .eq("id", fact.link_id);
   if (error) {
-    return { ok: false, status: 500, error: "No pude guardar el borrador." };
+    return { ok: false, status: 500, error: menuMsg(lang, "saveDraftFailed") };
   }
   const marked = await supabase
     .from(DISH_ESTIMATES_TABLE)

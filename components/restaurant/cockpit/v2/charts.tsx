@@ -14,37 +14,18 @@ import type {
   WeekdayCost,
 } from "@/lib/restaurant/cockpit-v2";
 import { NO_CATEGORY } from "@/lib/restaurant/cockpit-v2";
+import { useT } from "@/lib/i18n/client";
+import {
+  dayLabel as formatDayLabel,
+  dayMonthLabel,
+  weekdayShort,
+} from "@/lib/restaurant/cockpit-format";
 
 const GOOD = "#A7F3D0";
 const BAD = "#FBCFE8";
 const NO_TARGET = "#E7EDFD";
 const INK = "#0F172A";
 const BLUE = "#1b40c8";
-
-const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-const MONTHS = [
-  "ene",
-  "feb",
-  "mar",
-  "abr",
-  "may",
-  "jun",
-  "jul",
-  "ago",
-  "sep",
-  "oct",
-  "nov",
-  "dic",
-];
-const WEEKDAY_FULL = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-export function dayLabel(ymd: string): string {
-  const d = new Date(
-    Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10))
-  );
-  const wd = WEEKDAY_FULL[(d.getUTCDay() + 6) % 7];
-  return `${wd} ${+ymd.slice(8)} ${MONTHS[+ymd.slice(5, 7) - 1]}`;
-}
 
 export function DailyBarsChart({
   bars,
@@ -60,6 +41,8 @@ export function DailyBarsChart({
   money: (n: number) => string;
   onDay: (date: string) => void;
 }) {
+  const { d, fmt, lang } = useT();
+  const dayLabel = (ymd: string) => formatDayLabel(ymd, lang);
   const [hover, setHover] = useState<number | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const W = useElementWidth(wrapRef);
@@ -94,11 +77,11 @@ export function DailyBarsChart({
       selectTicks({
         count: bars.length,
         positionOf: (i) => i * slot + slot / 2,
-        labelOf: (i) => dayLabel(bars[i].date).slice(4),
+        labelOf: (i) => dayMonthLabel(bars[i].date, lang),
         width: W,
         fontSize: 11,
       }),
-    [bars, slot, W]
+    [bars, slot, W, lang]
   );
   return (
     <div className="relative" ref={wrapRef}>
@@ -106,7 +89,7 @@ export function DailyBarsChart({
         viewBox={`0 0 ${W} ${H}`}
         className="h-[190px] w-full"
         role="img"
-        aria-label="Ventas diarias"
+        aria-label={d.cockpit.v2.dailySales}
         onMouseLeave={() => setHover(null)}
       >
         {bars.map((b, i) => {
@@ -189,11 +172,12 @@ export function DailyBarsChart({
           </div>
           {h.deltaPct !== null ? (
             <div>
-              {h.deltaPct >= 0 ? "+" : ""}
-              {Math.round(h.deltaPct)}% vs objetivo · clic = detalle
+              {fmt(d.cockpit.charts.tooltipVsTarget, {
+                pct: `${h.deltaPct >= 0 ? "+" : ""}${Math.round(h.deltaPct)}%`,
+              })}
             </div>
           ) : (
-            <div className="text-[#c6d3f5]">clic = detalle</div>
+            <div className="text-[#c6d3f5]">{d.cockpit.charts.clickDetail}</div>
           )}
         </div>
       ) : null}
@@ -202,19 +186,25 @@ export function DailyBarsChart({
           <>
             <Legend
               color={GOOD}
-              label={`Sobre objetivo · ${bars.filter((b) => b.above === true).length} días`}
+              label={fmt(d.cockpit.charts.aboveTarget, {
+                n: bars.filter((b) => b.above === true).length,
+              })}
             />
             <Legend
               color={BAD}
-              label={`Bajo objetivo · ${bars.filter((b) => b.above === false).length} días`}
+              label={fmt(d.cockpit.charts.belowTarget, {
+                n: bars.filter((b) => b.above === false).length,
+              })}
             />
-            <Legend color={INK} label="Objetivo" line />
+            <Legend color={INK} label={d.cockpit.charts.targetLegend} line />
           </>
         ) : null}
         {baselineAvg !== null ? (
           <Legend
             color="#8a92a3"
-            label={`Promedio (${baselineLabel.replace("vs ", "")})`}
+            label={fmt(d.cockpit.charts.averageLegend, {
+              label: baselineLabel,
+            })}
             line
           />
         ) : null}
@@ -265,6 +255,7 @@ export function WeeksChart({
   money: (n: number) => string;
   onWeek: (w: WeekBar) => void;
 }) {
+  const { d } = useT();
   const max = Math.max(
     1,
     ...weeks.map((w) => Math.max(w.sales, w.target ?? 0))
@@ -272,7 +263,7 @@ export function WeeksChart({
   if (weeks.length === 0)
     return (
       <p className="py-3 text-[12px] text-[#8a92a3]">
-        Aún no hay semanas completas.
+        {d.cockpit.charts.noWeeks}
       </p>
     );
   return (
@@ -283,9 +274,11 @@ export function WeeksChart({
           type="button"
           onClick={() => onWeek(w)}
           className="my-1.5 flex w-full items-center gap-2 text-left text-[13px]"
-          title="clic = detalle"
+          title={d.cockpit.charts.clickDetail}
         >
-          <span className="w-8 text-[#8a92a3]">{w.label}</span>
+          <span className="w-8 text-[#8a92a3]">
+            {w.label.replace(/^S/, d.cockpit.charts.weekPrefix)}
+          </span>
           <span className="relative h-4 flex-1 rounded bg-[#eef1fa]">
             <span
               className="absolute inset-y-0 left-0 rounded"
@@ -317,43 +310,51 @@ export function WeekdayCostChart({
   target: number | null;
   loading: boolean;
 }) {
+  const { d: dict, fmt, lang } = useT();
+  const dayNames = Array.from({ length: 7 }, (_, i) => weekdayShort(i, lang));
   const max = Math.max(
     1,
     target ?? 0,
-    ...days.map((d) => d.food_cost_pct ?? 0)
+    ...days.map((x) => x.food_cost_pct ?? 0)
   );
   if (loading)
     return (
       <p className="py-6 text-center text-[12px] text-[#8a92a3]">
-        Calculando costo…
+        {dict.cockpit.charts.calculatingCost}
       </p>
     );
-  if (days.every((d) => d.food_cost_pct === null))
+  if (days.every((x) => x.food_cost_pct === null))
     return (
       <p className="py-6 text-center text-[12px] text-[#8a92a3]">
-        Sin precio: aún no hay platos con costo.
+        {dict.cockpit.charts.noPriceDishes}
       </p>
     );
   return (
     <div>
       <div className="relative flex h-[110px] items-end gap-2.5 border-b border-[#eef0f4]">
-        {days.map((d) => (
+        {days.map((x) => (
           <div
-            key={d.weekday}
+            key={x.weekday}
             className="flex h-full flex-1 items-end justify-center"
             title={
-              d.food_cost_pct === null
-                ? `${DAYS[d.weekday]}: sin costo`
-                : `${DAYS[d.weekday]}: ${d.food_cost_pct.toFixed(1)}% · cobertura ${Math.round(d.coverage_pct ?? 0)}% de las ventas`
+              x.food_cost_pct === null
+                ? fmt(dict.cockpit.charts.weekdayNoCost, {
+                    day: dayNames[x.weekday],
+                  })
+                : fmt(dict.cockpit.charts.weekdayCost, {
+                    day: dayNames[x.weekday],
+                    pct: x.food_cost_pct.toFixed(1),
+                    coverage: Math.round(x.coverage_pct ?? 0),
+                  })
             }
           >
-            {d.food_cost_pct !== null ? (
+            {x.food_cost_pct !== null ? (
               <div
                 className="w-full rounded-t"
                 style={{
-                  height: `${(d.food_cost_pct / max) * 100}%`,
+                  height: `${(x.food_cost_pct / max) * 100}%`,
                   background:
-                    d.above === null ? NO_TARGET : d.above ? BAD : GOOD,
+                    x.above === null ? NO_TARGET : x.above ? BAD : GOOD,
                   opacity: 0.85,
                 }}
               />
@@ -368,9 +369,9 @@ export function WeekdayCostChart({
         ) : null}
       </div>
       <div className="flex gap-2.5 text-[12px] text-[#8a92a3]">
-        {DAYS.map((d) => (
-          <span key={d} className="flex-1 text-center">
-            {d}
+        {dayNames.map((n) => (
+          <span key={n} className="flex-1 text-center">
+            {n}
           </span>
         ))}
       </div>
@@ -402,16 +403,19 @@ export function MixDonut({
   onSlice: (category: string | null) => void;
   loading: boolean;
 }) {
+  const { d } = useT();
+  const nameOf = (category: string) =>
+    category === NO_CATEGORY ? d.cockpit.charts.noCategory : category;
   if (loading)
     return (
       <p className="py-10 text-center text-[12px] text-[#8a92a3]">
-        Calculando mezcla…
+        {d.cockpit.charts.calculatingMix}
       </p>
     );
   if (slices.length === 0)
     return (
       <p className="py-10 text-center text-[12px] text-[#8a92a3]">
-        Sin ventas en el periodo.
+        {d.cockpit.charts.noSalesPeriod}
       </p>
     );
   // The biggest four, the rest together; «Sin categoría» always stands on its own.
@@ -424,7 +428,7 @@ export function MixDonut({
     ...(rest.length
       ? [
           {
-            category: "Otros",
+            category: d.cockpit.charts.others,
             net: rest.reduce((a, s) => a + s.net, 0),
             share_pct: rest.reduce((a, s) => a + s.share_pct, 0),
             members: rest.map((r) => r.category),
@@ -442,7 +446,7 @@ export function MixDonut({
         viewBox="0 0 150 150"
         className="h-[150px] w-[150px] shrink-0"
         role="img"
-        aria-label="Mezcla de ventas"
+        aria-label={d.cockpit.v2.salesMix}
       >
         <g transform="rotate(-90 75 75)">
           {shown.map((s, i) => {
@@ -493,7 +497,9 @@ export function MixDonut({
               disabled={!!s.members}
               onClick={() => onSlice(active === s.category ? null : s.category)}
               aria-pressed={active === s.category}
-              title={s.members ? s.members.join(", ") : "clic = filtrar todo"}
+              title={
+                s.members ? s.members.join(", ") : d.cockpit.charts.clickFilter
+              }
               className={
                 "flex w-full items-center gap-2 text-left " +
                 (active === s.category ? "font-bold" : "")
@@ -508,7 +514,7 @@ export function MixDonut({
                       : SLICE_COLORS[i % SLICE_COLORS.length],
                 }}
               />
-              <span className="truncate">{s.category}</span>
+              <span className="truncate">{nameOf(s.category)}</span>
               <b className="ml-auto tabular-nums">
                 {Math.round(s.share_pct * 10) / 10}%
               </b>

@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync, statSync } from "fs";
 import { join } from "path";
+import { es } from "@/lib/i18n/es";
 import {
   dimensionLeader,
   leaderLabel,
@@ -93,7 +94,8 @@ describe("the leader of each dimension", () => {
   it("is a one-line summary at the top of the Desglose tab, not separate cards", () => {
     const src = read("components/restaurant/sales/detail/SalesDetailV2.tsx");
     expect(src).toContain('data-testid="dimension-leaders"');
-    expect(src).toContain("Lo que más pesa:");
+    expect(src).toContain("s0.states.leaders");
+    expect(es.sales.detail.states.leaders).toBe("Lo que más pesa:");
     expect(src).toContain('state.tab !== "desglose"');
   });
 });

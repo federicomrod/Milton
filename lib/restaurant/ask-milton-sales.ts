@@ -243,6 +243,15 @@ const MONTH_INDEX: Record<string, number> = {
   diciembre: 12,
   dec: 12,
   dic: 12,
+  // de (folded: no umlauts)
+  januar: 1,
+  februar: 2,
+  marz: 3,
+  mai: 5,
+  juni: 6,
+  juli: 7,
+  oktober: 10,
+  dezember: 12,
 };
 
 /**
@@ -593,10 +602,24 @@ const COUNT_WORDS: Record<string, number> = {
   fourteen: 14,
   fifteen: 15,
   thirty: 30,
+  ein: 1,
+  eine: 1,
+  zwei: 2,
+  drei: 3,
+  vier: 4,
+  funf: 5,
+  sechs: 6,
+  sieben: 7,
+  acht: 8,
+  neun: 9,
+  zehn: 10,
+  vierzehn: 14,
+  funfzehn: 15,
+  dreissig: 30,
 };
 const COUNT_TOKEN = `(\\d{1,3}|${Object.keys(COUNT_WORDS).join("|")})`;
 const LAST_N_RE = new RegExp(
-  `\\b(?:ultim[oa]s?|pasad[oa]s?|last|past|previous)\\s+${COUNT_TOKEN}\\s+(dias?|semanas?|days?|weeks?)\\b`
+  `\\b(?:ultim[oa]s?|pasad[oa]s?|last|past|previous|letzten?|vergangenen?)\\s+${COUNT_TOKEN}\\s+(dias?|semanas?|days?|weeks?|tage[n]?|wochen?)\\b`
 );
 const N_LAST_RE = new RegExp(
   `\\b${COUNT_TOKEN}\\s+(dias?|semanas?|days?|weeks?)\\s+(?:pasad[oa]s?|atras)\\b`
@@ -604,7 +627,7 @@ const N_LAST_RE = new RegExp(
 // «última semana», «la ultima semanas», «semana pasada», «esta semana»,
 // «last week», «past week», «this week», «últimos días» (no number).
 const ONE_WEEK_RE =
-  /\b(?:(?:ultim[oa]s?|pasad[oa]s?|esta|this|last|past|previous)\s+semanas?|semanas?\s+pasad[oa]s?|(?:this|last|past|previous)\s+week)\b/;
+  /\b(?:(?:ultim[oa]s?|pasad[oa]s?|esta|this|last|past|previous)\s+semanas?|semanas?\s+pasad[oa]s?|(?:this|last|past|previous)\s+week|(?:diese|letzte|vergangene|vorige)[nrms]?\s+woche)\b/;
 
 function toCount(token: string): number | null {
   if (/^\d+$/.test(token)) return Number(token);
@@ -621,7 +644,12 @@ export function relativeWindowDays(folded: string): number | null {
   if (m) {
     const n = toCount(m[1]);
     if (n !== null && n >= 1) {
-      const unitDays = m[2].startsWith("sem") || m[2].startsWith("week") ? 7 : 1;
+      const unitDays =
+        m[2].startsWith("sem") ||
+        m[2].startsWith("week") ||
+        m[2].startsWith("woche")
+          ? 7
+          : 1;
       return Math.min(n * unitDays, 366);
     }
   }
@@ -1180,11 +1208,11 @@ export function matchCategoryFromQuestion(
   // is local (Desayunos) but the operator asked in English (breakfast).
   if (!best) {
     const aliases: Record<string, string[]> = {
-      breakfast: ["desayuno"],
+      breakfast: ["desayuno", "fruhstuck"],
       desayuno: ["breakfast"],
-      lunch: ["almuerzo", "comida"],
-      dinner: ["cena"],
-      drink: ["bebida"],
+      lunch: ["almuerzo", "comida", "mittagessen"],
+      dinner: ["cena", "abendessen"],
+      drink: ["bebida", "getrank"],
     };
     for (const category of categories) {
       const key = foldText(category);

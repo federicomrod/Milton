@@ -2,7 +2,7 @@
 //
 // Rentabilidad (#400): is the restaurant making money this month? The top half
 // uses the same header, controls, cards and chart style as the Cockpit and
-// Ventas; every number comes from rentabilidad.ts. Spanish only.
+// Ventas; every number comes from rentabilidad.ts. Words: lib/i18n/*/rentabilidad.ts.
 //
 // Colours (brand): blue #1B40C8 (hover #1533A3, tint #E7EDFD); Ink #0F172A on
 // mint #A7F3D0 (good), rosa #FBCFE8 (bad) and amarillo #FDE68A (alerts);
@@ -18,7 +18,8 @@ import { formatMoney } from "@/lib/restaurant/costs-format";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { SALES_HREF, withShellParams } from "@/lib/restaurant/navigation";
-import { CATEGORY_LABELS_ES } from "@/lib/restaurant/fixed-costs";
+import { categoryLabel } from "@/lib/restaurant/fixed-costs";
+import { useT } from "@/lib/i18n/client";
 import type { RentabilidadPageData } from "@/lib/restaurant/rentabilidad-server";
 import type { Cada100Part, UncoveredDish } from "@/lib/restaurant/rentabilidad";
 import {
@@ -26,13 +27,13 @@ import {
   dayLabelEs,
   findingText,
   emptyMonthSentence,
-  NO_SUMMARY_TEXT,
-  PROJECTION_METHOD,
+  noSummaryText,
+  projectionMethod,
   monthLabelEs,
   monthNameEs,
   pctText,
   pointsText,
-  weekdayEs,
+  weekdayShort,
 } from "@/lib/restaurant/rentabilidad-copy";
 import { RaceChart } from "@/components/restaurant/rentabilidad/RaceChart";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
@@ -57,16 +58,6 @@ const segmentBtn = (active: boolean) =>
     ? "bg-[#1b40c8] text-white shadow-sm"
     : "text-[#4a5a85] hover:text-[#1b40c8]");
 
-const PART_LABEL: Record<Cada100Part["key"], string> = {
-  comida: "Comida y bebida",
-  merma: "Merma no planeada",
-  impuestos: "Impuestos",
-  planilla: "Planilla",
-  alquiler: "Alquiler",
-  servicios: "Servicios",
-  otros: "Otros",
-  ganancia: "Ganancia",
-};
 const PART_COLOR: Record<Cada100Part["key"], string> = {
   comida: "#1B40C8",
   impuestos: "#A9B8EE",
@@ -91,6 +82,8 @@ function ProfitBadges({
   value: number;
   estimate: boolean;
 }) {
+  const { d } = useT();
+  const r = d.rentabilidad;
   return (
     <>
       <span
@@ -99,14 +92,14 @@ function ProfitBadges({
           (value >= 0 ? CHIP_TONE.good : CHIP_TONE.bad)
         }
       >
-        {value >= 0 ? "Ganancia" : "Pérdida"}
+        {value >= 0 ? r.page.profit : r.page.loss}
       </span>
       {estimate ? (
         <span
           className="rounded-full px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
           style={{ background: AI_FILL }}
         >
-          Estimado por Milton
+          {r.page.estimatedByMilton}
         </span>
       ) : null}
     </>
@@ -127,6 +120,8 @@ export function RentabilidadPage({
   currentMonth: string;
 }) {
   const router = useRouter();
+  const { d, lang, fmt } = useT();
+  const r = d.rentabilidad;
   const [pending, startTransition] = useTransition();
   const [tab, setTab] = useState<"resumen" | "por-dia">("resumen");
   const m = data.month;
@@ -159,9 +154,9 @@ export function RentabilidadPage({
     m.hasData &&
     m.coverage.uncovered.length > 0 &&
     m.coverage.uncoveredPct >= 0.0005;
-  const chips = chipTexts(data.chips, m.month, money);
+  const chips = chipTexts(data.chips, m.month, money, lang);
   const findings = data.findings
-    .map((f) => findingText(f, m, money))
+    .map((f) => findingText(f, m, money, lang))
     .filter(Boolean)
     .slice(0, 3);
   const chipNodes = chips.length ? (
@@ -189,10 +184,14 @@ export function RentabilidadPage({
       }
       aria-busy={pending}
     >
-      <OperatingPageHeader title="Rentabilidad" showDateRange={false} />
+      <OperatingPageHeader title={r.title} showDateRange={false} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div role="group" aria-label="Mes" className={SEGMENT_GROUP}>
+        <div
+          role="group"
+          aria-label={r.page.monthGroup}
+          className={SEGMENT_GROUP}
+        >
           {months.map((month) => {
             const active = month === m.month;
             return (
@@ -204,14 +203,16 @@ export function RentabilidadPage({
                 className={segmentBtn(active)}
               >
                 {month === currentMonth
-                  ? `${capitalize(monthNameEs(month))} (este mes)`
-                  : capitalize(monthNameEs(month))}
+                  ? fmt(r.page.thisMonth, {
+                      month: capitalize(monthNameEs(month, lang)),
+                    })
+                  : capitalize(monthNameEs(month, lang))}
               </button>
             );
           })}
         </div>
         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px] text-[#4a5a85] hover:bg-[#E7EDFD]">
-          <span>Elegir mes</span>
+          <span>{r.page.pickMonth}</span>
           <input
             type="month"
             max={currentMonth.slice(0, 7)}
@@ -220,39 +221,43 @@ export function RentabilidadPage({
               e.target.value ? goto(`${e.target.value}-01`) : undefined
             }
             className="w-[8.5rem] bg-transparent font-bold text-[#1b2333] outline-none"
-            aria-label="Elegir mes"
+            aria-label={r.page.pickMonth}
           />
         </label>
         <span className="ml-auto text-[12px] text-[#8a92a3]">
           {m.isCurrentMonth
-            ? `Datos hasta ayer (${dayLabelEs(addDay(data.today, -1))})`
-            : monthLabelEs(m.month)}
+            ? fmt(r.page.dataUntilYesterday, {
+                day: dayLabelEs(addDay(data.today, -1), lang),
+              })
+            : monthLabelEs(m.month, lang)}
         </span>
       </div>
 
       {!m.hasData ? (
         <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 text-[14px] font-bold leading-snug text-[#1b2333]">
-          {emptyMonthSentence(m.month)}
+          {emptyMonthSentence(m.month, lang)}
         </section>
       ) : (
         <>
           {fixedMissing ? (
             <section
-              aria-label="Costos fijos faltantes"
+              aria-label={r.page.fixedMissingAria}
               className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
             >
               <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold text-[#0F172A]">
-                ⚑ Faltan costos fijos para calcular tu ganancia
+                {r.page.fixedMissingTitle}
               </p>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {m.fixed.missing.map((cat) => (
                   <li key={cat} className={ALERT_PILL}>
-                    ⚑ Falta {CATEGORY_LABELS_ES[cat]}
+                    {fmt(r.page.missingCategory, {
+                      category: categoryLabel(cat, lang),
+                    })}
                   </li>
                 ))}
               </ul>
               <Link href={fixedHref} className={BTN + " mt-3"}>
-                Sube tus costos fijos
+                {r.page.uploadFixed}
               </Link>
             </section>
           ) : null}
@@ -268,46 +273,52 @@ export function RentabilidadPage({
 
           {!fixedMissing && m.profit !== null ? (
             <section
-              aria-label="Ganancia"
+              aria-label={r.page.profitAria}
               className="grid grid-cols-1 gap-3 sm:grid-cols-2"
             >
               {m.isCurrentMonth && m.profitToDate !== null ? (
                 <StatCard
                   label={
                     estimada
-                      ? "Ganancia estimada hasta ayer"
-                      : "Ganancia real hasta ayer"
+                      ? r.page.profitEstimatedToYesterday
+                      : r.page.profitRealToYesterday
                   }
                   value={signed(m.profitToDate, money)}
                   badge={
                     <ProfitBadges value={m.profitToDate} estimate={estimada} />
                   }
-                  note="Ya descuenta los costos fijos de todo el mes"
+                  note={r.page.profitNote}
                 />
               ) : null}
               <StatCard
                 label={
                   m.isCurrentMonth
                     ? estimada
-                      ? "Proyección estimada al cierre"
-                      : "Proyección al cierre"
+                      ? r.page.projectionEstimated
+                      : r.page.projection
                     : estimada
-                      ? "Ganancia estimada del mes"
-                      : "Ganancia real del mes"
+                      ? r.page.profitEstimatedMonth
+                      : r.page.profitRealMonth
                 }
                 value={signed(m.profit, money)}
                 badge={<ProfitBadges value={m.profit} estimate={estimada} />}
-                labelTitle={m.isCurrentMonth ? PROJECTION_METHOD : undefined}
+                labelTitle={
+                  m.isCurrentMonth ? projectionMethod(lang) : undefined
+                }
                 chips={chipNodes}
               />
             </section>
           ) : null}
 
-          <div role="tablist" aria-label="Vista" className={SEGMENT_GROUP}>
+          <div
+            role="tablist"
+            aria-label={r.page.view}
+            className={SEGMENT_GROUP}
+          >
             {(
               [
-                ["resumen", "Resumen"],
-                ["por-dia", "Por día"],
+                ["resumen", r.page.tabSummary],
+                ["por-dia", r.page.tabByDay],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -329,14 +340,17 @@ export function RentabilidadPage({
                 <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
                   <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
                     <h2 className="text-[14px] font-bold text-[#1b2333]">
-                      ¿Ya cubriste tus costos fijos?
+                      {r.page.coveredQuestion}
                     </h2>
                     <span className="text-[12px] text-[#8a92a3]">
                       {be
-                        ? `Equilibrio: ${dayLabelEs(be.date)}${
-                            be.projected ? " (proyección)" : ""
-                          }`
-                        : "Aún no cubres tus costos fijos este mes"}
+                        ? fmt(
+                            be.projected
+                              ? r.page.breakEvenOnProjected
+                              : r.page.breakEvenOn,
+                            { day: dayLabelEs(be.date, lang) }
+                          )
+                        : r.page.notCoveringYet}
                     </span>
                   </div>
                   <RaceChart month={m} money={money} />
@@ -345,46 +359,56 @@ export function RentabilidadPage({
 
               <section
                 className="grid grid-cols-2 gap-3 lg:grid-cols-4"
-                aria-label="Indicadores"
+                aria-label={r.page.indicators}
               >
                 <Kpi
-                  label="Punto de equilibrio por día"
+                  label={r.page.breakEvenPerDay}
                   value={
                     m.breakEvenPerDay !== null ? money(m.breakEvenPerDay) : "—"
                   }
                   sub={
                     m.breakEvenPerDay === null
                       ? fixedMissing
-                        ? "⚑ Falta"
-                        : "Sin margen para calcularla"
+                        ? r.page.flagMissing
+                        : r.page.noMarginToCalc
                       : m.avgSalesPerDay !== null
-                        ? `vendes ${money(m.avgSalesPerDay)} en promedio`
+                        ? fmt(r.page.sellsOnAverage, {
+                            amount: money(m.avgSalesPerDay),
+                          })
                         : undefined
                   }
                   flag={m.breakEvenPerDay === null && fixedMissing}
                 />
                 <Kpi
-                  label="Costo primo"
-                  value={m.costoPrimo !== null ? pctText(m.costoPrimo) : "—"}
+                  label={r.page.primeCost}
+                  value={
+                    m.costoPrimo !== null ? pctText(m.costoPrimo, 1, lang) : "—"
+                  }
                   sub={
                     m.costoPrimo === null
-                      ? "⚑ Falta la planilla"
-                      : "comida, merma y planilla ÷ ventas"
+                      ? r.page.flagMissingPayroll
+                      : r.page.primeCostFormula
                   }
                   flag={m.costoPrimo === null}
                 />
                 <Kpi
-                  label="Planilla"
-                  value={m.planillaPct !== null ? pctText(m.planillaPct) : "—"}
+                  label={r.page.payroll}
+                  value={
+                    m.planillaPct !== null
+                      ? pctText(m.planillaPct, 1, lang)
+                      : "—"
+                  }
                   sub={
-                    m.fixed.amounts.planilla === null ? "⚑ Falta" : undefined
+                    m.fixed.amounts.planilla === null
+                      ? r.page.flagMissing
+                      : undefined
                   }
                   flag={m.fixed.amounts.planilla === null}
                 />
                 <Kpi
-                  label="Costos fijos del mes"
+                  label={r.page.fixedOfMonth}
                   value={m.fixed.total !== null ? money(m.fixed.total) : "—"}
-                  sub={m.fixed.total === null ? "⚑ Falta" : undefined}
+                  sub={m.fixed.total === null ? r.page.flagMissing : undefined}
                   flag={m.fixed.total === null}
                 />
               </section>
@@ -392,39 +416,46 @@ export function RentabilidadPage({
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
                 <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 lg:col-span-2">
                   <h2 className="mb-3 text-[14px] font-bold text-[#1b2333]">
-                    ¿A dónde va cada $100 que vendes?
+                    {fmt(r.page.per100Title, { hundred: money(100) })}
                   </h2>
                   {m.cada100 ? (
-                    <Cada100Bar parts={m.cada100} loss={m.cada100Loss} />
+                    <Cada100Bar
+                      parts={m.cada100}
+                      loss={m.cada100Loss}
+                      money={money}
+                    />
                   ) : (
                     <p className="text-sm">
-                      <span className={ALERT_PILL}>⚑ Faltan costos fijos</span>
+                      <span className={ALERT_PILL}>
+                        {r.page.flagFixedMissing}
+                      </span>
                     </p>
                   )}
                 </section>
                 <section
                   className="rounded-[14px] p-4"
                   style={{ background: "#E7EDFD" }}
-                  aria-label="Milton"
+                  aria-label={r.page.miltonAria}
                 >
                   <h2
                     className="mb-1 text-[14px] font-bold"
                     style={{ color: PRIMARY }}
                   >
-                    ✦ Resumen de Milton
+                    {r.page.miltonSummary}
                   </h2>
                   <ul data-testid="milton-summary" className="space-y-1.5">
-                    {(findings.length > 0 ? findings : [NO_SUMMARY_TEXT]).map(
-                      (f) => (
-                        <li
-                          key={f}
-                          className="text-sm leading-snug"
-                          style={{ color: INK }}
-                        >
-                          {f}
-                        </li>
-                      )
-                    )}
+                    {(findings.length > 0
+                      ? findings
+                      : [noSummaryText(lang)]
+                    ).map((f) => (
+                      <li
+                        key={f}
+                        className="text-sm leading-snug"
+                        style={{ color: INK }}
+                      >
+                        {f}
+                      </li>
+                    ))}
                   </ul>
                 </section>
               </div>
@@ -483,12 +514,6 @@ function Kpi({
   );
 }
 
-const REASON_LABEL: Record<UncoveredDish["reason"], string> = {
-  borrador: "Receta en borrador",
-  sin_receta: "Sin receta",
-  sin_precio: "Sin precio",
-};
-
 function CoverageFlag({
   uncoveredPct,
   uncovered,
@@ -500,25 +525,31 @@ function CoverageFlag({
   moreHref: string;
   locationId: string;
 }) {
+  const { d: dict, lang, fmt } = useT();
+  const c = dict.rentabilidad.coverage;
+  const reasonLabel: Record<UncoveredDish["reason"], string> = {
+    borrador: c.reasonDraft,
+    sin_receta: c.reasonNoRecipe,
+    sin_precio: c.reasonNoPrice,
+  };
   const shown = uncovered.slice(0, 6);
   return (
     <section
       role="alert"
-      aria-label="Falta el costo de ingredientes"
+      aria-label={c.aria}
       className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
     >
       <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold leading-snug text-[#0F172A]">
-        ⚑ Falta el costo de ingredientes del {pctText(uncoveredPct)} de tus
-        ventas: aprueba estas recetas
+        {fmt(c.headline, { pct: pctText(uncoveredPct, 1, lang) })}
       </p>
       <ul className="mt-3 space-y-2">
         {shown.map((d) => {
           const label =
             d.reason === "sin_precio"
-              ? "Completar precio"
+              ? c.completePrice
               : d.hasDraft
-                ? "Aprobar"
-                : "Crear receta";
+                ? c.approve
+                : c.createRecipe;
           return (
             <li
               key={d.odooProductId}
@@ -529,7 +560,10 @@ function CoverageFlag({
                   {d.name}
                 </p>
                 <p className="text-xs text-[#6b7385]">
-                  {pctText(d.share)} de tus ventas · {REASON_LABEL[d.reason]}
+                  {fmt(c.shareOfSales, {
+                    pct: pctText(d.share, 1, lang),
+                    reason: reasonLabel[d.reason],
+                  })}
                 </p>
               </div>
               <Link
@@ -549,20 +583,32 @@ function CoverageFlag({
           href={moreHref}
           className="mt-2 inline-block text-sm font-semibold text-[#1B40C8] underline"
         >
-          y {uncovered.length - shown.length} platos más →
+          {fmt(c.moreDishes, { n: uncovered.length - shown.length })}
         </Link>
       ) : null}
     </section>
   );
 }
 
-function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
+function Cada100Bar({
+  parts,
+  loss,
+  money,
+}: {
+  parts: Cada100Part[];
+  loss: boolean;
+  money: (n: number) => string;
+}) {
+  const { d, lang, fmt } = useT();
+  const r = d.rentabilidad;
+  const hundred = money(100);
+  const symbol = money(0).replace(/[\d\s.,]/g, "");
   return (
     <div>
       <div
         className="flex h-8 w-full gap-[2px] overflow-hidden rounded-md bg-white"
         role="img"
-        aria-label="Reparto de cada $100 de ventas"
+        aria-label={fmt(r.page.per100Aria, { hundred })}
       >
         {parts
           .filter((p) => p.pct > 0)
@@ -570,7 +616,7 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
             <div
               key={p.key}
               style={{ width: `${p.pct}%`, background: PART_COLOR[p.key] }}
-              title={`${PART_LABEL[p.key]} ${pointsText(p.pct)}`}
+              title={`${r.parts[p.key]} ${pointsText(p.pct, lang)}`}
             />
           ))}
       </div>
@@ -586,10 +632,13 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
                 style={{ background: PART_COLOR[p.key] }}
                 aria-hidden
               />
-              {p.key === "ganancia" ? "Ganancia" : PART_LABEL[p.key]}
+              {r.parts[p.key]}
             </span>
             <span className="font-semibold tabular-nums text-[#0f1b3d]">
-              ${p.pct.toFixed(1).replace(".", ",")}
+              {fmt(r.page.per100Value, {
+                symbol,
+                value: p.pct.toFixed(1).replace(".", lang === "en" ? "." : ","),
+              })}
             </span>
           </li>
         ))}
@@ -597,7 +646,7 @@ function Cada100Bar({ parts, loss }: { parts: Cada100Part[]; loss: boolean }) {
       {loss ? (
         <p className="mt-2">
           <span className="inline-block rounded-full bg-[#FBCFE8] px-2.5 py-0.5 text-sm font-semibold text-[#0F172A]">
-            Tus costos pasan de $100.
+            {fmt(r.page.per100Loss, { hundred })}
           </span>
         </p>
       ) : null}
@@ -614,6 +663,9 @@ function StatementTable({
   money: (n: number) => string;
   links: { sales: string; platos: string; fixed: string };
 }) {
+  const { d, lang } = useT();
+  const r = d.rentabilidad;
+  const st = r.statement;
   const m = data.month;
   const twoCols = m.projection !== null;
   const a = m.actual;
@@ -621,7 +673,7 @@ function StatementTable({
   const fx = m.fixed.amounts;
   const cell = (n: number | null, neg = false) =>
     n === null ? (
-      <span className={ALERT_PILL}>⚑ Falta</span>
+      <span className={ALERT_PILL}>{r.page.flagMissing}</span>
     ) : (
       <span className={neg ? "text-[#0f1b3d]" : ""}>{signed(n, money)}</span>
     );
@@ -635,35 +687,33 @@ function StatementTable({
   const out = (n: number) => cell(-n === 0 ? 0 : -n);
   const rows: Row[] = [
     {
-      label: "Ventas netas",
+      label: st.netSales,
       href: links.sales,
       values: [cell(a.sales), cell(p.sales)],
     },
     {
-      label: m.impuestosUndefined
-        ? "Impuestos (sin definir: se calcula con 0%)"
-        : "Impuestos",
+      label: m.impuestosUndefined ? st.taxesUndefined : st.taxes,
       href: links.fixed,
       values: [out(a.impuestos), out(p.impuestos)],
     },
     {
-      label: "Comida y bebida",
+      label: st.food,
       href: links.platos,
       values: [out(a.food), out(p.food)],
     },
     {
-      label: "Merma no planeada",
+      label: st.waste,
       soon: true,
-      values: ["Disponible pronto", "Disponible pronto"],
+      values: [st.soon, st.soon],
     },
     {
-      label: "Margen bruto",
+      label: st.grossMargin,
       strong: true,
       values: [cell(a.margin), cell(p.margin)],
     },
     ...(["planilla", "alquiler", "servicios", "otros"] as const).map(
       (cat): Row => ({
-        label: CATEGORY_LABELS_ES[cat],
+        label: categoryLabel(cat, lang),
         href: links.fixed,
         values: [
           cell(fx[cat] === null ? null : -(fx[cat] as number)),
@@ -672,7 +722,7 @@ function StatementTable({
       })
     ),
     {
-      label: estimadaLabel(m.basis, "Ganancia"),
+      label: m.basis === "estimada" ? st.profitEstimated : st.profit,
       strong: true,
       values: [
         m.profitToDate === null ? cell(null) : cell(m.profitToDate),
@@ -683,7 +733,7 @@ function StatementTable({
   return (
     <section className="rounded-[14px] border border-[#dbe3f7] bg-white">
       <h2 className="border-b border-[#d8deee] px-4 py-3 text-[14px] font-bold text-[#1b2333]">
-        Estado de resultados
+        {st.title}
       </h2>
       <div className="overflow-hidden">
         <table className="w-full table-fixed text-sm">
@@ -693,27 +743,27 @@ function StatementTable({
                 scope="col"
                 className="px-3 py-2 text-left font-semibold sm:px-4"
               >
-                {m.isCurrentMonth ? "" : monthLabelEs(m.month)}
+                {m.isCurrentMonth ? "" : monthLabelEs(m.month, lang)}
               </th>
               <th
                 scope="col"
                 className="w-[28%] px-2 py-2 text-right font-semibold sm:w-[22%]"
               >
-                {twoCols ? "Hasta ayer" : "Mes"}
+                {twoCols ? st.upToYesterday : st.month}
               </th>
               {twoCols ? (
                 <th
                   scope="col"
                   className="w-[28%] px-2 py-2 text-right font-semibold sm:w-[22%]"
                 >
-                  Proyección
+                  {st.projection}
                 </th>
               ) : null}
               <th
                 scope="col"
                 className="w-[16%] px-2 py-2 text-right font-semibold sm:w-[12%]"
               >
-                <span className="sr-only">Ver</span>
+                <span className="sr-only">{st.view}</span>
               </th>
             </tr>
           </thead>
@@ -758,7 +808,7 @@ function StatementTable({
                       href={r.href}
                       className="text-sm font-semibold text-[#1B40C8] underline"
                     >
-                      Ver →
+                      {st.viewArrow}
                     </Link>
                   ) : null}
                 </td>
@@ -771,26 +821,22 @@ function StatementTable({
         {m.coverage.uncovered.length === 0 && m.coverage.pct > 0 ? (
           <p>
             <span className="rounded-full bg-[#E7EDFD] px-2 py-0.5 font-semibold text-[#1B40C8]">
-              platos con receta: 100% de tus ventas
+              {st.allCovered}
             </span>
           </p>
         ) : null}
         {m.coverage.coveredMarginPct !== null ? (
           <p>
-            Tus platos con receta dejan{" "}
+            {st.coveredMarginBefore}{" "}
             <strong className="text-[#0f1b3d]">
-              {pctText(m.coverage.coveredMarginPct)}
+              {pctText(m.coverage.coveredMarginPct, 1, lang)}
             </strong>{" "}
-            de margen.
+            {st.coveredMarginAfter}
           </p>
         ) : null}
       </div>
     </section>
   );
-}
-
-function estimadaLabel(basis: "real" | "estimada", word: string): string {
-  return basis === "estimada" ? `${word} estimada` : word;
 }
 
 function DailyTable({
@@ -800,11 +846,13 @@ function DailyTable({
   data: RentabilidadPageData;
   money: (n: number) => string;
 }) {
+  const { d: dict, lang } = useT();
+  const dl = dict.rentabilidad.daily;
   const m = data.month;
   return (
     <section className="rounded-[14px] border border-[#dbe3f7] bg-white">
       <h2 className="border-b border-[#d8deee] px-4 py-3 text-[14px] font-bold text-[#1b2333]">
-        Por día
+        {dl.title}
       </h2>
       <div className="overflow-hidden">
         <table className="w-full table-fixed text-xs sm:text-sm">
@@ -814,28 +862,28 @@ function DailyTable({
                 scope="col"
                 className="px-2 py-2 text-left font-semibold sm:px-4"
               >
-                Día
+                {dl.day}
               </th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">
-                Ventas
+                {dl.sales}
               </th>
               <th
                 scope="col"
                 className="hidden px-2 py-2 text-right font-semibold sm:table-cell"
               >
-                Comida
+                {dl.food}
               </th>
               <th
                 scope="col"
                 className="hidden px-2 py-2 text-right font-semibold sm:table-cell"
               >
-                Impuestos
+                {dl.taxes}
               </th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">
-                Margen
+                {dl.margin}
               </th>
               <th scope="col" className="px-2 py-2 text-right font-semibold">
-                Acumulado
+                {dl.cumulative}
               </th>
             </tr>
           </thead>
@@ -852,9 +900,9 @@ function DailyTable({
                   scope="row"
                   className="px-2 py-1.5 text-left font-medium sm:px-4"
                 >
-                  {capitalize(weekdayEs(d.weekday).slice(0, 3))}{" "}
+                  {capitalize(weekdayShort(d.weekday, lang))}{" "}
                   {Number(d.date.slice(8, 10))}
-                  {d.projected ? " · proy." : ""}
+                  {d.projected ? ` · ${dl.projectedShort}` : ""}
                 </th>
                 <td className="px-2 py-1.5 text-right tabular-nums">
                   {money(d.sales)}
@@ -877,7 +925,7 @@ function DailyTable({
         </table>
       </div>
       <p className="border-t border-[#d8deee] px-4 py-3 text-xs text-[#6b7385]">
-        La comida de cada día se reparte según sus ventas.
+        {dl.footnote}
       </p>
     </section>
   );

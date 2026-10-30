@@ -278,9 +278,10 @@ describe("Preparaciones total row", () => {
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx",
       "utf8"
     );
-    expect(src).toContain("Total de la preparación");
+    const dict = readFileSync("lib/i18n/es/menu-editor.ts", "utf8");
+    expect(dict).toContain("Total de la preparación");
     expect(src).toContain("componentId && state.lines.length > 0");
-    expect(src).toContain("Sin precio");
-    expect(src).toContain("incompleto");
+    expect(src + dict).toContain("Sin precio");
+    expect(src + dict).toContain("incompleto");
   });
 });

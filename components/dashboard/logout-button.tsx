@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 
 export function LogoutButton({
   lang = "en",
@@ -16,6 +17,8 @@ export function LogoutButton({
 } = {}) {
   const router = useRouter();
   const supabase = createClient();
+
+  const label = getDictionary(lang).shell.sidebar.logOut;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -30,7 +33,7 @@ export function LogoutButton({
         onClick={handleLogout}
         className="py-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
-        {t(lang, "Log out", "Cerrar sesión")}
+        {label}
       </button>
     );
   }
@@ -43,7 +46,7 @@ export function LogoutButton({
       className="text-gray-600 hover:text-gray-900"
     >
       <LogOut className="h-4 w-4 mr-2" />
-      {t(lang, "Logout", "Cerrar sesión")}
+      {label}
     </Button>
   );
 }

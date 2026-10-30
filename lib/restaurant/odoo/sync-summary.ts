@@ -6,6 +6,12 @@
 // live summary only; last_sync stores the count so we never write the
 // ~200 KB dump onto restaurant_pos_connections.
 
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
+
 export interface OdooSyncSuccessBody {
   synced_range: { start_date: string; end_date: string };
   orders_fetched: number;
@@ -58,52 +64,78 @@ export interface OdooSyncSummaryCopy {
   outsideRange: string | null;
 }
 
-const SKIP_REASON_LABELS: Array<{ match: RegExp; label: string }> = [
-  { match: /^Line has no order_id/i, label: "A la línea le faltaba el pedido" },
+const SKIP_REASON_LABELS: Array<{
+  match: RegExp;
+  en: string;
+  es: string;
+  de: string;
+}> = [
+  {
+    match: /^Line has no order_id/i,
+    en: "The line was missing its order",
+    es: "A la línea le faltaba el pedido",
+    de: "Der Position fehlte die Bestellung",
+  },
   {
     match: /^Order not in a completed state/i,
-    label: "El pedido no estaba completado",
+    en: "The order was not completed",
+    es: "El pedido no estaba completado",
+    de: "Die Bestellung war nicht abgeschlossen",
   },
   {
     match: /^Non-finite quantity or price field/i,
-    label: "La línea tenía una cantidad o un precio inválido",
+    en: "The line had an invalid quantity or price",
+    es: "La línea tenía una cantidad o un precio inválido",
+    de: "Die Position hatte eine ungültige Menge oder einen ungültigen Preis",
   },
   {
     match: /^Invalid order date_order/i,
-    label: "El pedido tenía una fecha inválida",
+    en: "The order had an invalid date",
+    es: "El pedido tenía una fecha inválida",
+    de: "Die Bestellung hatte ein ungültiges Datum",
   },
   {
     match: /^Till-name location/i,
-    label:
-      "El nombre de la caja apuntaba a una ubicación distinta a la del mapeo de la empresa",
+    en: "The till name pointed to a different location than the company mapping",
+    es: "El nombre de la caja apuntaba a una ubicación distinta a la del mapeo de la empresa",
+    de: "Der Kassenname verwies auf einen anderen Standort als die Unternehmenszuordnung",
   },
 ];
 
-export function friendlySkipReason(reason: string): string {
-  for (const { match, label } of SKIP_REASON_LABELS) {
-    if (match.test(reason)) return label;
+export function friendlySkipReason(
+  reason: string,
+  lang: PreferredLanguage = "es"
+): string {
+  for (const row of SKIP_REASON_LABELS) {
+    if (row.match.test(reason)) return t(lang, row.en, row.es, row.de);
   }
-  return "No se pudo guardar la fila";
+  return t(
+    lang,
+    "The row could not be saved",
+    "No se pudo guardar la fila",
+    "Die Zeile konnte nicht gespeichert werden"
+  );
 }
 
-export function formatCount(n: number): string {
-  return n.toLocaleString("es-MX");
+export function formatCount(n: number, lang: PreferredLanguage = "es"): string {
+  return n.toLocaleString(localeFor(lang));
 }
 
 export function formatSyncDateRange(
   startDate: string,
-  endDate: string
+  endDate: string,
+  lang: PreferredLanguage = "es"
 ): string {
-  const start = formatHumanDate(startDate);
-  const end = formatHumanDate(endDate);
+  const start = formatHumanDate(startDate, lang);
+  const end = formatHumanDate(endDate, lang);
   return startDate === endDate ? start : `${start} – ${end}`;
 }
 
-function formatHumanDate(isoDate: string): string {
+function formatHumanDate(isoDate: string, lang: PreferredLanguage): string {
   const [year, month, day] = isoDate.split("-").map(Number);
   if (!year || !month || !day) return isoDate;
   const date = new Date(Date.UTC(year, month - 1, day));
-  return new Intl.DateTimeFormat("es-MX", {
+  return new Intl.DateTimeFormat(localeFor(lang), {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -112,12 +144,13 @@ function formatHumanDate(isoDate: string): string {
 }
 
 export function summarizeOdooSync(
-  body: OdooSyncSuccessBody
+  body: OdooSyncSuccessBody,
+  lang: PreferredLanguage = "es"
 ): OdooSyncSummaryView {
   const skipped = body.lines_skipped ?? [];
   const counts = new Map<string, number>();
   for (const row of skipped) {
-    const label = friendlySkipReason(row.reason ?? "");
+    const label = friendlySkipReason(row.reason ?? "", lang);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   const unmatchedMenuItems = [...(body.unmatched_menu_items ?? [])];
@@ -140,40 +173,96 @@ export function summarizeOdooSync(
 }
 
 export function syncSummaryCopy(
-  view: OdooSyncSummaryView
+  view: OdooSyncSummaryView,
+  lang: PreferredLanguage = "es"
 ): OdooSyncSummaryCopy {
-  const range = formatSyncDateRange(view.startDate, view.endDate);
-  const orderWord = view.ordersFetched === 1 ? "pedido" : "pedidos";
-  const rowWord = view.rowsSaved === 1 ? "fila" : "filas";
-  const skipWord = view.skippedCount === 1 ? "fila" : "filas";
+  const range = formatSyncDateRange(view.startDate, view.endDate, lang);
+  const c = (n: number) => formatCount(n, lang);
+  const orders = c(view.ordersFetched);
+  const rows = c(view.rowsSaved);
   const tillCount = view.unmatchedLocations.length;
   const comboCount = view.unmatchedMenuItemCount;
+  const one = view.skippedCount === 1;
 
   return {
-    headline: `Traje ${formatCount(view.ordersFetched)} ${orderWord} y guardé ${formatCount(view.rowsSaved)} ${rowWord} de ventas de ${range}.`,
+    headline: t(
+      lang,
+      `I fetched ${orders} ${view.ordersFetched === 1 ? "order" : "orders"} and saved ${rows} sales ${view.rowsSaved === 1 ? "row" : "rows"} for ${range}.`,
+      `Traje ${orders} ${view.ordersFetched === 1 ? "pedido" : "pedidos"} y guardé ${rows} ${view.rowsSaved === 1 ? "fila" : "filas"} de ventas de ${range}.`,
+      `Ich habe ${orders} ${view.ordersFetched === 1 ? "Bestellung" : "Bestellungen"} abgerufen und ${rows} ${view.rowsSaved === 1 ? "Umsatzzeile" : "Umsatzzeilen"} für ${range} gespeichert.`
+    ),
     skipped:
       view.skippedCount === 0
-        ? "No se omitió ninguna fila."
-        : `${formatCount(view.skippedCount)} ${skipWord} ${view.skippedCount === 1 ? "se omitió" : "se omitieron"}.`,
+        ? t(
+            lang,
+            "No rows were skipped.",
+            "No se omitió ninguna fila.",
+            "Es wurde keine Zeile übersprungen."
+          )
+        : t(
+            lang,
+            `${c(view.skippedCount)} ${one ? "row was" : "rows were"} skipped.`,
+            `${c(view.skippedCount)} ${one ? "fila" : "filas"} ${one ? "se omitió" : "se omitieron"}.`,
+            `${c(view.skippedCount)} ${one ? "Zeile wurde" : "Zeilen wurden"} übersprungen.`
+          ),
     // Info, not a warning: POS option combinations are saved as sales of the
     // product and do not affect costs.
     unmatchedItems:
       comboCount === 0
-        ? "Todo lo que se sincronizó coincide con tu menú."
+        ? t(
+            lang,
+            "Everything that synced matches your menu.",
+            "Todo lo que se sincronizó coincide con tu menú.",
+            "Alles, was synchronisiert wurde, passt zu Ihrer Speisekarte."
+          )
         : comboCount === 1
-          ? "1 combinación de opciones del POS se guarda como ventas del producto; no afecta tus costos."
-          : `${formatCount(comboCount)} combinaciones de opciones del POS se guardan como ventas del producto; no afectan tus costos.`,
+          ? t(
+              lang,
+              "1 POS option combination is saved as sales of the product; it does not affect your costs.",
+              "1 combinación de opciones del POS se guarda como ventas del producto; no afecta tus costos.",
+              "1 Optionskombination der Kasse wird als Umsatz des Produkts gespeichert; sie wirkt sich nicht auf Ihre Kosten aus."
+            )
+          : t(
+              lang,
+              `${c(comboCount)} POS option combinations are saved as sales of the product; they do not affect your costs.`,
+              `${c(comboCount)} combinaciones de opciones del POS se guardan como ventas del producto; no afectan tus costos.`,
+              `${c(comboCount)} Optionskombinationen der Kasse werden als Umsatz des Produkts gespeichert; sie wirken sich nicht auf Ihre Kosten aus.`
+            ),
     unmatchedTills:
       tillCount === 0
-        ? "Todos los nombres de caja coinciden con una ubicación de Milton."
+        ? t(
+            lang,
+            "All till names match a Milton location.",
+            "Todos los nombres de caja coinciden con una ubicación de Milton.",
+            "Alle Kassennamen entsprechen einem Standort in Milton."
+          )
         : tillCount === 1
-          ? "1 nombre de caja no es una ubicación de Milton."
-          : `${formatCount(tillCount)} nombres de caja no son una ubicación de Milton.`,
-    unmatchedTillsNote:
+          ? t(
+              lang,
+              "1 till name is not a Milton location.",
+              "1 nombre de caja no es una ubicación de Milton.",
+              "1 Kassenname ist kein Standort in Milton."
+            )
+          : t(
+              lang,
+              `${c(tillCount)} till names are not a Milton location.`,
+              `${c(tillCount)} nombres de caja no son una ubicación de Milton.`,
+              `${c(tillCount)} Kassennamen sind kein Standort in Milton.`
+            ),
+    unmatchedTillsNote: t(
+      lang,
+      "For information only. Sales are assigned using the company-to-location mapping, not the till name.",
       "Es solo informativo. Las ventas se asignan con el mapeo de empresa a ubicación, no con el nombre de la caja.",
+      "Nur zur Information. Umsätze werden über die Zuordnung von Unternehmen zu Standort zugewiesen, nicht über den Kassennamen."
+    ),
     outsideRange:
       view.outsideRangeExcluded > 0
-        ? `${formatCount(view.outsideRangeExcluded)} filas extra de días vecinos se ignoraron porque quedan fuera de las fechas que elegiste.`
+        ? t(
+            lang,
+            `${c(view.outsideRangeExcluded)} extra rows from neighboring days were ignored because they fall outside the dates you chose.`,
+            `${c(view.outsideRangeExcluded)} filas extra de días vecinos se ignoraron porque quedan fuera de las fechas que elegiste.`,
+            `${c(view.outsideRangeExcluded)} zusätzliche Zeilen benachbarter Tage wurden ignoriert, weil sie außerhalb des gewählten Zeitraums liegen.`
+          )
         : null,
   };
 }
@@ -195,10 +284,21 @@ export function compactLastSync(
   };
 }
 
-export function formatLastSyncLine(last: OdooLastSync): string {
+export function formatLastSyncLine(
+  last: OdooLastSync,
+  lang: PreferredLanguage = "es"
+): string {
   const when = new Date(last.synced_at);
   const whenLabel = Number.isNaN(when.getTime())
     ? last.synced_at
-    : when.toLocaleString("es-MX");
-  return `Última sincronización ${whenLabel} · ${formatSyncDateRange(last.start_date, last.end_date)} · ${formatCount(last.orders_fetched)} pedidos · ${formatCount(last.rows_upserted)} filas guardadas`;
+    : when.toLocaleString(localeFor(lang));
+  const range = formatSyncDateRange(last.start_date, last.end_date, lang);
+  const orders = formatCount(last.orders_fetched, lang);
+  const rows = formatCount(last.rows_upserted, lang);
+  return t(
+    lang,
+    `Last sync ${whenLabel} · ${range} · ${orders} orders · ${rows} rows saved`,
+    `Última sincronización ${whenLabel} · ${range} · ${orders} pedidos · ${rows} filas guardadas`,
+    `Letzte Synchronisierung ${whenLabel} · ${range} · ${orders} Bestellungen · ${rows} Zeilen gespeichert`
+  );
 }

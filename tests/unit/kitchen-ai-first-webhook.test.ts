@@ -313,11 +313,6 @@ function say(mode: Mode, t: string, id?: number) {
   return msg({ voice: { file_id: "VOICE-SECRET", duration: 4 } }, id);
 }
 
-const AMOUNT_ASK = (p: string, a: string, b: string) =>
-  `¿El ${p} está a $${a} o a $${b}? Responde ${a} o ${b}.`;
-const UNIT_ASK = (p: string) =>
-  `¿El precio de ${p} es por libra, onza o unidad?`;
-
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(Date.now());
@@ -363,25 +358,19 @@ const stock = (intent = "stock_report") => ({
 // ---------------------------------------------------------------------------
 
 describe.each<Mode>(["text", "voice"])("the 11 messages (%s)", (mode) => {
-  it("1. «aguacate a 150»: asks 1.50 or 150, then the answer «150» and the unit give a $150 draft", async () => {
+  it("1. «aguacate a 150»: kept as a line without a price, never guessed, never asked", async () => {
     await say(mode, "aguacate a 150");
-    expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
-    expect(drafts()).toHaveLength(0);
-    expect(openQuestions()).toHaveLength(1);
-
-    await say(mode, "150");
-    expect(lastSent().text).toBe(UNIT_ASK("aguacate"));
-    expect(drafts()).toHaveLength(0);
-
-    await say(mode, "por libra");
-    expect(lineSummary()).toEqual(["aguacate|150|lb"]);
-    expect(lastSent().text).toContain("aguacate $150.00 la libra");
-    expect(lastSent().text).toContain("El dueño o un admin lo revisa");
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|null|unidad"]);
+    expect(lastSent().text).toContain("aguacate");
+    expect(lastSent().text).not.toContain("150");
+    expect(lastSent().text).not.toContain("¿");
+    expect(openQuestions()).toHaveLength(0);
     expect(sent.every(NO_ACK)).toBe(true);
     expect(drafts()[0].status).toBe("needs_review");
   });
 
-  it("1b. when only the AI sees the doubt (rules read nothing), its clarify becomes OUR question, never its own words", async () => {
+  it("1b. when only the AI sees the doubt (rules read nothing), its doubt never reaches the cook and the product is kept without a price", async () => {
     intentAi.mockResolvedValue({
       intent: "price_update",
       items: [
@@ -397,9 +386,10 @@ describe.each<Mode>(["text", "voice"])("the 11 messages (%s)", (mode) => {
       clarify: { product: "aguacate", options: [1.5, 150], unit: null },
     });
     await say(mode, "el aguacate anda por ahí, 150");
-    expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
     expect(lastSent().text).not.toContain("Seguro");
-    expect(drafts()).toHaveLength(0);
+    expect(lastSent().text).not.toContain("¿");
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|null|unidad"]);
   });
 
   it("2. «avocado 150»: not understood (with the product), never «Recibido» and no draft", async () => {
@@ -425,12 +415,12 @@ describe.each<Mode>(["text", "voice"])("the 11 messages (%s)", (mode) => {
     );
   });
 
-  it("5. «el aguacate está a 150 dólares» asks the unit; «por libra» saves 150/lb", async () => {
+  it("5. «el aguacate está a 150 dólares» is saved at once; the unit is «Falta»", async () => {
     await say(mode, "el aguacate está a 150 dólares");
-    expect(lastSent().text).toBe(UNIT_ASK("aguacate"));
-    expect(drafts()).toHaveLength(0);
-    await say(mode, "por libra");
-    expect(lineSummary()).toEqual(["aguacate|150|lb"]);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|150|unidad"]);
+    expect(lastSent().text).toContain("aguacate $150.00");
+    expect(lastSent().text).not.toContain("¿");
     expect(sent.every(NO_ACK)).toBe(true);
   });
 
@@ -505,20 +495,18 @@ describe.each<Mode>(["text", "voice"])("the 11 messages (%s)", (mode) => {
     expect((store.kitchen_reports ?? [])[0].report_type).toBe("86");
   });
 
-  it("11. the pupusas list: the three prices are asked together and saved after the unit", async () => {
+  it("11. the pupusas list: the three prices are three lines, the unit is «Falta», nothing is asked", async () => {
     await say(
       mode,
       "Precios de pupusas: revuelta 1.25, queso 1.00, frijol con queso 1.10"
     );
-    expect(drafts()).toHaveLength(0);
-    expect(lastSent().text).toContain("por libra, onza o unidad");
-    expect(lastSent().text).toContain("revuelta");
-    await say(mode, "por unidad");
+    expect(drafts()).toHaveLength(1);
     expect(lineSummary()).toEqual([
       "revuelta|1.25|unidad",
       "queso|1|unidad",
       "frijol con queso|1.1|unidad",
     ]);
+    expect(lastSent().text).not.toContain("¿");
     expect(sent.every(NO_ACK)).toBe(true);
   });
 });
@@ -528,28 +516,17 @@ describe.each<Mode>(["text", "voice"])("the 11 messages (%s)", (mode) => {
 // ---------------------------------------------------------------------------
 
 describe("webhook cases (voice)", () => {
-  it("1. «aguacate a 150 la libra» asks, «uno cincuenta» saves 1.50/lb", async () => {
+  it("1. «aguacate a 150 la libra»: kept without a price (150 is never guessed), unit lb", async () => {
     await say("voice", "aguacate a 150 la libra");
-    expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
-    expect(openQuestions()).toHaveLength(1);
-    await say("voice", "uno cincuenta");
-    expect(lineSummary()).toEqual(["aguacate|1.5|lb"]);
-    expect(lastSent().text).toContain("aguacate $1.50 la libra");
+    expect(lineSummary()).toEqual(["aguacate|null|lb"]);
     expect(openQuestions()).toHaveLength(0);
+    expect(lastSent().text).not.toContain("¿");
     expect(sent.every(NO_ACK)).toBe(true);
   });
 
-  it("1c. «ciento cincuenta» as the answer is 150", async () => {
-    await say("voice", "aguacate a 150 la libra");
-    await say("voice", "ciento cincuenta");
-    expect(lineSummary()).toEqual(["aguacate|150|lb"]);
-  });
-
-  it("2. «el aguacate está a 150 dólares» asks the unit, «Por libra.» saves it (never REPORT_ACK)", async () => {
+  it("2. «el aguacate está a 150 dólares» is saved at once (never REPORT_ACK)", async () => {
     await say("voice", "el aguacate está a 150 dólares");
-    expect(lastSent().text).toBe(UNIT_ASK("aguacate"));
-    await say("voice", "Por libra.");
-    expect(lineSummary()).toEqual(["aguacate|150|lb"]);
+    expect(lineSummary()).toEqual(["aguacate|150|unidad"]);
     expect(sent.every(NO_ACK)).toBe(true);
   });
 
@@ -591,11 +568,10 @@ describe("webhook cases (voice)", () => {
     expect(logged()).not.toMatch(/aguacate/i);
   });
 
-  it("5b. the same for the answer to a unit question (text)", async () => {
-    await say("text", "queso 3.25");
+  it("5b. the same for a price without a unit (text)", async () => {
     draftThrows = true;
-    await say("text", "libra");
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_SAVE_FAILED);
+    await say("text", "queso 3.25");
+    expect(lastSent().text).toContain(KITCHEN_COPY.PRICE_SAVE_FAILED);
   });
 
   it("6. «aguacate a 150 pesos el kilo» in a USD company: PRICE_CURRENCY_MISMATCH, no draft", async () => {
@@ -665,21 +641,21 @@ describe("webhook cases (voice)", () => {
 
 describe("regression table (voice, AI mocked as down)", () => {
   it.each([
-    ["aguacate a 150", "ask"],
-    ["Aguacate a 150.", "ask"],
+    ["aguacate a 150", "kept"],
+    ["Aguacate a 150.", "kept"],
     ["el aguacate ahora está a 150 pesos el kilo", "mismatch"],
     ["el aguacate subió a 3.50 dólares la libra", "draft"],
     ["avocado 150", "reply"],
     ["aguacate 150", "reply"],
-    ["el aguacate está a 150 dólares", "ask"],
-    ["El precio del aguacate es de 150 dólares.", "ask"],
+    ["el aguacate está a 150 dólares", "kept"],
+    ["El precio del aguacate es de 150 dólares.", "kept"],
     [
       "Precios de pupusas: revuelta 1.25, queso 1.00, frijol con queso 1.10",
-      "ask",
+      "kept",
     ],
   ])("«%s» ends in %s", async (text, outcome) => {
     await say("voice", text);
-    if (outcome === "draft") {
+    if (outcome === "draft" || outcome === "kept") {
       expect(drafts()).toHaveLength(1);
     } else {
       expect(drafts()).toHaveLength(0);
@@ -690,9 +666,7 @@ describe("regression table (voice, AI mocked as down)", () => {
     if (outcome === "mismatch") {
       expect(lastSent().text).toContain("Dijiste pesos mexicanos");
     }
-    if (text.startsWith("El precio del aguacate")) {
-      expect(lastSent().text).toBe(UNIT_ASK("aguacate"));
-    }
+    if (outcome === "kept") expect(lastSent().text).not.toContain("¿");
   });
 });
 
@@ -717,16 +691,14 @@ describe("routing", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("a voice answer to an open question closes an unrelated one with PRICE_QUESTION_CLOSED", async () => {
+  it("a voice stock report after a price is its own message: no question is open or closed", async () => {
     await say("text", "queso 3.25");
     await say("voice", "se acabó el limón");
-    expect(
-      sent.some((s) => s.text.includes("Dejé sin guardar el precio de queso"))
-    ).toBe(true);
-    expect(drafts()).toHaveLength(0);
+    expect(sent.some((s) => s.text.includes("Dejé sin guardar"))).toBe(false);
+    expect(drafts()).toHaveLength(1);
   });
 
-  it("two restaurants: the amount question belongs to the chosen one, and the VOICE answer needs no «¿para qué restaurante?»", async () => {
+  it("two restaurants: the product is saved in the chosen one, with no question", async () => {
     seed(2);
     await say("text", "aguacate a 150 la libra");
     expect(lastSent().text).toBe(KITCHEN_COPY.ROUTING_ASK);
@@ -739,15 +711,10 @@ describe("routing", () => {
         data,
       },
     });
-    expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
-    expect(openQuestions()[0].option_staff_ids).toEqual(["st-stage"]);
-    await say("voice", "uno cincuenta");
-    expect(
-      sent.filter((s) => s.text === KITCHEN_COPY.ROUTING_ASK)
-    ).toHaveLength(1);
+    expect(openQuestions()).toHaveLength(0);
     expect(drafts()).toHaveLength(1);
     expect(drafts()[0].company_id).toBe("co-stage");
-    expect(lineSummary()).toEqual(["aguacate|1.5|lb"]);
+    expect(lineSummary()).toEqual(["aguacate|null|lb"]);
   });
 
   it("logs ids and lengths only, never the words", async () => {
@@ -820,19 +787,18 @@ describe.each<Mode>(["text", "voice"])(
       expect(lineSummary()).toEqual(["aguacate|3.5|lb"]);
     });
 
-    it("the amount answer «150 pesos» is a mismatch, not a USD draft", async () => {
-      await say(mode, "aguacate a 150");
-      expect(lastSent().text).toBe(AMOUNT_ASK("aguacate", "1.50", "150"));
-      await say(mode, "150 pesos");
+    it("«150 pesos» is a mismatch, not a USD draft", async () => {
+      await say(mode, "aguacate a 150 pesos");
       expect(drafts()).toHaveLength(0);
       expect(lastSent().text).toContain("Dijiste pesos mexicanos (MXN)");
     });
 
-    it("the AI cannot invent a unit: «ahora está a 3.50» with AI «lb» asks the unit, saves nothing", async () => {
+    it("the AI cannot invent a unit: «ahora está a 3.50» with AI «lb» keeps the price and the unit is «Falta»", async () => {
       await aiRaw(priceRaw(3.5, "lb", null));
       await say(mode, "se acabó el aguacate y ahora está a 3.50");
-      expect(drafts()).toHaveLength(0);
-      expect(lastSent().text).toContain(UNIT_ASK("aguacate"));
+      expect(drafts()).toHaveLength(1);
+      expect(lineSummary()).toEqual(["aguacate|3.5|unidad"]);
+      expect(lastSent().text).not.toContain("¿");
     });
   }
 );

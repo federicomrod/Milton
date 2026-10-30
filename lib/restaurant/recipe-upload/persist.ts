@@ -10,6 +10,8 @@
 // caller passes. Logs: counts only.
 
 import { classifyRecipeKind } from "./classify";
+import { uploadMsg } from "./messages";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadDraftMatchingCatalog,
@@ -32,8 +34,7 @@ import {
 import { withPreparationMarker } from "./marker";
 import type { ExtractedUploadRecipe } from "./validate";
 
-export const DRAFT_SAVE_ERROR =
-  "No pude guardar algunas recetas. Vuelve a intentarlo.";
+export const DRAFT_SAVE_ERROR = uploadMsg("es", "draftSaveError");
 const MESSAGE_ID_RETRIES = 5;
 
 export interface PersistResult {
@@ -52,6 +53,8 @@ export async function persistRecipes(input: {
   /** Tests / callers may pass an already loaded catalog or approved list. */
   catalog?: DraftMatchingCatalog;
   approved?: ApprovedDish[];
+  /** Language of the errors (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<PersistResult> {
   const result: PersistResult = {
     drafts_created: 0,
@@ -66,7 +69,7 @@ export async function persistRecipes(input: {
 
   const author = await getOrCreateUploadAuthor(admin, companyId, locationId);
   if (!author.ok) {
-    result.errors.push(DRAFT_SAVE_ERROR);
+    result.errors.push(uploadMsg(input.lang ?? "es", "draftSaveError"));
     return result;
   }
 
@@ -173,7 +176,8 @@ export async function persistRecipes(input: {
     if (duplicate) result.duplicates.push({ dish_name: recipe.dish_name });
   }
 
-  if (failed > 0) result.errors.push(DRAFT_SAVE_ERROR);
+  if (failed > 0)
+    result.errors.push(uploadMsg(input.lang ?? "es", "draftSaveError"));
   console.log(
     `[recipe-upload] persisted drafts=${result.drafts_created} failed=${failed}`
   );

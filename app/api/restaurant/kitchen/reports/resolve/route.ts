@@ -4,6 +4,7 @@
 // company. Any company member can resolve (fail closed on company_id).
 // Service role write because kitchen_reports has no tenant UPDATE policy.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,6 +16,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -25,7 +27,7 @@ export async function POST(req: NextRequest) {
       body = await req.json();
     } catch {
       return NextResponse.json(
-        { error: "El cuerpo tiene que ser JSON." },
+        { error: d.kitchen.api.bodyMustBeJson },
         { status: 400 }
       );
     }
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
       : [];
     if (ids.length === 0) {
       return NextResponse.json(
-        { error: "Los identificadores no son válidos." },
+        { error: d.kitchen.api.idsInvalid },
         { status: 400 }
       );
     }
@@ -54,7 +56,7 @@ export async function POST(req: NextRequest) {
     if (error) {
       console.error("[kitchen-reports] resolve failed:", error.message);
       return NextResponse.json(
-        { error: "No pude resolver el aviso." },
+        { error: d.kitchen.api.reportResolveFailed },
         { status: 500 }
       );
     }
@@ -65,7 +67,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude resolver el aviso." },
+      { error: d.kitchen.api.reportResolveFailed },
       { status: 500 }
     );
   }

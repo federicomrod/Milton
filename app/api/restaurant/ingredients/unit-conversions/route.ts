@@ -12,6 +12,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+import { fmt } from "@/lib/i18n";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 import { convertToSubRecipeUnit, sameUnit } from "@/lib/restaurant/units";
 
@@ -20,26 +22,21 @@ export const runtime = "nodejs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COLUMNS = "id, ingredient_id, from_unit, to_unit, factor, created_at";
-const MIGRATION_ERROR =
-  "Para definir conversiones falta aplicar la migración 056 en este ambiente.";
-
-function failure(
+async function failure(
   error: { code?: string; message?: string },
   fallback: string,
   tag: string
 ) {
+  const api = (await apiDictionary()).menu.screens.api;
   // 42P01 = the table does not exist yet (migration 056 not applied).
   if (error.code === "42P01") {
     return NextResponse.json(
-      { unavailable: true, error: MIGRATION_ERROR },
+      { unavailable: true, error: api.migration056 },
       { status: 409 }
     );
   }
   if (error.code === "42501") {
-    return NextResponse.json(
-      { error: "No tienes permiso para esto en esta empresa." },
-      { status: 403 }
-    );
+    return NextResponse.json({ error: api.noPermission }, { status: 403 });
   }
   if (error.code === "22023") {
     return NextResponse.json(
@@ -61,14 +58,12 @@ function cleanUnitText(value: unknown): string | null {
 }
 
 export async function GET(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const ingredientId = new URL(req.url).searchParams.get("ingredient_id");
   if (!ingredientId || !UUID.test(ingredientId)) {
-    return NextResponse.json(
-      { error: "Indica el ingrediente." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.specifyIngredient }, { status: 400 });
   }
   const { data, error } = await auth.supabase
     .from("ingredient_unit_conversions")
@@ -80,33 +75,27 @@ export async function GET(req: NextRequest) {
     // Before the migration there is nothing to list.
     if (error.code === "42P01")
       return NextResponse.json({ conversions: [], unavailable: true });
-    return failure(
-      error,
-      "No pude leer las conversiones.",
-      "unit-conversions-get"
-    );
+    return failure(error, api.readConversions, "unit-conversions-get");
   }
   return NextResponse.json({ conversions: data ?? [] });
 }
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "prices.edit", {
-    message: "Tu rol no puede cambiar precios.",
+    message: api.rolePrices,
   });
   if (denied) return denied;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const ingredientId =
     typeof body.ingredient_id === "string" && UUID.test(body.ingredient_id)
@@ -116,27 +105,18 @@ export async function POST(req: NextRequest) {
   const to = cleanUnitText(body.to_unit);
   const factor = Number(body.factor);
   if (!ingredientId || !from || !to) {
-    return NextResponse.json(
-      { error: "Indica el ingrediente y las dos unidades." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.twoUnits }, { status: 400 });
   }
   if (sameUnit(from, to)) {
-    return NextResponse.json(
-      { error: "Las dos unidades son la misma." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.sameUnits }, { status: 400 });
   }
   if (!(factor > 0) || !Number.isFinite(factor)) {
-    return NextResponse.json(
-      { error: "Escribe cuánto equivale: un número mayor que 0." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.factorPositive }, { status: 400 });
   }
   if (convertToSubRecipeUnit(1, from, to).ok) {
     return NextResponse.json(
       {
-        error: `Ya existe una conversión estándar entre ${from} y ${to}; no hace falta definirla.`,
+        error: fmt(api.standardExists, { from, to }),
       },
       { status: 400 }
     );
@@ -153,7 +133,7 @@ export async function POST(req: NextRequest) {
   if (inverse.error)
     return failure(
       inverse.error,
-      "No pude guardar la conversión.",
+      api.saveConversion,
       "unit-conversions-inverse"
     );
 
@@ -173,38 +153,29 @@ export async function POST(req: NextRequest) {
     .select(COLUMNS)
     .single();
   if (error || !data)
-    return failure(
-      error ?? {},
-      "No pude guardar la conversión.",
-      "unit-conversions-post"
-    );
+    return failure(error ?? {}, api.saveConversion, "unit-conversions-post");
   return NextResponse.json({ conversion: data });
 }
 
 export async function DELETE(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "prices.edit", {
-    message: "Tu rol no puede cambiar precios.",
+    message: api.rolePrices,
   });
   if (denied) return denied;
   let body: { id?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   if (typeof body.id !== "string" || !UUID.test(body.id)) {
-    return NextResponse.json(
-      { error: "Indica la conversión." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.specifyConversion }, { status: 400 });
   }
   const { error } = await auth.supabase
     .from("ingredient_unit_conversions")
@@ -212,10 +183,6 @@ export async function DELETE(req: NextRequest) {
     .eq("company_id", auth.companyId)
     .eq("id", body.id);
   if (error)
-    return failure(
-      error,
-      "No pude quitar la conversión.",
-      "unit-conversions-delete"
-    );
+    return failure(error, api.removeConversion, "unit-conversions-delete");
   return NextResponse.json({ ok: true });
 }

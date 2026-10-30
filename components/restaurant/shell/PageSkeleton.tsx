@@ -4,7 +4,8 @@
 // does not jump when real content arrives. No full-page "Reading your
 // latest restaurant numbers..." boxes.
 
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 
 export function PageSkeleton({
   className = "",
@@ -39,7 +40,9 @@ export function PageSkeleton({
       }
       style={Object.keys(style).length > 0 ? style : undefined}
     >
-      <span className="sr-only">{label ?? t(lang, "Loading", "Cargando")}</span>
+      <span className="sr-only">
+        {label ?? getDictionary(lang).common.loading}
+      </span>
     </div>
   );
 }

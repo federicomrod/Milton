@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 const CHECKS =
   // recipes/editor starts resolveActor early and asks can() on that promise
   // (a parallel guard, for speed): the same helper, so it counts.
-  /requireCapability\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|resolveActor\([\s\S]*\bcan\(/;
+  /requireCapability(?:Localized)?\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|resolveActor\([\s\S]*\bcan\(/;
 const WRITE =
   /export\s+(?:async\s+function|const)\s+(?:POST|PUT|PATCH|DELETE)\b/;
 
@@ -34,6 +34,23 @@ export const ALLOW: Record<string, string> = {
     "records a «please support this source» request for Milton; no company data",
   "restaurant/kitchen/reports/resolve/route.ts":
     "any company member resolves cook reports, by design (documented in the route)",
+  // Kitchen app (mobile P0b): cooks are not company members and have no role.
+  // Their device token, revocable at once, is the authority, and each route
+  // only ever touches that cook's own company, location and rows.
+  "mobile/v1/kitchen/redeem/route.ts":
+    "a cook redeems a single-use invite; the invite secret is the authority",
+  "mobile/v1/kitchen/media/route.ts":
+    "a cook uploads to their own location; the device token is the authority",
+  "mobile/v1/kitchen/uploads/route.ts":
+    "a cook asks to upload to their own location; the device token is the authority",
+  "mobile/v1/kitchen/uploads/complete/route.ts":
+    "a cook registers their own upload; the device token is the authority",
+  "mobile/v1/kitchen/text/route.ts":
+    "a cook reports to their own location; the device token is the authority",
+  "mobile/v1/kitchen/retry/route.ts":
+    "a cook re-runs their own unfinished message; the device token is the authority",
+  "mobile/v1/kitchen/logout/route.ts":
+    "a cook revokes their own device; the device token is the authority",
 };
 
 function routes(dir: string): string[] {

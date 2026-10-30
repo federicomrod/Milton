@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { es } from "@/lib/i18n/es";
 import {
   applyEdit,
   loadEditor,
@@ -163,9 +164,17 @@ describe("a dish with CONVOY 1 orden", () => {
     const ui = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(ui).toContain("no tiene costo todavía: falta precio en");
+    const lines = es.menu.editor.lines;
+    expect(ui).toContain("d.lines.prepNoCostMissing");
+    expect(lines.prepNoCostMissing).toContain(
+      "no tiene costo todavía: falta precio en"
+    );
     expect(ui).not.toContain("Aprueba primero la preparación");
-    expect(ui).toContain("O escribe aquí el precio de esta línea.");
+    expect(JSON.stringify(lines)).not.toContain(
+      "Aprueba primero la preparación"
+    );
+    expect(ui).toContain("d.lines.orTypePrice");
+    expect(lines.orTypePrice).toBe("O escribe aquí el precio de esta línea.");
   });
 
   it("once the ingredient has a price the line costs from CONVOY automatically, and another dish updates in the same reload", async () => {

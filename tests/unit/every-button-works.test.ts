@@ -24,8 +24,9 @@ describe("two separate steps in the «Último archivo» card", () => {
     "components/restaurant/recipes-costing/RecipeImportPreview.tsx"
   );
   it("«1. Guardar precios» and «2. Importar recetas (N platos)» are two buttons; the old names are gone", () => {
-    expect(panel).toContain("1. Guardar precios");
-    expect(preview).toContain("2. Importar recetas (");
+    const words = read("lib/i18n/es/menu-workspace.ts");
+    expect(words).toContain("1. Guardar precios");
+    expect(words).toContain("2. Importar recetas ({n} platos)");
     expect(panel).not.toContain("Subir y preparar mis platos");
     expect(preview).not.toContain(': "Importar"');
   });
@@ -89,7 +90,7 @@ describe("dead buttons fixed", () => {
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
     expect(editor).not.toContain("Unir…");
-    expect(editor).toContain("Ver ingrediente");
+    expect(read("lib/i18n/es/menu-editor.ts")).toContain("Ver ingrediente");
   });
   it("the Costos «Subir archivo de costos» link falls through to its hash when the section is not ready", () => {
     const src = read("components/restaurant/costs/CostsSetupSection.tsx");

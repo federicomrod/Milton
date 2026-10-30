@@ -8,6 +8,8 @@
 
 import { aliasKeyFor } from "@/lib/restaurant/cost-workbook/repo";
 import { dishHref, preparationHref } from "@/lib/restaurant/menu-links";
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export type IngredientUseStatus =
   | "aprobada"
@@ -15,11 +17,29 @@ export type IngredientUseStatus =
   | "borrador_cocina"
   | "del_excel";
 
+/** The status words in a language (Spanish by default). */
+export function usesStatusLabel(
+  status: IngredientUseStatus,
+  lang: PreferredLanguage = "es"
+): string {
+  const u = getDictionary(lang).menu.screens.uses;
+  switch (status) {
+    case "aprobada":
+      return u.approved;
+    case "en_revision":
+      return u.inReview;
+    case "borrador_cocina":
+      return u.kitchenDraft;
+    default:
+      return u.fromExcel;
+  }
+}
+
 export const USE_STATUS_LABEL: Record<IngredientUseStatus, string> = {
-  aprobada: "Aprobada",
-  en_revision: "En revisión",
-  borrador_cocina: "Borrador de cocina",
-  del_excel: "Del Excel",
+  aprobada: usesStatusLabel("aprobada"),
+  en_revision: usesStatusLabel("en_revision"),
+  borrador_cocina: usesStatusLabel("borrador_cocina"),
+  del_excel: usesStatusLabel("del_excel"),
 };
 
 const STATUS_ORDER: IngredientUseStatus[] = [
@@ -89,6 +109,8 @@ export interface IngredientUsesInput {
   aliases: ReadonlyMap<string, string>;
   /** Merged-away ingredient id -> survivor id. */
   mergedInto: ReadonlyMap<string, string>;
+  /** Language of the `via` / `statusLabel` text; Spanish when omitted. */
+  lang?: PreferredLanguage;
 }
 
 export const KITCHEN_HREF = "/dashboard/restaurant/kitchen";
@@ -156,6 +178,8 @@ export function computeIngredientUses(
   input: IngredientUsesInput
 ): Map<string, IngredientUseEntry[]> {
   const out = new Map<string, IngredientUseEntry[]>();
+  const lang = input.lang ?? "es";
+  const uc = getDictionary(lang).menu.screens.uses;
 
   const survivor = (id: string): { id: string; merged: boolean } => {
     let cur = id;
@@ -176,7 +200,7 @@ export function computeIngredientUses(
   ): { id: string; via: string | null } | null => {
     if (ingredientId) {
       const s = survivor(ingredientId);
-      return { id: s.id, via: s.merged ? "ingrediente unido" : null };
+      return { id: s.id, via: s.merged ? uc.viaMerged : null };
     }
     const key = rawName ? aliasKeyFor(rawName) : "";
     const aliased = key ? input.aliases.get(key) : undefined;
@@ -184,7 +208,9 @@ export function computeIngredientUses(
     const s = survivor(aliased);
     return {
       id: s.id,
-      via: `por el alias «${rawName?.trim()}»${s.merged ? " · ingrediente unido" : ""}`,
+      via: fmt(s.merged ? uc.viaAliasMerged : uc.viaAlias, {
+        alias: rawName?.trim() ?? "",
+      }),
     };
   };
 
@@ -220,7 +246,7 @@ export function computeIngredientUses(
   const push = (id: string, e: Omit<IngredientUseEntry, "statusLabel">) => {
     const list = out.get(id) ?? [];
     if (list.some((x) => x.key === e.key)) return;
-    list.push({ ...e, statusLabel: USE_STATUS_LABEL[e.status] });
+    list.push({ ...e, statusLabel: usesStatusLabel(e.status, lang) });
     out.set(id, list);
   };
   const joinVia = (...parts: (string | null)[]) =>
@@ -253,10 +279,7 @@ export function computeIngredientUses(
           const prep = input.components.get(line.component_id);
           for (const id of reachOf(line.component_id))
             if (!through.has(id))
-              through.set(
-                id,
-                `a través de la preparación ${prep?.name ?? "—"}`
-              );
+              through.set(id, fmt(uc.viaPrep, { name: prep?.name ?? "—" }));
         }
       }
       for (const [id, d] of direct) {

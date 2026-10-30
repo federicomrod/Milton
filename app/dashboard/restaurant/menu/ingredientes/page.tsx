@@ -5,10 +5,14 @@
 // from ingredient_cost_entries (fetchIngredientLatestCosts); "Se usa en"
 // comes from loadIngredientUsage (one list for the counters and the detail).
 
+import { getDictionary } from "@/lib/i18n";
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { createClient } from "@/lib/supabase/server";
-import { capabilityFlags, resolveActor } from "@/lib/auth/permissions";
+import { capabilityFlags } from "@/lib/auth/permissions";
 import type { Capability } from "@/lib/auth/capabilities";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -45,7 +49,8 @@ type LoadResult =
   | { kind: "no-company" };
 
 async function loadIngredientes(
-  locationId: string | null
+  locationId: string | null,
+  lang: PreferredLanguage
 ): Promise<LoadResult> {
   const user = await getCachedAuthUser();
   if (!user) return { kind: "no-company" };
@@ -64,11 +69,11 @@ async function loadIngredientes(
         .order("name", { ascending: true }),
       resolveCompanyCurrency(supabase, companyId),
       loadDishEconomics(companyId, null, null, locationId),
-      loadIngredientUsage(supabase, companyId),
+      loadIngredientUsage(supabase, companyId, lang),
       loadDuplicateState(supabase, companyId),
     ]);
   const capabilities = capabilityFlags(
-    await resolveActor(supabase, user.id, { companyId })
+    await getCachedActor(user.id, companyId)
   );
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
@@ -140,11 +145,12 @@ export default async function IngredientesRoute({
   }>;
 }) {
   const params = await searchParams;
-  const result = await loadIngredientes(params.location ?? null);
+  const { lang } = await loadRestaurantShellChrome();
+  const result = await loadIngredientes(params.location ?? null, lang);
   if (result.kind === "no-company") {
     return (
       <p className="mt-3 text-[13px] text-[#8a92a3]">
-        Conecta tu cuenta a una empresa para ver tus ingredientes.
+        {getDictionary(lang).menu.screens.ingredientes.noCompany}
       </p>
     );
   }

@@ -10,9 +10,10 @@
 
 import { useMemo, useRef, useState } from "react";
 import type { RentabilidadMonth } from "@/lib/restaurant/rentabilidad";
+import { useT } from "@/lib/i18n/client";
 import {
   dayLabelEs,
-  PROJECTION_METHOD,
+  projectionMethod,
 } from "@/lib/restaurant/rentabilidad-copy";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
@@ -30,6 +31,8 @@ export function RaceChart({
   month: RentabilidadMonth;
   money: (n: number) => string;
 }) {
+  const { d, lang, fmt } = useT();
+  const r = d.rentabilidad.race;
   const wrapRef = useRef<HTMLDivElement>(null);
   const W = useElementWidth(wrapRef);
   const [hover, setHover] = useState<number | null>(null);
@@ -87,7 +90,7 @@ export function RaceChart({
         viewBox={`0 0 ${W} ${H}`}
         className="h-[190px] w-full"
         role="img"
-        aria-label="Margen acumulado contra costos fijos del mes"
+        aria-label={r.aria}
         onMouseLeave={() => setHover(null)}
       >
         <line
@@ -159,23 +162,26 @@ export function RaceChart({
           }}
         >
           <div className="font-semibold">
-            {dayLabelEs(h.date)} · {money(h.cumMargin)} acumulado
+            {fmt(r.tooltipCumulative, {
+              day: dayLabelEs(h.date, lang),
+              amount: money(h.cumMargin),
+            })}
           </div>
-          {h.projected ? <div>proyección</div> : null}
-          {be && be.day === hover + 1 ? <div>Equilibrio</div> : null}
+          {h.projected ? <div>{r.projected}</div> : null}
+          {be && be.day === hover + 1 ? <div>{r.breakEven}</div> : null}
         </div>
       ) : null}
       <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-[#6b7385]">
-        <ChartLegend color={BLUE} label="Margen acumulado" line />
+        <ChartLegend color={BLUE} label={r.legendCumulative} line />
         {projectedPath ? (
           <ChartLegend
             color={BLUE}
-            label="Proyección"
+            label={r.legendProjection}
             dashed
-            title={PROJECTION_METHOD}
+            title={projectionMethod(lang)}
           />
         ) : null}
-        <ChartLegend color={INK} label="Costos fijos del mes" dashed />
+        <ChartLegend color={INK} label={r.legendFixed} dashed />
       </div>
     </div>
   );

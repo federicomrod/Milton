@@ -8,6 +8,8 @@
 //          remembered alias answers 409 «Ya existe "X". ¿Usarlo?» and creates
 //          nothing. Owner / Milton staff only. Company from auth.
 
+import { fmt } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { fetchIngredientLatestCosts } from "@/lib/restaurant/menu-recipes-server";
@@ -33,6 +35,7 @@ export const dynamic = "force-dynamic";
 const MAX_NAME = 120;
 
 export async function GET() {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -85,13 +88,14 @@ export async function GET() {
       err instanceof Error ? err.message : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude cargar tus ingredientes." },
+      { error: d.kitchen.api.ingredientsLoadFailed },
       { status: 500 }
     );
   }
 }
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   const body = (await req.json().catch(() => null)) as {
@@ -108,7 +112,7 @@ export async function POST(req: NextRequest) {
   const name = typeof body?.name === "string" ? sentenceCase(body.name) : "";
   if (!name || name.length > MAX_NAME) {
     return NextResponse.json(
-      { error: "Escribe el nombre del ingrediente." },
+      { error: d.kitchen.api.ingredientNameMissing },
       { status: 400 }
     );
   }
@@ -150,7 +154,9 @@ export async function POST(req: NextRequest) {
         if (survivor) {
           return NextResponse.json(
             {
-              error: `Ya existe "${survivor.name}". ¿Usarlo?`,
+              error: fmt(d.kitchen.api.ingredientExists, {
+                name: survivor.name,
+              }),
               existing: { id: survivor.id, name: survivor.name },
             },
             { status: 409 }
@@ -158,7 +164,9 @@ export async function POST(req: NextRequest) {
         }
         return NextResponse.json(
           {
-            error: `"${archivedHit.name}" está archivado. Restáuralo en Ingredientes o usa otro nombre.`,
+            error: fmt(d.kitchen.api.ingredientArchived, {
+              name: archivedHit.name,
+            }),
           },
           { status: 409 }
         );
@@ -167,7 +175,7 @@ export async function POST(req: NextRequest) {
     if (similar) {
       return NextResponse.json(
         {
-          error: `Ya existe "${similar.name}". ¿Usarlo?`,
+          error: fmt(d.kitchen.api.ingredientExists, { name: similar.name }),
           existing: { id: similar.id, name: similar.name },
         },
         { status: 409 }
@@ -191,7 +199,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.message : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude crear el ingrediente." },
+      { error: d.kitchen.api.ingredientCreateFailed },
       { status: 500 }
     );
   }

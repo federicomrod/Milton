@@ -53,9 +53,10 @@ describe("price catalog routes and screen", () => {
     expect(resumen).toContain("<PriceCatalogPanel");
     expect(resumen).toContain("embedded onUploaded={() => void onUploaded()}");
     expect(resumen).toContain("onRecipesImported={onResetDone}");
-    const panel = read(
-      "components/restaurant/recipes-costing/PriceCatalogPanel.tsx"
-    );
+    // The copy lives in the Spanish dictionary (the panel reads it with useT).
+    const panel =
+      read("components/restaurant/recipes-costing/PriceCatalogPanel.tsx") +
+      read("lib/i18n/es/menu-workspace.ts");
     expect(panel).toContain("Subir Excel de costos");
     // B4: no explanatory paragraph on the page.
     expect(panel).not.toContain("Lo que no esté claro no te frena");

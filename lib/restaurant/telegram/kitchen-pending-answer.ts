@@ -266,7 +266,7 @@ export async function tryPendingAnswer(args: {
 /** «Dejé sin guardar el precio de queso…» for the products of a closed question. */
 export function questionClosedReply(products: string[]): string {
   return renderKitchenCopy(KITCHEN_COPY.PRICE_QUESTION_CLOSED, {
-    producto: joinProducts(products) || "tu producto",
+    producto: joinProducts(products) || KITCHEN_COPY.FRAG_YOUR_PRODUCT,
   });
 }
 

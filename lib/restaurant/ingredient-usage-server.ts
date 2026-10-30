@@ -2,6 +2,7 @@
 // preparations) and the archived ingredient ids. Read-only.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   usageFromUses,
   type IngredientUsage,
@@ -24,10 +25,11 @@ export interface IngredientUsageLoad extends IngredientUsage {
 
 export async function loadIngredientUsage(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  lang: PreferredLanguage = "es"
 ): Promise<IngredientUsageLoad> {
   const [uses, archivedRes] = await Promise.all([
-    loadIngredientUses(supabase, companyId),
+    loadIngredientUses(supabase, companyId, lang),
     Promise.resolve(
       supabase
         .from("ingredients")

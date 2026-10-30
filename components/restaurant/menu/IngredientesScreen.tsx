@@ -10,7 +10,10 @@
 // manual cost entry dated today). Local state is updated from the
 // responses; the page is never refreshed.
 
-import { INGREDIENT_UNUSED, NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
+import { useT } from "@/lib/i18n/client";
+import { fmt as fmtTemplate, type Dictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { moneyLocaleFor } from "@/lib/restaurant/menu-dishes/money";
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
@@ -36,11 +39,14 @@ import {
   usageCounts,
   type UsageFilter,
 } from "@/lib/restaurant/ingredient-usage";
-import type { IngredientUseEntry } from "@/lib/restaurant/ingredient-uses";
+import {
+  usesStatusLabel,
+  type IngredientUseEntry,
+} from "@/lib/restaurant/ingredient-uses";
 import { normalizeUnit } from "@/lib/restaurant/units";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
-  PRICE_SOURCE_LABEL,
+  priceSourceLabel,
   parsePriceInput,
   priceChangePct,
   sortIngredientes,
@@ -85,9 +91,15 @@ const RED = "#d14343";
 const GREEN = "#1f9d55";
 const MUTED = "#8a92a3";
 
-function formatMoney(n: number, currency: string): string {
+type D = Dictionary["menu"]["screens"]["ingredientes"];
+
+function formatMoney(
+  n: number,
+  currency: string,
+  lang: PreferredLanguage
+): string {
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  return new Intl.NumberFormat(safe === "MXN" ? "es-MX" : "en-US", {
+  return new Intl.NumberFormat(moneyLocaleFor(lang, safe), {
     style: "currency",
     currency: safe,
     minimumFractionDigits: 2,
@@ -95,19 +107,19 @@ function formatMoney(n: number, currency: string): string {
   }).format(n);
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: string): string {
   if (!iso) return "—";
   const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("es-MX", {
+  return d.toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 }
 
-function formatQty(n: number): string {
-  return new Intl.NumberFormat("es-MX", { maximumFractionDigits: 3 }).format(n);
+function formatQty(n: number, locale: string): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(n);
 }
 
 function todayIso(): string {
@@ -121,8 +133,8 @@ function sameUnit(a: string | null, b: string | null): boolean {
   return (normalizeUnit(a) ?? a) === (normalizeUnit(b) ?? b);
 }
 
-function categoryLabel(category: string | null): string {
-  if (!category || category === "uncategorized") return "Sin categoría";
+function categoryLabel(category: string | null, t: D): string {
+  if (!category || category === "uncategorized") return t.noCategory;
   return category;
 }
 
@@ -130,23 +142,27 @@ function fold(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-function errorOf(body: unknown, status: number): string {
+function errorOf(body: unknown, status: number, t: D): string {
   const b = body as { error?: unknown; details?: unknown } | null;
-  return typeof b?.error === "string" ? b.error : `Error ${status}`;
+  return typeof b?.error === "string"
+    ? b.error
+    : fmtTemplate(t.httpError, { status });
 }
 
-const INGREDIENT_SORT: SortColumn<IngredienteItem>[] = [
-  { key: "name", label: "Nombre", value: (i) => i.name },
-  // A missing price is "Sin precio": last both ways, never 0.
-  { key: "price", label: "Precio", value: (i) => i.price },
-  { key: "supplier", label: "Proveedor", value: (i) => i.supplier_name },
-  {
-    key: "sales",
-    label: "Ventas",
-    value: (i) => i.sold_net_sales,
-    agg: "sum",
-  },
-];
+function ingredientSort(t: D): SortColumn<IngredienteItem>[] {
+  return [
+    { key: "name", label: t.sortName, value: (i) => i.name },
+    // A missing price is "Sin precio": last both ways, never 0.
+    { key: "price", label: t.sortPrice, value: (i) => i.price },
+    { key: "supplier", label: t.sortSupplier, value: (i) => i.supplier_name },
+    {
+      key: "sales",
+      label: t.sortSales,
+      value: (i) => i.sold_net_sales,
+      agg: "sum",
+    },
+  ];
+}
 
 export function IngredientesScreen({
   items: initialItems,
@@ -172,6 +188,9 @@ export function IngredientesScreen({
   /** What this person may do: the server's can() answers (capabilityFlags). */
   capabilities?: Partial<Record<Capability, boolean>>;
 }) {
+  const { d, lang } = useT();
+  const t = d.menu.screens.ingredientes;
+  const sortColumns = useMemo(() => ingredientSort(t), [t]);
   const allowed = (capability: Capability) =>
     capabilities?.[capability] ?? true;
   const grouping = useItemGroups(itemGroups);
@@ -222,28 +241,20 @@ export function IngredientesScreen({
         error?: string;
         skipped?: string[];
       };
-      if (!res.ok) throw new Error(userErrorMessage(json, "No pude archivar."));
+      if (!res.ok) throw new Error(userErrorMessage(json, t.archiveFailed));
       const done = new Set(ids.filter((id) => !json.skipped?.includes(id)));
       setItems((prev) =>
         prev.map((i) => (done.has(i.id) ? { ...i, archived } : i))
       );
     } catch (err) {
-      setArchiveError(
-        err instanceof Error
-          ? err.message
-          : "No pude archivar los ingredientes."
-      );
+      setArchiveError(err instanceof Error ? err.message : t.archiveFailedMany);
     } finally {
       setArchiving(false);
     }
   }
   const archiveAll = () => {
     const ids = items.filter((i) => !i.inUse && !i.archived).map((i) => i.id);
-    if (
-      window.confirm(
-        `¿Archivar ${ids.length} ingredientes sin uso? No se borran: vuelven solos si una receta los usa, y puedes restaurarlos.`
-      )
-    ) {
+    if (window.confirm(fmtTemplate(t.confirmArchive, { n: ids.length }))) {
       void setArchived(ids, true);
     }
   };
@@ -285,26 +296,23 @@ export function IngredientesScreen({
       : undefined,
     storageKey: "milton:ingredientes:abiertos",
     sortId: "ingredientes",
-    sortColumns: INGREDIENT_SORT,
-    searchPlaceholder: "Buscar ingrediente o grupo…",
+    sortColumns,
+    searchPlaceholder: t.searchPlaceholder,
     searchText: (item) => item.supplier_name,
     categoryOf: (item) => item.category,
-    emptyText:
-      items.length === 0
-        ? "Aún no tienes ingredientes."
-        : "Ningún ingrediente coincide.",
+    emptyText: items.length === 0 ? t.emptyNone : t.emptyNoMatch,
     filters: (
       <div className="flex flex-wrap items-center gap-2">
         <div
           className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px] text-[12px] font-semibold"
           role="group"
-          aria-label="Uso"
+          aria-label={t.usageGroup}
         >
           {(
             [
-              ["en_uso", "En uso", counts.en_uso],
-              ["sin_uso", "Sin uso", counts.sin_uso],
-              ["todos", "Todos", counts.todos],
+              ["en_uso", t.inUse, counts.en_uso],
+              ["sin_uso", t.unused, counts.sin_uso],
+              ["todos", t.all, counts.todos],
             ] as const
           ).map(([id, label, n]) => (
             <button
@@ -323,18 +331,18 @@ export function IngredientesScreen({
             </button>
           ))}
         </div>
-        <div className="flex gap-2" role="group" aria-label="Filtro">
+        <div className="flex gap-2" role="group" aria-label={t.filterGroup}>
           <FilterChip
             active={filter === "todos"}
             onClick={() => setFilter("todos")}
           >
-            Todos
+            {t.all}
           </FilterChip>
           <FilterChip
             active={filter === "falta_precio"}
             onClick={() => setFilter("falta_precio")}
           >
-            Falta precio ({counts.falta_precio})
+            {fmtTemplate(t.missingPrice, { n: counts.falta_precio })}
           </FilterChip>
         </div>
         {counts.archivable > 0 && allowed("ingredients.manage") ? (
@@ -343,18 +351,16 @@ export function IngredientesScreen({
             onClick={archiveAll}
             disabled={archiving || !archiveAvailable}
             title={
-              archiveAvailable
-                ? "Los oculta de las listas de trabajo; no se borra nada."
-                : NOT_AVAILABLE_YET
+              archiveAvailable ? t.archiveHint : d.menu.screens.notAvailableYet
             }
             className="rounded-lg border border-[#c6d3f5] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#1b40c8] hover:bg-[#e6ecfb] disabled:opacity-50"
           >
-            Archivar sin uso ({counts.archivable})
+            {fmtTemplate(t.archiveUnused, { n: counts.archivable })}
           </button>
         ) : null}
         {!archiveAvailable && counts.sin_uso > 0 ? (
           <span className="text-[12px]" style={{ color: "#6b7280" }}>
-            {NOT_AVAILABLE_YET}
+            {d.menu.screens.notAvailableYet}
           </span>
         ) : null}
         {archiveError ? (
@@ -387,7 +393,7 @@ export function IngredientesScreen({
               {item.name}
               {dupQueue.flagged.has(item.id) ? (
                 <span className="ml-1.5 rounded-md bg-[#efe8ff] px-1.5 py-0.5 text-[12px] font-semibold text-[#6d3fc4]">
-                  ✦ duplicado?
+                  {t.duplicateFlag}
                 </span>
               ) : null}
             </span>
@@ -403,17 +409,17 @@ export function IngredientesScreen({
               <span
                 className="font-semibold"
                 style={{ color: "#6b7280" }}
-                title={INGREDIENT_UNUSED}
+                title={t.unusedHint}
               >
-                {item.archived ? "Archivado" : "Sin uso"}
+                {item.archived ? t.archived : t.unused}
               </span>
             ) : item.price === null ? (
               <span className="font-semibold" style={{ color: "#6b7280" }}>
-                Falta precio
+                {t.missingPriceShort}
               </span>
             ) : (
               <span className="text-[#151c2c]">
-                {formatMoney(item.price, currency)}
+                {formatMoney(item.price, currency, lang)}
                 <span style={{ color: "#6b7280" }}>
                   {" "}
                   / {item.price_unit ?? item.default_unit ?? "—"}
@@ -432,7 +438,7 @@ export function IngredientesScreen({
         q={dupQueue}
         canEdit={allowed("ingredients.manage")}
         money={(n, unit) =>
-          `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
+          `${formatMoney(n, currency, lang)}${unit ? `/${unit}` : ""}`
         }
       />
       {mergeSel ? (
@@ -441,7 +447,7 @@ export function IngredientesScreen({
           items={items}
           ids={mergeSel.ids}
           money={(n, unit) =>
-            `${formatMoney(n, currency)}${unit ? `/${unit}` : ""}`
+            `${formatMoney(n, currency, lang)}${unit ? `/${unit}` : ""}`
           }
           onClose={() => setMergeSel(null)}
           onMerged={(survivorId, loserIds) => {
@@ -496,7 +502,7 @@ export function IngredientesScreen({
             className="rounded-[14px] border border-[#eef0f4] bg-white p-6 text-[13px]"
             style={{ color: "#6b7280" }}
           >
-            Elige un ingrediente de la lista.
+            {t.pickOne}
           </section>
         )}
       </div>
@@ -537,6 +543,8 @@ function AddIngrediente({
   onAdded: (item: IngredienteItem) => void;
   canManage: boolean;
 }) {
+  const { d } = useT();
+  const t = d.menu.screens.ingredientes;
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -558,7 +566,7 @@ function AddIngrediente({
       });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ingredient) {
-        setError(errorOf(body, res.status));
+        setError(errorOf(body, res.status, t));
         return;
       }
       const ing = body.ingredient as {
@@ -587,7 +595,7 @@ function AddIngrediente({
       setName("");
       setOpen(false);
     } catch {
-      setError("No se pudo guardar. Revisa tu conexión.");
+      setError(t.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -607,7 +615,7 @@ function AddIngrediente({
         onClick={() => setOpen(true)}
         className="px-4 py-3 text-left text-[13px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
       >
-        + Agregar ingrediente
+        {t.add}
       </button>
     );
   }
@@ -622,8 +630,8 @@ function AddIngrediente({
             if (e.key === "Enter") void submit();
             if (e.key === "Escape") setOpen(false);
           }}
-          placeholder="Nombre del ingrediente"
-          aria-label="Nombre del ingrediente"
+          placeholder={t.namePlaceholder}
+          aria-label={t.namePlaceholder}
           className="h-9 min-w-0 flex-1 rounded-lg border border-[#e3e7ee] px-3 text-[13px] outline-none focus:border-[#1B40C8]"
         />
         <button
@@ -632,7 +640,7 @@ function AddIngrediente({
           disabled={saving || !name.trim()}
           className="h-9 rounded-lg border border-[#e3e7ee] bg-white px-3 text-[13px] font-semibold text-[#151c2c] disabled:opacity-50"
         >
-          {saving ? "Agregando…" : "Agregar"}
+          {saving ? t.adding : t.addButton}
         </button>
       </div>
       {error && (
@@ -665,8 +673,10 @@ function IngredienteDetail({
   archiving: boolean;
   onArchive: (archived: boolean) => void;
 }) {
+  const { d, lang, locale } = useT();
+  const t = d.menu.screens.ingredientes;
   const [priceDraft, setPriceDraft] = useState(
-    item.price === null ? "" : formatMoney(item.price, currency)
+    item.price === null ? "" : formatMoney(item.price, currency, lang)
   );
   const [unitDraft, setUnitDraft] = useState(item.default_unit ?? "kg");
   const [categoryDraft, setCategoryDraft] = useState(
@@ -677,7 +687,7 @@ function IngredienteDetail({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const parsedPrice = parsePriceInput(priceDraft);
+  const parsedPrice = parsePriceInput(priceDraft, lang);
   const priceChanged =
     priceDraft.trim() !== "" &&
     (parsedPrice === null ||
@@ -703,7 +713,7 @@ function IngredienteDetail({
     setError(null);
     setSaved(false);
     if (priceChanged && parsedPrice === null) {
-      setError("Escribe un precio válido, por ejemplo 12.40.");
+      setError(t.invalidPrice);
       return;
     }
     // A supplier lives on the price entry: changing it alone needs a
@@ -711,7 +721,7 @@ function IngredienteDetail({
     let entryPrice: number | null = priceChanged ? parsedPrice : null;
     if (entryPrice === null && supplierChanged) {
       if (item.price === null || unitMismatch) {
-        setError("Escribe el precio para guardar el proveedor.");
+        setError(t.supplierNeedsPrice);
         return;
       }
       entryPrice = item.price;
@@ -734,7 +744,7 @@ function IngredienteDetail({
         });
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.ingredient) {
-          setError(errorOf(body, res.status));
+          setError(errorOf(body, res.status, t));
           return;
         }
         next = {
@@ -764,7 +774,7 @@ function IngredienteDetail({
         });
         const body = await res.json().catch(() => null);
         if (!res.ok || !body?.entry) {
-          setError(errorOf(body, res.status));
+          setError(errorOf(body, res.status, t));
           return;
         }
         const entry = body.entry as {
@@ -791,11 +801,11 @@ function IngredienteDetail({
             suppliers.find((s) => s.id === entry.supplier_id)?.name ?? null,
         };
         onSaved(next);
-        setPriceDraft(formatMoney(newPrice, currency));
+        setPriceDraft(formatMoney(newPrice, currency, lang));
       }
       setSaved(true);
     } catch {
-      setError("No se pudo guardar. Revisa tu conexión.");
+      setError(t.saveFailed);
     } finally {
       setSaving(false);
     }
@@ -809,9 +819,9 @@ function IngredienteDetail({
             {item.name}
           </h2>
           <p className="text-[12px]" style={{ color: "#6b7280" }}>
-            {categoryLabel(item.category)}
+            {categoryLabel(item.category, t)}
             {item.usedIn
-              ? ` · en ${item.usedIn.length} ${item.usedIn.length === 1 ? "receta" : "recetas"}`
+              ? ` · ${fmtTemplate(item.usedIn.length === 1 ? t.inRecipesOne : t.inRecipesOther, { n: item.usedIn.length })}`
               : ""}
           </p>
           {!canManage ? (
@@ -821,8 +831,7 @@ function IngredienteDetail({
           ) : null}
           {!item.inUse ? (
             <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
-              {item.archived ? "Archivado · " : "Sin uso · "}
-              {INGREDIENT_UNUSED}{" "}
+              {item.archived ? t.archived : t.unused} · {t.unusedHint}{" "}
               {canManage ? (
                 <button
                   type="button"
@@ -830,7 +839,7 @@ function IngredienteDetail({
                   onClick={() => onArchive(!item.archived)}
                   className="font-semibold text-[#1b40c8] disabled:opacity-50"
                 >
-                  {item.archived ? "Restaurar" : "Archivar"}
+                  {item.archived ? t.restore : t.archive}
                 </button>
               ) : null}
             </p>
@@ -844,7 +853,7 @@ function IngredienteDetail({
           )}
           {saved && !error && !dirty && (
             <span className="text-[12px]" style={{ color: GREEN }}>
-              Guardado
+              {t.saved}
             </span>
           )}
           <button
@@ -854,7 +863,7 @@ function IngredienteDetail({
             className="h-9 rounded-lg px-5 text-[13px] font-semibold text-white disabled:opacity-50"
             style={{ backgroundColor: "#1b40c8" }}
           >
-            {saving ? "Guardando…" : "Guardar"}
+            {saving ? t.saving : t.save}
           </button>
         </div>
       </div>
@@ -862,7 +871,7 @@ function IngredienteDetail({
       <div className="mt-5 flex flex-wrap gap-x-12 gap-y-4">
         <div>
           <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
-            Precio actual
+            {t.currentPrice}
           </p>
           <div className="flex items-center gap-1.5">
             <input
@@ -874,8 +883,8 @@ function IngredienteDetail({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void save();
               }}
-              placeholder="Falta precio"
-              aria-label="Precio actual"
+              placeholder={t.missingPriceShort}
+              aria-label={t.currentPrice}
               disabled={!canEditPrices}
               inputMode="decimal"
               className={
@@ -894,7 +903,7 @@ function IngredienteDetail({
                 setUnitDraft(e.target.value);
                 setSaved(false);
               }}
-              aria-label="Unidad"
+              aria-label={t.unit}
               disabled={!canManage}
               className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[14px] font-semibold text-[#151c2c]"
             >
@@ -907,7 +916,7 @@ function IngredienteDetail({
           </div>
           {unitMismatch && (
             <p className="mt-1 text-[12px]" style={{ color: RED }}>
-              El precio guardado es por {item.price_unit}.
+              {fmtTemplate(t.storedPriceUnit, { unit: item.price_unit ?? "" })}
             </p>
           )}
           {/* R1-15a: a save that fails says why, right under the price. */}
@@ -918,13 +927,13 @@ function IngredienteDetail({
           )}
           {priceDraft.trim() === "" && item.price === null && (
             <p className="mt-1 text-[12px]" style={{ color: "#6b7280" }}>
-              ¿Es gratis (agua, hielo)? Escribe 0 para confirmarlo.
+              {t.freeHint}
             </p>
           )}
         </div>
         <div>
           <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
-            Cambio 30 días
+            {t.change30}
           </p>
           <p
             className="text-[30px] font-extrabold tabular-nums"
@@ -944,7 +953,7 @@ function IngredienteDetail({
         </div>
         <div>
           <p className="text-[12px] font-semibold" style={{ color: "#6b7280" }}>
-            Categoría
+            {t.category}
           </p>
           <input
             value={categoryDraft}
@@ -952,8 +961,8 @@ function IngredienteDetail({
               setCategoryDraft(e.target.value);
               setSaved(false);
             }}
-            placeholder="Sin categoría"
-            aria-label="Categoría"
+            placeholder={t.noCategory}
+            aria-label={t.category}
             disabled={!canManage}
             className="mt-2 h-9 w-[180px] rounded-md border border-[#e3e7ee] px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1B40C8]"
           />
@@ -964,14 +973,14 @@ function IngredienteDetail({
         className="mt-4 flex flex-wrap items-center gap-1.5 text-[13px]"
         style={{ color: "#6b7280" }}
       >
-        <span>Proveedor</span>
+        <span>{t.supplier}</span>
         <select
           value={supplierDraft}
           onChange={(e) => {
             setSupplierDraft(e.target.value);
             setSaved(false);
           }}
-          aria-label="Proveedor"
+          aria-label={t.supplier}
           disabled={!canEditPrices}
           className="h-8 rounded-md border border-[#e3e7ee] bg-white px-1.5 text-[13px] text-[#151c2c]"
         >
@@ -979,7 +988,7 @@ function IngredienteDetail({
           {item.supplier_id &&
             !suppliers.some((s) => s.id === item.supplier_id) && (
               <option value={item.supplier_id}>
-                {item.supplier_name ?? "Proveedor"}
+                {item.supplier_name ?? t.supplier}
               </option>
             )}
           {suppliers.map((s) => (
@@ -988,9 +997,17 @@ function IngredienteDetail({
             </option>
           ))}
         </select>
-        <span>· desde {formatDate(item.price_date)}</span>
+        <span>
+          ·{" "}
+          {fmtTemplate(t.since, { date: formatDate(item.price_date, locale) })}
+        </span>
         {item.source && (
-          <span>· Fuente: {PRICE_SOURCE_LABEL[item.source]}</span>
+          <span>
+            ·{" "}
+            {fmtTemplate(t.source, {
+              source: priceSourceLabel(item.source, lang),
+            })}
+          </span>
         )}
       </p>
 
@@ -1009,7 +1026,7 @@ function IngredienteDetail({
         canEdit={canEditPrices}
       />
 
-      <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">Se usa en</h3>
+      <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">{t.usedIn}</h3>
       <UsesList usedIn={item.usedIn} />
     </section>
   );
@@ -1017,16 +1034,18 @@ function IngredienteDetail({
 
 /** "Se usa en": the one list the counters come from. */
 export function UsesList({ usedIn }: { usedIn: IngredientUseEntry[] | null }) {
+  const { d, locale, lang } = useT();
+  const t = d.menu.screens.ingredientes;
   if (usedIn === null)
     return (
       <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
-        No pude leer dónde se usa.
+        {t.usesUnreadable}
       </p>
     );
   if (usedIn.length === 0)
     return (
       <p className="mt-2 text-[13px]" style={{ color: "#6b7280" }}>
-        Ningún plato usa este ingrediente.
+        {t.usesNone}
       </p>
     );
   return (
@@ -1036,9 +1055,9 @@ export function UsesList({ usedIn }: { usedIn: IngredientUseEntry[] | null }) {
           className="border-b border-[#eef0f4] text-left text-[12px]"
           style={{ color: "#6b7280" }}
         >
-          <th className="py-2 font-semibold">Receta</th>
-          <th className="py-2 font-semibold">Estado</th>
-          <th className="py-2 text-right font-semibold">Cantidad</th>
+          <th className="py-2 font-semibold">{t.colRecipe}</th>
+          <th className="py-2 font-semibold">{t.colStatus}</th>
+          <th className="py-2 text-right font-semibold">{t.colQty}</th>
         </tr>
       </thead>
       <tbody>
@@ -1052,18 +1071,18 @@ export function UsesList({ usedIn }: { usedIn: IngredientUseEntry[] | null }) {
                 {u.name}
               </Link>
               <span className="ml-2 text-[12px]" style={{ color: "#6b7280" }}>
-                {u.kind === "preparacion" ? "Preparación" : "Plato"}
+                {u.kind === "preparacion" ? t.kindPrep : t.kindDish}
                 {u.via ? ` · ${u.via}` : ""}
               </span>
             </td>
             <td className="py-2">
               <span className="rounded-full bg-[#f3f4f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]">
-                {u.statusLabel}
+                {usesStatusLabel(u.status, lang)}
               </span>
             </td>
             <td className="py-2 text-right tabular-nums text-[#151c2c]">
               {u.qty !== null
-                ? `${formatQty(u.qty)} ${u.unit ?? ""}`.trim()
+                ? `${formatQty(u.qty, locale)} ${u.unit ?? ""}`.trim()
                 : ""}
             </td>
           </tr>

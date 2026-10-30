@@ -106,10 +106,16 @@ export function useHistoryFeed() {
     /** Changes whenever a card becomes (or stops being) stuck: lists use it as extraData. */
     version: `${tick}:${Object.keys(retried).length}`,
     isStuck: (item: HistoryItem) => isStuck(item, Date.now(), retried[item.id]),
-    /** «Reintentar»: look again now and keep checking for another two minutes. */
+    /**
+     * «Reintentar»: the server runs the message again, and the card is checked
+     * for another two minutes. Offline, it just looks again later.
+     */
     retry: (id: string) => {
       setRetried((prev) => ({ ...prev, [id]: Date.now() }));
-      void load({ quiet: true });
+      void api
+        .retryReport(id)
+        .catch(() => undefined)
+        .then(() => load({ quiet: true }));
     },
     refresh: () => {
       setRefreshing(true);

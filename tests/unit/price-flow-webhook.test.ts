@@ -1,5 +1,7 @@
-// One price pipeline for text and voice: rules -> AI fallback -> ask the unit
-// -> save. The AI is mocked; nothing touches the network. Synthetic data only.
+// One price pipeline for text and voice: rules -> AI fallback -> save. Every
+// product becomes a line (never dropped, never a follow-up question): what was
+// not said shows «Sin precio» / «Falta» in Compras. The AI is mocked; nothing
+// touches the network. Synthetic data only.
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeFakeDb, type Row } from "./helpers/fake-db";
@@ -189,6 +191,7 @@ import {
   hashKitchenToken,
 } from "@/lib/restaurant/telegram/kitchen-join";
 import { KITCHEN_COPY } from "@/lib/restaurant/telegram/kitchen-copy";
+import { parseMissing } from "@/lib/restaurant/invoice-missing";
 
 const CHAT = 4242;
 const COOK = 9;
@@ -371,13 +374,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const unitAsk = (p: string) =>
-  `¿El precio de ${p} es por libra, onza o unidad?`;
 const questionRows = () =>
   pendingRows().filter((r) => Number(r.telegram_message_id) <= -10_000_000_000);
 const NO_ACK = (m: { text: string }) => !m.text.includes("Recibido, gracias");
 const drafts = () => invoices().filter((i) => i.status === "needs_review");
-const lineUnits = () => (store.supplier_invoice_lines ?? []).map((l) => l.unit);
+const missingOf = (l: Row) => parseMissing(l.notes);
 
 describe("rules: typos, comma decimals, dollars", () => {
   it("«Aguacate 1,50 la onzs» is a price update per onza", async () => {
@@ -399,69 +400,52 @@ describe("rules: typos, comma decimals, dollars", () => {
   });
 });
 
-describe("unit missing: ask once, save after the answer", () => {
-  it("«queso 3.25» asks, saves nothing; «libra» completes it with lb", async () => {
+describe("unit missing: kept as a line with «Falta», never asked", () => {
+  it("«queso 3.25» is saved at once, the unit and quantity are «Falta»", async () => {
     await msg({ text: "queso 3.25" });
-    expect(lastSent().text).toBe(unitAsk("queso"));
-    expect(drafts()).toHaveLength(0);
-    expect(questionRows()).toHaveLength(1);
-    expect(questionRows()[0].option_staff_ids).toEqual(["st-demo"]);
-
-    await msg({ text: "libra" });
     expect(drafts()).toHaveLength(1);
-    expect(lineUnits()).toEqual(["lb"]);
-    expect(lastSent().text).toContain("queso $3.25 la libra");
+    expect(lastSent().text).toContain("queso $3.25");
+    expect(lastSent().text).not.toContain("¿");
+    expect(questionRows()).toHaveLength(0);
+    const line = (store.supplier_invoice_lines ?? [])[0];
+    expect(line.description).toBe("queso");
+    expect(Number(line.unit_cost)).toBe(3.25);
+    expect(missingOf(line)).toEqual(["quantity", "unit"]);
     expect(sent.every(NO_ACK)).toBe(true);
-    expect(questionRows()[0].resolved_at).toBeTruthy();
-    expect(questionRows()[0].payload).toEqual({});
   });
 
-  it("an unrelated message closes the question (PRICE_QUESTION_CLOSED) and is then answered normally", async () => {
+  it("a later «libra» is not an answer to anything: nothing more is saved", async () => {
+    await msg({ text: "queso 3.25" });
+    await msg({ text: "libra" });
+    expect(drafts()).toHaveLength(1);
+    expect(questionRows()).toHaveLength(0);
+  });
+
+  it("an unrelated message is answered normally, nothing is left open", async () => {
     await msg({ text: "queso 3.25" });
     const before = sent.length;
     await msg({ text: "gracias por todo" });
-    // The cook is told once that the price was left unsaved, then the
-    // message itself gets its own answer (AI down: the greeting copy).
-    expect(sent.length).toBe(before + 2);
-    expect(sent[before].text).toContain("Dejé sin guardar el precio de queso");
+    expect(sent.length).toBe(before + 1);
     expect(lastSent().text).toContain("Estoy aquí para anotar");
-    await msg({ text: "libra" });
-    expect(drafts()).toHaveLength(0);
+    expect(sent.some((s) => s.text.includes("Dejé sin guardar"))).toBe(false);
   });
 
-  it("an answer after 15 minutes does nothing", async () => {
-    await msg({ text: "queso 3.25" });
-    vi.setSystemTime(Date.now() + 16 * MIN);
-    await msg({ text: "libra" });
-    expect(drafts()).toHaveLength(0);
-    expect(sent.filter((s) => s.text.includes("Anoté"))).toHaveLength(0);
-  });
-
-  it("an expired question never says «no guardé lo que mandaste»", async () => {
-    await msg({ text: "queso 3.25" });
-    vi.setSystemTime(Date.now() + 16 * MIN);
-    await msg({ text: "gracias" });
-    expect(sent.some((s) => s.text === KITCHEN_COPY.ROUTING_EXPIRED)).toBe(
-      false
-    );
-  });
-
-  it("a webhook retry asks once and answers once", async () => {
+  it("a webhook retry saves and answers once", async () => {
     await msg({ text: "queso 3.25" }, 500);
     await msg({ text: "queso 3.25" }, 500);
-    expect(sent.filter((s) => s.text === unitAsk("queso"))).toHaveLength(1);
-    expect(questionRows()).toHaveLength(1);
-    await msg({ text: "libra" }, 501);
-    await msg({ text: "libra" }, 501);
     expect(drafts()).toHaveLength(1);
-    expect(sent.every(NO_ACK)).toBe(true);
+    expect(sent.filter((s) => s.text.includes("queso $3.25"))).toHaveLength(1);
   });
 
-  it("two prices without unit are asked together and share the answer", async () => {
+  it("two prices without unit are two lines of one draft", async () => {
     await msg({ text: "queso 3.25 y jamón 4.10" });
-    expect(lastSent().text).toBe(unitAsk("queso y jamón"));
-    await msg({ text: "por kilo" });
-    expect(lineUnits()).toEqual(["kg", "kg"]);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["queso|3.25|unidad", "jamón|4.1|unidad"]);
+    expect((store.supplier_invoice_lines ?? []).map(missingOf)).toEqual([
+      ["quantity", "unit"],
+      ["quantity", "unit"],
+    ]);
+    expect(questionRows()).toHaveLength(0);
   });
 });
 
@@ -476,11 +460,14 @@ describe("voice goes through the same pipeline", () => {
     expect(logged()).not.toContain("VOICE-SECRET");
   });
 
-  it("a voice price without unit asks the unit too", async () => {
+  it("a voice price without unit is kept too, with «Falta» for the unit", async () => {
     transcript = "el queso a 3.25";
     await msg({ voice: { file_id: "V", duration: 3 } });
-    expect(lastSent().text).toBe(unitAsk("queso"));
-    expect(drafts()).toHaveLength(0);
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain("queso $3.25");
+    expect(missingOf((store.supplier_invoice_lines ?? [])[0])).toContain(
+      "unit"
+    );
   });
 });
 
@@ -505,7 +492,7 @@ describe("AI fallback", () => {
     expect(lastSent().text).toContain("aguacate $1.50 la libra");
   });
 
-  it("a price that is not in the text is dropped", async () => {
+  it("a price that is not in the text is not trusted: the product is kept without a price", async () => {
     ai.mockResolvedValue({
       items: [
         {
@@ -518,11 +505,13 @@ describe("AI fallback", () => {
       ],
     });
     await msg({ text });
-    expect(drafts()).toHaveLength(0);
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_UNCLEAR);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|null|unidad"]);
+    expect(lastSent().text).toContain("aguacate");
+    expect(lastSent().text).not.toContain("9.99");
   });
 
-  it("unit null asks the unit question", async () => {
+  it("unit null keeps the line with «Falta» for the unit", async () => {
     ai.mockResolvedValue({
       items: [
         {
@@ -535,13 +524,15 @@ describe("AI fallback", () => {
       ],
     });
     await msg({ text: "el aguacate (1,5)" });
-    expect(lastSent().text).toBe(unitAsk("aguacate"));
-    expect(drafts()).toHaveLength(0);
-    await msg({ text: "onza" });
-    expect(lineUnits()).toEqual(["oz"]);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|1.5|unidad"]);
+    expect(missingOf((store.supplier_invoice_lines ?? [])[0])).toContain(
+      "unit"
+    );
+    expect(questionRows()).toHaveLength(0);
   });
 
-  it("an invented unit asks instead of saving", async () => {
+  it("an invented unit is not used: the unit is «Falta»", async () => {
     ai.mockResolvedValue({
       items: [
         {
@@ -554,21 +545,25 @@ describe("AI fallback", () => {
       ],
     });
     await msg({ text: "el aguacate (1,5)" });
-    expect(lastSent().text).toBe(unitAsk("aguacate"));
+    expect(lineSummary()).toEqual(["aguacate|1.5|unidad"]);
+    expect(missingOf((store.supplier_invoice_lines ?? [])[0])).toContain(
+      "unit"
+    );
   });
 
-  it("an AI error sends PRICE_UPDATE_FAILED, never a thank-you", async () => {
+  it("an AI error never loses the product: it is kept without a price, never a thank-you", async () => {
     ai.mockRejectedValue(new Error("boom"));
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
-    expect(lastSent().text).toContain("No pude leer los precios ahora");
-    expect(drafts()).toHaveLength(0);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|null|unidad"]);
+    expect(lastSent().text).toContain("aguacate");
+    expect(sent.every(NO_ACK)).toBe(true);
   });
 
   it("a timeout (null) is the same", async () => {
     ai.mockResolvedValue(null);
     await msg({ text });
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
+    expect(lineSummary()).toEqual(["aguacate|null|unidad"]);
   });
 });
 
@@ -629,15 +624,12 @@ describe("two restaurants", () => {
     expect(lastSent().text).toContain("aguacate $1.50 la onza");
   });
 
-  it("the unit question belongs to the chosen restaurant and its answer saves there", async () => {
+  it("a price without a unit is saved in the chosen restaurant, with no question", async () => {
     await msg({ text: "queso 3.25" });
     await tap(optionData(1));
-    expect(lastSent().text).toBe(unitAsk("queso"));
-    expect(drafts()).toHaveLength(0);
-    expect(questionRows()[0].option_staff_ids).toEqual(["st-stage"]);
-    await msg({ text: "libra" });
     expect(drafts()).toHaveLength(1);
     expect(drafts()[0].company_id).toBe("co-stage");
+    expect(questionRows()).toHaveLength(0);
   });
 
   it("an expired unit question is closed silently, no expiry notice", async () => {
@@ -676,12 +668,13 @@ describe("voice: spoken prices become drafts", () => {
     expect(ai).not.toHaveBeenCalled();
   });
 
-  it("«Aguacate a uno cincuenta.» asks the unit of aguacate", async () => {
+  it("«Aguacate a uno cincuenta.» is saved with «Falta» for the unit", async () => {
     await voice("Aguacate a uno cincuenta.");
-    expect(lastSent().text).toBe(unitAsk("aguacate"));
-    expect(drafts()).toHaveLength(0);
-    await msg({ text: "onza" });
-    expect(lineSummary()).toEqual(["aguacate|1.5|oz"]);
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|1.5|unidad"]);
+    expect(missingOf((store.supplier_invoice_lines ?? [])[0])).toContain(
+      "unit"
+    );
   });
 
   it.each([
@@ -697,15 +690,14 @@ describe("voice: spoken prices become drafts", () => {
     expect(sent.every(NOTHING_LOST)).toBe(true);
   });
 
-  it("«Aguacate a 150 la onza.» never saves 150 by itself: it asks «¿$1.50 o $150?» and keeps the question open", async () => {
+  it("«Aguacate a 150 la onza.» never saves 150 by itself and never asks: the line has no price", async () => {
     await voice("Aguacate a 150 la onza.");
-    expect(drafts()).toHaveLength(0);
-    expect(lines()).toHaveLength(0);
-    expect(lastSent().text).toBe(
-      "¿El aguacate está a $1.50 o a $150? Responde 1.50 o 150."
-    );
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["aguacate|null|oz"]);
+    expect(lastSent().text).not.toContain("150");
+    expect(lastSent().text).not.toContain("¿");
     expect(sent.every(NOTHING_LOST)).toBe(true);
-    expect(questionRows()).toHaveLength(1);
+    expect(questionRows()).toHaveLength(0);
   });
 
   it("quantity talk with numbers is never a price and never a bare «Recibido» (AI interpreter, not the price AI)", async () => {
@@ -725,7 +717,7 @@ describe("voice: spoken prices become drafts", () => {
     expect(intentAi).toHaveBeenCalled();
   });
 
-  it("a long note: ten ingredients, one without a price, all the others saved", async () => {
+  it("a long note: ten ingredients, one without a price, ALL kept (the unpriced one shows «Sin precio»)", async () => {
     await voice(
       "Precios de hoy. Harina, uno veinticinco la libra. Chicharrón, tres cincuenta la libra. Quesillo, cuatro dólares la libra. Aguacate a uno con cincuenta la onza. Tomate, 80 centavos la libra. Cebolla a 75 centavos la libra. Aceite a dos cincuenta el litro. Sal a cinco centavos la onza. Queso a 4.25 la libra. El agua tibia no tiene precio."
     );
@@ -740,9 +732,10 @@ describe("voice: spoken prices become drafts", () => {
       "aceite|2.5|litro",
       "sal|0.05|oz",
       "queso|4.25|lb",
+      "agua tibia|null|unidad",
     ]);
     expect(sent).toHaveLength(1);
-    expect(lastSent().text).not.toContain("tibia");
+    expect(lastSent().text).toContain("agua tibia");
     expect(lastSent().text).not.toContain("No entendí");
     expect(ai).not.toHaveBeenCalled();
   });
@@ -759,21 +752,20 @@ describe("one message, several prices: partial success, ONE reply", () => {
       "chicharrón|3.5|lb",
       "quesillo|4.25|lb",
       "aceite|2.5|litro",
+      "frijoles|1.2|unidad",
+      "agua tibia|null|unidad",
     ]);
-    expect(lines().some((l) => Number(l.unit_cost) === 0)).toBe(false);
+    expect(lines().some((l) => l.unit_cost === 0)).toBe(false);
     expect(sent).toHaveLength(1);
     const reply = lastSent().text;
     expect(reply).toContain("Anoté en Demo Resto:");
     expect(reply).toContain("masa de maíz $0.75 la libra");
     expect(reply).toContain("aceite $2.50 el litro");
-    expect(reply).toContain(unitAsk("frijoles"));
-    expect(reply).not.toContain("tibia");
+    expect(reply).toContain("frijoles $1.20");
+    expect(reply).toContain("agua tibia");
     expect(reply).not.toContain("$0.00");
-    expect(questionRows()).toHaveLength(1);
-    // The answer saves only the item that was asked about.
-    await msg({ text: "libra" });
-    expect(drafts()).toHaveLength(2);
-    expect(lineSummary().slice(4)).toEqual(["frijoles|1.2|lb"]);
+    expect(reply).not.toContain("¿");
+    expect(questionRows()).toHaveLength(0);
     expect(ai).not.toHaveBeenCalled();
   };
 
@@ -815,24 +807,31 @@ describe("one message, several prices: partial success, ONE reply", () => {
     expect(lastSent().text).toContain(names[27]);
   });
 
-  it("mixed unit / no unit: the ones with a unit are saved, only the others are asked", async () => {
+  it("mixed unit / no unit: both are lines of one draft; the missing unit is «Falta»", async () => {
     await msg({ text: "tomate 0.80 la libra y cebolla $0.45" });
-    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|unidad"]);
     expect(sent).toHaveLength(1);
     expect(lastSent().text).toContain("tomate $0.80 la libra");
-    expect(lastSent().text).toContain(unitAsk("cebolla"));
-    await msg({ text: "kilo" });
-    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+    expect(lastSent().text).toContain("cebolla $0.45");
+    expect(lastSent().text).not.toContain("¿");
+    expect(lines().map(missingOf)).toEqual([
+      ["quantity"],
+      ["quantity", "unit"],
+    ]);
   });
 
-  it("an unreadable item is named, the rest is saved", async () => {
+  it("an unreadable price keeps the product without a price, the rest is saved", async () => {
     await msg({
       text: "tomate 0.80 la libra, sal (1,5) la libr, cebolla 0.45 el kilo",
     });
-    // AI mocked to null: «sal» stays unread.
-    expect(lineSummary()).toEqual(["tomate|0.8|lb", "cebolla|0.45|kg"]);
+    // AI mocked to null: «sal» keeps its name, its price stays empty.
+    expect(lineSummary()).toEqual([
+      "tomate|0.8|lb",
+      "cebolla|0.45|kg",
+      "sal|null|unidad",
+    ]);
     expect(sent).toHaveLength(1);
-    expect(lastSent().text).toContain("No entendí: sal");
+    expect(lastSent().text).toContain("sal");
   });
 });
 
@@ -840,7 +839,7 @@ describe("AI fallback is per item and strict", () => {
   const text =
     "masa (0,75) la libra, tomate a 0.80 la libra, sal (0,10) la libra";
 
-  it("a price that cannot be traced to the text: only that item is not understood", async () => {
+  it("a price that cannot be traced to the text: that product is kept without a price", async () => {
     ai.mockResolvedValue({
       items: [
         {
@@ -865,11 +864,11 @@ describe("AI fallback is per item and strict", () => {
       lines()
         .map((l) => l.description)
         .sort()
-    ).toEqual(["masa", "tomate"]);
-    expect(lines()).toHaveLength(2);
+    ).toEqual(["masa", "sal", "tomate"]);
+    expect(lines()).toHaveLength(3);
     expect(sent).toHaveLength(1);
-    expect(lastSent().text).toContain("No entendí: sal");
-    expect(lastSent().text).not.toContain("masa,");
+    expect(lastSent().text).toContain("sal");
+    expect(lastSent().text).not.toContain("9.99");
   });
 
   it("«masa de maíz» from the AI is saved with the transcript's word: «masa»", async () => {
@@ -892,7 +891,7 @@ describe("AI fallback is per item and strict", () => {
     ).toEqual(["masa", "tomate"]);
   });
 
-  it("a `said` that is not in the transcript drops the item", async () => {
+  it("a `said` that is not in the transcript is not trusted: the product keeps no price", async () => {
     ai.mockResolvedValue({
       items: [
         {
@@ -905,8 +904,8 @@ describe("AI fallback is per item and strict", () => {
       ],
     });
     await msg({ text: "masa (0,75) la libra, tomate a 0.80 la libra" });
-    expect(lineSummary()).toEqual(["tomate|0.8|lb"]);
-    expect(lastSent().text).toContain("No entendí: masa");
+    expect(lineSummary()).toEqual(["tomate|0.8|lb", "masa|null|unidad"]);
+    expect(lastSent().text).toContain("masa");
   });
 
   it("the AI cannot turn a quantity into a price", async () => {
@@ -985,7 +984,7 @@ describe("logs: ids and counts only", () => {
 });
 
 describe("AI price fallback error handling (S1)", () => {
-  it("sends PRICE_UPDATE_FAILED when AI throws, never silence", async () => {
+  it("when the price AI throws the product is still kept, never silence", async () => {
     // Mock AI to throw
     ai.mockRejectedValue(new Error("timeout"));
     // Use a message format that rules can't parse (parentheses) so AI is called
@@ -993,9 +992,9 @@ describe("AI price fallback error handling (S1)", () => {
     await msg({ text: t });
     // Flush after jobs to ensure async error handling completes
     await Promise.all(afterJobs.splice(0));
-    // The fallback message should be sent when AI fails
-    expect(lastSent().text).toBe(KITCHEN_COPY.PRICE_UPDATE_FAILED);
-    expect(lastSent().text).toContain("No pude leer los precios ahora");
+    // The product is kept (no price) and the cook gets a reply.
+    expect(drafts()).toHaveLength(1);
+    expect(lastSent().text).toContain("aguacate");
   });
 
   it("fallback message never sent for non-price messages", async () => {
@@ -1008,17 +1007,14 @@ describe("AI price fallback error handling (S1)", () => {
   });
 });
 
-describe("unit answer confirmation with markup (M1)", () => {
-  it("keeps «Cambiar restaurante» button after unit answer for multi-restaurant cooks", async () => {
+describe("confirmation markup (M1)", () => {
+  it("keeps «Cambiar restaurante» on the confirmation for multi-restaurant cooks", async () => {
     seed(2); // Two restaurants for multi-restaurant scenario
     await msg({ text: "queso 3.25" });
     // Select a restaurant first (tap button 0)
     await tap(optionData(0));
-    // Now the unit question should be asked
-    expect(lastSent().text).toBe(unitAsk("queso"));
-    // Answer the unit question
-    await msg({ text: "libra" });
-    // Check that the confirmation has markup (Cambiar restaurante button)
+    // Once a restaurant is chosen, the next confirmation carries the button.
+    await msg({ text: "queso 3.25" });
     const confirmations = sent.filter((s) => s.text.includes("queso"));
     expect(confirmations.length).toBeGreaterThan(0);
     const confirmation = confirmations[confirmations.length - 1];
@@ -1030,14 +1026,57 @@ describe("unit answer confirmation with markup (M1)", () => {
   it("no markup for single-restaurant cooks", async () => {
     seed(1); // Single restaurant
     await msg({ text: "queso 3.25" });
-    // Should ask unit question directly (no routing for single restaurant)
-    expect(lastSent().text).toBe(unitAsk("queso"));
-    // Answer the unit question
-    await msg({ text: "libra" });
-    // Check that the confirmation has no markup
     const confirmations = sent.filter((s) => s.text.includes("queso"));
     expect(confirmations.length).toBeGreaterThan(0);
     const confirmation = confirmations[confirmations.length - 1];
     expect(confirmation.markup).toBeUndefined();
+  });
+});
+
+describe("nothing the cook says is dropped (Telegram, same as the app)", () => {
+  it("«Hoy compramos pan a 2 dólares el kilo y unos tomates» (voice, with Whisper's final period): 2 lines", async () => {
+    await voice("Hoy compramos pan a 2 dólares el kilo y unos tomates.");
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["pan|2|kg", "tomates|null|unidad"]);
+    expect(lines().map(missingOf)).toEqual([
+      ["quantity"],
+      ["quantity", "unit"],
+    ]);
+    // Never a total for a line whose price is unknown.
+    expect(Number(lines()[1].line_total)).toBe(0);
+    expect(lastSent().text).toContain("pan $2.00 el kilo");
+    expect(lastSent().text).toContain("tomates");
+    expect(lastSent().text).not.toContain("¿");
+    expect(questionRows()).toHaveLength(0);
+    expect(sent.every(NOTHING_LOST)).toBe(true);
+  });
+
+  it("«se acabó el queso y compramos 3 kg de harina»: 1 Cocina alert + 1 Compras line", async () => {
+    intentAi.mockResolvedValue({
+      intent: "stock_report",
+      items: [
+        {
+          product: "queso",
+          matched_ingredient_id: null,
+          amount: 0,
+          unit: null,
+          currency: null,
+        },
+      ],
+      clarify_question: null,
+    });
+    await msg({ text: "se acabó el queso y compramos 3 kg de harina" });
+    // Compras: the flour, with quantity and unit, no price.
+    expect(drafts()).toHaveLength(1);
+    expect(lineSummary()).toEqual(["harina|null|kg"]);
+    expect(Number(lines()[0].quantity)).toBe(3);
+    expect(missingOf(lines()[0])).toEqual([]);
+    // Cocina: one stock alert, for the cheese.
+    const reports = (store.kitchen_reports ?? []).filter(
+      (r) => r.report_type === "86"
+    );
+    expect(reports).toHaveLength(1);
+    expect(sent.some((s) => s.text.includes("Cocina › Se agota"))).toBe(true);
+    expect(sent.every(NOTHING_LOST)).toBe(true);
   });
 });

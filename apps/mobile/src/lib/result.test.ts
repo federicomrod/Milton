@@ -3,13 +3,11 @@ import type { AppResult } from "../api/types";
 import { de, en, es } from "../i18n/strings";
 import { dayGroup, formatClock, initialsOf } from "./format";
 import {
-  QUICK_QUANTITIES,
   STUCK_AFTER_MS,
   awaitsResult,
   describeResult,
   isStuck,
   offlineText,
-  quickReplyText,
   unclearText,
 } from "./result";
 
@@ -17,7 +15,6 @@ const done = (over: Partial<AppResult> = {}): AppResult => ({
   state: "done",
   noted: false,
   draft: false,
-  asks: null,
   unclear: null,
   recipe: false,
   understood: [],
@@ -63,22 +60,6 @@ describe("describeResult", () => {
     expect(v.understood).toBe("pan");
   });
 
-  it("a question is amarillo; an amount question uses the app's own words", () => {
-    const unit = describeResult(
-      done({ asks: { kind: "unit", text: "¿Por kilo o por libra?" } }),
-      es
-    );
-    expect(unit.chips).toEqual([
-      { tone: "amarillo", label: "Milton te pregunta" },
-    ]);
-    expect(unit.question).toBe("¿Por kilo o por libra?");
-    const amount = describeResult(
-      done({ asks: { kind: "amount", text: null } }),
-      es
-    );
-    expect(amount.question).toBe(es.status.amountAsk);
-  });
-
   it("«could not read it» is the app's own words for a reason code, in every language", () => {
     const codes = [
       "unreadable",
@@ -108,16 +89,10 @@ describe("describeResult", () => {
     );
   });
 
-  it("a recipe is grey; a unit question without text uses the app's own words", () => {
+  it("a recipe is grey", () => {
     expect(labels(done({ recipe: true }), en)).toEqual([
       `grey:${en.status.recipeSeen}`,
     ]);
-    expect(
-      describeResult(done({ asks: { kind: "unit", text: null } }), es).question
-    ).toBe(es.status.unitAsk);
-    expect(
-      describeResult(done({ asks: { kind: "unit", text: null } }), de).question
-    ).toBe(de.status.unitAsk);
   });
 
   it("never renders an amount or a currency symbol, whatever the server sends", () => {
@@ -127,13 +102,11 @@ describe("describeResult", () => {
           draft: true,
           noted: true,
           understood: ["pan"],
-          asks: { kind: "amount", text: "¿1.50 o 150?" },
         }),
         s
       );
       const text = JSON.stringify(v);
       expect(text).not.toMatch(/[$€£]/);
-      expect(v.question).toBe(s.status.amountAsk);
     }
   });
 });
@@ -275,38 +248,35 @@ describe("a card stuck on «processing»", () => {
   });
 });
 
-describe("«¿Qué cantidad de tomates?» (products said without a price)", () => {
-  it("is a Milton-asks card with names only, in each language", () => {
-    for (const [dict, expected] of [
-      [es, "¿Qué cantidad de tomates, cebollas?"],
-      [en, "How much tomates, cebollas?"],
-      [de, "Welche Menge tomates, cebollas?"],
-    ] as const) {
+describe("the card lists every product and never asks", () => {
+  it("«pan, tomates» with «Espera aprobación» and «Esto entendí», in each language", () => {
+    for (const dict of [es, en, de]) {
       const view = describeResult(
-        done({
-          draft: true,
-          understood: ["pan"],
-          extras: ["tomates", "cebollas"],
-        }),
+        done({ draft: true, understood: ["pan", "tomates"] }),
         dict
       );
-      expect(view.extrasQuestion).toBe(expected);
-      expect(view.extras).toEqual(["tomates", "cebollas"]);
-      expect(view.chips.map((c) => c.label)).toContain(dict.status.asks);
+      expect(view.understood).toBe("pan, tomates");
+      expect(view.chips.map((c) => c.label)).toEqual([
+        dict.status.awaiting,
+        dict.status.understood,
+      ]);
       expect(JSON.stringify(view)).not.toMatch(/[\d$€]/);
+      expect(view).not.toHaveProperty("question");
+      expect(view).not.toHaveProperty("extras");
     }
   });
 
-  it("has no card when nothing is left over (or the server did not send extras)", () => {
-    expect(describeResult(done({ draft: true }), es).extrasQuestion).toBeNull();
-    expect(describeResult(done({ extras: [] }), es).extras).toEqual([]);
-  });
-
-  it("quick replies are plain quantities that never read like a price", () => {
-    expect(QUICK_QUANTITIES).toEqual([1, 2, 5, 10]);
-    expect(quickReplyText("tomates", 5)).toBe("tomates: 5");
-    expect(quickReplyText("tomates", 5)).not.toMatch(
-      /[$€]|precio|price|preis/i
-    );
+  it("the dictionaries have no question strings left", () => {
+    for (const dict of [es, en, de]) {
+      for (const key of [
+        "asks",
+        "unitAsk",
+        "amountAsk",
+        "answerHint",
+        "extrasAsk",
+      ]) {
+        expect(dict.status).not.toHaveProperty(key);
+      }
+    }
   });
 });

@@ -491,13 +491,20 @@ describe("AI kitchen handler - realistic messages", () => {
           expect(priceCall).toBeDefined();
           expect(priceCall.items.length).toBeGreaterThan(0);
           expect(
-            priceCall.items.every((i: { price: number }) => i.price > 0)
+            priceCall.items.every(
+              (i: { price: number | null }) => i.price === null || i.price > 0
+            )
           ).toBe(true);
           if (desc === "multiple prices") {
-            // The one without a unit is asked, the others are saved.
-            expect(priceCall.items).toHaveLength(2);
-            expect(priceCall.replySuffix).toContain("por libra, onza o unidad");
-            expect(mockOpenUnit).toHaveBeenCalledTimes(1);
+            // All three are lines; the one without a unit is kept (unit null),
+            // nobody is asked anything.
+            expect(priceCall.items).toHaveLength(3);
+            expect(priceCall.items[2]).toMatchObject({
+              name: "aguacate",
+              price: 1.5,
+              unit: null,
+            });
+            expect(mockOpenUnit).not.toHaveBeenCalled();
           }
           if (desc === "stock + price mixed") {
             expect(priceCall.replySuffix).toContain("Cocina › Se agota");
@@ -510,13 +517,13 @@ describe("AI kitchen handler - realistic messages", () => {
             "Pupusería El Salvador › Sucursal Centro"
           );
         } else if (desc === "ambiguous 3-digit (AI resolves with context)") {
-          // «aguacate a 150» is never decided alone: the cook is asked.
+          // «aguacate a 150» is never decided alone and never asked: the line
+          // is kept without a price for the manager.
           expect(result).toBe(true);
-          expect(mockPriceSafe).not.toHaveBeenCalled();
-          expect(mockOpenAmount).toHaveBeenCalledTimes(1);
-          expect(replies[0]).toBe(
-            "¿El aguacate está a $1.50 o a $150? Responde 1.50 o 150."
-          );
+          expect(mockOpenAmount).not.toHaveBeenCalled();
+          expect(priceCall.items).toEqual([
+            { name: "aguacate", price: null, unit: null },
+          ]);
         } else if (desc === "recipe with ingredients") {
           // The recipe flow continues in the webhook.
           expect(result).toBe(false);
@@ -529,7 +536,7 @@ describe("AI kitchen handler - realistic messages", () => {
     }
   );
 
-  it("clarify_question opens the amount question; the AI's own words are never sent", async () => {
+  it("clarify_question never opens a question and the AI's own words are never sent: the product is kept without a price", async () => {
     mockAi.mockResolvedValueOnce({
       intent: "price_update",
       items: [
@@ -553,11 +560,13 @@ describe("AI kitchen handler - realistic messages", () => {
       text: "aguacate a 150",
       link: LINK,
     });
-    expect(mockOpenAmount).toHaveBeenCalledTimes(1);
+    expect(mockOpenAmount).not.toHaveBeenCalled();
     const sentText = mockSendMessage.mock.calls.map((c) => String(c[1])).join();
-    expect(sentText).toContain("$1.50 o a $150");
     expect(sentText).not.toContain("Seguro");
-    expect(mockPriceSafe).not.toHaveBeenCalled();
+    expect(mockPriceSafe).toHaveBeenCalledTimes(1);
+    expect(mockPriceSafe.mock.calls[0][0].items).toEqual([
+      { name: "aguacate", price: null, unit: null },
+    ]);
   });
 
   it("answer_to_pending resolves the open question with the validated answer", async () => {

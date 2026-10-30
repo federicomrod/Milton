@@ -156,6 +156,13 @@ export function createApiClient(deps: ClientDeps) {
         "GET",
         `/api/mobile/v1/kitchen/recipes${qs({ cursor: opts.cursor, q: opts.q })}`
       ),
+    /** «Reintentar»: the server runs the unfinished message again. */
+    retryReport: (reportId: string) =>
+      request<{ status: "requeued" | "done" | "too_early" }>(
+        "POST",
+        "/api/mobile/v1/kitchen/retry",
+        { body: { reportId } }
+      ),
     text: (input: { text: string; clientRef: string }) =>
       request<UploadResult>("POST", "/api/mobile/v1/kitchen/text", {
         body: input,

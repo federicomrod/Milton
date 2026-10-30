@@ -175,7 +175,7 @@ export const costs: Dictionary["costs"] = {
     priceUpdate: "Preisaktualisierung",
     incomplete: "Unvollständig",
     noPrice: "Kein Preis",
-    severalPrices: "Mehrere Preise",
+    missingField: "Fehlt",
     noQuantity: "Keine Menge",
     statusDraft: "Entwurf",
     statusNeedsReview: "Zu prüfen",

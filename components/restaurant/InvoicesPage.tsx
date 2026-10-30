@@ -15,6 +15,7 @@
 
 "use client";
 
+import { parseMissing } from "@/lib/restaurant/invoice-missing";
 import { useT } from "@/lib/i18n/client";
 import { getDictionary, type Dictionary } from "@/lib/i18n";
 import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
@@ -275,25 +276,31 @@ function totalText(
 }
 
 /**
- * The Total cell of a price update (from the app or Telegram): it has no
- * invoice total, so it shows the amount of its line, «Varios precios» when it
- * has several, or «Sin precio». Never blank, never a made-up 0.
+ * The Total cell of an invoice the kitchen filled in (app or Telegram): the
+ * sum of quantity × price when every line has both, «Sin precio» when no line
+ * has a price, «Falta» when a price was said but a quantity was not. Never
+ * blank, never a made-up 0.
  */
-function priceUpdateAmountText(
+export function kitchenTotalText(
   inv: {
     currency: string;
-    line_counts: { total: number };
+    line_amounts?: { total: number | null; priced: boolean };
     line_preview?: { unit_cost: number | null }[];
   },
   iv: IV,
   lang: PreferredLanguage
 ): string {
-  const priced = (inv.line_preview ?? []).filter((l) =>
+  const amounts = inv.line_amounts;
+  if (amounts) {
+    if (amounts.total !== null)
+      return fmtMoney(amounts.total, inv.currency, lang);
+    return amounts.priced ? iv.missingField : iv.noPrice;
+  }
+  // Older payloads without the aggregate: look at the previewed lines.
+  const priced = (inv.line_preview ?? []).some((l) =>
     isShownPrice(l.unit_cost)
   );
-  if (priced.length === 0) return iv.noPrice;
-  if (inv.line_counts.total > 1) return iv.severalPrices;
-  return fmtMoney(priced[0].unit_cost as number, inv.currency, lang);
+  return priced ? iv.missingField : iv.noPrice;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +329,8 @@ export interface InvoiceListItem {
   };
   /** First 2 lines (stable order) for the «Productos» column. */
   line_preview?: InvoiceLinePreview[];
+  /** Total of qty × price over ALL lines (kitchen drafts); see kitchenTotalText. */
+  line_amounts?: { total: number | null; priced: boolean };
 }
 
 interface IngredientLite {
@@ -1048,9 +1057,12 @@ function ProductItem({
 }) {
   const { d, lang } = useT();
   const iv = d.costs.invoices;
-  const qty =
-    item.quantity !== null
-      ? `${formatPreviewQuantity(item.quantity)}${item.unit ? ` ${item.unit}` : ""}`
+  const missingQty = item.missing?.includes("quantity") ?? false;
+  const missingUnit = item.missing?.includes("unit") ?? false;
+  const qty = missingQty
+    ? ""
+    : item.quantity !== null
+      ? `${formatPreviewQuantity(item.quantity)}${item.unit && !missingUnit ? ` ${item.unit}` : ""}`
       : "";
   return (
     <div data-testid="invoice-product-item" className="text-[#151c2c]">
@@ -1061,6 +1073,19 @@ function ProductItem({
         </span>
       )}
       {qty ? ` · ${qty}` : ""}
+      {missingQty || missingUnit ? (
+        <>
+          {" · "}
+          <MissingBadge>
+            {iv.missingField}
+            {missingQty && !missingUnit
+              ? ` (${iv.qty})`
+              : missingUnit && !missingQty
+                ? ` (${iv.unit})`
+                : ""}
+          </MissingBadge>
+        </>
+      ) : null}
       {" · "}
       {item.unit_cost === null ||
       !Number.isFinite(item.unit_cost) ||
@@ -1259,7 +1284,7 @@ function InvoiceListCard({
                       ) : (
                         <div className="flex flex-col items-end gap-1">
                           <span data-testid="price-update-amount">
-                            {priceUpdateAmountText(inv, iv, lang)}
+                            {kitchenTotalText(inv, iv, lang)}
                           </span>
                           <PriceUpdateLabel />
                         </div>
@@ -1795,6 +1820,8 @@ function LineRow({
 }) {
   const { d, lang } = useT();
   const iv = d.costs.invoices;
+  // Fields the kitchen could not read («Falta»), until the manager fills them.
+  const missingFields = parseMissing(line.notes);
   const ingredientName = line.ingredient_id
     ? (ingredients.find((i) => i.id === line.ingredient_id)?.name ?? null)
     : null;
@@ -1975,8 +2002,20 @@ function LineRow({
           </div>
         )}
       </td>
-      <td className="px-2 py-2 text-right tabular-nums">{line.quantity}</td>
-      <td className="px-2 py-2">{line.unit}</td>
+      <td className="px-2 py-2 text-right tabular-nums">
+        {missingFields.includes("quantity") ? (
+          <MissingBadge>{iv.missingField}</MissingBadge>
+        ) : (
+          line.quantity
+        )}
+      </td>
+      <td className="px-2 py-2">
+        {missingFields.includes("unit") ? (
+          <MissingBadge>{iv.missingField}</MissingBadge>
+        ) : (
+          line.unit
+        )}
+      </td>
       <td className="px-2 py-2 text-right tabular-nums">
         {isShownPrice(line.unit_cost) ? (
           fmtMoney(line.unit_cost, currency, lang)
@@ -1985,7 +2024,9 @@ function LineRow({
         )}
       </td>
       <td className="px-2 py-2 text-right tabular-nums">
-        {lineTotalOrNull(line) !== null ? (
+        {missingFields.includes("quantity") && isShownPrice(line.unit_cost) ? (
+          <MissingBadge>{iv.missingField}</MissingBadge>
+        ) : lineTotalOrNull(line) !== null ? (
           fmtMoney(line.line_total as number, currency, lang)
         ) : (
           <MissingBadge>{iv.noPrice}</MissingBadge>

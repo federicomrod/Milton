@@ -168,7 +168,7 @@ export const costs = {
     priceUpdate: "Actualización de precio",
     incomplete: "Incompleto",
     noPrice: "Sin precio",
-    severalPrices: "Varios precios",
+    missingField: "Falta",
     noQuantity: "Sin cantidad",
     statusDraft: "Borrador",
     statusNeedsReview: "Por revisar",

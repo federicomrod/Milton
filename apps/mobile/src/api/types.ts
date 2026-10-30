@@ -35,13 +35,10 @@ export interface AppResult {
   noted: boolean;
   /** A price / purchase waits for a manager in Compras. */
   draft: boolean;
-  asks: { kind: "unit" | "amount"; text: string | null } | null;
   unclear: UnclearReason | null;
   recipe: boolean;
   /** Product names Milton understood. */
   understood: string[];
-  /** Named without a price beside priced ones: Milton asks how many. */
-  extras?: string[];
 }
 
 export interface HistoryItem {

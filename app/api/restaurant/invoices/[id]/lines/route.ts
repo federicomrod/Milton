@@ -31,6 +31,11 @@
 //
 // All cost-entry writes are deferred to /invoices/:id/approve.
 
+import {
+  clearMissing,
+  parseMissing,
+  type MissingField,
+} from "@/lib/restaurant/invoice-missing";
 import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -336,6 +341,19 @@ export async function POST(
     }
     if (Object.prototype.hasOwnProperty.call(body, "supplier_sku")) {
       patch.supplier_sku = stringOrNull(body.supplier_sku);
+    }
+
+    // The manager filled in a quantity / unit the kitchen left out: «Falta» goes.
+    if (
+      patch.notes === undefined &&
+      parseMissing((line as { notes?: unknown }).notes).length > 0
+    ) {
+      const filled: MissingField[] = [];
+      if (patch.quantity !== undefined) filled.push("quantity");
+      if (patch.unit !== undefined) filled.push("unit");
+      if (filled.length > 0) {
+        patch.notes = clearMissing((line as { notes?: string }).notes, filled);
+      }
     }
 
     if (Object.keys(patch).length === 0) {

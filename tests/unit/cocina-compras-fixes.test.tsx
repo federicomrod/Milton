@@ -36,8 +36,8 @@ afterEach(() => {
 const update = (
   id: string,
   notes: string,
-  lines: number,
-  unit_cost: number | null
+  amounts: { total: number | null; priced: boolean },
+  missing: ("quantity" | "unit")[] = []
 ): InvoiceListItem => ({
   id,
   supplier_id: null,
@@ -51,24 +51,22 @@ const update = (
   source_type: "manual",
   notes,
   created_at: "2026-10-30T10:00:00Z",
-  line_counts: {
-    total: lines,
-    matched: 0,
-    approved: 0,
-    unmatched: lines,
-    pending: lines,
-  },
-  line_preview: Array.from({ length: Math.min(lines, 2) }, (_, i) => ({
-    name: `Producto ${i + 1}`,
-    quantity: 1,
-    unit: "kg",
-    unit_cost,
-    matched: false,
-  })),
+  line_counts: { total: 1, matched: 0, approved: 0, unmatched: 1, pending: 1 },
+  line_preview: [
+    {
+      name: "Producto",
+      quantity: 1,
+      unit: "unidad",
+      unit_cost: amounts.priced ? 2 : null,
+      matched: false,
+      missing,
+    },
+  ],
+  line_amounts: amounts,
 });
 
-describe("Compras: the Total of a price update is never blank", () => {
-  it("shows the line amount, «Varios precios» or «Sin precio» for app and Telegram updates", () => {
+describe("Compras: the Total of a kitchen draft is never blank", () => {
+  it("shows qty × price, «Falta» (price said, quantity not) or «Sin precio»; the line says «Falta» for what was not said", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
@@ -76,10 +74,23 @@ describe("Compras: the Total of a price update is never blank", () => {
     render(
       <InvoicesPage
         initialInvoices={[
-          update("APP1", APP_PRICE_UPDATE_NOTE_PREFIX, 1, 2),
-          update("TG1", PRICE_UPDATE_NOTE_PREFIX, 1, 3.5),
-          update("MANY", APP_PRICE_UPDATE_NOTE_PREFIX, 3, 2),
-          update("NONE", APP_PRICE_UPDATE_NOTE_PREFIX, 1, null),
+          update("APP1", APP_PRICE_UPDATE_NOTE_PREFIX, {
+            total: 7.5,
+            priced: true,
+          }),
+          update("TG1", PRICE_UPDATE_NOTE_PREFIX, { total: 3.5, priced: true }),
+          update(
+            "QTY",
+            APP_PRICE_UPDATE_NOTE_PREFIX,
+            { total: null, priced: true },
+            ["quantity"]
+          ),
+          update(
+            "NONE",
+            APP_PRICE_UPDATE_NOTE_PREFIX,
+            { total: null, priced: false },
+            ["quantity", "unit"]
+          ),
         ]}
         suppliers={[]}
         ingredients={[]}
@@ -91,10 +102,17 @@ describe("Compras: the Total of a price update is never blank", () => {
       .map((c) => (c.textContent ?? "").replace(/\s/g, " ").trim());
     expect(cells).toHaveLength(4);
     for (const c of cells) expect(c).not.toBe("");
-    expect(cells[0]).toMatch(/2/);
+    expect(cells[0]).toMatch(/7[.,]50/);
     expect(cells[1]).toMatch(/3[.,]50/);
-    expect(cells[2]).toBe("Varios precios");
+    expect(cells[2]).toBe("Falta");
     expect(cells[3]).toBe("Sin precio");
+    // The product column marks what was not said.
+    const badges = screen
+      .getAllByTestId("missing-badge")
+      .map((b) => b.textContent);
+    expect(badges).toEqual(
+      expect.arrayContaining(["Falta (Cant.)", "Falta", "Sin precio"])
+    );
   });
 });
 

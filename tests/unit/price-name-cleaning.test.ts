@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parsePriceItems,
-  unpricedMentions,
+  purchaseMentions,
 } from "@/lib/restaurant/telegram/price-update";
 
 const names = (text: string) =>
@@ -29,30 +29,60 @@ describe("item names", () => {
   });
 });
 
-describe("unpricedMentions", () => {
-  it("finds the product that has no price beside one that has", () => {
-    expect(unpricedMentions("pan a 2 dólares el kilo y unos tomates")).toEqual([
-      "tomates",
-    ]);
+describe("purchaseMentions: nothing the cook said is dropped", () => {
+  const names = (t: string) => purchaseMentions(t).lines.map((l) => l.name);
+
+  it("finds the product that has no price beside one that has (also with «Hoy», a final period or «, y»)", () => {
+    for (const t of [
+      "pan a 2 dólares el kilo y unos tomates",
+      "Hoy compramos pan a 2 dólares el kilo y unos tomates",
+      "Hoy compramos pan a 2 dólares el kilo y unos tomates.",
+      "hoy compramos pan a 2 dólares el kilo, y unos tomates",
+    ]) {
+      expect(names(t)).toEqual(["tomates"]);
+    }
     expect(
-      unpricedMentions("compramos pan a 2 dólares el kilo y tomates, cebollas")
+      names("compramos pan a 2 dólares el kilo y tomates, cebollas")
     ).toEqual(["tomates", "cebollas"]);
   });
 
-  it("is empty when nothing was priced, or nothing is left over", () => {
-    expect(unpricedMentions("unos tomates")).toEqual([]);
-    expect(unpricedMentions("compramos pan a 2 dólares el kilo")).toEqual([]);
-    expect(unpricedMentions("tomates: 5")).toEqual([]);
+  it("«compramos 3 kg de harina» is a line with its quantity and unit, no price", () => {
+    expect(purchaseMentions("compramos 3 kg de harina").lines).toEqual([
+      { name: "harina", price: null, unit: "kg", quantity: 3 },
+    ]);
+    expect(purchaseMentions("pedimos dos libras de masa").lines).toEqual([
+      { name: "masa", price: null, unit: "lb", quantity: 2 },
+    ]);
+    expect(purchaseMentions("compré 6 tomates").lines).toEqual([
+      { name: "tomates", price: null, unit: "unidad", quantity: 6 },
+    ]);
   });
 
-  it("ignores pleasantries and questions", () => {
-    expect(
-      unpricedMentions("pan a 2 dólares el kilo y por favor, gracias")
-    ).toEqual([]);
-    expect(unpricedMentions("pan a 2 dólares el kilo y ¿tomates?")).toEqual([]);
+  it("stock talk of the same message goes to the stock path, not to Compras", () => {
+    const r = purchaseMentions("se acabó el queso y compramos 3 kg de harina");
+    expect(r.lines.map((l) => l.name)).toEqual(["harina"]);
+    expect(r.stockText).toBe("se acabó el queso");
   });
 
-  it("a quick-reply text («tomates: 5») is never read as a price", () => {
+  it("is empty for messages that are not purchases", () => {
+    for (const t of [
+      "unos tomates",
+      "tomates: 5",
+      "se acabó el queso",
+      "gracias por todo",
+      "pan a 2 dólares el kilo",
+      "¿cuánto cuesta la pupusa?",
+    ]) {
+      expect(names(t)).toEqual([]);
+    }
+  });
+
+  it("ignores pleasantries and questions inside a purchase", () => {
+    expect(names("pan a 2 dólares el kilo y por favor, gracias")).toEqual([]);
+    expect(names("pan a 2 dólares el kilo y ¿tomates?")).toEqual([]);
+  });
+
+  it("a quick-reply-looking text («tomates: 5») is never read as a price", () => {
     expect(parsePriceItems("tomates: 5")?.items ?? []).toEqual([]);
     expect(parsePriceItems("tomates: 10")?.unitless ?? []).toEqual([]);
   });

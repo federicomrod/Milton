@@ -17,6 +17,10 @@
 // Nothing here writes ingredient_cost_entries: the invoice always lands in
 // status 'needs_review' and a human approves it in the normal flow.
 
+import {
+  encodeMissing,
+  type MissingField,
+} from "@/lib/restaurant/invoice-missing";
 import { runChat } from "@/lib/ai/call";
 import {
   findExactIngredient,
@@ -244,6 +248,13 @@ export interface CreateInvoiceDraftInput {
    * uploads never set it, so their matching is unchanged.
    */
   matchByIngredientName?: boolean;
+  /**
+   * Kitchen messages (Telegram / Cocina app): never drop a line. A product
+   * with no price keeps «Sin precio»; one with no quantity or unit gets a
+   * placeholder and a «[falta:…]» note (invoice-missing.ts) so Compras shows
+   * «Falta». Needs strictPrices (nothing is ever invented as a real number).
+   */
+  keepIncomplete?: boolean;
 }
 
 const COUNT_WORDS = [
@@ -330,6 +341,7 @@ interface PlannedLine {
   quantity: number;
   unitCost: number | null;
   lineTotal: number;
+  missing?: MissingField[];
 }
 
 export async function createInvoiceDraft(
@@ -469,6 +481,41 @@ export async function createInvoiceDraft(
     // Strict: only what was really read.
     const description = (line.description ?? "").trim();
     if (description === "") continue; // nothing to show a reviewer
+
+    if (input.keepIncomplete) {
+      // Never dropped: what was not said is marked, not invented.
+      const missing: MissingField[] = [];
+      const readQuantity =
+        line.quantity !== null && line.quantity > 0 ? line.quantity : null;
+      if (readQuantity === null) missing.push("quantity");
+      const quantity = readQuantity ?? 1;
+      const catalogUnit = match
+        ? (ingredientCatalog.find((c) => c.id === match.ingredient_id)
+            ?.default_unit ?? null)
+        : null;
+      const readUnit = line.unit ?? null;
+      if (!readUnit && !catalogUnit) missing.push("unit");
+      const price =
+        line.unit_cost !== null && line.unit_cost >= 0 ? line.unit_cost : null;
+      planned.push({
+        line,
+        matchIngredientId: match?.ingredient_id ?? null,
+        matched: !!match,
+        quantity,
+        unit: readUnit ?? catalogUnit ?? "unidad",
+        unitCost: price,
+        // Quantity × price when both were said; the price alone (quantity 1
+        // placeholder) when only the price was; 0 («Sin precio») otherwise.
+        lineTotal:
+          line.line_total !== null
+            ? line.line_total
+            : price !== null
+              ? quantity * price
+              : 0,
+        missing,
+      });
+      continue;
+    }
     // A quantity the model left blank but that follows exactly from the read
     // price and total (also when enrichExtraction already derived it).
     const readQty = line.quantity !== null && line.quantity > 0;
@@ -694,6 +741,9 @@ export async function createInvoiceDraft(
       tax_amount: p.line.tax_amount,
       match_status: matchStatus,
       review_status: "pending" as const,
+      ...(p.missing && p.missing.length > 0
+        ? { notes: encodeMissing(p.missing) }
+        : {}),
     };
   });
 

@@ -221,3 +221,46 @@ describe("messages", () => {
     );
   });
 });
+
+describe("«Reintentar» and the company language", () => {
+  it("retryReport posts the report id to the server (never in the URL)", async () => {
+    const fetchImpl = vi.fn(async () => json({ status: "requeued" }));
+    const { api } = setup(fetchImpl as never);
+    await expect(api.retryReport("r-1")).resolves.toEqual({
+      status: "requeued",
+    });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("https://api.example.test/api/mobile/v1/kitchen/retry");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ reportId: "r-1" });
+    expect(url).not.toContain("r-1");
+  });
+
+  it("Accept-Language follows the language function at call time", async () => {
+    const fetchImpl = vi.fn(async () => json({ items: [], nextCursor: null }));
+    let language = "es";
+    const api = createApiClient({
+      baseUrl: "https://api.example.test",
+      getToken: async () => TOKEN,
+      onUnauthorized: vi.fn(),
+      fetchImpl: fetchImpl as never,
+      language: () => language,
+    });
+    await api.history();
+    language = "de";
+    await api.history();
+    const langs = fetchImpl.mock.calls.map(
+      (c) =>
+        (
+          (c as unknown as [string, RequestInit])[1].headers as Record<
+            string,
+            string
+          >
+        )["Accept-Language"]
+    );
+    expect(langs).toEqual(["es", "de"]);
+  });
+});

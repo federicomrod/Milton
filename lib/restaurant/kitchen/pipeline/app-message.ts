@@ -20,11 +20,6 @@ import { aiUnavailableFor, runTranscription } from "@/lib/ai/call";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePreferredLanguage } from "@/lib/restaurant/language";
 import { withKitchenLanguage } from "@/lib/restaurant/telegram/kitchen-language";
-import {
-  KITCHEN_COPY,
-  renderKitchenCopy,
-} from "@/lib/restaurant/telegram/kitchen-copy";
-import { joinProducts } from "@/lib/restaurant/telegram/price-flow";
 import type { KitchenLink } from "@/lib/restaurant/telegram/kitchen-links";
 import { tryPendingAnswer } from "@/lib/restaurant/telegram/kitchen-pending-answer";
 import { runMessagePipeline } from "@/lib/restaurant/kitchen/pipeline/message-pipeline";
@@ -46,28 +41,21 @@ export interface AppResult {
   noted: boolean;
   /** A price / purchase went to Compras as a draft «Por revisar». */
   draft: boolean;
-  /** Milton needs one more answer from the cook. */
-  /** A unit question is rebuilt from the copy; an amount question has no text. */
-  asks: { kind: "unit" | "amount"; text: string | null } | null;
   /** Why Milton could not read it: a CODE the app words itself (es/en/de), never a reply. */
   unclear: UnclearReason | null;
   /** It read like a recipe (recipe drafts from the app come later). */
   recipe: boolean;
   /** What Milton understood: product names only. */
   understood: string[];
-  /** Named without a price next to priced ones: the card asks how many (names only). */
-  extras: string[];
 }
 
 const EMPTY: Omit<AppResult, "state"> = {
   v: 1 as const,
   noted: false,
   draft: false,
-  asks: null,
   unclear: null,
   recipe: false,
   understood: [],
-  extras: [],
 };
 
 /**
@@ -82,7 +70,6 @@ export function summarizeSink(
   outcome: "handled" | "recipe"
 ): AppResult {
   const events: PipelineEvent[] = sink.events;
-  const question = events.find((e) => e.kind === "question");
   const draft = events.some((e) => e.kind === "price_draft");
   const noted = events.some((e) => e.kind === "stock");
   const understood = [
@@ -92,10 +79,7 @@ export function summarizeSink(
       )
     ),
   ].filter(Boolean);
-  const extras = [
-    ...new Set(events.flatMap((e) => (e.kind === "extras" ? e.products : []))),
-  ].filter(Boolean);
-  const nothing = !question && !draft && !noted;
+  const nothing = !draft && !noted;
 
   let unclear: UnclearReason | null = null;
   if (nothing && outcome === "handled") {
@@ -113,21 +97,9 @@ export function summarizeSink(
     state: "done",
     noted,
     draft,
-    asks: question
-      ? {
-          kind: question.ask,
-          text:
-            question.ask === "unit" && question.products.length > 0
-              ? renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
-                  producto: joinProducts(question.products),
-                })
-              : null,
-        }
-      : null,
     unclear,
     recipe: outcome === "recipe" && nothing,
     understood,
-    extras,
   };
 }
 
@@ -378,4 +350,46 @@ export function scheduleAppProcessing(input: {
   } catch {
     void run();
   }
+}
+
+/** A card still «processing» this long after the send may be re-run. */
+export const RETRY_AFTER_MS = 120_000;
+
+export type RequeueOutcome = "requeued" | "done" | "too_early" | "not_found";
+
+/**
+ * «Reintentar»: runs the message through the pipeline again. Only a report of
+ * this cook that did not finish (stuck on «processing», never started, or
+ * failed) is re-run; a finished one is left alone. The draft writer dedupes by
+ * report id, so a late first run cannot create a second draft.
+ */
+export async function requeueAppReport(input: {
+  staffId: string;
+  reportId: string;
+  admin?: Admin;
+  now?: number;
+}): Promise<RequeueOutcome> {
+  const admin = input.admin ?? createAdminClient();
+  const { data: report } = await admin
+    .from("kitchen_reports")
+    .select("id, company_id, created_at, app_result")
+    .eq("id", input.reportId)
+    .eq("staff_id", input.staffId)
+    .maybeSingle();
+  if (!report) return "not_found";
+  const state = (report.app_result as { state?: string } | null)?.state;
+  if (state === "done") return "done";
+  const age =
+    (input.now ?? Date.now()) -
+    new Date(String(report.created_at ?? "")).getTime();
+  if (state !== "failed" && age < RETRY_AFTER_MS) return "too_early";
+  const { error } = await admin
+    .from("kitchen_reports")
+    .update({ app_result: null, processed_at: null })
+    .eq("id", report.id as string)
+    .eq("company_id", report.company_id as string)
+    .eq("staff_id", input.staffId);
+  if (error) return "not_found";
+  scheduleAppProcessing({ staffId: input.staffId, reportId: input.reportId });
+  return "requeued";
 }

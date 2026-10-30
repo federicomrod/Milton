@@ -266,6 +266,13 @@ export function createFakeDb(initial: Record<string, Row[]> = {}): FakeDb {
           for (const p of paths) db.objects.delete(p);
           return { data: [], error: null };
         },
+        download: async (path: string) =>
+          db.objects.has(path)
+            ? {
+                data: new Blob([new Uint8Array(db.objects.get(path) ?? 0)]),
+                error: null,
+              }
+            : { data: null, error: { message: "not found" } },
         createSignedUploadUrl: async (path: string) => {
           db.signedUploads.push(path);
           return {

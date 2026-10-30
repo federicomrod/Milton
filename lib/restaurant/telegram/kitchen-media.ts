@@ -25,7 +25,14 @@ import {
   PRICE_UPDATE_NOTE_PREFIX,
 } from "@/lib/restaurant/invoice-draft";
 import type { ExtractedInvoice } from "@/lib/restaurant/invoice-extraction";
-import { INVOICE_TELEGRAM_NOTE } from "@/lib/restaurant/price-update-note";
+import {
+  APP_PRICE_UPDATE_NOTE_PREFIX,
+  INVOICE_TELEGRAM_NOTE,
+} from "@/lib/restaurant/price-update-note";
+import {
+  inAppPipeline,
+  recordPipelineEvent,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import {
   sendTelegramMessage,
@@ -721,9 +728,13 @@ export async function processPriceUpdate(
     extraction,
     sourceType: "manual",
     originalFileName: null,
-    extraNotes: PRICE_UPDATE_NOTE_PREFIX,
+    // A price update from the Cocina app is tagged «por App» (still a price
+    // update, never a purchase); Telegram's stays exactly as it was.
+    extraNotes: inAppPipeline()
+      ? APP_PRICE_UPDATE_NOTE_PREFIX
+      : PRICE_UPDATE_NOTE_PREFIX,
     eventMetadata: {
-      source: "telegram",
+      source: inAppPipeline() ? "app" : "telegram",
       kind: "price_update",
       kitchen_report_id: input.reportId,
       staff_id: staff.id,
@@ -758,6 +769,11 @@ export async function processPriceUpdate(
   console.info(
     `[kitchen-media] price update draft items=${input.items.length}`
   );
+  // Names only, never an amount: the app shows the cook what was understood.
+  recordPipelineEvent({
+    kind: "price_draft",
+    products: input.items.map((i) => i.name),
+  });
   const received = renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
     ...destinationVars(staff),
     items: formatPriceUpdateItems(

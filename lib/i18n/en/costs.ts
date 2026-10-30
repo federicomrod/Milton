@@ -176,12 +176,14 @@ export const costs: Dictionary["costs"] = {
     statusRejected: "Rejected",
     statusPosted: "Posted",
     sourceManual: "Manual",
+    sourceApp: "App",
     sourcePhoto: "Photo",
     statusTitleNeedsReview:
       "The price is not applied until someone approves it.",
     statusTitlePosted:
       "The prices are already applied to your costs and dishes.",
     byTelegram: "via Telegram",
+    byApp: "via App",
     byPhoto: "by photo",
     byCsv: "via CSV / Excel",
     byHand: "by hand",

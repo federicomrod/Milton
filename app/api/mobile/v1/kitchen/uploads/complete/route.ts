@@ -19,6 +19,7 @@ import {
   parseKitchenMediaPath,
   removeKitchenMediaObject,
 } from "@/lib/restaurant/kitchen/media-storage";
+import { scheduleAppProcessing } from "@/lib/restaurant/kitchen/pipeline/app-message";
 import { serializeKitchenUpload } from "@/lib/restaurant/kitchen/kitchen-serializer";
 import { UUID_RE, kitchenJson } from "@/lib/restaurant/kitchen/mobile-response";
 
@@ -78,6 +79,9 @@ export async function POST(request: NextRequest) {
       .limit(1)
       .maybeSingle();
     if (stored) {
+      if (report.media_kind === "voice") {
+        scheduleAppProcessing({ staffId: staff.id, reportId });
+      }
       return kitchenJson(
         serializeKitchenUpload({
           reportId,
@@ -130,6 +134,10 @@ export async function POST(request: NextRequest) {
     if (!ingested.ok) {
       return kitchenJson({ error: d.kitchen.api.fileSaveFailed }, 502);
     }
+    // A voice note is transcribed and read like a Telegram one (after the
+    // response). Photos and documents are only stored for now.
+    if (kind === "voice")
+      scheduleAppProcessing({ staffId: staff.id, reportId });
     return kitchenJson(
       serializeKitchenUpload({
         reportId,

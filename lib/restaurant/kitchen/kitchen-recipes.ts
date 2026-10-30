@@ -60,11 +60,19 @@ export function cleanRecipeSearch(raw: string | null): string | null {
   return q || null;
 }
 
-function stepsOf(notes: string | null): string[] {
+/**
+ * recipe_versions.notes also holds the approval workflow's own text
+ * («Aprobada», «Aprobada. El cliente confirmó por…», «Lista para aprobar»):
+ * that is a status, not a step, and must never show up under «Pasos».
+ */
+const WORKFLOW_NOTE =
+  /^(aprobada|lista para aprobar|borrador|en revisi[oó]n|approved|ready for approval|draft|in review|freigegeben|bereit zur freigabe|entwurf|in pr[uü]fung)\b/i;
+
+export function stepsOf(notes: string | null): string[] {
   return (notes ?? "")
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter(Boolean);
+    .filter((l) => l && !WORKFLOW_NOTE.test(l));
 }
 
 export async function loadKitchenRecipes(

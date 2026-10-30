@@ -1,5 +1,7 @@
-// The few building blocks every screen uses. Big touch targets (>= 48 pt),
-// brand colours only, and every action is a visible button (no ⋯ menus).
+// The building blocks every screen uses. White surfaces, 1 px #E5E7EB borders,
+// ~12 px radius, no heavy shadows, Inter. Primary = full-width blue pill with
+// white text; secondary = white pill with a grey border and Ink text. Big touch
+// targets (>= 48 pt) and every action is a visible button (no ⋯ menus).
 
 import React from "react";
 import {
@@ -14,16 +16,31 @@ import {
   type TextStyle,
   type ViewStyle,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   MIN_TOUCH,
   MUTED_OPACITY,
   PLACEHOLDER,
   colors,
-  font,
+  fonts,
   radius,
   space,
 } from "../theme";
+
+export type IconName = React.ComponentProps<typeof Ionicons>["name"];
+
+export function Icon({
+  name,
+  size = 22,
+  color = colors.ink,
+}: {
+  name: IconName;
+  size?: number;
+  color?: string;
+}) {
+  return <Ionicons name={name} size={size} color={color} />;
+}
 
 export function Screen({
   children,
@@ -33,32 +50,31 @@ export function Screen({
   style?: StyleProp<ViewStyle>;
 }) {
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={[s.screen, style]}>
+    <SafeAreaView edges={["left", "right"]} style={[s.screen, style]}>
       {children}
     </SafeAreaView>
   );
 }
 
-type ButtonVariant = "primary" | "secondary";
-
 export function Button({
   label,
   onPress,
   variant = "primary",
+  icon,
   disabled,
   busy,
-  big,
   style,
 }: {
   label: string;
   onPress: () => void;
-  variant?: ButtonVariant;
+  variant?: "primary" | "secondary";
+  icon?: IconName;
   disabled?: boolean;
   busy?: boolean;
-  big?: boolean;
   style?: StyleProp<ViewStyle>;
 }) {
   const primary = variant === "primary";
+  const ink = primary ? colors.white : colors.ink;
   return (
     <Pressable
       accessibilityRole="button"
@@ -67,7 +83,6 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [
         s.button,
-        big && s.buttonBig,
         primary ? s.buttonPrimary : s.buttonSecondary,
         (disabled || busy) && s.disabled,
         pressed && s.pressed,
@@ -75,33 +90,66 @@ export function Button({
       ]}
     >
       {busy ? (
-        <ActivityIndicator color={primary ? colors.white : colors.blue} />
+        <ActivityIndicator color={ink} />
       ) : (
-        <Text
-          style={[
-            s.buttonText,
-            big && s.buttonTextBig,
-            { color: primary ? colors.white : colors.blue },
-          ]}
-        >
-          {label}
-        </Text>
+        <View style={s.row}>
+          {icon ? <Icon name={icon} size={20} color={ink} /> : null}
+          <Text style={[s.buttonText, { color: ink }]}>{label}</Text>
+        </View>
       )}
     </Pressable>
   );
 }
 
-export type ChipTone = "mint" | "rosa" | "amarillo" | "plain";
+/** The two equal outlined buttons under the mic: icon + label, 12 px corners. */
+export function TileButton({
+  label,
+  icon,
+  onPress,
+}: {
+  label: string;
+  icon: IconName;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => [s.tile, pressed && s.pressed]}
+    >
+      <Icon name={icon} size={22} color={colors.ink} />
+      <Text style={s.tileText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export type ChipTone = "mint" | "amarillo" | "grey" | "lavender" | "rosa";
+
+const CHIP_BG: Record<ChipTone, string> = {
+  mint: colors.mint,
+  amarillo: colors.amarillo,
+  grey: colors.border,
+  lavender: colors.lavender,
+  rosa: colors.rosa,
+};
 
 export function Chip({ label, tone }: { label: string; tone: ChipTone }) {
-  const bg = tone === "plain" ? colors.white : colors[tone];
   return (
-    <View
-      style={[s.chip, { backgroundColor: bg }, tone === "plain" && s.chipPlain]}
-    >
+    <View style={[s.chip, { backgroundColor: CHIP_BG[tone] }]}>
       <Text style={s.chipText}>{label}</Text>
     </View>
   );
+}
+
+export function Card({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return <View style={[s.card, style]}>{children}</View>;
 }
 
 export function Banner({ text }: { text: string }) {
@@ -169,58 +217,81 @@ export function Segments<T extends string>({
 }
 
 export const text = StyleSheet.create({
-  title: { fontSize: font.title, fontWeight: "700", color: colors.ink },
-  body: { fontSize: font.body, color: colors.ink },
-  big: { fontSize: font.big, fontWeight: "600", color: colors.ink },
+  title: { fontSize: 32, fontFamily: fonts.extrabold, color: colors.ink },
+  heading: { fontSize: 24, fontFamily: fonts.extrabold, color: colors.ink },
+  big: { fontSize: 20, fontFamily: fonts.bold, color: colors.ink },
+  body: { fontSize: 17, fontFamily: fonts.regular, color: colors.ink },
+  bold: { fontSize: 17, fontFamily: fonts.bold, color: colors.ink },
 });
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.white },
+  row: { flexDirection: "row", alignItems: "center", gap: space.s },
   button: {
-    minHeight: MIN_TOUCH + 8,
-    borderRadius: radius.m,
+    minHeight: 56,
+    borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: space.l,
-    borderWidth: 2,
-    borderColor: colors.blue,
+    borderWidth: 1,
   },
-  buttonBig: { minHeight: 88, borderRadius: radius.m },
-  buttonPrimary: { backgroundColor: colors.blue },
-  buttonSecondary: { backgroundColor: colors.white },
-  buttonText: { fontSize: font.big, fontWeight: "700" },
-  buttonTextBig: { fontSize: 24 },
+  buttonPrimary: { backgroundColor: colors.blue, borderColor: colors.blue },
+  buttonSecondary: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+  },
+  buttonText: { fontSize: 17, fontFamily: fonts.bold },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.8 },
+  tile: {
+    flex: 1,
+    minHeight: 60,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.s,
+    borderRadius: radius.m,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  tileText: { fontSize: 17, fontFamily: fonts.bold, color: colors.ink },
   chip: {
     alignSelf: "flex-start",
-    paddingHorizontal: space.m,
-    paddingVertical: space.xs + 2,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: radius.pill,
   },
-  chipPlain: { borderWidth: 1, borderColor: colors.border },
-  chipText: { fontSize: font.small, fontWeight: "700", color: colors.ink },
+  chipText: { fontSize: 13, fontFamily: fonts.semibold, color: colors.ink },
+  card: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.m,
+    padding: space.m,
+  },
   banner: {
     backgroundColor: colors.amarillo,
-    paddingVertical: space.s + 2,
+    paddingVertical: 10,
     paddingHorizontal: space.m,
   },
-  bannerText: {
-    fontSize: font.small + 1,
-    fontWeight: "700",
+  bannerText: { fontSize: 14, fontFamily: fonts.semibold, color: colors.ink },
+  muted: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
     color: colors.ink,
-    textAlign: "center",
+    opacity: MUTED_OPACITY,
   },
-  muted: { fontSize: font.small, color: colors.ink, opacity: MUTED_OPACITY },
-  field: { gap: space.xs },
-  fieldLabel: { fontSize: font.small, fontWeight: "700", color: colors.ink },
+  field: { gap: 6 },
+  fieldLabel: { fontSize: 14, fontFamily: fonts.semibold, color: colors.ink },
   input: {
     minHeight: MIN_TOUCH + 4,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.m,
     paddingHorizontal: space.m,
-    fontSize: font.body,
+    fontSize: 17,
+    fontFamily: fonts.regular,
     color: colors.ink,
     backgroundColor: colors.white,
   },
@@ -230,11 +301,11 @@ const s = StyleSheet.create({
     minHeight: MIN_TOUCH,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: radius.m,
+    borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.white,
   },
   segmentActive: { backgroundColor: colors.blue, borderColor: colors.blue },
-  segmentText: { fontSize: font.body, fontWeight: "700", color: colors.ink },
+  segmentText: { fontSize: 16, fontFamily: fonts.bold, color: colors.ink },
 });

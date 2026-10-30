@@ -15,6 +15,8 @@
 // into (and break) the dashboard briefing route, which does not import
 // this module at all.
 
+import { sinkFor } from "@/lib/restaurant/kitchen/pipeline/reply-sink";
+
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 
 export class TelegramConfigError extends Error {
@@ -54,6 +56,13 @@ export async function sendTelegramMessage(
   text: string,
   options?: TelegramSendOptions
 ): Promise<TelegramSendResult> {
+  // A message of the Cocina app (its own pseudo chat) is captured for the
+  // phone, never sent to Telegram. No sink = every Telegram request: unchanged.
+  const sink = sinkFor(chatId);
+  if (sink) {
+    sink.messages.push(text);
+    return { ok: true };
+  }
   const body: Record<string, unknown> = { chat_id: chatId, text };
   if (options?.replyMarkup) body.reply_markup = options.replyMarkup;
   const result = await callBotApi("sendMessage", body);

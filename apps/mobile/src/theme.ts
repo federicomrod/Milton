@@ -1,8 +1,8 @@
 // Brand palette. These are the ONLY colours in the app (a test fails if any
 // other hex value shows up in the source): blue for actions, Ink for text,
-// white background, grey borders, mint = sent, rosa = needs retry, amarillo =
-// alerts only. No green, red or orange anywhere. Lavender is for AI only and
-// nothing here is AI.
+// white background, grey borders and chips, mint = done, rosa = needs retry,
+// amarillo = alerts and questions only, lavender = AI only. No green, red or
+// orange anywhere.
 export const colors = {
   blue: "#1B40C8",
   ink: "#0F172A",
@@ -11,6 +11,24 @@ export const colors = {
   mint: "#A7F3D0",
   rosa: "#FBCFE8",
   amarillo: "#FDE68A",
+  // Lavender is for AI only: the «Esto entendí» chip.
+  lavender: "#DDD6FE",
+} as const;
+
+/** Soft tints of the brand blue / Ink as rgba (so no other hex enters the palette). */
+export const tint = {
+  blue08: "rgba(27, 64, 200, 0.08)",
+  blue14: "rgba(27, 64, 200, 0.14)",
+  ink45: "rgba(15, 23, 42, 0.45)",
+} as const;
+
+/** Inter, loaded in the root layout (one family per weight on React Native). */
+export const fonts = {
+  regular: "Inter_400Regular",
+  medium: "Inter_500Medium",
+  semibold: "Inter_600SemiBold",
+  bold: "Inter_700Bold",
+  extrabold: "Inter_800ExtraBold",
 } as const;
 
 export const MIN_TOUCH = 48;

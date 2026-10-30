@@ -3,6 +3,7 @@ import {
   FlatList,
   RefreshControl,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -10,37 +11,45 @@ import {
 import { useFocusEffect } from "expo-router";
 import { ApiError, friendlyMessage } from "../../api/client";
 import type { HistoryItem, Recipe } from "../../api/types";
-import { KIND_LABEL, OutboxRow } from "../../components/OutboxList";
+import { AppHeader } from "../../components/AppHeader";
+import { ServerRow, WaitingRow } from "../../components/ItemRows";
 import {
   Banner,
   Button,
-  Chip,
+  Card,
   Field,
   Muted,
   Screen,
   Segments,
   text,
 } from "../../components/ui";
-import { formatQuantity, formatWhen } from "../../lib/format";
+import { useStrings } from "../../i18n";
+import { fmt } from "../../i18n/strings";
+import { dayGroup, formatQuantity, type DayGroup } from "../../lib/format";
+import { offlineText } from "../../lib/result";
 import { reportOffline, useOutbox } from "../../send/outbox";
+import { useHistoryFeed } from "../../send/useHistoryFeed";
 import { useSession } from "../../session/SessionProvider";
-import { colors, font, space } from "../../theme";
+import { colors, fonts, space } from "../../theme";
 
 type Tab = "sends" | "recipes";
 
 export default function Historial() {
-  const { offline } = useOutbox();
+  const s = useStrings();
+  const { items, offline } = useOutbox();
   const [tab, setTab] = useState<Tab>("sends");
+  const waiting = items.filter((i) => i.state !== "sent").length;
   return (
     <Screen>
-      {offline ? <Banner text="Sin conexión" /> : null}
-      <View style={s.top}>
+      <AppHeader title={s.history.title} />
+      {offline ? <Banner text={offlineText(waiting, s)} /> : null}
+      <View style={st.top}>
         <Segments
           value={tab}
           onChange={setTab}
           options={[
-            { value: "sends", label: "Mis envíos" },
-            { value: "recipes", label: "Recetas" },
+            { value: "sends", label: s.history.sends },
+            { value: "recipes", label: s.history.recipes },
           ]}
         />
       </View>
@@ -52,97 +61,74 @@ export default function Historial() {
 // --- Mis envíos -------------------------------------------------------------
 
 function Sends() {
-  const { api } = useSession();
+  const s = useStrings();
   const { items: outbox } = useOutbox();
-  const [items, setItems] = useState<HistoryItem[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const busy = useRef(false);
+  const feed = useHistoryFeed();
+  const [now] = useState(() => new Date());
 
-  const load = useCallback(
-    async (more: boolean) => {
-      if (busy.current) return;
-      busy.current = true;
-      setLoading(true);
-      try {
-        const page = await api.history(more ? cursor : null);
-        setItems((prev) => (more ? [...prev, ...page.items] : page.items));
-        setCursor(page.nextCursor);
-        setError(null);
-        reportOffline(false);
-      } catch (err) {
-        setError(friendlyMessage(err));
-        if (err instanceof ApiError && err.offline) reportOffline(true);
-      } finally {
-        busy.current = false;
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [api, cursor]
-  );
-
-  // Reload when the tab comes to the front, so a fresh send shows up.
   useFocusEffect(
     useCallback(() => {
-      void load(false);
+      feed.reload();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
   );
 
   const waiting = outbox.filter((i) => i.state !== "sent");
+  const label: Record<DayGroup, string> = {
+    today: s.history.today,
+    yesterday: s.history.yesterday,
+    earlier: s.history.earlier,
+  };
+  const sections = (["today", "yesterday", "earlier"] as const)
+    .map((g) => ({
+      key: g,
+      title: label[g],
+      data: feed.items.filter((i) => dayGroup(i.createdAt, now) === g),
+    }))
+    .filter((sec) => sec.data.length > 0);
 
   return (
-    <FlatList
-      data={items}
+    <SectionList<
+      HistoryItem,
+      { key: string; title: string; data: HistoryItem[] }
+    >
+      sections={sections}
       keyExtractor={(i) => i.id}
-      contentContainerStyle={s.list}
+      stickySectionHeadersEnabled={false}
+      contentContainerStyle={st.list}
       refreshControl={
         <RefreshControl
-          refreshing={refreshing}
+          refreshing={feed.refreshing}
           tintColor={colors.blue}
-          onRefresh={() => {
-            setRefreshing(true);
-            void load(false);
-          }}
+          onRefresh={feed.refresh}
         />
       }
       onEndReachedThreshold={0.4}
-      onEndReached={() => {
-        if (cursor) void load(true);
-      }}
+      onEndReached={feed.loadMore}
       ListHeaderComponent={
         <View>
           {waiting.length > 0 ? (
             <View>
-              <Text style={text.big}>Por enviar</Text>
+              <Text style={st.section}>{s.history.toSend}</Text>
               {waiting.map((i) => (
-                <OutboxRow key={i.id} item={i} />
+                <WaitingRow key={i.id} item={i} />
               ))}
             </View>
           ) : null}
-          {error ? <Muted>{error}</Muted> : null}
+          {feed.error ? <Muted>{feed.error}</Muted> : null}
         </View>
       }
       ListEmptyComponent={
-        loading || error ? undefined : (
+        feed.loading || feed.error || waiting.length > 0 ? undefined : (
           <Muted style={{ paddingVertical: space.l }}>
-            Aún no has enviado nada.
+            {s.history.nothingYet}
           </Muted>
         )
       }
-      renderItem={({ item }) => (
-        <View style={s.row}>
-          <View style={s.rowHead}>
-            <Text style={s.kind}>{KIND_LABEL[item.kind] ?? "Envío"}</Text>
-            <Chip tone="mint" label="Enviado" />
-          </View>
-          {item.text ? <Text style={s.body}>{item.text}</Text> : null}
-          <Muted>{formatWhen(item.createdAt)}</Muted>
-        </View>
+      renderSectionHeader={({ section }) => (
+        <Text style={st.section}>{section.title}</Text>
       )}
+      renderItem={({ item }) => <ServerRow item={item} />}
     />
   );
 }
@@ -150,6 +136,7 @@ function Sends() {
 // --- Recetas ----------------------------------------------------------------
 
 function Recipes() {
+  const s = useStrings();
   const { api } = useSession();
   const [query, setQuery] = useState("");
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -174,13 +161,13 @@ function Recipes() {
         reportOffline(false);
       } catch (err) {
         if (mine !== seq.current) return;
-        setError(friendlyMessage(err));
+        setError(friendlyMessage(err, s.errors));
         if (err instanceof ApiError && err.offline) reportOffline(true);
       } finally {
         if (mine === seq.current) setLoading(false);
       }
     },
-    [api]
+    [api, s]
   );
 
   // Search by name, a moment after the cook stops typing.
@@ -195,19 +182,19 @@ function Recipes() {
     <FlatList
       data={recipes}
       keyExtractor={(r) => r.id}
-      contentContainerStyle={s.list}
+      contentContainerStyle={st.list}
       keyboardShouldPersistTaps="handled"
       onEndReachedThreshold={0.4}
       onEndReached={() => {
         if (cursor && !loading) void load(query.trim(), cursor);
       }}
       ListHeaderComponent={
-        <View style={{ gap: space.s, paddingBottom: space.s }}>
+        <View style={{ gap: space.s, paddingBottom: space.m }}>
           <Field
-            label="Buscar receta"
+            label={s.recipes.searchLabel}
             value={query}
             onChangeText={setQuery}
-            placeholder="Nombre del plato"
+            placeholder={s.recipes.searchPlaceholder}
             autoCorrect={false}
           />
           {error ? <Muted>{error}</Muted> : null}
@@ -216,7 +203,7 @@ function Recipes() {
       ListEmptyComponent={
         loading || error ? undefined : (
           <Muted style={{ paddingVertical: space.l }}>
-            {query ? "No encontré ese plato." : "Aún no hay recetas aprobadas."}
+            {query ? s.recipes.notFound : s.recipes.none}
           </Muted>
         )
       }
@@ -225,7 +212,7 @@ function Recipes() {
           label={item.name}
           variant="secondary"
           onPress={() => setOpen(item)}
-          style={s.recipeButton}
+          style={st.recipeButton}
         />
       )}
     />
@@ -239,68 +226,83 @@ function RecipeDetail({
   recipe: Recipe;
   onBack: () => void;
 }) {
+  const s = useStrings();
+  const meta = [
+    recipe.category,
+    recipe.yield
+      ? fmt(s.recipes.yields, {
+          quantity: formatQuantity(recipe.yield.quantity),
+          unit: recipe.yield.unit,
+        })
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <ScrollView contentContainerStyle={[s.list, { gap: space.m }]}>
-      <Button label="Volver a recetas" variant="secondary" onPress={onBack} />
-      <Text style={text.title}>{recipe.name}</Text>
-      <Muted>
-        {[
-          recipe.category,
-          recipe.yield
-            ? `Rinde ${formatQuantity(recipe.yield.quantity)} ${recipe.yield.unit}`
-            : null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-      </Muted>
+    <ScrollView contentContainerStyle={[st.list, { gap: space.m }]}>
+      <Button
+        label={s.recipes.back}
+        variant="secondary"
+        icon="chevron-back"
+        onPress={onBack}
+      />
+      <Text style={text.heading}>{recipe.name}</Text>
+      {meta ? <Muted>{meta}</Muted> : null}
       {recipe.description ? (
-        <Text style={s.body}>{recipe.description}</Text>
+        <Text style={text.body}>{recipe.description}</Text>
       ) : null}
-      <Text style={text.big}>Ingredientes</Text>
-      {recipe.ingredients.length === 0 ? (
-        <Muted>Sin ingredientes.</Muted>
+      <Text style={text.big}>{s.recipes.ingredients}</Text>
+      <Card style={{ paddingVertical: space.s }}>
+        {recipe.ingredients.length === 0 ? (
+          <Muted>{s.recipes.noIngredients}</Muted>
+        ) : null}
+        {recipe.ingredients.map((i, n) => (
+          <View
+            key={`${i.name}-${n}`}
+            style={[st.ingredient, n === 0 && { borderTopWidth: 0 }]}
+          >
+            <Text style={[text.body, { flex: 1 }]}>{i.name}</Text>
+            <Text style={text.bold}>
+              {formatQuantity(i.quantity)} {i.unit}
+            </Text>
+          </View>
+        ))}
+      </Card>
+      {/* Pasos only when the recipe has real steps. */}
+      {recipe.steps.length > 0 ? (
+        <>
+          <Text style={text.big}>{s.recipes.steps}</Text>
+          <Card style={{ gap: space.m }}>
+            {recipe.steps.map((step, n) => (
+              <Text key={n} style={text.body}>
+                {n + 1}. {step}
+              </Text>
+            ))}
+          </Card>
+        </>
       ) : null}
-      {recipe.ingredients.map((i, n) => (
-        <View key={`${i.name}-${n}`} style={s.ingredient}>
-          <Text style={[s.body, { flex: 1 }]}>{i.name}</Text>
-          <Text style={s.qty}>
-            {formatQuantity(i.quantity)} {i.unit}
-          </Text>
-        </View>
-      ))}
-      {recipe.steps.length > 0 ? <Text style={text.big}>Pasos</Text> : null}
-      {recipe.steps.map((step, n) => (
-        <Text key={n} style={s.body}>
-          {n + 1}. {step}
-        </Text>
-      ))}
     </ScrollView>
   );
 }
 
-const s = StyleSheet.create({
-  top: { padding: space.m, paddingBottom: space.s },
-  list: { padding: space.m, paddingBottom: space.xl },
-  row: {
-    paddingVertical: space.m,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: space.s,
+const st = StyleSheet.create({
+  top: { paddingHorizontal: space.l, paddingBottom: space.s },
+  list: { paddingHorizontal: space.l, paddingBottom: space.xl },
+  section: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    opacity: 0.62,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    paddingTop: space.m,
   },
-  rowHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  kind: { fontSize: font.small, fontWeight: "700", color: colors.ink },
-  body: { fontSize: font.body, color: colors.ink },
-  recipeButton: { marginBottom: space.s, alignItems: "flex-start" },
+  recipeButton: { marginBottom: space.s },
   ingredient: {
     flexDirection: "row",
     gap: space.m,
-    paddingVertical: space.s,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  qty: { fontSize: font.body, fontWeight: "700", color: colors.ink },
 });

@@ -73,6 +73,10 @@ import {
 } from "./price-update";
 import { maybeCleanupPending } from "./kitchen-routing";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import {
+  inAppPipeline,
+  recordPipelineEvent,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 
 export type AiHandlerContext = {
   admin: SupabaseClient;
@@ -156,6 +160,9 @@ export async function answerWithoutAi(ctx: AiHandlerContext): Promise<void> {
       const stored =
         (ctx.origin ?? "text") === "text" || (await setReportType(ctx, type));
       reply = stored ? stockSavedReply(ctx.staff, type, [], ctx.text) : null;
+      if (stored) {
+        recordPipelineEvent({ kind: "stock", reportType: type, products: [] });
+      }
       // A mixed message («se acabó el aguacate y ahora está a 3.50 la libra»)
       // with the AI down: the stock report is kept, the price is NOT, and the
       // cook is told so instead of finding out later.
@@ -336,12 +343,17 @@ async function setReportType(
       patch.text = ctx.text.slice(0, 2000);
       patch.transcript = ctx.text.slice(0, 2000);
     }
-    const { error } = await ctx.admin
+    // An app report has no Telegram ids: it is found by its own id.
+    const base = ctx.admin
       .from("kitchen_reports")
       .update(patch)
-      .eq("company_id", ctx.staff.company_id)
-      .eq("telegram_chat_id", ctx.chatId)
-      .eq("telegram_message_id", ctx.messageId);
+      .eq("company_id", ctx.staff.company_id);
+    const { error } =
+      inAppPipeline() && ctx.reportId
+        ? await base.eq("id", ctx.reportId)
+        : await base
+            .eq("telegram_chat_id", ctx.chatId)
+            .eq("telegram_message_id", ctx.messageId);
     if (error) {
       console.error("[kitchen-ai-handler] stock report not stored");
       return false;
@@ -460,6 +472,7 @@ async function handleActions(
     });
     if (opened.ok) {
       maybeCleanupPending();
+      recordPipelineEvent({ kind: "question", ask: "amount" });
       asked = true;
       if (opened.created) {
         const cur =
@@ -488,6 +501,11 @@ async function handleActions(
       });
       if (opened.ok) {
         maybeCleanupPending();
+        recordPipelineEvent({
+          kind: "question",
+          ask: "unit",
+          products: needUnit.map((i) => i.name),
+        });
         asked = true;
         if (opened.created) {
           lines.push(
@@ -516,6 +534,7 @@ async function handleActions(
         ...new Set(result.items.map((i) => nameOf(i)).filter(Boolean)),
       ];
       stockLine = stockSavedReply(ctx.staff, kind, names, text);
+      recordPipelineEvent({ kind: "stock", reportType: kind, products: names });
     }
   }
 

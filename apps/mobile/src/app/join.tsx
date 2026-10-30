@@ -10,12 +10,14 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
 import { redeemMessage } from "../api/client";
+import { useStrings } from "../i18n";
 import { extractInviteSecret } from "../lib/invite";
 import { useSession } from "../session/SessionProvider";
 import { colors, space } from "../theme";
 import { Button, Field, Muted, text } from "../components/ui";
 
 export default function Join() {
+  const s = useStrings();
   const params = useLocalSearchParams<{ secret?: string }>();
   const { api, signIn } = useSession();
   const [code, setCode] = useState(
@@ -29,11 +31,11 @@ export default function Join() {
     if (busy) return;
     const secret = extractInviteSecret(code);
     if (!secret) {
-      setError("No reconozco ese código. Pega el código o el enlace completo.");
+      setError(s.join.codeUnknown);
       return;
     }
     if (!name.trim()) {
-      setError("Escribe tu nombre.");
+      setError(s.join.nameMissing);
       return;
     }
     setBusy(true);
@@ -52,50 +54,50 @@ export default function Join() {
         company: null,
       });
     } catch (err) {
-      setError(redeemMessage(err));
+      setError(redeemMessage(err, s.errors));
       setBusy(false);
     }
   }
 
   return (
-    <SafeAreaView style={s.screen}>
+    <SafeAreaView style={st.screen}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={s.content}
+          contentContainerStyle={st.content}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={s.head}>
-            <Text style={text.title}>Milton Cocina</Text>
-            <Muted>Entra con la invitación que te dio tu jefe.</Muted>
+          <View style={st.head}>
+            <Text style={text.title}>{s.appName}</Text>
+            <Muted>{s.join.intro}</Muted>
           </View>
           <Field
-            label="Código de invitación"
+            label={s.join.codeLabel}
             value={code}
             onChangeText={setCode}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="Pega el código o el enlace"
+            placeholder={s.join.codePlaceholder}
           />
           <Field
-            label="Tu nombre"
+            label={s.join.nameLabel}
             value={name}
             onChangeText={setName}
             autoCapitalize="words"
             maxLength={60}
-            placeholder="Por ejemplo: Luis"
+            placeholder={s.join.namePlaceholder}
           />
           {error ? <Muted>{error}</Muted> : null}
-          <Button label="Entrar" onPress={enter} busy={busy} big />
+          <Button label={s.join.enter} onPress={enter} busy={busy} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const s = StyleSheet.create({
+const st = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.white },
   content: {
     padding: space.l,

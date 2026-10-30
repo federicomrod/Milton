@@ -175,11 +175,13 @@ export const costs = {
     statusRejected: "Rechazada",
     statusPosted: "Publicada",
     sourceManual: "Manual",
+    sourceApp: "App",
     sourcePhoto: "Foto",
     statusTitleNeedsReview:
       "El precio no se aplica hasta que alguien lo apruebe.",
     statusTitlePosted: "Los precios ya están aplicados a tus costos y platos.",
     byTelegram: "por Telegram",
+    byApp: "por App",
     byPhoto: "por foto",
     byCsv: "por CSV / Excel",
     byHand: "a mano",

@@ -182,12 +182,14 @@ export const costs: Dictionary["costs"] = {
     statusRejected: "Abgelehnt",
     statusPosted: "Verbucht",
     sourceManual: "Manuell",
+    sourceApp: "App",
     sourcePhoto: "Foto",
     statusTitleNeedsReview:
       "Der Preis wird erst übernommen, wenn ihn jemand freigibt.",
     statusTitlePosted:
       "Die Preise sind bereits in Ihren Kosten und Gerichten berücksichtigt.",
     byTelegram: "per Telegram",
+    byApp: "per App",
     byPhoto: "per Foto",
     byCsv: "per CSV / Excel",
     byHand: "manuell",

@@ -370,6 +370,30 @@ describe("GET kitchen/recipes", () => {
     expect(JSON.stringify(body)).not.toMatch(/VIEJA|EN REVISION/);
   });
 
+  it("never shows the approval status as a step (real steps only, none when there are none)", async () => {
+    const { stepsOf } =
+      await import("@/lib/restaurant/kitchen/kitchen-recipes");
+    expect(stepsOf("Aprobada")).toEqual([]);
+    expect(stepsOf("Lista para aprobar")).toEqual([]);
+    expect(
+      stepsOf("Aprobada. El cliente confirmó por teléfono el 2026-10-29.")
+    ).toEqual([]);
+    expect(stepsOf("Approved\nMix the dough.\nBake 20 minutes.")).toEqual([
+      "Mix the dough.",
+      "Bake 20 minutes.",
+    ]);
+    expect(stepsOf(null)).toEqual([]);
+    h.state.db.tables.recipe_versions.find(
+      (v: any) => v.id === V.tacos2
+    ).notes = "Aprobada\nMarinar la carne.";
+    h.state.db.tables.recipe_versions.find((v: any) => v.id === V.sopa1).notes =
+      "Aprobada";
+    const body = await (await get()).json();
+    const byName = (n: string) => body.recipes.find((r: any) => r.name === n);
+    expect(byName("Tacos al pastor").steps).toEqual(["Marinar la carne."]);
+    expect(byName("Sopa del día").steps).toEqual([]);
+  });
+
   it("never carries money: no price, cost or margin key or value, whatever the source rows hold", async () => {
     const raw = await (await get()).text();
     expect(() => assertNoMoneyFields(JSON.parse(raw))).not.toThrow();

@@ -42,6 +42,8 @@ const FREE_TEXT_KEYS = new Set([
   "note",
   "notes",
   "description",
+  // What Milton understood from a message (product names).
+  "understood",
 ]);
 
 // A string that IS an amount: «$12.50», «€ 3», «12,50 €», «3 USD». Anchored on
@@ -93,6 +95,11 @@ export function assertNoMoneyFields(value: unknown): void {
   };
   walk(value, null, 0);
 }
+
+import {
+  UNCLEAR_REASONS,
+  type UnclearReason,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 
 type Row = Record<string, unknown>;
 
@@ -162,6 +169,7 @@ export function serializeKitchenHistoryItem(row: Row) {
     "text",
     "transcript",
     "processed_at",
+    "app_result",
     "created_at",
   ]);
   // kitchen_reports.media_kind only allows photo | voice, so a PDF shows up as
@@ -177,8 +185,68 @@ export function serializeKitchenHistoryItem(row: Row) {
     kind,
     text: strOrNull(p.transcript) ?? strOrNull(p.text),
     status: p.processed_at ? "processed" : "received",
+    result: serializeAppResult(p.app_result),
     createdAt: str(p.created_at),
   };
+}
+
+/**
+ * What Milton did with a message sent from the app, for the card's chips. Only
+ * these fields pass: what happened and product names, never an amount.
+ */
+export function serializeAppResult(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Row;
+  const state =
+    r.state === "processing" || r.state === "done" || r.state === "failed"
+      ? r.state
+      : null;
+  if (!state) return null;
+  const asks =
+    r.asks && typeof r.asks === "object"
+      ? {
+          kind: (r.asks as Row).kind === "amount" ? "amount" : "unit",
+          // Defence in depth: a question that carries any digit or currency is
+          // dropped (the app words it itself), whatever an older row stored.
+          text: noAmount(strOrNull((r.asks as Row).text)),
+        }
+      : null;
+  return {
+    state,
+    noted: r.noted === true,
+    draft: r.draft === true,
+    asks,
+    // Only a known reason code passes. Anything else (for example the raw reply
+    // an older version stored) becomes "other"; its text is never returned.
+    unclear: unclearCode(r.unclear),
+    recipe: r.recipe === true,
+    understood: Array.isArray(r.understood)
+      ? r.understood
+          .filter(
+            (x): x is string => typeof x === "string" && !looksLikePrice(x)
+          )
+          .slice(0, 10)
+      : [],
+  };
+}
+
+/** A product name that is really a price («pan $2.00», «2,50 €»). */
+function looksLikePrice(value: string): boolean {
+  return /[$€£]|\d[\d.,]*\s?(?:usd|eur|mxn|cop|ars|clp|pen|brl)\b|\d+[.,]\d{2}\b/i.test(
+    value
+  );
+}
+
+/** The text, or null when it carries a digit or a currency symbol. */
+function noAmount(value: string | null): string | null {
+  return value !== null && !/[\d$€£]/.test(value) ? value : null;
+}
+
+function unclearCode(value: unknown): UnclearReason | null {
+  if (typeof value !== "string" || value === "") return null;
+  return (UNCLEAR_REASONS as readonly string[]).includes(value)
+    ? (value as UnclearReason)
+    : "other";
 }
 
 export function serializeKitchenUpload(input: {

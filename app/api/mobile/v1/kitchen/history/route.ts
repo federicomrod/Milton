@@ -9,6 +9,7 @@ import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import { serializeKitchenHistoryItem } from "@/lib/restaurant/kitchen/kitchen-serializer";
+import { errorMentionsColumn } from "@/lib/restaurant/missing-schema-column";
 import { kitchenJson } from "@/lib/restaurant/kitchen/mobile-response";
 
 export const dynamic = "force-dynamic";
@@ -39,22 +40,30 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    let query = admin
-      .from("kitchen_reports")
-      .select(
-        "id, media_kind, media_mime, text, transcript, processed_at, created_at"
-      )
-      .eq("company_id", companyId)
-      .eq("staff_id", staff.id)
-      .in("location_id", locationIds)
-      .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE + 1);
-    if (cursor) query = query.lt("created_at", cursor);
-    const { data, error } = await query;
+    // app_result comes with migration 071; until it is applied the history is
+    // read without it (the card just shows «Enviado»).
+    const baseSelect =
+      "id, media_kind, media_mime, text, transcript, processed_at, created_at";
+    const read = (select: string) => {
+      let query = admin
+        .from("kitchen_reports")
+        .select(select)
+        .eq("company_id", companyId)
+        .eq("staff_id", staff.id)
+        .in("location_id", locationIds)
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE + 1);
+      if (cursor) query = query.lt("created_at", cursor);
+      return query;
+    };
+    let { data, error } = await read(`${baseSelect}, app_result`);
+    if (error && errorMentionsColumn(error, "app_result")) {
+      ({ data, error } = await read(baseSelect));
+    }
     if (error) {
       return kitchenJson({ error: d.kitchen.api.historyLoadFailed }, 500);
     }
-    const rows = (data ?? []) as Record<string, unknown>[];
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
     const page = rows.slice(0, PAGE_SIZE);
     const last = page[page.length - 1];
     const nextCursor =

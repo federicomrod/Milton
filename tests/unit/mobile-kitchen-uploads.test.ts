@@ -12,10 +12,14 @@ const TOKEN = "device-token-for-cook-one-0000000000000000000";
 const REF = "client-ref-0001";
 
 const h = vi.hoisted(() => ({
+  schedule: vi.fn(),
   state: { db: null as any },
   ingestSpy: vi.fn(),
 }));
 
+vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", () => ({
+  scheduleAppProcessing: (...a: unknown[]) => h.schedule(...a),
+}));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => h.state.db.client,
 }));
@@ -389,6 +393,69 @@ describe("POST kitchen/uploads/complete", () => {
     expect(
       (await complete({ reportId: "nope", clientRef: REF, path: "p" })).status
     ).toBe(400);
+  });
+});
+
+describe("app messages go through the shared pipeline", () => {
+  const complete = (b: Record<string, unknown>) =>
+    completePOST(post("uploads/complete", b));
+
+  it("a voice note is scheduled for the pipeline once it is registered; a photo is not", async () => {
+    h.schedule.mockClear();
+    const voice = (
+      await ticket({
+        kind: "voice",
+        mime: "audio/mp4",
+        clientRef: "client-ref-voice-1",
+        durationS: 8,
+      })
+    ).body;
+    putObject(voice.path, 50_000);
+    expect(
+      (
+        await complete({
+          reportId: voice.reportId,
+          clientRef: "client-ref-voice-1",
+          path: voice.path,
+        })
+      ).status
+    ).toBe(201);
+    expect(h.schedule).toHaveBeenCalledWith({
+      staffId: STAFF,
+      reportId: voice.reportId,
+    });
+
+    h.schedule.mockClear();
+    const photo = (await ticket({ clientRef: "client-ref-photo-9" })).body;
+    putObject(photo.path);
+    await complete({
+      reportId: photo.reportId,
+      clientRef: "client-ref-photo-9",
+      path: photo.path,
+    });
+    expect(h.schedule).not.toHaveBeenCalled();
+  });
+
+  it("nothing is scheduled when the upload is refused", async () => {
+    h.schedule.mockClear();
+    const voice = (
+      await ticket({
+        kind: "voice",
+        mime: "audio/mp4",
+        clientRef: "client-ref-voice-2",
+      })
+    ).body;
+    // The file never arrived.
+    expect(
+      (
+        await complete({
+          reportId: voice.reportId,
+          clientRef: "client-ref-voice-2",
+          path: voice.path,
+        })
+      ).status
+    ).toBe(409);
+    expect(h.schedule).not.toHaveBeenCalled();
   });
 });
 

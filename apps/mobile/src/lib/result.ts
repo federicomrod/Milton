@@ -22,6 +22,10 @@ export interface ResultView {
   priceNote: string | null;
   /** Milton could not read it. */
   unclear: string | null;
+  /** Products named without a price: the card offers quantity quick replies. */
+  extras: string[];
+  /** «¿Qué cantidad de tomates?» (names only, never an amount). */
+  extrasQuestion: string | null;
 }
 
 /** The app's own words for a reason code (an unknown code reads as «other»). */
@@ -54,11 +58,16 @@ export function describeResult(
     understood: null,
     priceNote: null,
     unclear: null,
+    extras: [],
+    extrasQuestion: null,
   };
   if (!result || result.state !== "done") return empty;
 
   const chips: ChipSpec[] = [];
-  if (result.asks) chips.push({ tone: "amarillo", label: s.status.asks });
+  const extras = (result.extras ?? []).filter(Boolean);
+  if (result.asks || extras.length > 0) {
+    chips.push({ tone: "amarillo", label: s.status.asks });
+  }
   if (result.draft) chips.push({ tone: "grey", label: s.status.awaiting });
   if (result.noted) chips.push({ tone: "mint", label: s.status.noted });
   const understood = result.understood.filter(Boolean);
@@ -85,7 +94,20 @@ export function describeResult(
         : null,
     priceNote: result.draft ? s.status.priceNote : null,
     unclear: result.unclear ? unclearText(result.unclear, s) : null,
+    extras,
+    extrasQuestion:
+      extras.length > 0
+        ? fmt(s.status.extrasAsk, { products: extras.join(", ") })
+        : null,
   };
+}
+
+/** Quantities offered as quick replies on a «¿Qué cantidad…?» card. */
+export const QUICK_QUANTITIES = [1, 2, 5, 10] as const;
+
+/** The message a quick reply sends: «tomates: 5» (no price words, no money). */
+export function quickReplyText(product: string, quantity: number): string {
+  return `${product}: ${quantity}`;
 }
 
 /** The Historial's own «waiting» text: «1 envío guardado…». */
@@ -94,13 +116,49 @@ export function offlineText(count: number, s: Strings): string {
   return fmt(count === 1 ? s.offline.savedOne : s.offline.savedMany, { count });
 }
 
-/** Does this item still wait for Milton's reading (so the app keeps checking)? */
+/** After this long a card still «processing» stops being polled. */
+export const STUCK_AFTER_MS = 120_000;
+
+type Waiting = {
+  kind: ItemKind;
+  result: AppResult | null;
+  createdAt: string;
+  status?: "received" | "processed";
+};
+
+/** The moment the wait counts from: the send, or the last «Reintentar». */
+function waitStart(item: Waiting, since?: number): number {
+  return Math.max(new Date(item.createdAt).getTime(), since ?? 0);
+}
+
+/**
+ * Does this item still wait for Milton's reading (so the app keeps checking)?
+ * Not forever: after two minutes it counts as stuck (isStuck) and polling stops
+ * until the cook taps «Reintentar» (`since`).
+ */
 export function awaitsResult(
-  item: { kind: ItemKind; result: AppResult | null; createdAt: string },
-  now: number
+  item: Waiting,
+  now: number,
+  since?: number
 ): boolean {
   if (item.kind !== "text" && item.kind !== "voice") return false;
-  if (item.result) return item.result.state === "processing";
+  const age = now - waitStart(item, since);
+  if (item.result) {
+    return item.result.state === "processing" && age < STUCK_AFTER_MS;
+  }
   // Just sent, the result row may not be there yet.
-  return now - new Date(item.createdAt).getTime() < 90_000;
+  return age < 90_000;
+}
+
+/**
+ * A text / voice card that stayed on «processing» (or never got a result) for
+ * two minutes: shown as «Por enviar» with «Reintentar». Old history rows that
+ * never had a result (before this feature) are not stuck, only left alone.
+ */
+export function isStuck(item: Waiting, now: number, since?: number): boolean {
+  if (item.kind !== "text" && item.kind !== "voice") return false;
+  const age = now - waitStart(item, since);
+  if (age < STUCK_AFTER_MS) return false;
+  if (item.result) return item.result.state === "processing";
+  return item.status !== "processed" && age < 60 * 60_000;
 }

@@ -12,6 +12,7 @@ import {
   Inter_800ExtraBold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { ToastHost } from "../components/ToastHost";
 import { I18nProvider, useStrings } from "../i18n";
 import { SessionProvider, useSession } from "../session/SessionProvider";
 import { colors, fonts } from "../theme";
@@ -98,6 +99,7 @@ export default function RootLayout() {
         <SessionProvider>
           <StatusBar style="dark" />
           {loaded || failed ? <Routes /> : <Splash />}
+          <ToastHost />
         </SessionProvider>
       </I18nProvider>
     </SafeAreaProvider>

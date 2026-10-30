@@ -525,6 +525,12 @@ function parseNumber(token: string): number | null {
   return v;
 }
 
+// Buying / arrival verbs at the start of a product phrase (folded, no accents).
+const NAME_LEAD_VERB =
+  /^(?:(?:ya|hoy|ayer|ahorita)\s+)?(?:compr(?:amos|aron|e|o|ar)|pedimos|pedi|pidio|pidieron|trajimos|traje|trajo|trajeron|recibimos|recibi|recibio|recibieron|conseguimos|consegui|consiguieron|llegaron|llego)\b\s*,?\s*(?:(?:de|del)\s+)?/;
+const NAME_LEAD_ARTICLE =
+  /^(?:(?:el|la|los|las)\s+|(?:unos|unas)\s+(?:cuantos?\s+|cuantas?\s+)?)/;
+
 function cleanName(
   folded: string,
   original: string,
@@ -548,6 +554,12 @@ function cleanName(
   left(
     /^(?:el\s+)?(?:(?:ultimo|nuevo|actual)\s+)?precios?\s+de(?:l|\s+(?:el|la|los|las))?\s+/
   );
+  // «compramos pan» -> «pan», «pedimos unos tomates» -> «tomates»: a buying
+  // verb and a vague quantity are filler, not part of the product name.
+  for (let i = 0; i < 2; i++) {
+    left(NAME_LEAD_VERB);
+    left(NAME_LEAD_ARTICLE);
+  }
   left(/^(?:el|la|los|las|un|una)\s+/);
   for (let i = 0; i < 3; i++) {
     right(
@@ -896,6 +908,32 @@ export function parsePriceItems(text: string): ItemParse | null {
     out.unclear.push({ label: null, segment: "" });
   }
   return out;
+}
+
+/**
+ * Products named WITHOUT a price next to products that have one:
+ * «pan a 2 dólares el kilo y unos tomates» -> ["tomates"]. The price parser
+ * drops those quietly; the app turns them into a question so nothing the cook
+ * said is lost. Empty unless at least one price was read.
+ */
+export function unpricedMentions(text: string): string[] {
+  const read = parsePriceItems(text);
+  if (!read || read.items.length + read.unitless.length === 0) return [];
+  const p = prepare(text);
+  if (!p) return [];
+  const names: string[] = [];
+  for (const [f, o] of splitSegments(p.folded, p.original)) {
+    if (/\d/.test(f) || /[¿?]/.test(o)) continue;
+    if (REPORT_WORD.test(f) || LOOSE_PRICE_WORD.test(f)) continue;
+    if (NO_PRICE_PHRASE.test(f) || INTRO_WORD.test(f)) continue;
+    if (/\$|dolar|usd|centavo/.test(f)) continue;
+    const name = cleanName(f, o, 0, f.length);
+    if (!name) continue;
+    const words = fold(name).split(" ");
+    if (words.every((w) => FILLER.has(w) || w.length < 3)) continue;
+    if (!names.some((n) => fold(n) === fold(name))) names.push(name);
+  }
+  return names.slice(0, 5);
 }
 
 /** Items with a unit, or «unclear». A price without a unit is «unclear» here. */

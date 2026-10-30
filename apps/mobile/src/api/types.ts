@@ -7,11 +7,13 @@ export interface RedeemResponse {
   deviceToken: string;
   staff: { id: string; name: string };
   location: { id: string; name: string };
+  /** The company's language («es», «en», «de»). */
+  language?: string;
 }
 
 export interface KitchenMe {
   staff: { id: string; name: string };
-  company: { name: string };
+  company: { name: string; language?: string };
   locations: { id: string; name: string }[];
 }
 
@@ -38,6 +40,8 @@ export interface AppResult {
   recipe: boolean;
   /** Product names Milton understood. */
   understood: string[];
+  /** Named without a price beside priced ones: Milton asks how many. */
+  extras?: string[];
 }
 
 export interface HistoryItem {

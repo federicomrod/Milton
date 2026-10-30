@@ -11,6 +11,7 @@ import {
 } from "expo-audio";
 import type { Strings } from "../i18n/strings";
 import { newClientRef } from "../lib/ids";
+import { sentToastText, showToast } from "../lib/toast";
 import { enqueue } from "./outbox";
 
 const MAX_MS = 5 * 60_000;
@@ -105,6 +106,7 @@ export function useVoiceNote(s: Strings) {
       mime: "audio/mp4",
       durationS: Math.round(saved.ms / 1000),
     });
+    showToast(sentToastText(s.status.sent, { kind: "voice" }));
     setBusy(false);
     setSaved(null);
     setPhase("idle");

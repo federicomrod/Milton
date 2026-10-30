@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useStrings } from "../i18n";
 import { newClientRef } from "../lib/ids";
+import { sentToastText, showToast } from "../lib/toast";
 import { enqueue } from "../send/outbox";
 import { colors, radius, space } from "../theme";
 import { Button, Field, Muted } from "./ui";
@@ -88,6 +89,7 @@ export function PhotoFlow({
         ext: "jpg",
         mime: "image/jpeg",
       });
+      showToast(sentToastText(s.status.sent, { kind: "photo" }));
       onDone();
     } catch {
       setError(s.send.photoPrepareFailed);

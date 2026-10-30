@@ -52,6 +52,7 @@ export default function Join() {
         name: res.staff.name,
         location: res.location.name,
         company: null,
+        language: res.language,
       });
     } catch (err) {
       setError(redeemMessage(err, s.errors));

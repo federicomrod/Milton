@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useStrings } from "../i18n";
 import { newClientRef } from "../lib/ids";
+import { sentToastText, showToast } from "../lib/toast";
 import { enqueue } from "../send/outbox";
 import { space } from "../theme";
 import { Button, Field, Muted } from "./ui";
@@ -26,6 +27,7 @@ export function TextFlow({
       kind: "text",
       text: clean.slice(0, 2000),
     });
+    showToast(sentToastText(s.status.sent, { kind: "text", text: clean }));
     onDone();
   }
 

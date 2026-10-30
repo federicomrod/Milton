@@ -55,8 +55,8 @@ export interface ClientDeps {
   getToken: () => Promise<string | null>;
   /** Called once when an authenticated request gets 401. */
   onUnauthorized: () => void | Promise<void>;
-  /** The device language («es», «en», «de»): the server answers in it. */
-  language?: string;
+  /** The company language («es», «en», «de»): the server answers in it. */
+  language?: string | (() => string);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -74,7 +74,9 @@ export function createApiClient(deps: ClientDeps) {
   ): Promise<T> {
     const auth = opts.auth !== false;
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (deps.language) headers["Accept-Language"] = deps.language;
+    const language =
+      typeof deps.language === "function" ? deps.language() : deps.language;
+    if (language) headers["Accept-Language"] = language;
     if (auth) {
       const token = await deps.getToken();
       if (!token) throw new ApiError("unauthorized", 401);

@@ -384,13 +384,13 @@ export default async function CostsAreaPage({
           )}
 
           <CostsTabletCardsRow
-            latestInvoices={latestInvoices}
+            latestInvoices={tab === "compras" ? null : latestInvoices}
             locationId={location ?? null}
             shellParams={shellParams}
           />
 
           <CostsMobileBelow
-            latestInvoices={latestInvoices}
+            latestInvoices={tab === "compras" ? null : latestInvoices}
             locationId={location ?? null}
             shellParams={shellParams}
           />
@@ -399,7 +399,7 @@ export default async function CostsAreaPage({
         {/* Desktop right column: sticky compact cards */}
         <CostsRightColumn>
           <CostsDesktopRightColumn
-            latestInvoices={latestInvoices}
+            latestInvoices={tab === "compras" ? null : latestInvoices}
             locationId={location ?? null}
             shellParams={shellParams}
           />

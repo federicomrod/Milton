@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
   const { admin, staff, companyId, locationIds } = auth;
   try {
     const [company, locations] = await Promise.all([
-      admin.from("companies").select("name").eq("id", companyId).maybeSingle(),
+      admin
+        .from("companies")
+        .select("name, preferred_language")
+        .eq("id", companyId)
+        .maybeSingle(),
       admin
         .from("restaurant_locations")
         .select("id, name")

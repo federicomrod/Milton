@@ -17,7 +17,10 @@ import {
   sendTelegramMessage,
   type InlineKeyboardMarkup,
 } from "@/lib/restaurant/telegram/send";
-import { recordPipelineEvent } from "@/lib/restaurant/kitchen/pipeline/reply-sink";
+import {
+  inAppPipeline,
+  recordPipelineEvent,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 import {
   destinationVars,
   KITCHEN_COPY,
@@ -29,7 +32,10 @@ import {
   currencyName,
   processPriceUpdateSafe,
 } from "@/lib/restaurant/telegram/kitchen-media";
-import { currencySymbolFor } from "@/lib/restaurant/telegram/price-update";
+import {
+  currencySymbolFor,
+  unpricedMentions,
+} from "@/lib/restaurant/telegram/price-update";
 import {
   aiStage,
   isActionable,
@@ -275,6 +281,14 @@ export async function runMessagePipeline(
       ? stage.result
       : await aiStage(text, stage.read, askPriceAi);
     if (isActionable(result)) {
+      // App only: products said without a price beside priced ones are kept as
+      // a question on the card (Telegram's replies stay exactly as they were).
+      if (inAppPipeline()) {
+        const extras = unpricedMentions(text);
+        if (extras.length > 0) {
+          recordPipelineEvent({ kind: "extras", products: extras });
+        }
+      }
       if (await applyPriceResult(result, ctx)) return "handled";
     }
 

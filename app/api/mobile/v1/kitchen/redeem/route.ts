@@ -69,8 +69,24 @@ export async function POST(request: NextRequest) {
         REASON_STATUS[result.reason]
       );
     }
+    // The app speaks the company's language (same setting as the web). A failed
+    // read just means Spanish; it never blocks joining.
+    let language: unknown = null;
+    try {
+      const admin = createAdminClient();
+      const company = await admin
+        .from("companies")
+        .select("preferred_language")
+        .eq("id", result.companyId)
+        .maybeSingle();
+      language = (company.data as { preferred_language?: unknown } | null)
+        ?.preferred_language;
+    } catch {
+      language = null;
+    }
     return kitchenJson(
       serializeKitchenRedeem({
+        language,
         deviceToken: result.deviceToken,
         staffId: result.staffId,
         staffName: result.staffName,

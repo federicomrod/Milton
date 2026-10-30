@@ -44,6 +44,7 @@ const FREE_TEXT_KEYS = new Set([
   "description",
   // What Milton understood from a message (product names).
   "understood",
+  "extras",
 ]);
 
 // A string that IS an amount: «$12.50», «€ 3», «12,50 €», «3 USD». Anchored on
@@ -96,6 +97,7 @@ export function assertNoMoneyFields(value: unknown): void {
   walk(value, null, 0);
 }
 
+import { resolveRestaurantCockpitLanguage } from "@/lib/restaurant/language";
 import {
   UNCLEAR_REASONS,
   type UnclearReason,
@@ -137,7 +139,13 @@ export function serializeKitchenMe(input: {
   const staff = pickAllowed(input.staff, ["id", "display_name"]);
   return {
     staff: { id: str(staff.id), name: str(staff.display_name) },
-    company: { name: str(pickAllowed(input.company, ["name"]).name) },
+    company: {
+      name: str(pickAllowed(input.company, ["name"]).name),
+      // The app shows its text in the company's language, like the web.
+      language: resolveRestaurantCockpitLanguage(
+        input.company?.preferred_language
+      ),
+    },
     locations: input.locations.map((l) => {
       const p = pickAllowed(l, ["id", "name"]);
       return { id: str(p.id), name: str(p.name) };
@@ -151,9 +159,11 @@ export function serializeKitchenRedeem(input: {
   staffName: string;
   locationId: string;
   locationName: string;
+  language?: unknown;
 }) {
   return {
     deviceToken: input.deviceToken,
+    language: resolveRestaurantCockpitLanguage(input.language),
     staff: { id: input.staffId, name: input.staffName },
     location: { id: input.locationId, name: input.locationName },
   };
@@ -220,14 +230,18 @@ export function serializeAppResult(raw: unknown) {
     // an older version stored) becomes "other"; its text is never returned.
     unclear: unclearCode(r.unclear),
     recipe: r.recipe === true,
-    understood: Array.isArray(r.understood)
-      ? r.understood
-          .filter(
-            (x): x is string => typeof x === "string" && !looksLikePrice(x)
-          )
-          .slice(0, 10)
-      : [],
+    understood: productNames(r.understood),
+    // Named without a price (the card asks how many): names only.
+    extras: productNames(r.extras),
   };
+}
+
+function productNames(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter((x): x is string => typeof x === "string" && !looksLikePrice(x))
+        .slice(0, 10)
+    : [];
 }
 
 /** A product name that is really a price («pan $2.00», «2,50 €»). */

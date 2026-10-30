@@ -20,18 +20,18 @@ const ICON: Record<
   { bg: string; fg: string; mark: string }
 > = {
   running_out: {
-    bg: "bg-red-50 dark:bg-red-950/40",
-    fg: "text-red-600",
+    bg: "bg-[#FDE68A]",
+    fg: "text-[#0F172A]",
     mark: "!",
   },
   waste: {
-    bg: "bg-red-50 dark:bg-red-950/40",
-    fg: "text-red-600",
+    bg: "bg-[#FDE68A]",
+    fg: "text-[#0F172A]",
     mark: "♻",
   },
   drafts: {
-    bg: "bg-blue-50 dark:bg-blue-950/40",
-    fg: "text-blue-700 dark:text-blue-300",
+    bg: "bg-[#E7EDFD]",
+    fg: "text-[#1B40C8]",
     mark: "✎",
   },
 };

@@ -17,11 +17,26 @@ export interface KitchenMe {
 
 export type ItemKind = "photo" | "voice" | "document" | "text";
 
+/** What Milton did with a message (serializeAppResult on the server): no amounts. */
+export interface AppResult {
+  state: "processing" | "done" | "failed";
+  /** A stock alert / waste report was stored in Cocina. */
+  noted: boolean;
+  /** A price / purchase waits for a manager in Compras. */
+  draft: boolean;
+  asks: { kind: "unit" | "amount"; text: string | null } | null;
+  unclear: string | null;
+  recipe: boolean;
+  /** Product names Milton understood. */
+  understood: string[];
+}
+
 export interface HistoryItem {
   id: string;
   kind: ItemKind;
   text: string | null;
   status: "received" | "processed";
+  result: AppResult | null;
   createdAt: string;
 }
 

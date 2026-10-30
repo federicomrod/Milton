@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { de, en, es } from "../i18n/strings";
 import {
   ApiError,
   createApiClient,
@@ -104,9 +105,7 @@ describe("api client", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err.kind).toBe("unreachable");
     expect(err.offline).toBe(true);
-    expect(friendlyMessage(err)).toBe(
-      "No pude conectar con Milton. Inténtalo en un momento."
-    );
+    expect(friendlyMessage(err, es.errors)).toBe(es.errors.unreachable);
   });
 
   it("maps no connection and timeouts", async () => {
@@ -164,7 +163,7 @@ describe("api client", () => {
     expect(
       JSON.stringify({ m: err.message, k: err.kind, r: err.reason })
     ).not.toContain(TOKEN);
-    expect(friendlyMessage(err)).not.toContain(TOKEN);
+    expect(friendlyMessage(err, es.errors)).not.toContain(TOKEN);
   });
 
   it("builds query strings safely", async () => {
@@ -182,14 +181,43 @@ describe("api client", () => {
 describe("messages", () => {
   const client = (reason: string, status = 409) =>
     new ApiError("client", status, reason);
-  it("join errors are plain Spanish for used, expired, revoked and invalid", () => {
-    expect(redeemMessage(client("used"))).toMatch(/ya se usó/);
-    expect(redeemMessage(client("expired", 410))).toMatch(/venció/);
-    expect(redeemMessage(client("revoked", 410))).toMatch(/ya no está activa/);
-    expect(redeemMessage(client("invalid", 404))).toMatch(/No encontré/);
-    expect(redeemMessage(new ApiError("network"))).toMatch(/Sin conexión/);
-    expect(redeemMessage(new Error("boom"))).toBe(
-      "Algo salió mal. Inténtalo otra vez."
+  it("join errors are plain text for used, expired, revoked and invalid, in every language", () => {
+    for (const d of [es, en, de]) {
+      expect(redeemMessage(client("used"), d.errors)).toBe(d.errors.used);
+      expect(redeemMessage(client("expired", 410), d.errors)).toBe(
+        d.errors.expired
+      );
+      expect(redeemMessage(client("revoked", 410), d.errors)).toBe(
+        d.errors.revoked
+      );
+      expect(redeemMessage(client("invalid", 404), d.errors)).toBe(
+        d.errors.invalid
+      );
+      expect(redeemMessage(client("x", 429), d.errors)).toBe(d.errors.tooMany);
+      expect(redeemMessage(new ApiError("network"), d.errors)).toBe(
+        d.errors.offline
+      );
+      expect(redeemMessage(new Error("boom"), d.errors)).toBe(d.errors.generic);
+    }
+    expect(redeemMessage(client("used"), es.errors)).toMatch(/ya se usó/);
+    expect(redeemMessage(client("used"), de.errors)).toMatch(/benutzt/);
+  });
+
+  it("sends the device language so the server answers in it", async () => {
+    const fetchImpl = vi.fn(async () => json({ items: [], nextCursor: null }));
+    const api = createApiClient({
+      baseUrl: "https://api.example.test",
+      getToken: async () => TOKEN,
+      onUnauthorized: () => undefined,
+      language: "de",
+      fetchImpl: fetchImpl as never,
+    });
+    await api.history();
+    const init = (
+      fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    )[1];
+    expect((init.headers as Record<string, string>)["Accept-Language"]).toBe(
+      "de"
     );
   });
 });

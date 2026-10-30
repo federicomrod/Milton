@@ -1,53 +1,46 @@
 import React from "react";
-import { Pressable, Text } from "react-native";
-import { Tabs, useRouter } from "expo-router";
-import { MIN_TOUCH, colors, font, space } from "../../theme";
-
-function AccountButton() {
-  const router = useRouter();
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Cuenta"
-      onPress={() => router.push("/cuenta")}
-      style={{
-        minHeight: MIN_TOUCH,
-        minWidth: MIN_TOUCH,
-        justifyContent: "center",
-        paddingHorizontal: space.m,
-      }}
-    >
-      <Text
-        style={{ fontSize: font.body, fontWeight: "700", color: colors.blue }}
-      >
-        Cuenta
-      </Text>
-    </Pressable>
-  );
-}
+import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useStrings } from "../../i18n";
+import { colors, fonts, tint } from "../../theme";
 
 export default function TabsLayout() {
+  const s = useStrings();
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: colors.white },
-        headerTitleStyle: { fontWeight: "700", color: colors.ink },
-        headerShadowVisible: false,
-        headerRight: () => <AccountButton />,
+        // Each screen draws its own white header (greeting, avatar).
+        headerShown: false,
         tabBarActiveTintColor: colors.blue,
-        tabBarInactiveTintColor: colors.ink,
+        tabBarInactiveTintColor: tint.ink45,
         tabBarStyle: {
           backgroundColor: colors.white,
+          borderTopWidth: 1,
           borderTopColor: colors.border,
-          height: 72,
+          height: 84,
+          paddingTop: 8,
         },
-        tabBarLabelStyle: { fontSize: 18, fontWeight: "800" },
-        tabBarIconStyle: { display: "none" },
-        tabBarItemStyle: { justifyContent: "center" },
+        tabBarLabelStyle: { fontSize: 13, fontFamily: fonts.semibold },
       }}
     >
-      <Tabs.Screen name="index" options={{ title: "Enviar" }} />
-      <Tabs.Screen name="historial" options={{ title: "Historial" }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: s.tabs.send,
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="mic-outline" size={26} color={color as string} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="historial"
+        options={{
+          title: s.tabs.history,
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="time-outline" size={26} color={color as string} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

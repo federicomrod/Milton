@@ -11,6 +11,7 @@ const ALLOWED = [
   "#A7F3D0",
   "#FBCFE8",
   "#FDE68A",
+  "#DDD6FE",
 ];
 
 function files(dir: string): string[] {

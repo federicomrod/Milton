@@ -12,6 +12,7 @@ import React, {
 } from "react";
 import { createApiClient, type ApiClient } from "../api/client";
 import { apiBaseUrl } from "../config";
+import { deviceLanguage } from "../i18n";
 import { clearOutbox, startOutbox } from "../send/outbox";
 import {
   clearToken,
@@ -68,6 +69,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       createApiClient({
         baseUrl: apiBaseUrl(),
         getToken,
+        language: deviceLanguage(),
         onUnauthorized: () => void signOut(),
       }),
     [signOut]

@@ -2,6 +2,7 @@
 // Authorization header; errors carry a kind and a status, never the server's
 // text, the URL or the token, so nothing here can leak into a log or a screen.
 
+import type { Strings } from "../i18n/strings";
 import type {
   HistoryPage,
   KitchenMe,
@@ -54,6 +55,8 @@ export interface ClientDeps {
   getToken: () => Promise<string | null>;
   /** Called once when an authenticated request gets 401. */
   onUnauthorized: () => void | Promise<void>;
+  /** The device language («es», «en», «de»): the server answers in it. */
+  language?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -71,6 +74,7 @@ export function createApiClient(deps: ClientDeps) {
   ): Promise<T> {
     const auth = opts.auth !== false;
     const headers: Record<string, string> = { Accept: "application/json" };
+    if (deps.language) headers["Accept-Language"] = deps.language;
     if (auth) {
       const token = await deps.getToken();
       if (!token) throw new ApiError("unauthorized", 401);
@@ -180,39 +184,41 @@ export function createApiClient(deps: ClientDeps) {
 
 export type ApiClient = ReturnType<typeof createApiClient>;
 
-/** Plain-Spanish message for any failure. Never shows server text. */
-export function friendlyMessage(err: unknown): string {
-  if (!(err instanceof ApiError)) return "Algo salió mal. Inténtalo otra vez.";
+type ErrorStrings = Strings["errors"];
+
+/** A plain message for any failure, in the device language. Never server text. */
+export function friendlyMessage(err: unknown, e: ErrorStrings): string {
+  if (!(err instanceof ApiError)) return e.generic;
   switch (err.kind) {
     case "network":
-      return "Sin conexión. Revisa tu internet.";
+      return e.offline;
     case "timeout":
-      return "Tardó demasiado. Inténtalo otra vez.";
+      return e.timeout;
     case "unreachable":
-      return "No pude conectar con Milton. Inténtalo en un momento.";
+      return e.unreachable;
     case "unauthorized":
-      return "Vuelve a entrar con tu invitación.";
+      return e.signIn;
     case "server":
-      return "Milton no responde ahora. Inténtalo en un momento.";
+      return e.server;
     default:
-      return "No se pudo completar. Inténtalo otra vez.";
+      return e.failed;
   }
 }
 
 /** Messages for the join screen. */
-export function redeemMessage(err: unknown): string {
+export function redeemMessage(err: unknown, e: ErrorStrings): string {
   if (err instanceof ApiError && err.kind === "client") {
     switch (err.reason) {
       case "used":
-        return "Esta invitación ya se usó. Pide una nueva.";
+        return e.used;
       case "expired":
-        return "Esta invitación venció. Pide una nueva.";
+        return e.expired;
       case "revoked":
-        return "Esta invitación ya no está activa. Pide una nueva.";
+        return e.revoked;
       case "invalid":
-        return "No encontré esa invitación. Revisa el código.";
+        return e.invalid;
     }
-    if (err.status === 429) return "Demasiados intentos. Espera un minuto.";
+    if (err.status === 429) return e.tooMany;
   }
-  return friendlyMessage(err);
+  return friendlyMessage(err, e);
 }

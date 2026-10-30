@@ -42,3 +42,30 @@ export function formatQuantity(n: number): string {
   if (!Number.isFinite(n)) return "";
   return String(Math.round(n * 1000) / 1000);
 }
+
+/** "14:30" (device time). */
+export function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+export type DayGroup = "today" | "yesterday" | "earlier";
+
+/** Today, yesterday or earlier, by the device's calendar day. */
+export function dayGroup(iso: string, now: Date = new Date()): DayGroup {
+  const d = new Date(iso);
+  const day = (x: Date) =>
+    new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86_400_000);
+  return diff <= 0 ? "today" : diff === 1 ? "yesterday" : "earlier";
+}
+
+/** "Carlos Mejía" -> "CM", "luis" -> "L", "" -> "?" */
+export function initialsOf(name: string | null | undefined): string {
+  const parts = (name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0];
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return `${first}${last}`.toUpperCase();
+}

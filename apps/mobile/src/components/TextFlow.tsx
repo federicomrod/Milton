@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { useStrings } from "../i18n";
 import { newClientRef } from "../lib/ids";
 import { enqueue } from "../send/outbox";
 import { space } from "../theme";
@@ -12,6 +13,7 @@ export function TextFlow({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const s = useStrings();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const clean = value.trim();
@@ -28,25 +30,30 @@ export function TextFlow({
   }
 
   return (
-    <View style={s.wrap}>
+    <View style={st.wrap}>
       <Field
-        label="Mensaje"
+        label={s.send.messageLabel}
         value={value}
         onChangeText={setValue}
         multiline
         autoFocus
         maxLength={2000}
-        placeholder="Por ejemplo: se acabó el limón"
-        style={s.area}
+        placeholder={s.send.messagePlaceholder}
+        style={st.area}
       />
-      {clean ? null : <Muted>Escribe qué pasa en la cocina.</Muted>}
-      <Button label="Enviar" onPress={send} disabled={!clean} busy={busy} />
-      <Button label="Cancelar" variant="secondary" onPress={onCancel} />
+      {clean ? null : <Muted>{s.send.messageHint}</Muted>}
+      <Button
+        label={s.send.sendBtn}
+        onPress={send}
+        disabled={!clean}
+        busy={busy}
+      />
+      <Button label={s.send.cancel} variant="secondary" onPress={onCancel} />
     </View>
   );
 }
 
-const s = StyleSheet.create({
+const st = StyleSheet.create({
   wrap: { gap: space.m },
   area: { minHeight: 140, paddingTop: space.m, textAlignVertical: "top" },
 });

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
+import { useStrings } from "../i18n";
 import { newClientRef } from "../lib/ids";
 import { enqueue } from "../send/outbox";
 import { colors, radius, space } from "../theme";
@@ -23,6 +24,7 @@ export function PhotoFlow({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const s = useStrings();
   const [picked, setPicked] = useState<Picked | null>(null);
   const [caption, setCaption] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,8 +40,8 @@ export function PhotoFlow({
       if (!permission.granted) {
         setError(
           source === "camera"
-            ? "Activa la cámara para Milton en los Ajustes del teléfono."
-            : "Activa las fotos para Milton en los Ajustes del teléfono."
+            ? s.send.cameraPermission
+            : s.send.photosPermission
         );
         return;
       }
@@ -55,7 +57,7 @@ export function PhotoFlow({
       if (asset)
         setPicked({ uri: asset.uri, width: asset.width, height: asset.height });
     } catch {
-      setError("No pude abrir la foto. Inténtalo otra vez.");
+      setError(s.send.photoOpenFailed);
     }
   }
 
@@ -88,31 +90,31 @@ export function PhotoFlow({
       });
       onDone();
     } catch {
-      setError("No pude preparar la foto. Inténtalo otra vez.");
+      setError(s.send.photoPrepareFailed);
       setBusy(false);
     }
   }
 
   return (
-    <View style={s.wrap}>
+    <View style={st.wrap}>
       {picked ? (
         <>
           <Image
             source={{ uri: picked.uri }}
-            style={s.preview}
+            style={st.preview}
             resizeMode="cover"
-            accessibilityLabel="Foto elegida"
+            accessibilityLabel={s.send.photoChosen}
           />
           <Field
-            label="Texto (opcional)"
+            label={s.send.captionLabel}
             value={caption}
             onChangeText={setCaption}
             maxLength={500}
-            placeholder="Por ejemplo: merma de tomate"
+            placeholder={s.send.captionPlaceholder}
           />
-          <Button label="Enviar" onPress={send} busy={busy} />
+          <Button label={s.send.sendBtn} onPress={send} busy={busy} />
           <Button
-            label="Elegir otra"
+            label={s.send.chooseAnother}
             variant="secondary"
             onPress={() => setPicked(null)}
             disabled={busy}
@@ -120,18 +122,22 @@ export function PhotoFlow({
         </>
       ) : (
         <>
-          <Button label="Tomar foto" onPress={() => pick("camera")} big />
           <Button
-            label="Elegir de la galería"
+            label={s.send.takePhoto}
+            icon="camera-outline"
+            onPress={() => pick("camera")}
+          />
+          <Button
+            label={s.send.pickGallery}
+            icon="images-outline"
             variant="secondary"
             onPress={() => pick("library")}
-            big
           />
         </>
       )}
       {error ? <Muted>{error}</Muted> : null}
       <Button
-        label="Cancelar"
+        label={s.send.cancel}
         variant="secondary"
         onPress={onCancel}
         disabled={busy}
@@ -140,7 +146,7 @@ export function PhotoFlow({
   );
 }
 
-const s = StyleSheet.create({
+const st = StyleSheet.create({
   wrap: { gap: space.m },
   preview: {
     width: "100%",

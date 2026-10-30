@@ -16,6 +16,7 @@ import { KITCHEN_UNITS } from "@/lib/restaurant/kitchen-units";
 import { PrimaryBtn } from "./ui";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { useT } from "@/lib/i18n/client";
+import { formatTypedNumber, inputNumber } from "@/lib/restaurant/locale-number";
 import { fmt } from "@/lib/i18n";
 
 export type PostFn = (url: string, body: Record<string, unknown>) => void;
@@ -130,7 +131,7 @@ function ResalePicker({
   canEditPrices: boolean;
   onPriceSaved?: () => void;
 }) {
-  const { d: dict } = useT();
+  const { d: dict, lang } = useT();
   const d = dict.menu.editor.treatment;
   const [ingredients, setIngredients] = useState<IngredientOption[] | null>(
     null
@@ -182,7 +183,7 @@ function ResalePicker({
           cost_date: new Date().toISOString().slice(0, 10),
           quantity: 1,
           unit: priceUnit,
-          total_cost: Number(priceAmount),
+          total_cost: inputNumber(priceAmount, lang),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -255,13 +256,13 @@ function ResalePicker({
                 ? "border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#f6f8fe]"
                 : undefined
             }
-            disabled={busy || !ingredientId || !(Number(qty) > 0)}
+            disabled={busy || !ingredientId || !(inputNumber(qty, lang) > 0)}
             onClick={() =>
               onPost("/api/restaurant/pos/links/resale", {
                 odoo_product_id: product.odoo_product_id,
                 odoo_name: product.odoo_name,
                 ingredient_id: ingredientId,
-                quantity: Number(qty),
+                quantity: inputNumber(qty, lang),
                 unit,
               })
             }
@@ -299,7 +300,7 @@ function ResalePicker({
               <PrimaryBtn
                 disabled={
                   savingPrice ||
-                  !(Number(priceAmount) >= 0) ||
+                  !(inputNumber(priceAmount, lang) >= 0) ||
                   !priceAmount.trim()
                 }
                 onClick={() => void savePrice()}

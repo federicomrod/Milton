@@ -27,6 +27,8 @@ import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { fmt } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { formatTypedNumber, typedNumber } from "@/lib/restaurant/locale-number";
 
 /** "2026-10-29" as a short date in the person's language (29 oct 2026 / Oct 29, 2026 / 29. Okt. 2026). */
 const dateIn = (ymd: string, locale: string) =>
@@ -44,7 +46,11 @@ const dateIn = (ymd: string, locale: string) =>
   });
 
 /** "$34,500" / "34500" / "34.500,5" → 34500; empty or junk → null. */
-function parseNumber(raw: string): number | null {
+function parseNumber(
+  raw: string,
+  lang: PreferredLanguage = "es"
+): number | null {
+  if (lang === "de") return typedNumber(raw, "de");
   const cleaned = raw.replace(/[^\d.,-]/g, "").replace(/,(?=\d{1,2}$)/, ".");
   const plain = cleaned.replace(/,/g, "");
   if (plain === "" || !/^\d*\.?\d+$/.test(plain)) return null;
@@ -74,7 +80,7 @@ export interface ObjetivosFormProps {
 export function ObjetivosForm(props: ObjetivosFormProps) {
   const { currency, refs, cost30, today, available, canEdit } = props;
   const router = useRouter();
-  const { d, locale } = useT();
+  const { d, locale, lang } = useT();
   const g = d.settings.goals;
   const DAYS = d.common.weekdaysShort;
   const money = (n: number, d = 0) =>
@@ -97,16 +103,16 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
   const ticket = level("avg_ticket");
 
   const [revenue, setRevenue] = useState(
-    monthlyRow ? String(monthlyRow.target_value) : ""
+    monthlyRow ? formatTypedNumber(monthlyRow.target_value, lang) : ""
   );
   const [foodPct, setFoodPct] = useState(
-    food.value !== null ? String(food.value) : ""
+    food.value !== null ? formatTypedNumber(food.value, lang) : ""
   );
   const [marginPct, setMarginPct] = useState(
-    margin.value !== null ? String(margin.value) : ""
+    margin.value !== null ? formatTypedNumber(margin.value, lang) : ""
   );
   const [avgTicket, setAvgTicket] = useState(
-    ticket.value !== null ? String(ticket.value) : ""
+    ticket.value !== null ? formatTypedNumber(ticket.value, lang) : ""
   );
   const [comparison, setComparison] = useState<Comparison>(
     props.defaultComparison
@@ -130,7 +136,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     props.startOptions.find((o) => o.value === start)?.label ??
     dateIn(start, locale);
 
-  const monthly = parseNumber(revenue);
+  const monthly = parseNumber(revenue, lang);
   const weights =
     edited ?? monthlyRow?.weekday_weights ?? refs.suggestedWeights ?? null;
   const dim = daysInMonth(today);
@@ -146,7 +152,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
 
   const dirty = useMemo(() => {
     const same = (draft: string, saved: number | null) =>
-      (parseNumber(draft) ?? null) === saved;
+      (parseNumber(draft, lang) ?? null) === saved;
     return !(
       same(revenue, monthlyRow ? monthlyRow.target_value : null) &&
       same(foodPct, food.value) &&
@@ -201,7 +207,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     };
     // A number sets it; a field the person emptied clears it; an untouched empty one is left alone.
     const put = (key: string, draft: string, saved: number | null) => {
-      const n = parseNumber(draft);
+      const n = parseNumber(draft, lang);
       if (n !== null) body[key] = n;
       else if (saved !== null) body[key] = null;
     };
@@ -213,7 +219,7 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
     put("food_cost_pct", foodPct, food.value);
     put("gross_margin_pct", marginPct, margin.value);
     put("avg_ticket", avgTicket, ticket.value);
-    if (parseNumber(revenue) !== null) {
+    if (parseNumber(revenue, lang) !== null) {
       body.weekday_weights = useSplit && weights ? weights : null;
     }
     try {
@@ -318,8 +324,10 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                 />
               </td>
               <td className="px-3 py-3 text-[12px] text-[#6b7385]">
-                {parseNumber(foodPct) !== null
-                  ? fmt(g.redAbove, { value: parseNumber(foodPct) as number })
+                {parseNumber(foodPct, lang) !== null
+                  ? fmt(g.redAbove, {
+                      value: parseNumber(foodPct, lang) as number,
+                    })
                   : g.noGoal}
               </td>
               <td className="py-3 text-[12px] text-[#6b7385]">
@@ -348,9 +356,9 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                 />
               </td>
               <td className="px-3 py-3 text-[12px] text-[#6b7385]">
-                {parseNumber(marginPct) !== null
+                {parseNumber(marginPct, lang) !== null
                   ? fmt(g.greenFrom, {
-                      value: parseNumber(marginPct) as number,
+                      value: parseNumber(marginPct, lang) as number,
                     })
                   : g.noGoal}
               </td>
@@ -453,13 +461,16 @@ export function ObjetivosForm(props: ObjetivosFormProps) {
                       <input
                         autoFocus
                         aria-label={fmt(g.amountOf, { day })}
-                        defaultValue={String(Math.round(amounts[i]))}
+                        defaultValue={formatTypedNumber(
+                          Math.round(amounts[i]),
+                          lang
+                        )}
                         className="mt-1 w-full rounded-md border border-[#1b40c8] px-1 py-1 text-center text-[13px] outline-none"
                         onBlur={() => setEditing(null)}
                         onKeyDown={(e) => {
                           if (e.key === "Escape") setEditing(null);
                           if (e.key === "Enter") {
-                            const n = parseNumber(e.currentTarget.value);
+                            const n = parseNumber(e.currentTarget.value, lang);
                             if (n !== null) {
                               const next = [...amounts];
                               next[i] = n;

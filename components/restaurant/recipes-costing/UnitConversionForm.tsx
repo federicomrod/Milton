@@ -13,6 +13,7 @@ import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { useT } from "@/lib/i18n/client";
 import { fmt, getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { inputNumber } from "@/lib/restaurant/locale-number";
 
 export interface ConversionRow {
   id: string;
@@ -84,7 +85,7 @@ export function UnitConversionForm({
   onSaved: () => void;
   onCancel?: () => void;
 }) {
-  const { d: dict } = useT();
+  const { d: dict, lang } = useT();
   const d = dict.menu.editor.conversion;
   const [a, setA] = useState(unitA);
   const [b, setB] = useState(unitB);
@@ -93,7 +94,10 @@ export function UnitConversionForm({
   const [error, setError] = useState<string | null>(null);
   /** Migration 056 is not applied in this environment. */
   const [unavailable, setUnavailable] = useState(false);
-  const n = Number(factor.replace(",", "."));
+  const n =
+    lang === "de"
+      ? inputNumber(factor, lang)
+      : Number(factor.replace(",", "."));
   const valid =
     n > 0 && Number.isFinite(n) && a.trim() !== "" && b.trim() !== "";
 

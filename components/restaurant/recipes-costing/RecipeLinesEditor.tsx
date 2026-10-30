@@ -42,6 +42,7 @@ import {
 } from "@/lib/restaurant/recipe-costing/editor-cache";
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
 import { useT } from "@/lib/i18n/client";
+import { formatTypedNumber, inputNumber } from "@/lib/restaurant/locale-number";
 import { fmt, getDictionary, type Dictionary } from "@/lib/i18n";
 import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
 import { Chip, GhostBtn, PrimaryBtn } from "./ui";
@@ -950,7 +951,9 @@ function Row({
     if (focus.what === "price") setEditingPrice(true);
     else setQuestionForced(true);
   }
-  const [qty, setQty] = useState(String(line.qty || ""));
+  const [qty, setQty] = useState(
+    line.qty ? formatTypedNumber(line.qty, lang) : ""
+  );
   const [price, setPrice] = useState("");
   /** One click on a price opens the field to type a new one. */
   // An INGREDIENT's price is ingredient data, not recipe data: it can be set on
@@ -1014,7 +1017,7 @@ function Row({
   // before it is matched or created. Never an assumed quantity.
   const fromMenu = unresolved && needsTypedQuantity(line);
   const [menuUnit, setMenuUnit] = useState("");
-  const typedQty = Number(qty);
+  const typedQty = inputNumber(qty, lang);
   const typed: TypedAmount | undefined =
     fromMenu && Number.isFinite(typedQty) && typedQty > 0 && menuUnit
       ? { quantity: typedQty, line_unit: menuUnit }
@@ -1281,7 +1284,7 @@ function Row({
             disabled={!editable}
             onChange={(event) => setQty(event.target.value)}
             onBlur={() => {
-              const n = Number(qty);
+              const n = inputNumber(qty, lang);
               if (Number.isFinite(n) && n > 0 && n !== line.qty) onQty(n);
             }}
             className="inline-block min-w-11 rounded-md border border-[#d5dae3] bg-white px-1.5 py-0.5 text-right"
@@ -1456,7 +1459,7 @@ function Row({
             <GhostBtn
               disabled={!canFixPrice}
               onClick={() => {
-                const n = Number(price);
+                const n = inputNumber(price, lang);
                 if (Number.isFinite(n) && n > 0) onPrice(priceUnit, n);
               }}
             >
@@ -1779,7 +1782,7 @@ function Picker({
   onCreate: (draft: CreateDraft) => void;
   onCreatePreparation: (draft: PreparationDraft) => void;
 }) {
-  const { d: dict, locale } = useT();
+  const { d: dict, locale, lang } = useT();
   const d = dict.menu.editor;
   const UNIT_LABEL: Record<string, string> = d.units;
   const startQuery =
@@ -1825,8 +1828,8 @@ function Picker({
 
   function add() {
     if (!active || busy) return;
-    if (target.mode === "add" && !(Number(qty) > 0)) return;
-    onPick(active, Number(qty) || 1, unit);
+    if (target.mode === "add" && !(inputNumber(qty, lang) > 0)) return;
+    onPick(active, inputNumber(qty, lang) || 1, unit);
   }
 
   function move(step: number) {
@@ -1884,7 +1887,11 @@ function Picker({
                   onClick={() => choose(o)}
                   onDoubleClick={() => {
                     choose(o);
-                    onPick(o, Number(qty) || 1, unitsLike(o.unit)[0] ?? "unit");
+                    onPick(
+                      o,
+                      inputNumber(qty, lang) || 1,
+                      unitsLike(o.unit)[0] ?? "unit"
+                    );
                   }}
                   className={
                     "flex w-full items-center gap-2 border-b border-slate-100 px-2 py-1 text-left last:border-b-0 " +
@@ -1942,7 +1949,9 @@ function Picker({
             ) : null}
             <PrimaryBtn
               disabled={
-                busy || !active || (target.mode === "add" && !(Number(qty) > 0))
+                busy ||
+                !active ||
+                (target.mode === "add" && !(inputNumber(qty, lang) > 0))
               }
               onClick={add}
             >

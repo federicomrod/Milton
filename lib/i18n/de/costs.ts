@@ -57,6 +57,7 @@ export const costs: Dictionary["costs"] = {
     saving: "Speichern …",
     save: "Änderungen speichern",
     saved: "Änderungen gespeichert.",
+    invalidNumber: "Geben Sie eine gültige Zahl ein, zum Beispiel 1.234,50.",
     saveFailed: "Die Änderungen konnten nicht gespeichert werden.",
     history: "Verlauf",
     historyEmpty: "Noch keine Änderungen.",

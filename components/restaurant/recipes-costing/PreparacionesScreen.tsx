@@ -30,6 +30,7 @@ import {
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { useT } from "@/lib/i18n/client";
+import { formatTypedNumber, inputNumber } from "@/lib/restaurant/locale-number";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
 function money(value: number): string {
@@ -362,7 +363,7 @@ function PreparationDetail({
   onApproveStart: (componentId: string) => void;
   onApproveFailed: (componentId: string, message: string) => void;
 }) {
-  const { d, fmt } = useT();
+  const { d, fmt, lang } = useT();
   const w = d.menu.workspace.preparaciones;
   const unitPlural = w.unitPlural as Record<string, string>;
   const unitSingular = w.unitSingular as Record<string, string>;
@@ -380,7 +381,7 @@ function PreparationDetail({
   const handleState = useCallback((next: EditorState) => {
     setState(next);
     if (next.preparation?.yield) {
-      setQty(String(next.preparation.yield.value));
+      setQty(formatTypedNumber(next.preparation.yield.value, lang));
       setUnit(next.preparation.yield.unit);
     }
   }, []);
@@ -489,12 +490,12 @@ function PreparationDetail({
                 ))}
               </select>
               <GhostBtn
-                disabled={busy || !(Number(qty) > 0)}
+                disabled={busy || !(inputNumber(qty, lang) > 0)}
                 onClick={() =>
                   void post("/api/restaurant/recipes/editor", {
                     component_id: componentId,
                     action: "set_yield",
-                    quantity: Number(qty),
+                    quantity: inputNumber(qty, lang),
                     unit,
                   })
                 }

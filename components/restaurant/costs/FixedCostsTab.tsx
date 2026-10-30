@@ -36,6 +36,11 @@ import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  formatTypedNumber,
+  parseLocaleNumber,
+  typedNumber,
+} from "@/lib/restaurant/locale-number";
 
 export function monthLabelEs(
   month: string,
@@ -45,15 +50,20 @@ export function monthLabelEs(
   return `${getDictionary(lang).rentabilidad.months[m - 1]} ${y}`;
 }
 
-/** Typed text → number; "" / invalid → null (an empty field is missing, never 0). */
-export function parseTyped(text: string): number | null {
-  const clean = text.trim().replace(/,/g, "");
-  if (clean === "") return null;
-  const n = Number(clean);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+/**
+ * Typed text → number by the language's format; "" / invalid → null (an empty
+ * field is missing, never 0). Invalid text is reported by the field, never
+ * guessed (see lib/restaurant/locale-number.ts).
+ */
+export function parseTyped(
+  text: string,
+  lang: PreferredLanguage = "es"
+): number | null {
+  return typedNumber(text, lang);
 }
 
-const toText = (v: number | null) => (v === null ? "" : String(v));
+const toText = (v: number | null, lang: PreferredLanguage) =>
+  v === null ? "" : formatTypedNumber(v, lang);
 
 const FLAG = "⚑";
 
@@ -125,7 +135,8 @@ export function FixedCostsTab({
       for (const c of FIXED_COST_CATEGORIES) {
         const l = byCategory.get(c);
         out[c] = toText(
-          c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null)
+          c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
+          lang
         );
       }
       return out;
@@ -144,7 +155,7 @@ export function FixedCostsTab({
   const splitPreview = useMemo(
     () =>
       previewGroupSplit(
-        AMOUNT_CATEGORIES.map((c) => parseTyped(values[c])),
+        AMOUNT_CATEGORIES.map((c) => parseTyped(values[c], lang)),
         splitRule,
         splitTargets
       ),
@@ -159,7 +170,8 @@ export function FixedCostsTab({
     FIXED_COST_CATEGORIES.some((c) => {
       const l = byCategory.get(c);
       const saved = toText(
-        c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null)
+        c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
+        lang
       );
       return values[c].trim() !== saved;
     }) ||
@@ -168,7 +180,7 @@ export function FixedCostsTab({
   // Live: pure and cheap, recomputed on every keystroke.
   const live = useMemo(() => {
     const typed = FIXED_COST_CATEGORIES.map((c) => {
-      const n = parseTyped(values[c]);
+      const n = parseTyped(values[c], lang);
       return {
         category: c,
         amount: c === "impuestos" ? null : n,
@@ -210,7 +222,14 @@ export function FixedCostsTab({
     router.push(costsTabHref("costos-fijos", params));
   }
 
+  // Text that does not fit the language's number format is shown as an error
+  // on its field and blocks saving: never saved as a different number.
+  const invalid = new Set(
+    FIXED_COST_CATEGORIES.filter((c) => !parseLocaleNumber(values[c], lang).ok)
+  );
+
   async function save() {
+    if (invalid.size > 0) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -222,7 +241,7 @@ export function FixedCostsTab({
           location_id: view.locationId,
           entries: FIXED_COST_CATEGORIES.map((category) => ({
             category,
-            value: parseTyped(values[category]),
+            value: parseTyped(values[category], lang),
             repeats,
             split_rule: isGroup ? splitRule : null,
           })),
@@ -260,7 +279,7 @@ export function FixedCostsTab({
     <button
       type="button"
       onClick={save}
-      disabled={saving || !dirty}
+      disabled={saving || !dirty || invalid.size > 0}
       className="inline-flex h-11 min-w-[9rem] items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {saving ? f.saving : f.save}
@@ -401,6 +420,10 @@ export function FixedCostsTab({
                       inputMode="decimal"
                       autoComplete="off"
                       value={values[category]}
+                      aria-invalid={invalid.has(category) || undefined}
+                      aria-describedby={
+                        invalid.has(category) ? `${id}-error` : undefined
+                      }
                       onChange={(e) =>
                         setValues((v) => ({ ...v, [category]: e.target.value }))
                       }
@@ -416,6 +439,15 @@ export function FixedCostsTab({
                       </span>
                     ) : null}
                   </div>
+                  {invalid.has(category) ? (
+                    <p
+                      id={`${id}-error`}
+                      role="alert"
+                      className="w-full text-right text-sm text-[#151c2c]"
+                    >
+                      <span aria-hidden="true">{FLAG}</span> {f.invalidNumber}
+                    </p>
+                  ) : null}
                 </div>
               );
             })}

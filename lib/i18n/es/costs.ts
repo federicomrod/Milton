@@ -53,6 +53,7 @@ export const costs = {
     saving: "Guardando…",
     save: "Guardar cambios",
     saved: "Cambios guardados.",
+    invalidNumber: "Escribe un número válido, por ejemplo 1,234.50.",
     saveFailed: "No se pudieron guardar los cambios.",
     history: "Historial",
     historyEmpty: "Aún no hay cambios.",

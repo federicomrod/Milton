@@ -54,6 +54,7 @@ export const costs: Dictionary["costs"] = {
     saving: "Saving…",
     save: "Save changes",
     saved: "Changes saved.",
+    invalidNumber: "Enter a valid number, for example 1,234.50.",
     saveFailed: "Could not save the changes.",
     history: "History",
     historyEmpty: "No changes yet.",

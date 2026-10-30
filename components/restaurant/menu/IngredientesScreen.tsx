@@ -687,7 +687,7 @@ function IngredienteDetail({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const parsedPrice = parsePriceInput(priceDraft);
+  const parsedPrice = parsePriceInput(priceDraft, lang);
   const priceChanged =
     priceDraft.trim() !== "" &&
     (parsedPrice === null ||

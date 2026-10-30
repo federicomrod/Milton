@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cookInitials } from "@/lib/restaurant/kitchen-draft-source";
+import { KitchenAppInviteCard } from "./KitchenAppInviteCard";
 import { KitchenQrCard } from "./KitchenQrCard";
 import {
   KitchenQrResult,
@@ -374,6 +375,7 @@ export function KitchenConnectCard({
             </DialogHeader>
             <KitchenStaffCard canManage={canManage} locations={locations} />
             <KitchenQrCard canManage={canManage} />
+            {canManage ? <KitchenAppInviteCard locations={locations} /> : null}
           </DialogContent>
         </Dialog>
       </section>

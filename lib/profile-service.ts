@@ -21,6 +21,10 @@ export interface Company {
   id: string;
   name: string;
   industry?: string;
+  /** Legal details (migration 070); absent until it is applied. */
+  legal_name?: string | null;
+  tax_id?: string | null;
+  address?: string | null;
   created_by: string;
   /** Display currency derived from the company's data (GET only). */
   currency?: string;

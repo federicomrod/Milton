@@ -6,13 +6,17 @@
 // press of «Guardar turnos» answers: saved, nothing to save, or why not.
 
 import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
 import { useRouter } from "next/navigation";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { fmt, getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
+import {
+  EditorButtons,
+  useInlineEditor,
+} from "@/components/restaurant/config/InlineEditCard";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   ALL_WEEKDAYS,
@@ -77,6 +81,7 @@ export function TurnosForm(props: TurnosFormProps) {
   const ds = d.settings.shifts;
   const DAY_LABEL = d.common.weekdaysShort;
   const router = useRouter();
+  const editor = useInlineEditor();
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? "");
   const [drafts, setDrafts] = useState<Record<string, Draft[]>>(() =>
     Object.fromEntries(
@@ -103,6 +108,12 @@ export function TurnosForm(props: TurnosFormProps) {
   const check = useMemo(() => validateShifts(rows), [rows]);
   const activeCount = rows.filter((r) => r.active).length;
   const dirty = !sameShifts(rows, props.shiftsByRestaurant[restaurantId]);
+
+  // Unsaved edits warn before leaving the page.
+  useEffect(() => {
+    editor.setDirty(dirty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty]);
 
   async function save() {
     if (!available) {
@@ -142,32 +153,40 @@ export function TurnosForm(props: TurnosFormProps) {
         cutoff?: string;
       };
       if (!res.ok) throw new Error(userErrorMessage(json, ds.saveFailed));
-      setStatus({
-        kind: "ok",
-        message: fmt(ds.saved, {
-          cutoff: json.cutoff ?? minutesToTime(cutoff),
-        }),
+      const message = fmt(ds.saved, {
+        cutoff: json.cutoff ?? minutesToTime(cutoff),
       });
+      setStatus({ kind: "ok", message });
+      editor.saved(message);
       router.refresh();
     } catch (err) {
-      setStatus({
-        kind: "error",
-        message: err instanceof Error ? err.message : ds.saveFailed,
-      });
+      const message = err instanceof Error ? err.message : ds.saveFailed;
+      setStatus({ kind: "error", message });
+      editor.failed(message);
     } finally {
       setSaving(false);
     }
   }
 
   const input =
-    "h-8 rounded-lg border border-[#c6d3f5] bg-white px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20 disabled:bg-[#f4f6fb] disabled:text-[#8a92a3]";
+    "h-8 rounded-lg border border-[#E5E7EB] bg-white px-2 text-[13px] text-[#151c2c] outline-none focus:border-[#1b40c8] focus:ring-2 focus:ring-[#1b40c8]/20 disabled:bg-[#f4f6fb] disabled:text-[#8a92a3]";
 
   return (
-    <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-[1.3fr_1fr]">
-      <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+      className="grid grid-cols-1 gap-[14px]"
+    >
+      <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-4">
         <div className="mb-2 flex items-center gap-3">
           <h2 className="text-[14px] font-bold">{ds.title}</h2>
-          <label className="ml-auto inline-flex items-center gap-2 text-[12px] text-[#4a5a85]">
+          <label
+            hidden={restaurants.length < 2}
+            className="ml-auto inline-flex items-center gap-2 text-[12px] text-[#4a5a85]"
+          >
             {ds.restaurant}
             <select
               aria-label={ds.restaurant}
@@ -176,7 +195,7 @@ export function TurnosForm(props: TurnosFormProps) {
                 setRestaurantId(e.target.value);
                 setStatus({ kind: "idle" });
               }}
-              className="rounded-lg border border-[#c6d3f5] bg-white px-2 py-1 text-[13px] font-semibold outline-none focus:border-[#1b40c8]"
+              className="rounded-lg border border-[#E5E7EB] bg-white px-2 py-1 text-[13px] font-semibold outline-none focus:border-[#1b40c8]"
             >
               {restaurants.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -189,7 +208,7 @@ export function TurnosForm(props: TurnosFormProps) {
         {!available ? (
           <p
             role="status"
-            className="mb-3 rounded-lg border border-[#f5c98b] bg-[#fff8ec] px-3 py-2 text-[13px]"
+            className="mb-3 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] px-3 py-2 text-[13px]"
           >
             {NOT_AVAILABLE_YET} {ds.unavailableNote}
           </p>
@@ -252,7 +271,7 @@ export function TurnosForm(props: TurnosFormProps) {
                     <summary className="cursor-pointer list-none text-[12px] text-[#6b7385]">
                       {weekdaysLabel(r.weekdays, lang)} ▾
                     </summary>
-                    <div className="absolute z-10 mt-1 flex gap-1.5 rounded-lg border border-[#dbe3f7] bg-white p-2 shadow-md">
+                    <div className="absolute z-10 mt-1 flex gap-1.5 rounded-lg border border-[#E5E7EB] bg-white p-2 shadow-md">
                       {ALL_WEEKDAYS.map((d) => (
                         <label
                           key={d}
@@ -298,7 +317,7 @@ export function TurnosForm(props: TurnosFormProps) {
                 aria-label={fmt(ds.removeNamed, {
                   name: r.name || ds.removeDefault,
                 })}
-                className="ml-auto text-[12px] text-[#8a92a3] hover:text-[#c03535]"
+                className="ml-auto text-[12px] text-[#8a92a3] hover:text-[#0F172A]"
               >
                 {ds.remove}
               </button>
@@ -345,34 +364,28 @@ export function TurnosForm(props: TurnosFormProps) {
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           {status.kind === "ok" || status.kind === "info" ? (
+            <span role="status" className="text-[12px] text-[#64748B]">
+              {status.message}
+            </span>
+          ) : null}
+          {status.kind === "error" || !check.ok ? (
             <span
-              role="status"
-              className={`text-[12px] font-semibold ${status.kind === "ok" ? "text-[#15803d]" : "text-[#4a5a85]"}`}
+              role="alert"
+              className="rounded-md border border-[#0F172A] px-2 py-1 text-[12px] text-[#0F172A]"
             >
-              {status.message}
+              ⚑{" "}
+              {status.kind === "error"
+                ? status.message
+                : check.ok
+                  ? ""
+                  : check.message}
             </span>
           ) : null}
-          {status.kind === "error" ? (
-            <span role="alert" className="text-[12px] text-[#c03535]">
-              {status.message}
-            </span>
-          ) : !check.ok ? (
-            <span role="alert" className="text-[12px] text-[#c03535]">
-              {check.message}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving}
-            className="ml-auto rounded-lg bg-[#1b40c8] px-4 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-50"
-          >
-            {saving ? ds.saving : ds.saveButton}
-          </button>
         </div>
+        <EditorButtons saving={saving} onCancel={editor.close} />
       </section>
 
-      <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 text-[13px]">
+      <section className="rounded-[14px] border border-[#E5E7EB] bg-white p-4 text-[13px]">
         <h2 className="text-[14px] font-bold">{ds.howTitle}</h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[12px] text-[#6b7385]">
           <li>{ds.how1}</li>
@@ -390,7 +403,7 @@ export function TurnosForm(props: TurnosFormProps) {
               : fmt(ds.nowMany, { n: activeCount })}
         </p>
       </section>
-    </div>
+    </form>
   );
 }
 

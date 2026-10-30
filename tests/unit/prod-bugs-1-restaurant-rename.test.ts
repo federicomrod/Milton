@@ -293,18 +293,18 @@ describe("the app around it", () => {
     expect(ctx).toContain("!l.archived_at");
     expect(ctx).toContain("archivedColumnMissingUntil");
   });
-  it("Configuración has a «Restaurante» tab with the inline rename", () => {
-    expect(read("components/restaurant/settings/ConfigTabs.tsx")).toContain(
-      "configTabHref"
+  it("Configuración has a «Restaurantes» section with the inline rename", () => {
+    expect(read("lib/restaurant/config-sections.ts")).toContain(
+      '"restaurantes"'
     );
     expect(read("lib/restaurant/config-tabs.ts")).toContain('"restaurante"');
     expect(read("app/dashboard/restaurant/data/page.tsx")).toContain(
-      "<RestaurantTab"
+      "<RestaurantesSection"
     );
     expect(read("lib/restaurant/navigation.ts")).toContain(
       'restaurant: "restaurante"'
     );
-    const form = read("components/restaurant/settings/RestaurantNamesForm.tsx");
+    const form = read("components/restaurant/config/sites/RestaurantRows.tsx");
     expect(form).toContain("router.refresh()");
     expect(form).toContain("/api/restaurant/locations/");
   });

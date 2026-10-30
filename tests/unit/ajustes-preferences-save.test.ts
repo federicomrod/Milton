@@ -124,20 +124,29 @@ describe("company name on Ajustes", () => {
     expect(state.from).not.toHaveBeenCalled();
   });
 
-  it("Ajustes only renames when the name actually changed", () => {
-    const page = read("app/dashboard/settings/page.tsx");
-    expect(page).toContain("nameChanged ? updateCompany(companyForm)");
-    expect(page).toContain("saveUserPreferences(form)");
-    expect(page).not.toContain("upsertUserProfile");
+  it("Ajustes only sends what actually changed", () => {
+    const card = read("components/restaurant/config/ajustes/CompanyCard.tsx");
+    expect(card).toContain("Only what changed goes out.");
+    expect(card).toContain("values[k].trim() !== saved[k].trim()");
+    const client = read(
+      "components/restaurant/config/ajustes/AjustesClient.tsx"
+    );
+    expect(client).toContain("saveUserPreferences(next)");
+    expect(client).not.toContain("upsertUserProfile");
   });
 });
 
 describe("Moneda shows the company's currency, never a made-up EUR", () => {
   it("Ajustes and Cuenta have no EUR fallback", () => {
-    const page = read("app/dashboard/settings/page.tsx");
+    const page = [
+      "components/restaurant/config/ajustes/AjustesClient.tsx",
+      "components/restaurant/config/sections/AjustesSection.tsx",
+    ]
+      .map(read)
+      .join("\n");
     expect(page).not.toMatch(/currency:\s*"EUR"/);
     expect(page).not.toMatch(/\|\| "EUR"/);
-    expect(page).toContain("companyCurrency");
+    expect(page).toContain("resolveCompanyCurrency");
     const account = read("app/dashboard/account/page.tsx");
     expect(account).not.toMatch(/\|\| "EUR"/);
   });
@@ -149,25 +158,22 @@ describe("Moneda shows the company's currency, never a made-up EUR", () => {
   });
 });
 
-describe("Ajustes hides preferences nothing uses yet", () => {
-  const page = () => read("app/dashboard/settings/page.tsx");
-  it("no Zona horaria, Formato de fecha or Formato de número fields", () => {
-    expect(page()).not.toContain('htmlFor="timezone"');
-    expect(page()).not.toContain('htmlFor="date_format"');
-    expect(page()).not.toContain('htmlFor="number_format"');
-    expect(page()).not.toContain("Preferencias regionales");
+describe("Ajustes is the one place for preferences and company info", () => {
+  const page = () =>
+    read("components/restaurant/config/ajustes/AjustesClient.tsx");
+  it("shows Zona horaria, Formato de fecha and Formato de número, saving on change", () => {
+    expect(read("lib/i18n/es/config-ajustes.ts")).toContain("Zona horaria");
+    expect(page()).toContain("changePref(");
+    expect(page()).toContain("date_format");
+    expect(page()).toContain("number_format");
   });
-  it("still keeps and saves the stored values, so they can come back", () => {
-    expect(page()).toContain("timezone: profile.timezone");
-    expect(page()).toContain("date_format: profile.date_format");
-    expect(page()).toContain("number_format: profile.number_format");
-    expect(page()).toContain("saveUserPreferences(form)");
+  it("saves the whole preferences object, so stored values are kept", () => {
+    expect(page()).toContain("saveUserPreferences(next)");
+    expect(page()).toContain("...prefs");
   });
-  it("Tema stays editable; Moneda and Industria are read-only", () => {
-    expect(page()).toContain('htmlFor="theme"');
-    expect(page()).toContain('handleChange("theme"');
-    expect(page()).toMatch(/id="currency"\s+aria-readonly="true"/);
-    expect(page()).toMatch(/id="industry"\s+aria-readonly="true"/);
+  it("Tema is editable; Moneda is read-only and not changed here", () => {
+    expect(page()).toContain('changePref("theme"');
+    expect(page()).toContain("a.prefs.currencyHint");
     expect(page()).not.toContain("industry: e.target.value");
   });
   it("Cuenta no longer repeats the preferences", () => {

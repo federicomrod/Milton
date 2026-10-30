@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Notice } from "@/components/restaurant/config/account/Notice";
 import { Mail, Send } from "lucide-react";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import { useT } from "@/lib/i18n/client";
@@ -67,7 +67,18 @@ async function parseJsonSafely(
   }
 }
 
-export function EmailBriefingCard() {
+export function EmailBriefingCard({
+  embedded = false,
+  onSaved,
+  onCancel,
+  onDirty,
+}: {
+  /** Inside Configuración › Mi cuenta: no Card chrome, Cancelar button. */
+  embedded?: boolean;
+  onSaved?: () => void;
+  onCancel?: () => void;
+  onDirty?: (dirty: boolean) => void;
+} = {}) {
   const { d, fmt } = useT();
   const c = d.comms.emailCard;
   const CADENCE_LABELS: Record<Cadence, string> = {
@@ -127,6 +138,17 @@ export function EmailBriefingCard() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!onDirty || !prefs) return;
+    onDirty(
+      cadence !== prefs.cadence ||
+        recipient.trim() !== (prefs.recipient ?? "") ||
+        weekday !== prefs.weekday ||
+        timezone !== prefs.timezone
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cadence, recipient, weekday, timezone, prefs]);
+
   const recipientValid = EMAIL_PATTERN.test(recipient.trim());
   const timezoneChosen = timezone.trim().length > 0;
   const canSave = cadence === "off" || (recipientValid && timezoneChosen);
@@ -174,6 +196,8 @@ export function EmailBriefingCard() {
         timezone,
       });
       setSaveFeedback({ kind: "success", message: c.saved });
+      onDirty?.(false);
+      onSaved?.();
     } catch {
       setSaveFeedback({
         kind: "error",
@@ -220,179 +244,168 @@ export function EmailBriefingCard() {
   // so the button should only appear available when that's true.
   const canSendTest = !!prefs?.recipient && prefs.cadence !== "off";
 
+  const Wrapper = embedded ? EmbeddedBody : CardBody;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Mail className="h-5 w-5" />
-          {c.title}
-        </CardTitle>
-        <CardDescription>{c.description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {loading ? (
-          <p className="text-sm text-muted-foreground">{c.loading}</p>
-        ) : loadError ? (
-          <Alert variant="destructive">
-            <AlertDescription>{loadError}</AlertDescription>
-          </Alert>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="briefing-cadence">{c.cadence}</Label>
-              <Select
-                value={cadence}
-                onValueChange={(v) => handleCadenceChange(v as Cadence)}
-              >
-                <SelectTrigger id="briefing-cadence" className="h-11 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(CADENCE_LABELS) as Cadence[]).map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {CADENCE_LABELS[c]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+    <Wrapper
+      icon={<Mail className="h-5 w-5" />}
+      title={c.title}
+      description={c.description}
+    >
+      {loading ? (
+        <p className="text-sm text-muted-foreground">{c.loading}</p>
+      ) : loadError ? (
+        <Notice kind="error">{loadError}</Notice>
+      ) : (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="briefing-cadence">{c.cadence}</Label>
+            <Select
+              value={cadence}
+              onValueChange={(v) => handleCadenceChange(v as Cadence)}
+            >
+              <SelectTrigger id="briefing-cadence" className="h-11 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(CADENCE_LABELS) as Cadence[]).map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {CADENCE_LABELS[c]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-            {cadence !== "off" && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="briefing-recipient">{c.recipient}</Label>
-                  <Input
-                    id="briefing-recipient"
-                    type="email"
-                    placeholder="owner@yourrestaurant.com"
-                    value={recipient}
-                    onChange={(e) => setRecipient(e.target.value)}
-                    maxLength={254}
-                  />
-                  {recipient.trim().length > 0 && !recipientValid && (
-                    <p className="text-xs text-destructive">{c.invalidEmail}</p>
-                  )}
-                </div>
-
-                {cadence === "weekly" && (
-                  <div className="space-y-2">
-                    <Label htmlFor="briefing-weekday">{c.weekday}</Label>
-                    <Select
-                      value={String(weekday)}
-                      onValueChange={(v) => setWeekday(Number(v))}
-                    >
-                      <SelectTrigger
-                        id="briefing-weekday"
-                        className="h-11 w-full"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {c.weekdays.map((label, i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+          {cadence !== "off" && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="briefing-recipient">{c.recipient}</Label>
+                <Input
+                  id="briefing-recipient"
+                  type="email"
+                  placeholder="owner@yourrestaurant.com"
+                  value={recipient}
+                  onChange={(e) => setRecipient(e.target.value)}
+                  maxLength={254}
+                />
+                {recipient.trim().length > 0 && !recipientValid && (
+                  <p className="text-xs text-[#0F172A]">⚑ {c.invalidEmail}</p>
                 )}
+              </div>
 
+              {cadence === "weekly" && (
                 <div className="space-y-2">
-                  <Label htmlFor="briefing-timezone">{c.timezone}</Label>
-                  <Select value={timezone} onValueChange={setTimezone}>
+                  <Label htmlFor="briefing-weekday">{c.weekday}</Label>
+                  <Select
+                    value={String(weekday)}
+                    onValueChange={(v) => setWeekday(Number(v))}
+                  >
                     <SelectTrigger
-                      id="briefing-timezone"
+                      id="briefing-weekday"
                       className="h-11 w-full"
                     >
-                      <SelectValue placeholder={c.timezonePlaceholder} />
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      {getTimezones().map((tz) => (
-                        <SelectItem key={tz} value={tz}>
-                          {tz}
+                    <SelectContent>
+                      {c.weekdays.map((label, i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-              </>
-            )}
+              )}
 
-            <Button
-              onClick={handleSave}
-              disabled={saving || !canSave}
-              className="w-full sm:w-auto"
-            >
-              {saving ? c.saving : c.save}
-            </Button>
-            {cadence !== "off" && !timezoneChosen ? (
-              <p className="text-xs text-muted-foreground">
-                {c.timezoneMissing}
-              </p>
-            ) : null}
-
-            {saveFeedback && (
-              <Alert
-                variant={
-                  saveFeedback.kind === "error" ? "destructive" : "default"
-                }
-                className={
-                  saveFeedback.kind === "success"
-                    ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-900/20"
-                    : undefined
-                }
-              >
-                <AlertDescription
-                  className={
-                    saveFeedback.kind === "success"
-                      ? "text-green-800 dark:text-green-300"
-                      : undefined
-                  }
-                >
-                  {saveFeedback.message}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {canSendTest && (
-              <div className="pt-2 border-t border-border space-y-3">
-                <Button
-                  variant="outline"
-                  onClick={handleSendTest}
-                  disabled={sendingTest}
-                  className="w-full sm:w-auto gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  {sendingTest ? c.sending : c.sendTest}
-                </Button>
-                {testFeedback && (
-                  <Alert
-                    variant={
-                      testFeedback.kind === "error" ? "destructive" : "default"
-                    }
-                    className={
-                      testFeedback.kind === "success"
-                        ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-900/20"
-                        : undefined
-                    }
-                  >
-                    <AlertDescription
-                      className={
-                        testFeedback.kind === "success"
-                          ? "text-green-800 dark:text-green-300"
-                          : undefined
-                      }
-                    >
-                      {testFeedback.message}
-                    </AlertDescription>
-                  </Alert>
-                )}
+              <div className="space-y-2">
+                <Label htmlFor="briefing-timezone">{c.timezone}</Label>
+                <Select value={timezone} onValueChange={setTimezone}>
+                  <SelectTrigger id="briefing-timezone" className="h-11 w-full">
+                    <SelectValue placeholder={c.timezonePlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-60">
+                    {getTimezones().map((tz) => (
+                      <SelectItem key={tz} value={tz}>
+                        {tz}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-          </>
-        )}
-      </CardContent>
+            </>
+          )}
+
+          <Button
+            onClick={handleSave}
+            disabled={saving || !canSave}
+            className="w-full sm:w-auto"
+          >
+            {saving ? c.saving : c.save}
+          </Button>
+          {cadence !== "off" && !timezoneChosen ? (
+            <p className="text-xs text-muted-foreground">{c.timezoneMissing}</p>
+          ) : null}
+
+          {saveFeedback && (
+            <Notice kind={saveFeedback.kind === "error" ? "error" : "ok"}>
+              {saveFeedback.message}
+            </Notice>
+          )}
+
+          {canSendTest && (
+            <div className="pt-2 border-t border-border space-y-3">
+              <Button
+                variant="outline"
+                onClick={handleSendTest}
+                disabled={sendingTest}
+                className="w-full sm:w-auto gap-2"
+              >
+                <Send className="h-4 w-4" />
+                {sendingTest ? c.sending : c.sendTest}
+              </Button>
+              {testFeedback && (
+                <Notice kind={testFeedback.kind === "error" ? "error" : "ok"}>
+                  {testFeedback.message}
+                </Notice>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      {embedded && onCancel ? (
+        <Button type="button" variant="outline" onClick={onCancel}>
+          {d.config.shared.cancel}
+        </Button>
+      ) : null}
+    </Wrapper>
+  );
+}
+
+function CardBody({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {icon}
+          {title}
+        </CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
     </Card>
   );
+}
+
+function EmbeddedBody({ children }: { children: React.ReactNode }) {
+  return <div className="min-w-0 space-y-4">{children}</div>;
 }

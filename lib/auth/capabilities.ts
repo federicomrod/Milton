@@ -32,7 +32,8 @@ export type Capability =
   | "odoo.sync"
   | "odoo.diagnostics"
   | "imports.run"
-  | "company.edit";
+  | "company.edit"
+  | "team.manage";
 
 export const KNOWN_ROLES: readonly Role[] = [
   "owner",
@@ -78,6 +79,8 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   "imports.run": OWNER_ADMIN_MANAGER,
   // The company's own data (name, restaurants, agents settings): owner and admin.
   "company.edit": OWNER_ADMIN,
+  // Invite, remove and revoke web members (Configuración › Equipo): owner only.
+  "team.manage": ["owner"],
 };
 
 /** Capabilities Milton staff do not get just by being staff. */
@@ -96,6 +99,17 @@ export function normalizeRole(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const role = raw.trim().toLowerCase();
   return role || null;
+}
+
+/** True for the company owner (the one table for role names lives here). */
+export function isOwnerRole(raw: unknown): boolean {
+  return normalizeRole(raw) === "owner";
+}
+
+/** The two roles a workspace invite can carry. */
+export function isInviteRole(raw: unknown): raw is "owner" | "member" {
+  const role = normalizeRole(raw);
+  return role === "owner" || role === "member";
 }
 
 const warnedRoles = new Set<string>();
@@ -149,6 +163,7 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "odoo.diagnostics": DEFAULT_FORBIDDEN_MESSAGE,
   "imports.run": "Tu rol no puede importar recetas.",
   "company.edit": "Tu rol no puede cambiar los datos de la empresa.",
+  "team.manage": "Solo el propietario puede gestionar el equipo.",
 };
 
 /** Every capability as a plain object: what the server sends to the client. */

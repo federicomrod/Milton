@@ -1,10 +1,10 @@
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { getDictionary } from "@/lib/i18n";
-import { can, resolveActor } from "@/lib/auth/permissions";
-import { ObjetivosForm } from "@/components/restaurant/settings/ObjetivosForm";
-import { AppliesTo } from "@/components/restaurant/settings/AppliesTo";
+import { can } from "@/lib/auth/capabilities";
+import { ObjetivosCard } from "@/components/restaurant/config/goals/ObjetivosCard";
 import { createClient } from "@/lib/supabase/server";
 import {
+  getCachedActor,
   getCachedAuthUser,
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
@@ -24,14 +24,14 @@ import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-serve
 import { periodCostKpisFromDishEconomics } from "@/lib/restaurant/costing/dish-economics-adapter";
 
 /** Configuración › Objetivos: the goals Cockpit and Ventas draw as lines. */
-export async function ObjetivosTab({ aplica }: { aplica?: string }) {
+export async function ObjetivosSection({ aplica }: { aplica?: string }) {
   const user = await getCachedAuthUser();
   const companyId = user ? await getCachedCompanyId(user.id) : null;
   if (!user || !companyId) {
     const { lang } = await loadRestaurantShellChrome();
     return (
-      <p className="text-[13px] text-[#8a92a3]">
-        {getDictionary(lang).settings.tabs.noCompanyForGoals}
+      <p className="text-sm text-[#64748B]">
+        {getDictionary(lang).config.shared.noCompany}
       </p>
     );
   }
@@ -47,7 +47,7 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
         .order("name", { ascending: true }),
       loadTargetsConfig(supabase, companyId),
       loadDefaultComparison(supabase, companyId),
-      resolveActor(supabase, user.id, { companyId }),
+      getCachedActor(user.id, companyId),
     ]);
   const restaurants = (locations.data ?? []) as Array<{
     id: string;
@@ -99,9 +99,8 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
     }
   }
 
-  // «Vigente desde»: the month of the latest sales first (so a goal applies to
-  // the data you are looking at, also when the POS data is older than today),
-  // then this month, the first month of data, and always.
+  // «Vigente desde»: the month of the latest sales first, then this month, the
+  // first month of data, and always.
   const startOptions = buildStartOptions({
     today,
     refDay: refs.refDay,
@@ -109,25 +108,18 @@ export async function ObjetivosTab({ aplica }: { aplica?: string }) {
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <AppliesTo restaurants={restaurants} value={applyTo} />
-      </div>
-      <ObjetivosForm
-        // A different restaurant is a different form: start it from its own targets.
-        key={applyTo ?? "todos"}
-        currency={currency}
-        restaurants={restaurants}
-        applyTo={applyTo}
-        rows={config.rows}
-        available={config.available}
-        refs={refs}
-        cost30={cost30}
-        today={today}
-        startOptions={startOptions}
-        defaultComparison={parseComparison(defaultComparison)}
-        canEdit={can(actor, "targets.edit")}
-      />
-    </div>
+    <ObjetivosCard
+      currency={currency}
+      restaurants={restaurants}
+      applyTo={applyTo}
+      rows={config.rows}
+      available={config.available}
+      refs={refs}
+      cost30={cost30}
+      today={today}
+      startOptions={startOptions}
+      defaultComparison={parseComparison(defaultComparison)}
+      canEdit={can(actor, "targets.edit")}
+    />
   );
 }

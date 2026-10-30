@@ -15,6 +15,7 @@ import { settings } from "./es/settings";
 import { errors } from "./es/errors";
 import { comms } from "./es/comms";
 import { admin } from "./es/admin";
+import { config } from "./es/config";
 
 export const es = {
   common,
@@ -33,4 +34,5 @@ export const es = {
   errors,
   comms,
   admin,
+  config,
 } as const;

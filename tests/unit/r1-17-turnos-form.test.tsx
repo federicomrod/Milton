@@ -61,7 +61,7 @@ describe("TurnosForm", () => {
     expect(html).toContain("Almuerzo");
     expect(html).toContain("Cena");
     expect(html).toContain("+ Añadir turno");
-    expect(html).toContain("Guardar turnos");
+    expect(html).toContain("Guardar");
     expect(html).toContain("Vista de 24 horas");
     expect(html).toContain("Otro horario");
     // nothing crosses midnight in the first restaurant: 04:00
@@ -73,7 +73,7 @@ describe("TurnosForm", () => {
   });
   it("the save button is never disabled for being clean (it answers instead)", () => {
     expect(draw()).toMatch(
-      /<button type="button"(?![^>]*disabled="")[^>]*>Guardar turnos/
+      /<button type="submit"(?![^>]*disabled="")[^>]*>Guardar/
     );
   });
   it("without migration 054 it says so and the fields are disabled", () => {

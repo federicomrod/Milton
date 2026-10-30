@@ -1,0 +1,40 @@
+export const configAjustes = {
+  language: {
+    label: "Idioma",
+    aria: "Idioma de Milton",
+    hint: "Se aplica a toda la app, los briefings y los avisos de tu empresa.",
+    saved: "Idioma guardado.",
+    saveFailed: "No pudimos guardar el idioma. Inténtalo de nuevo.",
+  },
+  prefs: {
+    timezone: "Zona horaria",
+    currency: "Moneda",
+    currencyHint: "Sale de los datos de tu restaurante.",
+    format: "Formato",
+    dateFormat: "Fecha",
+    numberFormat: "Números",
+    theme: "Tema",
+    themeLight: "Claro",
+    themeDark: "Oscuro",
+    themeSystem: "Sistema",
+    saved: "Guardado",
+    saveFailed: "No pudimos guardar tu preferencia. Inténtalo de nuevo.",
+  },
+  company: {
+    name: "Nombre",
+    legalName: "Razón social",
+    taxId: "ID fiscal",
+    address: "Dirección",
+    unavailable: "Estos datos aún no están disponibles en tu cuenta.",
+  },
+  errors: {
+    nameRequired: "Escribe un nombre (hasta 120 letras).",
+    legalNameTooLong: "La razón social admite hasta 160 letras.",
+    taxIdTooLong: "El ID fiscal admite hasta 40 caracteres.",
+    addressTooLong: "La dirección admite hasta 240 letras.",
+    fieldInvalid: "Revisa este dato.",
+    notAvailable:
+      "Razón social, ID fiscal y dirección aún no están disponibles. Inténtalo más tarde.",
+    saveFailed: "No pude guardar los datos de la empresa.",
+  },
+} as const;

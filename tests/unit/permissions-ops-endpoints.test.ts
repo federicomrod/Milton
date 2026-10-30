@@ -94,25 +94,26 @@ vi.mock("@/lib/restaurant/odoo/load-connection", () => ({
     response: NextResponse.json({ error: "gate-passed" }, { status: 418 }),
   }),
 }));
-// Configuración tabs: the forms only record the props they receive.
-vi.mock("@/components/restaurant/settings/TurnosForm", () => ({
-  TurnosForm: (props: Record<string, unknown>) => {
+// Configuración sections: the cards only record the props they receive.
+vi.mock("@/components/restaurant/config/goals/TurnosCard", () => ({
+  TurnosCard: (props: Record<string, unknown>) => {
     state.captured.push(props);
     return null;
   },
 }));
-vi.mock("@/components/restaurant/settings/ObjetivosForm", () => ({
-  ObjetivosForm: (props: Record<string, unknown>) => {
+vi.mock("@/components/restaurant/config/goals/ObjetivosCard", () => ({
+  ObjetivosCard: (props: Record<string, unknown>) => {
     state.captured.push(props);
     return null;
   },
-}));
-vi.mock("@/components/restaurant/settings/AppliesTo", () => ({
-  AppliesTo: () => null,
 }));
 vi.mock("@/lib/restaurant/auth-user", () => ({
   getCachedAuthUser: async () => ({ id: USER }),
   getCachedCompanyId: async () => state.companyId,
+  getCachedActor: async (userId: string, companyId: string) => {
+    const { resolveActor } = await import("@/lib/auth/permissions");
+    return resolveActor(userClient() as never, userId, { companyId });
+  },
 }));
 vi.mock("@/lib/restaurant/business-day-server", async (importOriginal) => {
   const actual =
@@ -153,8 +154,8 @@ import { POST as odooSync } from "@/app/api/restaurant/pos/odoo-sync/route";
 import { GET as odooDiagnostics } from "@/app/api/restaurant/pos/odoo-combo-diagnostics/route";
 import { POST as targetsPost } from "@/app/api/restaurant/targets/route";
 import { POST as shiftsPost } from "@/app/api/restaurant/shifts/route";
-import { TurnosTab } from "@/components/restaurant/settings/tabs/TurnosTab";
-import { ObjetivosTab } from "@/components/restaurant/settings/tabs/ObjetivosTab";
+import { TurnosSection } from "@/components/restaurant/config/sections/TurnosSection";
+import { ObjetivosSection } from "@/components/restaurant/config/sections/ObjetivosSection";
 import { REPORT_TYPES } from "@/lib/restaurant/telegram/kitchen-reports";
 import { loadCompanyRole, resolveActor } from "@/lib/auth/permissions";
 
@@ -392,11 +393,11 @@ describe("targets and shifts: targets.edit / shifts.edit", () => {
   });
 });
 
-describe("Configuración tabs: the server decides canEdit", () => {
+describe("Configuración sections: the server decides canEdit", () => {
   async function propsOf(tab: () => Promise<unknown>) {
     state.captured = [];
     const element = (await tab()) as { props?: Record<string, unknown> };
-    // The tab returns the form itself (Turnos) or a wrapper around it.
+    // The section returns the card that gets canEdit.
     const { renderToStaticMarkup } = await import("react-dom/server");
     renderToStaticMarkup(element as never);
     return state.captured[0];
@@ -411,16 +412,16 @@ describe("Configuración tabs: the server decides canEdit", () => {
     ] as const) {
       state.store.company_memberships = [];
       member(B, role);
-      expect((await propsOf(() => TurnosTab()))?.canEdit).toBe(expected);
+      expect((await propsOf(() => TurnosSection()))?.canEdit).toBe(expected);
     }
   });
 
   it("Objetivos: owner can edit, a member cannot", async () => {
     member(B, "owner");
-    expect((await propsOf(() => ObjetivosTab({})))?.canEdit).toBe(true);
+    expect((await propsOf(() => ObjetivosSection({})))?.canEdit).toBe(true);
     state.store.company_memberships = [];
     member(B, "member");
-    expect((await propsOf(() => ObjetivosTab({})))?.canEdit).toBe(false);
+    expect((await propsOf(() => ObjetivosSection({})))?.canEdit).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   allowed: true,
   updates: [] as Array<Record<string, unknown>>,
   dbError: false,
+  dbMessage: "x",
 }));
 
 vi.mock("@/lib/restaurant/api-auth", () => ({
@@ -26,7 +27,7 @@ vi.mock("@/lib/restaurant/api-auth", () => ({
             select: () => chain,
             maybeSingle: async () => ({
               data: row,
-              error: state.dbError ? { message: "x" } : null,
+              error: state.dbError ? { message: state.dbMessage } : null,
             }),
           };
           return chain;
@@ -61,6 +62,7 @@ describe("PATCH /api/restaurant/company", () => {
     state.allowed = true;
     state.updates = [];
     state.dbError = false;
+    state.dbMessage = "x";
   });
 
   it("still renames with {name}", async () => {
@@ -108,5 +110,77 @@ describe("PATCH /api/restaurant/company", () => {
     const { PATCH } = await import("@/app/api/restaurant/company/route");
     const res = await PATCH(patch({ preferred_language: "de" }));
     expect(res.status).toBe(400);
+  });
+
+  it("saves trimmed legal fields; empty clears to null", async () => {
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const res = await PATCH(
+      patch({ legal_name: "  Casa SA ", tax_id: "", address: "Calle 1" })
+    );
+    expect(res.status).toBe(200);
+    expect(state.updates[0]).toMatchObject({
+      legal_name: "Casa SA",
+      tax_id: null,
+      address: "Calle 1",
+    });
+    expect(state.updates[0]).not.toHaveProperty("name");
+  });
+
+  it("rejects too-long legal fields and bad types without writing", async () => {
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const long = await PATCH(patch({ tax_id: "x".repeat(41) }));
+    expect(long.status).toBe(400);
+    expect((await long.json()).field).toBe("tax_id");
+    const bad = await PATCH(patch({ address: 5 }));
+    expect(bad.status).toBe(400);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it("answers «not available yet» when migration 070 is missing", async () => {
+    state.dbError = true;
+    state.dbMessage =
+      "Could not find the 'tax_id' column of 'companies' in the schema cache";
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const res = await PATCH(patch({ tax_id: "A1" }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe(
+      getDictionary("es").config.ajustes.errors.notAvailable
+    );
+  });
+
+  it("saves trimmed legal fields; empty clears to null", async () => {
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const res = await PATCH(
+      patch({ legal_name: "  Casa SA ", tax_id: "", address: "Calle 1" })
+    );
+    expect(res.status).toBe(200);
+    expect(state.updates[0]).toMatchObject({
+      legal_name: "Casa SA",
+      tax_id: null,
+      address: "Calle 1",
+    });
+    expect(state.updates[0]).not.toHaveProperty("name");
+  });
+
+  it("rejects too-long legal fields and bad types without writing", async () => {
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const long = await PATCH(patch({ tax_id: "x".repeat(41) }));
+    expect(long.status).toBe(400);
+    expect((await long.json()).field).toBe("tax_id");
+    const bad = await PATCH(patch({ address: 5 }));
+    expect(bad.status).toBe(400);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it("answers «not available yet» when migration 070 is missing", async () => {
+    state.dbError = true;
+    state.dbMessage =
+      "Could not find the 'tax_id' column of 'companies' in the schema cache";
+    const { PATCH } = await import("@/app/api/restaurant/company/route");
+    const res = await PATCH(patch({ tax_id: "A1" }));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe(
+      getDictionary("es").config.ajustes.errors.notAvailable
+    );
   });
 });

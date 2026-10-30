@@ -216,8 +216,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
       </form>
 
       {error && (
-        <div className="space-y-2 rounded-md border border-red-200 px-3 py-3 dark:border-red-900">
-          <p className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-400">
+        <div className="space-y-2 rounded-md border border-[#0F172A] px-3 py-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-[#0F172A]">
             <AlertTriangle className="h-4 w-4" />
             {error.error}
           </p>
@@ -238,7 +238,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
                 <Badge
                   key={m}
                   variant="outline"
-                  className="text-xs font-mono border-red-300 text-red-700 dark:text-red-400"
+                  className="text-xs font-mono border-[#0F172A] text-[#0F172A]"
                 >
                   {m}
                 </Badge>
@@ -263,8 +263,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
       )}
 
       {summary && (
-        <div className="space-y-3 rounded-md border border-green-200 px-3 py-3 dark:border-green-900">
-          <p className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+        <div className="space-y-3 rounded-md border border-[#A7F3D0] px-3 py-3">
+          <p className="flex items-center gap-2 text-sm font-medium text-[#0F172A]">
             <CheckCircle2 className="h-4 w-4" />
             {t(
               lang,

@@ -245,12 +245,19 @@ describe("client gating reads the server answer", () => {
     for (const f of [
       "components/restaurant/TelegramConnectionCard.tsx",
       "components/restaurant/settings/PosSalesUploadPanel.tsx",
-      "app/dashboard/settings/page.tsx",
       "components/restaurant/RestaurantShell.tsx",
     ]) {
       const src = readFileSync(f, "utf8");
       expect(src, f).toMatch(/useCan\(/);
       expect(src, f).not.toMatch(/role\s*===|"owner"|"admin"/);
     }
+    // Ajustes: the server answers can(actor, "company.edit"); the client
+    // control only receives that answer.
+    const ajustes = readFileSync(
+      "components/restaurant/config/sections/AjustesSection.tsx",
+      "utf8"
+    );
+    expect(ajustes).toMatch(/can\(actor, "company\.edit"\)/);
+    expect(ajustes).not.toMatch(/role\s*===|"owner"|"admin"/);
   });
 });

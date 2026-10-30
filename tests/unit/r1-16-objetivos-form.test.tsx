@@ -76,8 +76,8 @@ describe("ObjetivosForm", () => {
     expect(html).toContain(
       "Vigente desde 1 oct 2026 · los meses anteriores guardan su objetivo"
     );
-    expect(html).toContain("Guardar objetivos");
-    expect(html).toContain("bg-[#1b40c8]");
+    expect(html).toContain("Guardar");
+    expect(html).toContain("bg-[#1B40C8]");
     expect(html).not.toContain("bg-[#f28c28]");
   });
   it("a blank goal is 'sin objetivo', never 0", () => {
@@ -125,7 +125,7 @@ describe("Vigente desde and an always-answering save button", () => {
     expect(html).toContain("Desde siempre · todo el historial");
     expect(html).toContain("Vigente desde 1 oct 2026");
     expect(html).toMatch(
-      /<button type="button"(?![^>]*disabled="")[^>]*>Guardar objetivos/
+      /<button type="submit"(?![^>]*disabled="")[^>]*>Guardar/
     );
   });
 });

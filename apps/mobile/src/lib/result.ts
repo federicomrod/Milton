@@ -1,6 +1,5 @@
 // What a message's card shows once Milton has read it (pure, so it is tested):
-// chips, the question when Milton needs one more answer, and what was
-// understood. Never an amount: the cook does not see prices.
+// chips and what was understood (every product named). Never an amount: the cook does not see prices.
 
 import type { AppResult, ItemKind, UnclearReason } from "../api/types";
 import { fmt, type Strings } from "../i18n/strings";
@@ -14,18 +13,12 @@ export interface ChipSpec {
 
 export interface ResultView {
   chips: ChipSpec[];
-  /** Milton's question (a unit question), or the app's own words for an amount one. */
-  question: string | null;
   /** «pan, queso fresco» next to the lavender «Esto entendí» chip. */
   understood: string | null;
   /** «Los precios los ve tu encargado.» whenever a price went to the manager. */
   priceNote: string | null;
   /** Milton could not read it. */
   unclear: string | null;
-  /** Products named without a price: the card offers quantity quick replies. */
-  extras: string[];
-  /** «¿Qué cantidad de tomates?» (names only, never an amount). */
-  extrasQuestion: string | null;
 }
 
 /** The app's own words for a reason code (an unknown code reads as «other»). */
@@ -54,20 +47,13 @@ export function describeResult(
   const sent: ChipSpec = { tone: "mint", label: s.status.sent };
   const empty: ResultView = {
     chips: [sent],
-    question: null,
     understood: null,
     priceNote: null,
     unclear: null,
-    extras: [],
-    extrasQuestion: null,
   };
   if (!result || result.state !== "done") return empty;
 
   const chips: ChipSpec[] = [];
-  const extras = (result.extras ?? []).filter(Boolean);
-  if (result.asks || extras.length > 0) {
-    chips.push({ tone: "amarillo", label: s.status.asks });
-  }
   if (result.draft) chips.push({ tone: "grey", label: s.status.awaiting });
   if (result.noted) chips.push({ tone: "mint", label: s.status.noted });
   const understood = result.understood.filter(Boolean);
@@ -81,33 +67,13 @@ export function describeResult(
 
   return {
     chips,
-    // A unit question comes from the server's copy (product names, no amounts);
-    // when it has none, and for an amount question, the app uses its own words.
-    question: result.asks
-      ? result.asks.kind === "amount"
-        ? s.status.amountAsk
-        : (result.asks.text ?? s.status.unitAsk)
-      : null,
     understood:
       understood.length > 0 && (result.draft || result.noted)
         ? understood.join(", ")
         : null,
     priceNote: result.draft ? s.status.priceNote : null,
     unclear: result.unclear ? unclearText(result.unclear, s) : null,
-    extras,
-    extrasQuestion:
-      extras.length > 0
-        ? fmt(s.status.extrasAsk, { products: extras.join(", ") })
-        : null,
   };
-}
-
-/** Quantities offered as quick replies on a «¿Qué cantidad…?» card. */
-export const QUICK_QUANTITIES = [1, 2, 5, 10] as const;
-
-/** The message a quick reply sends: «tomates: 5» (no price words, no money). */
-export function quickReplyText(product: string, quantity: number): string {
-  return `${product}: ${quantity}`;
 }
 
 /** The Historial's own «waiting» text: «1 envío guardado…». */

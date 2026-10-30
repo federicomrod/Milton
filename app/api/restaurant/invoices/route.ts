@@ -166,6 +166,7 @@ export async function GET(req: NextRequest) {
         : null,
       line_counts: summaries.get(inv.id)?.counts ?? emptyLineCounts(),
       line_preview: summaries.get(inv.id)?.preview ?? [],
+      line_amounts: summaries.get(inv.id)?.amounts,
     };
   });
 

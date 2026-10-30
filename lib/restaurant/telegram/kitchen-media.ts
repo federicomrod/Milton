@@ -52,8 +52,8 @@ import {
 } from "@/lib/restaurant/kitchen-ingredient-match";
 import {
   currencySymbolFor,
-  formatPriceUpdateItems,
-  type PriceUpdateItem,
+  formatDraftLines,
+  type DraftLine,
 } from "@/lib/restaurant/telegram/price-update";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -487,7 +487,8 @@ export interface PriceUpdateInput {
   chatId: number;
   reportId: string | null;
   dateSec: number | null;
-  items: PriceUpdateItem[];
+  /** Every product of the message: what was not said stays null, nothing is dropped. */
+  items: DraftLine[];
   origin: "voice" | "text";
   /** «Cambiar restaurante» button on the success reply (default routing). */
   replyMarkup?: InlineKeyboardMarkup;
@@ -714,10 +715,13 @@ export async function processPriceUpdate(
       description: item.name,
       supplier_item_name: item.name,
       supplier_sku: null,
-      quantity: 1,
+      quantity: item.quantity ?? null,
       unit: item.unit,
       unit_cost: item.price,
-      line_total: item.price,
+      line_total:
+        item.quantity != null && item.price != null
+          ? item.quantity * item.price
+          : null,
       tax_amount: null,
     })),
   };
@@ -740,6 +744,8 @@ export async function processPriceUpdate(
       staff_id: staff.id,
     },
     strictPrices: true,
+    // Never drop a product: «Sin precio» / «Falta» for what was not said.
+    keepIncomplete: true,
     // The cook says «harina de trigo»: match it to the ingredient of that name.
     matchByIngredientName: true,
   });
@@ -776,10 +782,7 @@ export async function processPriceUpdate(
   });
   const received = renderKitchenCopy(KITCHEN_COPY.PRICE_UPDATE_RECEIVED, {
     ...destinationVars(staff),
-    items: formatPriceUpdateItems(
-      input.items,
-      currencySymbolFor(companyCurrency)
-    ),
+    items: formatDraftLines(input.items, currencySymbolFor(companyCurrency)),
   });
   const notFound =
     created.unmatched > 0

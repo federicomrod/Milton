@@ -910,30 +910,145 @@ export function parsePriceItems(text: string): ItemParse | null {
   return out;
 }
 
+// A buying verb (folded): the message is about a purchase.
+const BUY_SRC =
+  "(?:compr(?:amos|aron|e|o|ar)|pedimos|pedi|pidio|pidieron|trajimos|traje|trajo|trajeron|recibimos|recibi|recibio|recibieron|conseguimos|consegui|consiguieron)";
+const BUY_VERB = new RegExp("\\b" + BUY_SRC + "\\b");
+const QTY_WORDS = Object.keys(WORD_VALUES)
+  .sort((a, b) => b.length - a.length)
+  .join("|");
+
 /**
- * Products named WITHOUT a price next to products that have one:
- * «pan a 2 dólares el kilo y unos tomates» -> ["tomates"]. The price parser
- * drops those quietly; the app turns them into a question so nothing the cook
- * said is lost. Empty unless at least one price was read.
+ * One product of a kitchen message as a Compras line. Anything not said is
+ * null (never invented): Compras shows «Sin precio» / «Falta» for it and the
+ * manager completes the line in Revisar.
  */
-export function unpricedMentions(text: string): string[] {
-  const read = parsePriceItems(text);
-  if (!read || read.items.length + read.unitless.length === 0) return [];
+export type DraftLine = {
+  name: string;
+  price: number | null;
+  unit: string | null;
+  quantity?: number | null;
+  currency?: Currency | null;
+};
+
+function quantityLine(f: string, o: string): DraftLine | null {
+  let lo = 0;
+  const verb = new RegExp(
+    "^(?:(?:ya|hoy|ayer|ahorita)\\s+)?" + BUY_SRC + "\\b\\s*,?\\s*"
+  ).exec(f);
+  if (verb) lo = verb[0].length;
+  const rest = f.slice(lo);
+  const qty = (token: string): number | null => {
+    const n = /^\d/.test(token)
+      ? Number(token.replace(",", "."))
+      : (WORD_VALUES[token] ?? NaN);
+    return Number.isFinite(n) && n > 0 && n <= 100000 ? n : null;
+  };
+  // «3 kg de harina», «dos libras de masa»
+  const withUnit = new RegExp(
+    "^(\\d+(?:[.,]\\d+)?|" + QTY_WORDS + ")\\s*" + UNIT + "\\s+(?:de\\s+)?"
+  ).exec(rest);
+  if (withUnit) {
+    const quantity = qty(withUnit[1]);
+    const name = cleanName(f, o, lo + withUnit[0].length, f.length);
+    if (quantity === null || !name) return null;
+    return {
+      name,
+      price: null,
+      unit: canonicalUnit(withUnit[2], withUnit[2]),
+      quantity,
+    };
+  }
+  // «3 tomates»: a count of things
+  const count = /^(\d+)\s+(?:de\s+)?(?=[a-zñ])/.exec(rest);
+  if (count) {
+    const quantity = qty(count[1]);
+    const name = cleanName(f, o, lo + count[0].length, f.length);
+    if (quantity === null || !name) return null;
+    return { name, price: null, unit: "unidad", quantity };
+  }
+  return null;
+}
+
+/** A segment without its closing punctuation or a leading «y». */
+function trimSegment(f: string, o: string): [string, string] {
+  let fs = f;
+  let os = o;
+  const tail = /[\s.,;:!?¡¿]+$/.exec(fs);
+  if (tail) {
+    fs = fs.slice(0, tail.index);
+    os = os.slice(0, tail.index);
+  }
+  const head = /^[\s,;:¡¿]*(?:y\s+)?/.exec(fs);
+  if (head && head[0].length > 0) {
+    fs = fs.slice(head[0].length);
+    os = os.slice(head[0].length);
+  }
+  return [fs, os];
+}
+
+/**
+ * The parts of a purchase message the price parser does NOT turn into a line:
+ * products named with no price («y unos tomates») and quantities without a
+ * price («compramos 3 kg de harina»). `stockText` is the stock talk of the
+ * same message («se acabó el queso»), for the stock path. Nothing is dropped:
+ * a message without a buying verb or a price is not a purchase, and gives
+ * only its stock text.
+ */
+export function purchaseMentions(text: string): {
+  lines: DraftLine[];
+  stockText: string | null;
+} {
   const p = prepare(text);
-  if (!p) return [];
-  const names: string[] = [];
-  for (const [f, o] of splitSegments(p.folded, p.original)) {
-    if (/\d/.test(f) || /[¿?]/.test(o)) continue;
-    if (REPORT_WORD.test(f) || LOOSE_PRICE_WORD.test(f)) continue;
-    if (NO_PRICE_PHRASE.test(f) || INTRO_WORD.test(f)) continue;
-    if (/\$|dolar|usd|centavo/.test(f)) continue;
+  if (!p) return { lines: [], stockText: null };
+  const parse = parsePriceItems(text);
+  const priced =
+    !!parse &&
+    parse.items.length +
+      parse.unitless.length +
+      parse.ambiguous.length +
+      parse.skippedNoPrice.length >
+      0;
+  const buying = priced || BUY_VERB.test(p.folded);
+  const lines: DraftLine[] = [];
+  const stock: string[] = [];
+  for (const [f0, o0] of splitSegments(p.folded, p.original)) {
+    const [f, o] = trimSegment(f0, o0);
+    if (!f) continue;
+    if (/[¿?]/.test(o0)) continue; // a question is not a purchase
+    if (REPORT_WORD.test(f) && !LOOSE_PRICE_WORD.test(f)) {
+      stock.push(o.trim());
+      continue;
+    }
+    if (!buying) continue;
+    if (NO_PRICE_PHRASE.test(f) || INTRO_WORD.test(f)) {
+      continue;
+    }
+    if (VERB_ONLY.test(f) || /\$|dolar|usd|centavo/.test(f)) continue;
+    const q = quantityLine(f, o);
+    if (q) {
+      lines.push(q);
+      continue;
+    }
+    if (/\d/.test(f)) continue; // a price: the price parser reads it
     const name = cleanName(f, o, 0, f.length);
     if (!name) continue;
     const words = fold(name).split(" ");
     if (words.every((w) => FILLER.has(w) || w.length < 3)) continue;
-    if (!names.some((n) => fold(n) === fold(name))) names.push(name);
+    lines.push({ name, price: null, unit: null, quantity: null });
   }
-  return names.slice(0, 5);
+  const seen = new Set<string>();
+  return {
+    lines: lines
+      .filter((l) => {
+        const k = fold(l.name);
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .slice(0, PRICE_UPDATE_MAX_ITEMS),
+    stockText: stock.length > 0 ? stock.join(". ") : null,
+  };
 }
 
 /** Items with a unit, or «unclear». A price without a unit is «unclear» here. */
@@ -1330,6 +1445,38 @@ export function formatPriceUpdateItems(
           ? i.price.toFixed(2).replace(".", ",")
           : i.price.toFixed(2);
       return `${i.name} ${currencySymbol}${price} ${per}`;
+    })
+    .join(", ");
+}
+
+/**
+ * The lines of a kitchen message as the cook reads them back: «pan $2.00 por
+ * kilo, tomates, harina 3 kg». Only what was said; nothing is filled in.
+ */
+export function formatDraftLines(
+  items: DraftLine[],
+  currencySymbol = "$"
+): string {
+  return items
+    .map((i) => {
+      if (i.price != null && i.unit) {
+        return formatPriceUpdateItems(
+          [{ name: i.name, price: i.price, unit: i.unit }],
+          currencySymbol
+        );
+      }
+      const parts = [i.name];
+      if (i.price != null) {
+        const price =
+          currentKitchenLanguage() === "de"
+            ? i.price.toFixed(2).replace(".", ",")
+            : i.price.toFixed(2);
+        parts.push(`${currencySymbol}${price}`);
+      }
+      if (i.quantity != null) {
+        parts.push(`${i.quantity}${i.unit ? ` ${i.unit}` : ""}`);
+      }
+      return parts.join(" ");
     })
     .join(", ");
 }

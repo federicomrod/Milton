@@ -18,10 +18,6 @@ import {
   type InlineKeyboardMarkup,
 } from "@/lib/restaurant/telegram/send";
 import {
-  inAppPipeline,
-  recordPipelineEvent,
-} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
-import {
   destinationVars,
   KITCHEN_COPY,
   renderKitchenCopy,
@@ -33,13 +29,13 @@ import {
   processPriceUpdateSafe,
 } from "@/lib/restaurant/telegram/kitchen-media";
 import {
-  currencySymbolFor,
-  unpricedMentions,
+  purchaseMentions,
+  type DraftLine,
+  type PriceUpdateItem,
 } from "@/lib/restaurant/telegram/price-update";
 import {
   aiStage,
   isActionable,
-  joinProducts,
   overLimitLine,
   routeOf,
   rulesStage,
@@ -48,14 +44,8 @@ import {
   type PriceItemsResult,
 } from "@/lib/restaurant/telegram/price-flow";
 import { askPriceAi } from "@/lib/restaurant/telegram/price-update-ai";
-import {
-  openAmountQuestion,
-  openUnitQuestion,
-} from "@/lib/restaurant/telegram/price-unit-question";
-import { amountAskReply } from "@/lib/restaurant/telegram/kitchen-pending-answer";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { type KitchenLink } from "@/lib/restaurant/telegram/kitchen-links";
-import { maybeCleanupPending } from "@/lib/restaurant/telegram/kitchen-routing";
 
 export interface PriceCtx {
   admin: ReturnType<typeof createAdminClient>;
@@ -132,134 +122,109 @@ async function replyIfCurrencyMismatch(
   return true;
 }
 
+/**
+ * Every product the price flow met, as a Compras line. NOTHING is dropped and
+ * the cook is never asked a follow-up: what was not said (price, quantity,
+ * unit) stays empty and the manager completes it in Revisar.
+ */
+export function draftLinesOf(
+  r: PriceItemsResult,
+  mentions: DraftLine[] = []
+): DraftLine[] {
+  const lines: DraftLine[] = [
+    ...r.saved.map((i) => ({
+      name: i.name,
+      price: i.price,
+      unit: i.unit,
+      currency: i.currency,
+    })),
+    // A price without a unit: kept, the unit shows «Falta».
+    ...r.needUnit.map((i) => ({
+      name: i.name,
+      price: i.price,
+      unit: null,
+      currency: (i as { currency?: PriceUpdateItem["currency"] }).currency,
+    })),
+    // «aguacate a 150»: 1.50 or 150? Never guessed, never asked: no price.
+    ...r.ambiguous.map((a) => ({
+      name: a.product,
+      price: null,
+      unit: a.unit,
+    })),
+    ...r.unclear
+      .filter((u): u is { label: string; hint?: string } => !!u.label)
+      .map((u) => ({ name: u.label, price: null, unit: null })),
+    ...r.skippedNoPrice
+      .filter(Boolean)
+      .map((name) => ({ name, price: null, unit: null })),
+    ...mentions,
+  ];
+  const seen = new Set<string>();
+  return lines.filter((l) => {
+    const k = l.name.trim().toLowerCase();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 // Acts on the pipeline's verdict. true = the message was answered.
-// ONE reply per message: what was saved, the question (amount or unit, only
-// ONE), what was not understood, what went over the limit.
+// ONE draft per message with a line for every product; what could not be read
+// at all is reported once; what went over the limit is told, not dropped.
 export async function applyPriceResult(
   result: PriceFlowResult,
-  ctx: PriceCtx
+  ctx: PriceCtx,
+  mentions: DraftLine[] = []
 ): Promise<boolean> {
-  if (result.kind === "none") return false;
-  let r = result.r;
+  if (result.kind === "none" && mentions.length === 0) return false;
+  const r: PriceItemsResult =
+    result.kind === "items"
+      ? result.r
+      : {
+          saved: [],
+          needUnit: [],
+          ambiguous: [],
+          unclear: [],
+          skippedNoPrice: [],
+          overLimit: [],
+        };
 
   // A currency that is not the company's («150 pesos» for a USD restaurant):
-  // nothing is saved and no question is asked; the cook is told to resend it.
+  // nothing is saved; the cook is told to resend it.
   if (await replyIfCurrencyMismatch(r, ctx)) {
     logPriceRoute(ctx, "currency_mismatch", r, result.aiCalled);
     return true;
   }
 
-  // «aguacate a 150»: 1.50 or 150? Asked once, nothing saved yet.
-  let askLine: string | null = null;
-  if (r.ambiguous.length > 0) {
-    const first = r.ambiguous[0];
-    const opened = ctx.link
-      ? await openAmountQuestion({
-          chatId: ctx.chatId,
-          messageId: ctx.messageId,
-          link: ctx.link,
-          items: [
-            {
-              product: first.product,
-              options: first.options,
-              unit: first.unit,
-              currency: first.currency,
-            },
-          ],
-        })
-      : ({ ok: false } as const);
-    if (!opened.ok) {
-      r = {
-        ...r,
-        ambiguous: [],
-        unclear: [...r.unclear, { label: first.product }],
-      };
-    } else {
-      maybeCleanupPending();
-      recordPipelineEvent({ kind: "question", ask: "amount" });
-      if (opened.created) {
-        const cur =
-          first.currency ??
-          (await resolveCompanyCurrency(
-            ctx.admin as never,
-            ctx.staff.company_id
-          ).catch(() => null));
-        askLine = amountAskReply(first, currencySymbolFor(cur));
-      }
-    }
-  }
-
-  // Prices without a unit: ask once, for those items only.
-  if (r.needUnit.length > 0) {
-    const opened = ctx.link
-      ? await openUnitQuestion({
-          chatId: ctx.chatId,
-          messageId: ctx.messageId,
-          link: ctx.link,
-          items: r.needUnit,
-        })
-      : ({ ok: false } as const);
-    if (!opened.ok) {
-      // The question could not be kept open: say they were not understood.
-      r = {
-        ...r,
-        needUnit: [],
-        unclear: [...r.unclear, ...r.needUnit.map((i) => ({ label: i.name }))],
-      };
-    } else {
-      maybeCleanupPending();
-      recordPipelineEvent({
-        kind: "question",
-        ask: "unit",
-        products: r.needUnit.map((i) => i.name),
-      });
-      if (opened.created) {
-        askLine = renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
-          producto: joinProducts(r.needUnit.map((i) => i.name)),
-        });
-      }
-    }
-  }
-
+  const lines = draftLinesOf(r, mentions);
   logPriceRoute(ctx, routeOf(r), r, result.aiCalled);
-  const standalone =
-    r.saved.length === 0 && r.needUnit.length === 0 && r.ambiguous.length === 0;
-  let lines = [askLine, unclearLine(r, standalone), overLimitLine(r)].filter(
-    (l): l is string => l !== null
-  );
 
-  // S1: When AI was called but failed (threw or timed out) and everything is unclear,
-  // send PRICE_UPDATE_FAILED instead of PRICE_UPDATE_UNCLEAR
-  if (
-    result.aiFailed &&
-    standalone &&
-    lines.some((l) => l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR)
-  ) {
-    lines = lines.map((l) =>
-      l === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR
-        ? KITCHEN_COPY.PRICE_UPDATE_FAILED
-        : l
-    );
-  }
-
-  const suffix = lines.join("\n\n");
-
-  if (r.saved.length > 0) {
-    // Never throws: a failure is logged and the cook is told (PRICE_SAVE_FAILED).
-    await processPriceUpdateSafe({
-      admin: ctx.admin,
-      staff: ctx.staff,
-      chatId: ctx.chatId,
-      reportId: ctx.reportId,
-      dateSec: ctx.dateSec,
-      items: r.saved,
-      origin: ctx.origin,
-      replyMarkup: ctx.markup,
-      replySuffix: suffix || undefined,
-    });
+  let extra = [overLimitLine(r)].filter((l): l is string => l !== null);
+  if (lines.length === 0) {
+    // Nothing named at all («aguacate 1.50 por favor»): say so once.
+    let unclear = unclearLine(r, true);
+    if (result.aiFailed && unclear === KITCHEN_COPY.PRICE_UPDATE_UNCLEAR) {
+      unclear = KITCHEN_COPY.PRICE_UPDATE_FAILED;
+    }
+    extra = [unclear, ...extra].filter((l): l is string => l !== null);
+    const suffix = extra.join("\n\n");
+    if (suffix) await sendTelegramMessage(ctx.chatId, suffix);
     return true;
   }
-  if (suffix) await sendTelegramMessage(ctx.chatId, suffix);
+
+  const suffix = extra.join("\n\n");
+  // Never throws: a failure is logged and the cook is told (PRICE_SAVE_FAILED).
+  await processPriceUpdateSafe({
+    admin: ctx.admin,
+    staff: ctx.staff,
+    chatId: ctx.chatId,
+    reportId: ctx.reportId,
+    dateSec: ctx.dateSec,
+    items: lines,
+    origin: ctx.origin,
+    replyMarkup: ctx.markup,
+    replySuffix: suffix || undefined,
+  });
   return true;
 }
 
@@ -280,16 +245,35 @@ export async function runMessagePipeline(
     const result: PriceFlowResult = stage.done
       ? stage.result
       : await aiStage(text, stage.read, askPriceAi);
-    if (isActionable(result)) {
-      // App only: products said without a price beside priced ones are kept as
-      // a question on the card (Telegram's replies stay exactly as they were).
-      if (inAppPipeline()) {
-        const extras = unpricedMentions(text);
-        if (extras.length > 0) {
-          recordPipelineEvent({ kind: "extras", products: extras });
+    // Every product becomes a line; the stock talk of the same message
+    // («se acabó el queso») still goes to the stock path afterwards.
+    const mentions = purchaseMentions(text);
+    const hasLines =
+      isActionable(result) ||
+      (result.kind === "items" &&
+        draftLinesOf(result.r, mentions.lines).length > 0) ||
+      mentions.lines.length > 0;
+    if (hasLines) {
+      if (await applyPriceResult(result, ctx, mentions.lines)) {
+        if (mentions.stockText) {
+          const { handleWithAi } =
+            await import("@/lib/restaurant/telegram/kitchen-ai-handler");
+          await handleWithAi({
+            admin: ctx.admin,
+            staff: ctx.staff,
+            chatId: ctx.chatId,
+            messageId: ctx.messageId,
+            text: mentions.stockText,
+            markup: ctx.markup,
+            reportId: ctx.reportId,
+            dateSec: ctx.dateSec,
+            origin: ctx.origin,
+            link: ctx.link,
+            fallbackReply: null,
+          });
         }
+        return "handled";
       }
-      if (await applyPriceResult(result, ctx)) return "handled";
     }
 
     const { detectRecipeIntent } =

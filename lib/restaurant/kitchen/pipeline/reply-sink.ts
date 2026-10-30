@@ -31,14 +31,7 @@ export type UnclearReason = (typeof UNCLEAR_REASONS)[number];
 export type PipelineEvent =
   | { kind: "price_draft"; products: string[] }
   | { kind: "stock"; reportType: string; products: string[] }
-  // A unit question carries the product names (so the card can rebuild the
-  // question from the copy); an amount question carries nothing.
-  | { kind: "question"; ask: "amount" }
-  | { kind: "question"; ask: "unit"; products: string[] }
-  | { kind: "unclear"; reason: UnclearReason }
-  // Products named without a price beside ones that had one («pan a 2 el kilo
-  // y unos tomates»): the card asks how many, so nothing said is lost.
-  | { kind: "extras"; products: string[] };
+  | { kind: "unclear"; reason: UnclearReason };
 
 export interface ReplySink {
   /** Only messages to this chat are captured; any other still goes to Telegram. */

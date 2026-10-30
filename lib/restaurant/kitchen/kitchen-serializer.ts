@@ -44,7 +44,6 @@ const FREE_TEXT_KEYS = new Set([
   "description",
   // What Milton understood from a message (product names).
   "understood",
-  "extras",
 ]);
 
 // A string that IS an amount: «$12.50», «€ 3», «12,50 €», «3 USD». Anchored on
@@ -212,27 +211,15 @@ export function serializeAppResult(raw: unknown) {
       ? r.state
       : null;
   if (!state) return null;
-  const asks =
-    r.asks && typeof r.asks === "object"
-      ? {
-          kind: (r.asks as Row).kind === "amount" ? "amount" : "unit",
-          // Defence in depth: a question that carries any digit or currency is
-          // dropped (the app words it itself), whatever an older row stored.
-          text: noAmount(strOrNull((r.asks as Row).text)),
-        }
-      : null;
   return {
     state,
     noted: r.noted === true,
     draft: r.draft === true,
-    asks,
     // Only a known reason code passes. Anything else (for example the raw reply
     // an older version stored) becomes "other"; its text is never returned.
     unclear: unclearCode(r.unclear),
     recipe: r.recipe === true,
     understood: productNames(r.understood),
-    // Named without a price (the card asks how many): names only.
-    extras: productNames(r.extras),
   };
 }
 
@@ -249,11 +236,6 @@ function looksLikePrice(value: string): boolean {
   return /[$€£]|\d[\d.,]*\s?(?:usd|eur|mxn|cop|ars|clp|pen|brl)\b|\d+[.,]\d{2}\b/i.test(
     value
   );
-}
-
-/** The text, or null when it carries a digit or a currency symbol. */
-function noAmount(value: string | null): string | null {
-  return value !== null && !/[\d$€£]/.test(value) ? value : null;
 }
 
 function unclearCode(value: unknown): UnclearReason | null {

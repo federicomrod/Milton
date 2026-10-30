@@ -402,6 +402,7 @@ async function loadInvoicesTabDataUnsafe(): Promise<InvoicesTabData | null> {
     created_at: r.created_at,
     line_counts: summaries.get(r.id)?.counts ?? emptyLineCounts(),
     line_preview: summaries.get(r.id)?.preview ?? [],
+    line_amounts: summaries.get(r.id)?.amounts,
   }));
 
   return {

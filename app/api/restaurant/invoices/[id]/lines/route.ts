@@ -31,6 +31,12 @@
 //
 // All cost-entry writes are deferred to /invoices/:id/approve.
 
+import {
+  clearMissing,
+  lineIsIncomplete,
+  parseMissing,
+  type MissingField,
+} from "@/lib/restaurant/invoice-missing";
 import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
@@ -336,6 +342,56 @@ export async function POST(
     }
     if (Object.prototype.hasOwnProperty.call(body, "supplier_sku")) {
       patch.supplier_sku = stringOrNull(body.supplier_sku);
+    }
+
+    // The manager filled in a quantity / unit the kitchen left out: «Falta» goes.
+    if (
+      patch.notes === undefined &&
+      parseMissing((line as { notes?: unknown }).notes).length > 0
+    ) {
+      const filled: MissingField[] = [];
+      if (patch.quantity !== undefined) filled.push("quantity");
+      if (patch.unit !== undefined) filled.push("unit");
+      if (filled.length > 0) {
+        patch.notes = clearMissing((line as { notes?: string }).notes, filled);
+        // A quantity filled in on a priced line: the total follows (qty × price).
+        const cost =
+          patch.unit_cost !== undefined
+            ? (patch.unit_cost as number | null)
+            : ((line as { unit_cost?: number | null }).unit_cost ?? null);
+        if (
+          patch.quantity !== undefined &&
+          patch.line_total === undefined &&
+          typeof cost === "number" &&
+          cost > 0
+        ) {
+          patch.line_total = Number(
+            ((patch.quantity as number) * cost).toFixed(4)
+          );
+        }
+      }
+    }
+
+    // An incomplete line cannot be approved: no price, or «Falta» still there.
+    // Filling the missing values in the same PATCH is allowed.
+    if (patch.review_status === "approved") {
+      const merged = {
+        unit_cost:
+          patch.unit_cost !== undefined
+            ? patch.unit_cost
+            : (line as { unit_cost?: unknown }).unit_cost,
+        line_total:
+          patch.line_total !== undefined
+            ? patch.line_total
+            : (line as { line_total?: unknown }).line_total,
+        notes:
+          patch.notes !== undefined
+            ? patch.notes
+            : (line as { notes?: unknown }).notes,
+      };
+      if (lineIsIncomplete(merged)) {
+        return NextResponse.json({ error: a.lineIncomplete }, { status: 400 });
+      }
     }
 
     if (Object.keys(patch).length === 0) {

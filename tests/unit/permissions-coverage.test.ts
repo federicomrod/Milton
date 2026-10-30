@@ -47,6 +47,8 @@ export const ALLOW: Record<string, string> = {
     "a cook registers their own upload; the device token is the authority",
   "mobile/v1/kitchen/text/route.ts":
     "a cook reports to their own location; the device token is the authority",
+  "mobile/v1/kitchen/retry/route.ts":
+    "a cook re-runs their own unfinished message; the device token is the authority",
   "mobile/v1/kitchen/logout/route.ts":
     "a cook revokes their own device; the device token is the authority",
 };

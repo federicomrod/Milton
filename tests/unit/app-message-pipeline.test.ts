@@ -175,7 +175,7 @@ describe("reply sink", () => {
 
   it("outside a sink (every Telegram request) nothing changes", async () => {
     expect(sinkFor(123)).toBeUndefined();
-    recordPipelineEvent({ kind: "question", ask: "unit", products: ["pan"] }); // no-op
+    recordPipelineEvent({ kind: "price_draft", products: ["pan"] }); // no-op
     await sendTelegramMessage(123, "hola");
     expect(h.fetchSpy).toHaveBeenCalledTimes(1);
   });
@@ -197,7 +197,7 @@ describe("summarizeSink", () => {
   });
   const spanish = <T>(fn: () => T): T => withKitchenLanguage("es", fn);
 
-  it("a price draft, a stock alert, a question, nothing, a recipe", () => {
+  it("a price draft, a stock alert, nothing, a recipe", () => {
     expect(
       summarizeSink(
         sink([{ kind: "price_draft", products: ["pan"] }]),
@@ -208,7 +208,6 @@ describe("summarizeSink", () => {
       draft: true,
       noted: false,
       understood: ["pan"],
-      asks: null,
       unclear: null,
     });
     expect(
@@ -234,46 +233,21 @@ describe("summarizeSink", () => {
     });
   });
 
-  it("a unit question is REBUILT from the copy with the product names, never copied from a reply", () => {
+  it("the card never carries a reply: a leaked reply with a price is not copied", () => {
     const leaked =
-      "✅ Anoté en Casa: pan $2.00 el kilo.\n\n¿El precio de queso es por libra, onza o unidad?";
+      "✅ Anoté en Casa: pan $2.00 el kilo, queso.\n\nEl dueño o un admin lo revisa.";
     const result = spanish(() =>
       summarizeSink(
-        sink(
-          [
-            { kind: "price_draft", products: ["pan"] },
-            { kind: "question", ask: "unit", products: ["queso"] },
-          ],
-          [leaked]
-        ),
+        sink([{ kind: "price_draft", products: ["pan", "queso"] }], [leaked]),
         "handled"
       )
     );
-    expect(result.asks).toEqual({
-      kind: "unit",
-      text: "¿El precio de queso es por libra, onza o unidad?",
-    });
+    expect(result.understood).toEqual(["pan", "queso"]);
     expect(JSON.stringify(result)).not.toContain("$2.00");
     expect(JSON.stringify(result)).not.toContain("Anoté");
-    // Two products are joined by the copy's own helper, in the company language.
-    const two = spanish(() =>
-      summarizeSink(
-        sink([{ kind: "question", ask: "unit", products: ["queso", "sal"] }]),
-        "handled"
-      )
-    );
-    expect(two.asks?.text).toMatch(/queso/);
-    expect(two.asks?.text).toMatch(/sal/);
-  });
-
-  it("an amount question has no text at all (it would repeat prices)", () => {
-    const result = spanish(() =>
-      summarizeSink(
-        sink([{ kind: "question", ask: "amount" }], ["¿1.50 o 150?"]),
-        "handled"
-      )
-    );
-    expect(result.asks).toEqual({ kind: "amount", text: null });
+    // There is no question on the card any more.
+    expect(result).not.toHaveProperty("asks");
+    expect(result).not.toHaveProperty("extras");
   });
 
   it("«could not read it» is only ever a reason code, whatever the reply says", () => {
@@ -438,7 +412,7 @@ describe("a text message through the same pipeline", () => {
     expect(h.fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("a price without a unit becomes «Milton te pregunta»; answering it later saves the draft", async () => {
+  it("a price without a unit is kept at once, with the unit missing; nothing is asked", async () => {
     h.state.db.tables.kitchen_reports.push(
       report(R1, { text: "compramos pan a 2 dólares" })
     );
@@ -447,27 +421,23 @@ describe("a text message through the same pipeline", () => {
       reportId: R1,
       admin: h.state.db.client,
     });
-    const asked = resultOf(R1).app_result;
-    expect(asked.asks).toMatchObject({ kind: "unit" });
-    expect(typeof asked.asks.text).toBe("string");
-    expect(h.createDraft).not.toHaveBeenCalled();
-
-    h.state.db.tables.kitchen_reports.push(
-      report(R2, { text: "por kilo", created_at: "2026-10-30T10:01:00.000Z" })
-    );
-    await processAppReport({
-      staffId: STAFF,
-      reportId: R2,
-      admin: h.state.db.client,
-    });
     expect(h.createDraft).toHaveBeenCalledTimes(1);
-    expect(h.createDraft.mock.calls[0][1].extraction.lines[0]).toMatchObject({
-      unit: "kg",
+    const input = h.createDraft.mock.calls[0][1];
+    expect(input.keepIncomplete).toBe(true);
+    expect(input.extraction.lines).toHaveLength(1);
+    expect(input.extraction.lines[0]).toMatchObject({
+      description: "pan",
+      unit: null,
+      unit_cost: 2,
+      quantity: null,
     });
-    expect(resultOf(R2).app_result).toMatchObject({
+    const stored = resultOf(R1).app_result;
+    expect(stored).toMatchObject({
       state: "done",
       draft: true,
+      understood: ["pan"],
     });
+    expect(stored).not.toHaveProperty("asks");
     expect(h.fetchSpy).not.toHaveBeenCalled();
   });
 });
@@ -581,7 +551,7 @@ describe("a mixed message: one item with a price and unit, one without a unit", 
     clarify_question: null,
   };
 
-  it("through the kitchen AI: the priced item is a draft, the other asks its unit, and no price reaches the card", async () => {
+  it("through the kitchen AI: BOTH are lines of the draft, nothing is asked, no price reaches the card", async () => {
     h.interpret.mockResolvedValue(aiItems);
     h.state.db.tables.kitchen_reports.push(report(R1, { text: MIXED_AI }));
     await processAppReport({
@@ -591,25 +561,24 @@ describe("a mixed message: one item with a price and unit, one without a unit", 
     });
 
     expect(h.createDraft).toHaveBeenCalledTimes(1);
-    expect(h.createDraft.mock.calls[0][1].extraction.lines).toHaveLength(1);
-    expect(h.createDraft.mock.calls[0][1].extraction.lines[0]).toMatchObject({
-      unit: "kg",
+    const lines = h.createDraft.mock.calls[0][1].extraction.lines;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatchObject({ description: "pan", unit: "kg" });
+    expect(lines[1]).toMatchObject({
+      description: "queso",
+      unit: null,
+      unit_cost: 5,
     });
 
     const result = resultOf(R1).app_result;
     expect(result).toMatchObject({ state: "done", draft: true, unclear: null });
-    expect(result.asks).toEqual({
-      kind: "unit",
-      text: "¿El precio de queso es por libra, onza o unidad?",
-    });
-    expect(result.understood).toEqual(["pan"]);
-    // No digit, no currency symbol, no sentence from a reply: nothing priced at all.
+    expect(result.understood).toEqual(["pan", "queso"]);
     expect(withoutVersion(result)).not.toMatch(NO_AMOUNT);
     expect(withoutVersion(result)).not.toMatch(/Anoté|revisa en Costos/);
     expect(h.fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("through applyPriceResult (the rules / price AI path): same, and the captured reply DID carry the price", async () => {
+  it("through applyPriceResult (rules / price AI path): same, and the captured reply DID carry the price", async () => {
     h.state.db.tables.kitchen_reports.push(report(R1, { text: MIXED }));
     const sink = {
       chatId: appChatId(STAFF),
@@ -663,16 +632,11 @@ describe("a mixed message: one item with a price and unit, one without a unit", 
       })
     );
 
-    // The raw captured reply is «✅ Anoté … pan $2.00 …» + the question: this is
-    // what used to be copied onto the card.
+    // The raw captured reply is «✅ Anoté … pan $2.00 …»: it must not reach the card.
     expect(sink.messages.join("\n")).toMatch(/\$2\.00/);
-    expect(sink.messages.join("\n")).toMatch(/queso/);
-
+    expect(h.createDraft.mock.calls[0][1].extraction.lines).toHaveLength(2);
     expect(result).toMatchObject({ draft: true, unclear: null });
-    expect(result.asks).toEqual({
-      kind: "unit",
-      text: "¿El precio de queso es por libra, onza o unidad?",
-    });
+    expect(result.understood).toEqual(["pan", "queso"]);
     expect(withoutVersion(result as never)).not.toMatch(NO_AMOUNT);
   });
 });
@@ -835,18 +799,12 @@ describe("the history route never returns an amount, and «unclear» is no longe
       row("77777777-7777-4777-8777-777777777773", 3, {
         ...done,
         draft: true,
+        // Older builds stored the question; it is not returned any more.
         asks: {
           kind: "unit",
           text: "✅ Anoté: pan $2.00 el kilo.\n\n¿El precio de queso es por libra, onza o unidad?",
         },
         understood: ["pan", "pan $2.00", "queso 3,50 €"],
-      }),
-      row("77777777-7777-4777-8777-777777777774", 4, {
-        ...done,
-        asks: {
-          kind: "unit",
-          text: "¿El precio de queso es por libra, onza o unidad?",
-        },
       })
     );
 
@@ -860,11 +818,8 @@ describe("the history route never returns an amount, and «unclear» is no longe
       body.items.find((i: any) => i.id.endsWith(String(n)));
     expect(byId(1).result.unclear).toBe("price_unclear");
     expect(byId(2).result.unclear).toBe("other");
-    expect(byId(3).result.asks).toEqual({ kind: "unit", text: null });
+    expect(byId(3).result).not.toHaveProperty("asks");
     expect(byId(3).result.understood).toEqual(["pan"]);
-    expect(byId(4).result.asks.text).toBe(
-      "¿El precio de queso es por libra, onza o unidad?"
-    );
 
     const raw = JSON.stringify(body.items.map((i: any) => i.result));
     expect(raw).not.toMatch(/[$€£]/);
@@ -899,38 +854,11 @@ describe("the history route never returns an amount, and «unclear» is no longe
   });
 });
 
-describe("a mixed message keeps EVERY item", () => {
-  const MIXED = "pan a 2 dólares el kilo y unos tomates";
+describe("a mixed message keeps EVERY item as a Compras line", () => {
+  const EXACT = "Hoy compramos pan a 2 dólares el kilo y unos tomates";
   const TOKEN = "device-token-for-cook-one-0000000000000000000";
 
-  it("typed: the priced item is a draft, the other becomes a question with its name, and no price reaches the card", async () => {
-    h.state.db.tables.kitchen_reports.push(report(R1, { text: MIXED }));
-    await processAppReport({
-      staffId: STAFF,
-      reportId: R1,
-      admin: h.state.db.client,
-    });
-
-    expect(h.createDraft).toHaveBeenCalledTimes(1);
-    const [, draft] = h.createDraft.mock.calls[0];
-    expect(draft.extraction.lines).toHaveLength(1);
-    expect(draft.extraction.lines[0]).toMatchObject({ unit: "kg" });
-
-    const stored = resultOf(R1).app_result;
-    expect(stored).toMatchObject({
-      state: "done",
-      draft: true,
-      extras: ["tomates"],
-    });
-    // Names only: no digit, no currency anywhere on the card.
-    const { understood, asks, unclear, extras } = stored;
-    expect(JSON.stringify({ understood, asks, unclear, extras })).not.toMatch(
-      /[\d$€]/
-    );
-    expect(h.fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("spoken: the transcript goes through the same path", async () => {
+  it("the exact voice sentence: 2 lines, tomates «Sin precio» and «Falta», no question", async () => {
     h.state.db.tables.kitchen_reports.push(
       report(R2, { media_kind: "voice", media_mime: "audio/mp4" })
     );
@@ -942,48 +870,116 @@ describe("a mixed message keeps EVERY item", () => {
       mime: "audio/mp4",
     });
     h.state.db.objects.set("co/loc/2026/10/v2.m4a", 2000);
-    h.transcribe.mockResolvedValue({ ok: true, value: { text: MIXED } });
+    h.transcribe.mockResolvedValue({
+      ok: true,
+      value: { text: `${EXACT}.` },
+    });
     await processAppReport({
       staffId: STAFF,
       reportId: R2,
       admin: h.state.db.client,
     });
-    expect(resultOf(R2).app_result).toMatchObject({
+
+    expect(h.createDraft).toHaveBeenCalledTimes(1);
+    const input = h.createDraft.mock.calls[0][1];
+    expect(input.keepIncomplete).toBe(true);
+    expect(input.extraction.lines).toHaveLength(2);
+    expect(input.extraction.lines[0]).toMatchObject({
+      description: "pan",
+      unit: "kg",
+      unit_cost: 2,
+    });
+    expect(input.extraction.lines[1]).toMatchObject({
+      description: "tomates",
+      unit: null,
+      unit_cost: null,
+      quantity: null,
+      line_total: null,
+    });
+    const stored = resultOf(R2).app_result;
+    expect(stored).toMatchObject({
       state: "done",
       draft: true,
-      extras: ["tomates"],
+      noted: false,
+      unclear: null,
+      understood: ["pan", "tomates"],
     });
+    expect(stored).not.toHaveProperty("asks");
+    expect(stored).not.toHaveProperty("extras");
+    expect(withoutVersion(stored)).not.toMatch(NO_AMOUNT);
     expect(h.fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("a message with a single item has no extras, and Telegram never records them", async () => {
+  it("typed: the same two lines", async () => {
+    h.state.db.tables.kitchen_reports.push(report(R1, { text: EXACT }));
+    await processAppReport({
+      staffId: STAFF,
+      reportId: R1,
+      admin: h.state.db.client,
+    });
+    expect(h.createDraft.mock.calls[0][1].extraction.lines).toHaveLength(2);
+    expect(resultOf(R1).app_result.understood).toEqual(["pan", "tomates"]);
+  });
+
+  it("«se acabó el queso y compramos 3 kg de harina»: 1 Cocina alert + 1 Compras line", async () => {
+    h.interpret.mockResolvedValue({
+      intent: "stock_report",
+      items: [
+        {
+          product: "queso",
+          amount: 0,
+          unit: null,
+          currency: null,
+          matched_ingredient_id: null,
+        },
+      ],
+      clarify_question: null,
+    });
     h.state.db.tables.kitchen_reports.push(
-      report(R3, { text: "compramos pan a 2 dólares el kilo" })
+      report(R3, { text: "se acabó el queso y compramos 3 kg de harina" })
     );
     await processAppReport({
       staffId: STAFF,
       reportId: R3,
       admin: h.state.db.client,
     });
-    expect(resultOf(R3).app_result.extras).toEqual([]);
-    // Outside a sink (Telegram) nothing is recorded at all.
-    expect(() =>
-      recordPipelineEvent({ kind: "extras", products: ["tomates"] })
-    ).not.toThrow();
+
+    // Compras: exactly one line, the flour, with its quantity and no price.
+    expect(h.createDraft).toHaveBeenCalledTimes(1);
+    const lines = h.createDraft.mock.calls[0][1].extraction.lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({
+      description: "harina",
+      quantity: 3,
+      unit: "kg",
+      unit_cost: null,
+    });
+    // Cocina: the stock alert is stored on the report.
+    expect(resultOf(R3).report_type).toBe("86");
+    const stored = resultOf(R3).app_result;
+    expect(stored).toMatchObject({ state: "done", draft: true, noted: true });
+    expect(stored.understood).toEqual(
+      expect.arrayContaining(["harina", "queso"])
+    );
+    expect(withoutVersion(stored)).not.toMatch(NO_AMOUNT);
   });
 
-  it("serializeAppResult passes names and drops anything that looks like a price", () => {
+  it("serializeAppResult keeps names, drops anything price-like, and has no question fields", () => {
     const r = serializeAppResult({
       v: 1,
       state: "done",
       draft: true,
-      extras: ["tomates", "pan $2.00", "cebolla 1,50 usd", 7, "cilantro"],
+      asks: { kind: "unit", text: "¿queso?" },
+      extras: ["tomates"],
+      understood: ["pan", "pan $2.00", "tomates"],
     });
-    expect(r?.extras).toEqual(["tomates", "cilantro"]);
+    expect(r?.understood).toEqual(["pan", "tomates"]);
+    expect(r).not.toHaveProperty("asks");
+    expect(r).not.toHaveProperty("extras");
     expect(() => assertNoMoneyFields(r)).not.toThrow();
   });
 
-  it("the history route returns the extras and still passes the money guard", async () => {
+  it("the history route returns the names and passes the money guard", async () => {
     h.state.db.tables.kitchen_devices = [
       {
         id: "55555555-5555-4555-8555-555555555551",
@@ -996,18 +992,16 @@ describe("a mixed message keeps EVERY item", () => {
     ];
     h.state.db.tables.kitchen_reports.push(
       report(R1, {
-        text: MIXED,
+        text: EXACT,
         processed_at: "2026-10-30T10:00:00.000Z",
         app_result: {
           v: 1,
           state: "done",
           noted: false,
           draft: true,
-          asks: null,
           unclear: null,
           recipe: false,
-          understood: ["pan"],
-          extras: ["tomates"],
+          understood: ["pan", "tomates"],
         },
       })
     );
@@ -1018,7 +1012,108 @@ describe("a mixed message keeps EVERY item", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.items[0].result.extras).toEqual(["tomates"]);
+    expect(body.items[0].result.understood).toEqual(["pan", "tomates"]);
     expect(() => assertNoMoneyFields(body)).not.toThrow();
+  });
+});
+
+describe("«Reintentar» really re-runs the message on the server", () => {
+  const TOKEN = "device-token-for-cook-one-0000000000000000000";
+  const OLD = "2026-10-30T09:50:00.000Z";
+  const retry = async (reportId: unknown, token = TOKEN) => {
+    const { POST } = await import("@/app/api/mobile/v1/kitchen/retry/route");
+    return POST(
+      new NextRequest("http://localhost/api/mobile/v1/kitchen/retry", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ reportId }),
+      })
+    );
+  };
+
+  beforeEach(() => {
+    h.state.db.tables.kitchen_devices = [
+      {
+        id: "55555555-5555-4555-8555-555555555551",
+        company_id: CO,
+        staff_id: STAFF,
+        token_hash: hashToken(TOKEN),
+        revoked_at: null,
+        last_seen_at: null,
+      },
+    ];
+    vi.setSystemTime(new Date("2026-10-30T10:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a message stuck on «processing» for 2+ minutes is processed again and finishes", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R1, {
+        text: "compramos pan a 2 dólares el kilo",
+        created_at: OLD,
+        app_result: { v: 1, state: "processing" },
+      })
+    );
+    const res = await retry(R1);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "requeued" });
+    // scheduleAppProcessing runs inline outside a request: let it finish.
+    await vi.waitFor(() =>
+      expect(resultOf(R1).app_result).toMatchObject({
+        state: "done",
+        draft: true,
+      })
+    );
+    expect(h.createDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed one is re-run at once; a finished one is left alone; a young one waits", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R1, {
+        text: "se nos acaba el queso",
+        created_at: OLD,
+        app_result: { v: 1, state: "done" },
+      }),
+      report(R2, {
+        text: "compramos pan a 2 dólares el kilo",
+        created_at: new Date().toISOString(),
+        app_result: { v: 1, state: "processing" },
+      })
+    );
+    expect(await (await retry(R1)).json()).toEqual({ status: "done" });
+    expect(await (await retry(R2)).json()).toEqual({ status: "too_early" });
+    expect(resultOf(R2).app_result).toMatchObject({ state: "processing" });
+    expect(h.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("another cook's report, a bad id and a bad token are refused", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R3, {
+        staff_id: "44444444-4444-4444-8444-4444444444ff",
+        created_at: OLD,
+      })
+    );
+    expect((await retry(R3)).status).toBe(404);
+    expect((await retry("not-an-id")).status).toBe(400);
+    expect((await retry(R1, "wrong-token")).status).toBe(401);
+  });
+
+  it("a processing claim blocks a concurrent run, so a late first run and a retry cannot both create a draft", async () => {
+    h.state.db.tables.kitchen_reports.push(
+      report(R1, {
+        text: "compramos pan a 2 dólares el kilo",
+        created_at: OLD,
+        app_result: { v: 1, state: "processing" },
+      })
+    );
+    await processAppReport({
+      staffId: STAFF,
+      reportId: R1,
+      admin: h.state.db.client,
+    });
+    expect(h.createDraft).toHaveBeenCalledTimes(0); // claimed row: nothing to do
   });
 });

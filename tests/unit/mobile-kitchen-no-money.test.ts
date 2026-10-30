@@ -47,7 +47,10 @@ const h = vi.hoisted(() => ({
   state: { db: null as any },
 }));
 
-vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", () => ({
+vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", async (orig) => ({
+  ...(await orig<
+    typeof import("@/lib/restaurant/kitchen/pipeline/app-message")
+  >()),
   scheduleAppProcessing: (...a: unknown[]) => h.schedule(...a),
 }));
 vi.mock("@/lib/supabase/server", () => ({
@@ -96,6 +99,7 @@ import * as media from "@/app/api/mobile/v1/kitchen/media/route";
 import * as text from "@/app/api/mobile/v1/kitchen/text/route";
 import * as history from "@/app/api/mobile/v1/kitchen/history/route";
 import * as logout from "@/app/api/mobile/v1/kitchen/logout/route";
+import * as retry from "@/app/api/mobile/v1/kitchen/retry/route";
 import * as uploads from "@/app/api/mobile/v1/kitchen/uploads/route";
 import * as uploadsComplete from "@/app/api/mobile/v1/kitchen/uploads/complete/route";
 import * as recipes from "@/app/api/mobile/v1/kitchen/recipes/route";
@@ -224,6 +228,14 @@ const CASES: Record<string, () => Promise<Response[]>> = {
   "recipes/route.ts": async () => [
     await recipes.GET(jsonReq("recipes", "GET", DEVICE_TOKEN)),
     await recipes.GET(jsonReq("recipes?q=tacos", "GET", DEVICE_TOKEN)),
+  ],
+  "retry/route.ts": async () => [
+    await retry.POST(
+      jsonReq("retry", "POST", DEVICE_TOKEN, {
+        reportId: "77777777-7777-4777-8777-777777777779",
+      })
+    ),
+    await retry.POST(jsonReq("retry", "POST", DEVICE_TOKEN, { reportId: "x" })),
   ],
   "logout/route.ts": async () => [
     await logout.POST(jsonReq("logout", "POST", DEVICE_TOKEN)),
@@ -359,6 +371,22 @@ beforeEach(() => {
       },
     ],
     kitchen_reports: [
+      // Already read by Milton: «Reintentar» answers «done» and runs nothing.
+      {
+        id: "77777777-7777-4777-8777-777777777779",
+        company_id: CO,
+        location_id: LOC,
+        staff_id: STAFF_1,
+        report_type: "unclassified",
+        text: "mensaje viejo",
+        media_kind: null,
+        media_mime: null,
+        transcript: null,
+        processed_at: "2026-10-01T10:01:00.000Z",
+        created_at: "2026-10-01T10:00:00.000Z",
+        app_result: { v: 1, state: "done", draft: false },
+        channel: "app",
+      },
       {
         id: "77777777-7777-4777-8777-777777777771",
         company_id: CO,

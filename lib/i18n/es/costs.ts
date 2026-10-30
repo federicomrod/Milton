@@ -168,7 +168,8 @@ export const costs = {
     priceUpdate: "Actualización de precio",
     incomplete: "Incompleto",
     noPrice: "Sin precio",
-    severalPrices: "Varios precios",
+    completeHint: "Completa precio / cantidad",
+    missingField: "Falta",
     noQuantity: "Sin cantidad",
     statusDraft: "Borrador",
     statusNeedsReview: "Por revisar",
@@ -399,6 +400,8 @@ export const costs = {
     lineNotMatched: "Line is not matched to an ingredient.",
     noLinesToPost:
       "No approved + matched lines to post. Approve and match at least one line first.",
+    lineIncomplete:
+      "Falta el precio o la cantidad: complétalos en Revisar antes de aprobar.",
     unitCostUnderivable:
       "Could not derive unit_cost (zero quantity or missing total).",
     noLinesLeft: "No quedaron líneas listas para registrar.",

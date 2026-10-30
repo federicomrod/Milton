@@ -72,5 +72,5 @@ npx expo-doctor
 
 ## Not here yet
 
-«Esto entendí» / «Milton te pregunta», push notifications, universal links,
+Push notifications, universal links,
 Gestión mode, store builds (EAS / TestFlight / Play).

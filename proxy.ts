@@ -22,6 +22,7 @@ const publicPrefixes = [
   "/favicon.ico",
   "/public/",
   "/onboarding", // Onboarding pages
+  "/k/", // Kitchen app invite landing (shows a code, redeems nothing)
 ];
 
 function isPublicRoute(pathname: string): boolean {

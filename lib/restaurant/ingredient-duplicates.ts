@@ -5,6 +5,8 @@
 // checks (`validateAiSets`).
 
 import { normalizeUnit } from "@/lib/restaurant/units";
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export type UnitFamily = "weight" | "volume" | "count" | "portion" | "unknown";
 
@@ -83,21 +85,30 @@ export function similarIngredients(a: string, b: string): number | null {
   return Math.round((1 - d / len) * 1000) / 1000;
 }
 
-const FAMILY_ES: Record<UnitFamily, string> = {
-  weight: "peso",
-  volume: "volumen",
-  count: "unidades",
-  portion: "porciones",
-  unknown: "sin unidad",
-};
+function familyLabel(family: UnitFamily, lang: PreferredLanguage): string {
+  const m = getDictionary(lang).menu.screens.merge;
+  switch (family) {
+    case "weight":
+      return m.familyWeight;
+    case "volume":
+      return m.familyVolume;
+    case "count":
+      return m.familyCount;
+    case "portion":
+      return m.familyPortion;
+    default:
+      return m.familyUnknown;
+  }
+}
 
 /**
  * A merge needs ONE unit family (the survivor's price applies to every line).
- * Returns the Spanish reason when two of them differ, else null. An unknown
+ * Returns the reason (in `lang`) when two of them differ, else null. An unknown
  * unit fits any family. The database enforces the same rule.
  */
 export function mergeUnitMismatch(
-  items: ReadonlyArray<{ name: string; unit: string | null | undefined }>
+  items: ReadonlyArray<{ name: string; unit: string | null | undefined }>,
+  lang: PreferredLanguage = "es"
 ): string | null {
   const known = items
     .map((i) => ({ name: i.name, family: unitFamily(i.unit) }))
@@ -105,7 +116,12 @@ export function mergeUnitMismatch(
   const first = known[0];
   const other = first && known.find((k) => k.family !== first.family);
   if (!first || !other) return null;
-  return `No se pueden unir ingredientes de familias de unidad distintas: «${first.name}» (${FAMILY_ES[first.family]}) y «${other.name}» (${FAMILY_ES[other.family]}). Revisa que sean el mismo producto en la misma unidad.`;
+  return fmt(getDictionary(lang).menu.screens.merge.unitMismatch, {
+    a: first.name,
+    familyA: familyLabel(first.family, lang),
+    b: other.name,
+    familyB: familyLabel(other.family, lang),
+  });
 }
 
 export interface DupItem {

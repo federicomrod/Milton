@@ -9,22 +9,23 @@ import {
   type ConfigTab,
 } from "@/lib/restaurant/config-tabs";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
-import { t } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 
 export function configTabLabel(tab: ConfigTab, lang: PreferredLanguage) {
+  const section = getDictionary(lang).shell.section;
   switch (tab) {
     case "restaurante":
-      return t(lang, "Restaurant", "Restaurante");
+      return section.restaurant;
     case "conexiones":
-      return t(lang, "Connections", "Conexiones");
+      return section.connections;
     case "objetivos":
-      return t(lang, "Goals", "Objetivos");
+      return section.objectives;
     case "turnos":
-      return t(lang, "Shifts", "Turnos");
+      return section.shifts;
     case "equipo":
-      return t(lang, "Team", "Equipo");
+      return section.team;
     case "cuenta":
-      return t(lang, "Account", "Cuenta");
+      return section.account;
   }
 }
 
@@ -39,7 +40,7 @@ export function ConfigTabs({
 }) {
   return (
     <nav
-      aria-label="Secciones de Configuración"
+      aria-label={getDictionary(lang).settings.tabs.navLabel}
       className="inline-flex flex-wrap rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold"
     >
       {CONFIG_TABS.filter((tab) => tab !== "equipo" || isAdmin).map((tab) => (

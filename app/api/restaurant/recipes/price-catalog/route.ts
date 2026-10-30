@@ -33,13 +33,13 @@ import {
   MAX_CATALOG_FILE_BYTES,
   readCatalogFromBuffer,
 } from "@/lib/restaurant/price-catalog/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const NEEDS_039 =
-  "Falta aplicar la migración 039 en Supabase antes de guardar la lista de precios.";
 
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     form = await req.formData();
   } catch {
     return NextResponse.json(
-      { error: "Sube el archivo de costos (.xlsx)." },
+      { error: (await apiMsg()).uploadCostsFile },
       { status: 400 }
     );
   }
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     ]);
     if (!stored || !draft) {
       return NextResponse.json(
-        { error: "Ya no tengo tu archivo. Elígelo de nuevo." },
+        { error: (await apiMsg()).fileGone },
         { status: 400 }
       );
     }
@@ -84,13 +84,13 @@ export async function POST(req: NextRequest) {
     const file = form.get("file");
     if (!(file instanceof File)) {
       return NextResponse.json(
-        { error: "Sube el archivo de costos (.xlsx)." },
+        { error: (await apiMsg()).uploadCostsFile },
         { status: 400 }
       );
     }
     if (file.size > MAX_CATALOG_FILE_BYTES) {
       return NextResponse.json(
-        { error: "El archivo pesa más de 15 MB." },
+        { error: (await apiMsg()).fileTooBig },
         { status: 400 }
       );
     }
@@ -103,8 +103,7 @@ export async function POST(req: NextRequest) {
     if (!read) {
       return NextResponse.json(
         {
-          error:
-            "No encontré una lista de precios en este archivo. Busca una hoja con columnas como ITEM, LIBRA, ONZA y PRECIO UNITARIO.",
+          error: (await apiMsg()).catalogNotFound,
         },
         { status: 400 }
       );
@@ -122,7 +121,7 @@ export async function POST(req: NextRequest) {
         decisions = parseDecisions(JSON.parse(rawDecisions));
       } catch {
         return NextResponse.json(
-          { error: "Las decisiones no tienen un formato válido." },
+          { error: (await apiMsg()).decisionsInvalid },
           { status: 400 }
         );
       }
@@ -147,7 +146,10 @@ export async function POST(req: NextRequest) {
 
     const repo = createSupabaseCostWorkbookRepo(auth.supabase);
     if (!(await repo.hasPriceCatalog039(auth.companyId))) {
-      return NextResponse.json({ error: NEEDS_039 }, { status: 409 });
+      return NextResponse.json(
+        { error: (await apiMsg()).needsMigration039 },
+        { status: 409 }
+      );
     }
     const currency =
       (await resolveCompanyCurrency(auth.supabase, auth.companyId)) || "USD";
@@ -176,7 +178,7 @@ export async function POST(req: NextRequest) {
     }
     const failure = actionableError(
       err,
-      "No pude procesar la lista de precios.",
+      (await apiMsg()).catalogProcessFailed,
       "recipes/price-catalog"
     );
     return NextResponse.json(

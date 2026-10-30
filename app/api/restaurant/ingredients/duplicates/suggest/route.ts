@@ -7,6 +7,7 @@
 // they survive a reload; nothing is merged here.
 
 import { requireCapability } from "@/lib/auth/permissions";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { openai } from "@/lib/openai-client";
 import { runChat, unwrapAi } from "@/lib/ai/call";
@@ -24,10 +25,11 @@ export const runtime = "nodejs";
 const MAX_ITEMS = 250;
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const g = await gate();
   if (!g.ok) return g.response;
   const denied = requireCapability(g.actor, "ingredients.manage", {
-    message: "Tu rol no puede unir ni descartar ingredientes.",
+    message: api.roleMerge,
   });
   if (denied) return denied;
   const { supabase, companyId } = g.auth;
@@ -35,10 +37,7 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as typeof body;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const items: DupItem[] = (Array.isArray(body.items) ? body.items : [])
     .map((i) => i as Record<string, unknown>)
@@ -122,7 +121,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             unavailable: true,
-            error: "Falta aplicar las migraciones 050 y 051 en este ambiente.",
+            error: api.migrationsMissing,
             sets: [],
           },
           { status: 409 }
@@ -135,8 +134,7 @@ export async function POST(req: NextRequest) {
     console.error("[ingredient duplicates/suggest]", err);
     return NextResponse.json(
       {
-        error:
-          "Milton no pudo sugerir duplicados ahora. Inténtalo en un momento.",
+        error: api.miltonDuplicates,
       },
       { status: 502 }
     );

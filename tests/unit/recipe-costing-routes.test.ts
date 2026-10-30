@@ -27,7 +27,8 @@ describe("recipe costing routes", () => {
     expect(plato).toContain("data.selected_dish");
     expect(plato).not.toMatch(/qty\s*\*\s*unit_cost/);
     expect(plato).not.toMatch(/pos_price\s*[-*/]/);
-    expect(plato).toContain("Excel:");
+    expect(plato).toContain("w.excelTotal");
+    expect(read("lib/i18n/es/menu-workspace.ts")).toContain("Excel: {amount}");
     expect(plato).not.toContain("Saltar por ahora");
     // Part E: a visible button defined once (RecipeSourceActions), no longer
     // hidden in the dish's "⋯" menu.

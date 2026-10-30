@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+import { es } from "@/lib/i18n/es";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import type { RankedPosProduct } from "@/lib/restaurant/pos-product-list";
@@ -272,10 +273,15 @@ describe("treatment and resale routes", () => {
     const ui = read("components/restaurant/recipes-costing/TreatmentPanel.tsx");
     // B6/C1: a compact selector in the dish header; the suggestion is
     // in its tooltip.
-    expect(ui).toContain('aria-label="Cómo se costea"');
-    expect(ui).toContain("Milton sugiere");
-    expect(ui).toContain("¿Qué compras para venderlo?");
+    const t = es.menu.editor.treatment;
+    expect(ui).toContain("aria-label={d.howCosted}");
+    expect(t.howCosted).toBe("Cómo se costea");
+    expect(ui).toContain("d.unclassifiedSuggest");
+    expect(t.unclassifiedSuggest).toContain("Milton sugiere");
+    expect(ui).toContain("d.whatYouBuy");
+    expect(t.whatYouBuy).toBe("¿Qué compras para venderlo?");
     expect(ui).not.toMatch(/\busted\b/i);
+    expect(JSON.stringify(t)).not.toMatch(/\busted\b/i);
   });
 });
 

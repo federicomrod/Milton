@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import {
   normalizeCadence,
   normalizeEmail,
@@ -49,7 +50,7 @@ export async function GET() {
   if (error) {
     console.error("[briefing-email-preferences] lookup failed:", error.message);
     return NextResponse.json(
-      { error: "Could not load email briefing preferences" },
+      { error: (await apiDictionary()).comms.api.prefsLoadFailed },
       { status: 500 }
     );
   }
@@ -95,13 +96,16 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ error: "Body must be JSON" }, { status: 400 });
+    return NextResponse.json(
+      { error: (await apiDictionary()).comms.api.bodyNotJson },
+      { status: 400 }
+    );
   }
 
   const cadence = normalizeCadence(body.cadence);
   if (!cadence) {
     return NextResponse.json(
-      { error: "cadence must be one of: off, daily, weekly" },
+      { error: (await apiDictionary()).comms.api.cadenceInvalid },
       { status: 400 }
     );
   }
@@ -110,8 +114,7 @@ export async function POST(req: NextRequest) {
   if (cadence !== "off" && !recipient) {
     return NextResponse.json(
       {
-        error:
-          "A valid recipient email is required when delivery is Daily or Weekly.",
+        error: (await apiDictionary()).comms.api.recipientRequired,
       },
       { status: 400 }
     );
@@ -123,8 +126,7 @@ export async function POST(req: NextRequest) {
   if (!timezoneResult.ok) {
     return NextResponse.json(
       {
-        error:
-          "A valid delivery timezone is required when delivery is Daily or Weekly.",
+        error: (await apiDictionary()).comms.api.timezoneRequired,
       },
       { status: 400 }
     );
@@ -143,7 +145,7 @@ export async function POST(req: NextRequest) {
   if (error) {
     console.error("[briefing-email-preferences] save failed:", error.message);
     return NextResponse.json(
-      { error: "Could not save email briefing preferences" },
+      { error: (await apiDictionary()).comms.api.prefsSaveFailed },
       { status: 500 }
     );
   }

@@ -22,6 +22,8 @@
 //   - one `approved` event when the header transitions
 //   - one `posted` event after cost entries are written
 
+import { fmt as f } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -58,6 +60,7 @@ export async function POST(
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId, userId } = auth;
 
   // ---- Load invoice ----
@@ -69,22 +72,16 @@ export async function POST(
     .maybeSingle();
   if (invErr) {
     return NextResponse.json(
-      { error: "No pude cargar la factura.", details: invErr.message },
+      { error: a.invoiceLoadFailed, details: invErr.message },
       { status: 500 }
     );
   }
   if (!invRow) {
-    return NextResponse.json(
-      { error: "No encontré la factura." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: a.invoiceNotFound }, { status: 404 });
   }
   const invoice = invRow as SupplierInvoice;
   if (invoice.status === "posted") {
-    return NextResponse.json(
-      { error: "Esta factura ya está registrada." },
-      { status: 409 }
-    );
+    return NextResponse.json({ error: a.alreadyPosted }, { status: 409 });
   }
   if (
     invoice.status !== "draft" &&
@@ -93,7 +90,7 @@ export async function POST(
   ) {
     return NextResponse.json(
       {
-        error: `Invoice cannot be posted from status '${invoice.status}'.`,
+        error: f(a.cannotPostFromStatus, { status: invoice.status }),
       },
       { status: 409 }
     );
@@ -113,7 +110,7 @@ export async function POST(
   ]);
   if (linesRes.error) {
     return NextResponse.json(
-      { error: "No pude cargar las líneas.", details: linesRes.error.message },
+      { error: a.linesLoadFailed, details: linesRes.error.message },
       { status: 500 }
     );
   }
@@ -135,7 +132,7 @@ export async function POST(
       skipped.push({
         line_id: line.id,
         description: line.description,
-        reason: `Line is ${line.review_status}; only approved lines are posted.`,
+        reason: f(a.lineStatusNotApproved, { status: line.review_status }),
       });
       continue;
     }
@@ -147,7 +144,7 @@ export async function POST(
       skipped.push({
         line_id: line.id,
         description: line.description,
-        reason: "Line is not matched to an ingredient.",
+        reason: a.lineNotMatched,
       });
       continue;
     }
@@ -157,8 +154,7 @@ export async function POST(
   if (postable.length === 0) {
     return NextResponse.json(
       {
-        error:
-          "No approved + matched lines to post. Approve and match at least one line first.",
+        error: a.noLinesToPost,
         skipped_lines: skipped,
       },
       { status: 400 }
@@ -203,7 +199,7 @@ export async function POST(
       skipped.push({
         line_id: line.id,
         description: line.description,
-        reason: "Could not derive unit_cost (zero quantity or missing total).",
+        reason: a.unitCostUnderivable,
       });
       continue;
     }
@@ -213,7 +209,10 @@ export async function POST(
       skipped.push({
         line_id: line.id,
         description: line.description,
-        reason: `Cannot convert unit "${line.unit}" to ingredient default unit "${targetUnit}".`,
+        reason: f(a.cannotConvertUnit, {
+          unit: String(line.unit),
+          target: String(targetUnit),
+        }),
       });
       continue;
     }
@@ -246,7 +245,7 @@ export async function POST(
   if (inserts.length === 0) {
     return NextResponse.json(
       {
-        error: "No quedaron líneas listas para registrar.",
+        error: a.noLinesLeft,
         skipped_lines: skipped,
       },
       { status: 400 }
@@ -262,7 +261,7 @@ export async function POST(
     console.error("[invoices/approve] cost entry insert:", insErr.message);
     return NextResponse.json(
       {
-        error: "No pude guardar los costos.",
+        error: a.costsSaveFailed,
         details: insErr.message,
       },
       { status: 500 }
@@ -316,8 +315,7 @@ export async function POST(
     console.error("[invoices/approve] invoice update:", invUpdErr?.message);
     return NextResponse.json(
       {
-        error:
-          "Cost entries were written but the invoice could not be marked posted.",
+        error: a.postedMarkFailed,
         details: invUpdErr?.message,
         inserted_cost_entries: insertedCount,
       },
@@ -354,6 +352,6 @@ export async function POST(
     posted_lines: insertedCount,
     skipped_lines: skipped,
     /** CTA copy for the UI. */
-    next_steps: "Factura registrada. Los precios nuevos ya están en Costos.",
+    next_steps: a.invoicePosted,
   });
 }

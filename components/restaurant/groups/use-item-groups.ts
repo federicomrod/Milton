@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GroupOpError,
   applyOps,
+  opText,
   replayOps,
   type GroupOps,
   type GroupsState,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/restaurant/groups/group-ops";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 export interface GroupToast {
   message: string;
@@ -26,7 +28,7 @@ export interface GroupToast {
 
 const UNDO_MS = 8000;
 
-async function save(ops: GroupOps): Promise<void> {
+async function save(ops: GroupOps, failedText: string): Promise<void> {
   const res = await fetch("/api/restaurant/item-groups", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,7 +36,7 @@ async function save(ops: GroupOps): Promise<void> {
   });
   if (res.ok) return;
   const json = (await res.json().catch(() => ({}))) as { error?: string };
-  throw new Error(userErrorMessage(json, "No pude guardar la agrupación."));
+  throw new Error(userErrorMessage(json, failedText));
 }
 
 // The changes made in this browser session, newest last. A payload that was
@@ -55,6 +57,8 @@ function reconcile(initial: ItemGroupsLoad | null | undefined): GroupsState {
 }
 
 export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
+  const { d, lang } = useT();
+  const hook = d.menu.groups.hook;
   const available = initial?.available === true;
   const [state, setState] = useState<GroupsState>(() => reconcile(initial));
   const stateRef = useRef(state);
@@ -115,12 +119,12 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
       }
       pending.current++;
       try {
-        await save(ops);
+        await save(ops, hook.saveGroupingFailed);
         showToast({
           message: label,
           undo: undoOps
             ? () => {
-                void apply(undoOps, null, "Deshecho");
+                void apply(undoOps, null, hook.undone);
               }
             : null,
         });
@@ -131,7 +135,7 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
         if (at >= 0) sessionLog.splice(at, 1);
         if (undoOps) commit(applyOps(stateRef.current, undoOps));
         showToast({
-          message: err instanceof Error ? err.message : "No pude guardar.",
+          message: err instanceof Error ? err.message : hook.saveFailed,
           undo: null,
           error: true,
         });
@@ -140,7 +144,7 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
         pending.current--;
       }
     },
-    [commit, showToast]
+    [commit, showToast, hook]
   );
 
   /** Run a pure action on the current state. Returns false if it was refused or the save failed. */
@@ -153,8 +157,10 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
         showToast({
           message:
             err instanceof GroupOpError
-              ? err.message
-              : "No se pudo hacer ese cambio.",
+              ? err.key
+                ? opText(lang, err.key, err.vars)
+                : err.message
+              : hook.changeFailed,
           undo: null,
           error: true,
         });
@@ -169,9 +175,13 @@ export function useItemGroups(initial: ItemGroupsLoad | null | undefined) {
       ) {
         return true;
       }
-      return apply(result.ops, result.undo, result.label);
+      return apply(
+        result.ops,
+        result.undo,
+        opText(lang, result.labelKey, result.labelVars)
+      );
     },
-    [apply, showToast]
+    [apply, showToast, lang, hook]
   );
 
   return useMemo(

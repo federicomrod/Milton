@@ -487,7 +487,10 @@ export function resolveUnitCell(
   lang: PreferredLanguage = "en"
 ): ResolvedUnitCell {
   if (typeof raw !== "string" || !raw.trim()) {
-    return { ok: false, reason: t(lang, "Missing unit", "Falta la unidad") };
+    return {
+      ok: false,
+      reason: t(lang, "Missing unit", "Falta la unidad", "Einheit fehlt"),
+    };
   }
   const explicit = parseExplicitPackSize(raw);
   if (explicit) {
@@ -510,12 +513,22 @@ export function resolveUnitCell(
   if (isAmbiguousPackUnit(raw)) {
     return {
       ok: false,
-      reason: t(lang, "pack size, needs conversion", PACK_SIZE_REVIEW_REASON),
+      reason: t(
+        lang,
+        "pack size, needs conversion",
+        PACK_SIZE_REVIEW_REASON,
+        "Packungsgröße, Umrechnung nötig"
+      ),
     };
   }
   return {
     ok: false,
-    reason: t(lang, `unknown unit (${raw})`, `unidad desconocida (${raw})`),
+    reason: t(
+      lang,
+      `unknown unit (${raw})`,
+      `unidad desconocida (${raw})`,
+      `unbekannte Einheit (${raw})`
+    ),
   };
 }
 

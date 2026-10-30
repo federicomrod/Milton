@@ -15,6 +15,8 @@
 // A month is never read one day or one dish at a time.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { accessTokenOf, cacheClientFor } from "@/lib/restaurant/cache-client";
 import {
   cachedForCompany,
@@ -283,13 +285,11 @@ export async function loadMonthMargin(args: {
   locationId: string | null;
   restaurantIds: string[];
   month: string;
+  /** Language of the `reason` text; Spanish when absent. */
+  lang?: PreferredLanguage;
 }): Promise<MarginRead> {
-  if (!args.locationId)
-    return {
-      ok: false,
-      reason:
-        "El punto de equilibrio se calcula por restaurante: elige uno arriba.",
-    };
+  const reasons = getDictionary(args.lang ?? "es").costs.marginReasons;
+  if (!args.locationId) return { ok: false, reason: reasons.pickRestaurant };
   try {
     const prev = previousMonthStart(args.month);
     const load = await loadRentabilidad({
@@ -302,11 +302,7 @@ export async function loadMonthMargin(args: {
     const pick = [load.months[args.month], load.months[prev]].find(
       (m) => m && m.monthTotals.sales > 0
     );
-    if (!pick)
-      return {
-        ok: false,
-        reason: "Aún no hay ventas para calcular el margen.",
-      };
+    if (!pick) return { ok: false, reason: reasons.noSales };
     return {
       ok: true,
       margin: {
@@ -317,6 +313,6 @@ export async function loadMonthMargin(args: {
     };
   } catch (err) {
     console.error("[rentabilidad] margin load failed:", err);
-    return { ok: false, reason: "No se pudo leer el margen en este momento." };
+    return { ok: false, reason: reasons.readFailed };
   }
 }

@@ -26,6 +26,11 @@ import { DetailHeatmap } from "./DetailHeatmap";
 import { DimensionPanel } from "./DimensionPanel";
 import { PlatosTab } from "./PlatosTab";
 import { dayLabelEs, moneyFmt, rangeLabelEs } from "./format";
+import { I18nProvider, useT } from "@/lib/i18n/client";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 import {
   dimensionLeader,
@@ -58,10 +63,28 @@ type Loaded = Omit<SalesDetailPayload, "cube"> & {
 export function SalesDetailV2({
   initial,
   locationId,
+  lang = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+}: {
+  initial: DetailState;
+  locationId: string | null;
+  lang?: PreferredLanguage;
+}) {
+  return (
+    <I18nProvider lang={lang}>
+      <SalesDetailBody initial={initial} locationId={locationId} />
+    </I18nProvider>
+  );
+}
+
+function SalesDetailBody({
+  initial,
+  locationId,
 }: {
   initial: DetailState;
   locationId: string | null;
 }) {
+  const { d, lang, fmt } = useT();
+  const s0 = d.sales.detail;
   const [state, setState] = useState<DetailState>(initial);
   const [attempt, setAttempt] = useState(0);
   // The answer of the request that is current (keyed, so a new request never
@@ -86,10 +109,9 @@ export function SalesDetailV2({
           .json()
           .catch(() => ({}))) as SalesDetailPayload & { error?: string };
         if (!res.ok)
-          throw new Error(userErrorMessage(json, "No pude cargar las ventas."));
+          throw new Error(userErrorMessage(json, s0.states.loadFailed));
         const cube = parseDetailCube(json.cube);
-        if (!cube)
-          throw new Error("Las ventas llegaron en un formato que no entiendo.");
+        if (!cube) throw new Error(s0.states.badFormat);
         return { ...json, cube } as Loaded;
       })
       .then((d) => !cancelled && setAnswer({ key: requestKey, data: d }))
@@ -98,13 +120,13 @@ export function SalesDetailV2({
           !cancelled &&
           setAnswer({
             key: requestKey,
-            error:
-              e instanceof Error ? e.message : "No pude cargar las ventas.",
+            error: e instanceof Error ? e.message : s0.states.loadFailed,
           })
       );
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locationId, requestKey]);
 
   const prepared = useMemo(
@@ -127,19 +149,20 @@ export function SalesDetailV2({
             targets: data.targets,
             scope,
             shiftsVisible: data.shiftsVisible,
+            lang,
           })
         : null,
-    [prepared, data, state, scope]
+    [prepared, data, state, scope, lang]
   );
 
   // The leader of each dimension, on top of the Desglose (computed only there).
   const leaders = useMemo(() => {
     if (!prepared || !data || state.tab !== "desglose") return null;
     const dims = [
-      ["categoria", "Categoría"],
-      ["canal", "Canal"],
-      ["pago", "Pago"],
-      ...(data.shiftsVisible ? [["turno", "Turno"]] : []),
+      ["categoria", s0.filter.category],
+      ["canal", s0.filter.channel],
+      ["pago", s0.filter.payment],
+      ...(data.shiftsVisible ? [["turno", s0.filter.shift]] : []),
     ] as Array<[DetailState["dim"], string]>;
     return dims
       .map(([dim, label]) => {
@@ -149,12 +172,13 @@ export function SalesDetailV2({
           targets: data.targets,
           scope,
           shiftsVisible: data.shiftsVisible,
+          lang,
         });
         const leader = v ? dimensionLeader(v.dimRows) : null;
         return leader ? { label, text: leaderLabel(leader) } : null;
       })
       .filter((x): x is { label: string; text: string } => x !== null);
-  }, [prepared, data, state, scope]);
+  }, [prepared, data, state, scope, s0, lang]);
 
   const update = useCallback((patch: Partial<DetailState>) => {
     setState((prev) => {
@@ -188,7 +212,7 @@ export function SalesDetailV2({
           onClick={() => setAttempt((a) => a + 1)}
           className="mt-2 rounded-lg bg-[#1b40c8] px-3 py-1.5 text-[12.5px] font-semibold text-white"
         >
-          Reintentar
+          {s0.states.retry}
         </button>
       </div>
     );
@@ -214,17 +238,17 @@ export function SalesDetailV2({
   if (!view || data.cube.rows.length === 0)
     return (
       <p className="rounded-[14px] border border-[#eef0f4] bg-white px-4 py-8 text-center text-[13px] text-[#6b7385]">
-        Aún no hay ventas para explorar.{" "}
+        {s0.states.empty}{" "}
         <a
           href="/dashboard/restaurant/data?seccion=conexiones#conexiones"
           className="font-semibold text-[#1b40c8] underline"
         >
-          Importar ventas del POS →
+          {s0.states.importSales}
         </a>
       </p>
     );
 
-  const money = moneyFmt(data.currency);
+  const money = moneyFmt(data.currency, lang);
   const resolved = resolveRange(state, data.cube);
   const lastDay = data.cube.last_day;
   const onTile =
@@ -264,14 +288,20 @@ export function SalesDetailV2({
         className="text-[11.5px] text-[#8a92a3]"
         data-testid="sales-detail-note"
       >
-        {rangeLabelEs(view.range.from, view.range.to)}
+        {rangeLabelEs(view.range.from, view.range.to, lang)}
         {view.compare.baseline
-          ? ` · vs ${rangeLabelEs(view.compare.baseline.range.from, view.compare.baseline.range.to)}`
+          ? fmt(s0.note.vs, {
+              range: rangeLabelEs(
+                view.compare.baseline.range.from,
+                view.compare.baseline.range.to,
+                lang
+              ),
+            })
           : ""}
-        {lastDay ? ` · datos hasta ${dayLabelEs(lastDay)}` : ""}
-        {view.clipped || (resolved && resolved.clipped)
-          ? " · el período se recortó a lo que hay cargado"
+        {lastDay
+          ? fmt(s0.note.dataUntil, { day: dayLabelEs(lastDay, lang) })
           : ""}
+        {view.clipped || (resolved && resolved.clipped) ? s0.note.clipped : ""}
       </p>
 
       {state.tab === "tendencia" ? (
@@ -301,14 +331,14 @@ export function SalesDetailV2({
                 />
               ) : data.noShifts ? (
                 <p className="text-[12px] text-[#6b7385]">
-                  Aún no tienes turnos.{" "}
+                  {s0.states.noShifts}{" "}
                   <a
                     href={SHIFTS_HREF}
                     className="font-semibold text-[#1b40c8] hover:underline"
                   >
-                    Define tus turnos
+                    {s0.states.defineShifts}
                   </a>{" "}
-                  para ver las ventas de almuerzo, cena y más.
+                  {s0.states.noShiftsTail}
                 </p>
               ) : null}
             </div>
@@ -342,7 +372,7 @@ export function SalesDetailV2({
               className="text-[12.5px] text-[#4a5a85]"
               data-testid="dimension-leaders"
             >
-              <b className="text-[#151c2c]">Lo que más pesa:</b>{" "}
+              <b className="text-[#151c2c]">{s0.states.leaders}</b>{" "}
               {leaders.map((l, i) => (
                 <span key={l.label}>
                   {i > 0 ? " · " : ""}

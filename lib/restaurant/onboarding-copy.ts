@@ -1,13 +1,15 @@
 // lib/restaurant/onboarding-copy.ts
 //
-// All restaurant onboarding copy, option lists, and small lookup tables in
-// one place. Centralized deliberately: Spanish (tú) since R1; every user-facing
-// string lives here (not scattered across JSX) so a future Spanish
-// translation is a matter of adding a parallel table, not hunting through
-// components. See the README/PR notes for the i18n follow-up plan.
+// Onboarding option lists, validation and lookup tables in one place. The
+// words themselves live in the dictionaries (lib/i18n/{es,en,de}/onboarding.ts);
+// the exports here carry the SPANISH labels (the default language), and the
+// *Label(lang) helpers / getNextStepCards(pos, lang) give any other language.
 //
 // Nothing in this file does I/O — pure constants and types, safe to import
 // from both server and client components.
+
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,39 +43,71 @@ export type PriorityKey =
 
 export const MAX_PRIORITIES = 3;
 
+const es = getDictionary("es").onboarding;
+
+/** Dictionary key of each option value. */
+const CONCEPT_KEY: Record<ConceptType, keyof typeof es.concept> = {
+  restaurant: "restaurant",
+  bar: "bar",
+  cafe: "cafe",
+  bakery: "bakery",
+  fast_casual: "fastCasual",
+  other: "other",
+};
+const PRIORITY_KEY: Record<PriorityKey, keyof typeof es.priority> = {
+  margins: "margins",
+  food_cost: "foodCost",
+  sales: "sales",
+  inventory: "inventory",
+  waste: "waste",
+  forecast: "forecast",
+};
+
+export function conceptTypeLabel(
+  value: ConceptType,
+  lang: PreferredLanguage
+): string {
+  return getDictionary(lang).onboarding.concept[CONCEPT_KEY[value]];
+}
+
+export function priorityLabel(
+  value: PriorityKey,
+  lang: PreferredLanguage
+): string {
+  return getDictionary(lang).onboarding.priority[PRIORITY_KEY[value]];
+}
+
+export function posSystemLabel(
+  value: PosSystemChoice,
+  lang: PreferredLanguage
+): string {
+  const pos = getDictionary(lang).onboarding.pos;
+  if (value === "other") return pos.other;
+  if (value === "unknown") return pos.unknown;
+  return POS_SYSTEM_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+export function countryLabel(code: string, lang: PreferredLanguage): string {
+  const names = getDictionary(lang).onboarding.country as Record<
+    string,
+    string
+  >;
+  return names[code] ?? code;
+}
+
 // ---------------------------------------------------------------------------
 // Step copy
 // ---------------------------------------------------------------------------
 
 export const ONBOARDING_COPY = {
-  step1: {
-    title: "Tu restaurante",
-    subtitle: "Vamos a configurar {restaurantName}.",
-    conceptLabel: "¿Qué lo describe mejor?",
-    countryLabel: "¿Dónde está?",
-    countryPlaceholder: "Elige un país",
-    languageLabel: "¿En qué idioma te habla Milton?",
-  },
-  step2: {
-    title: "Tu operación",
-    locationsLabel: "¿Cuántos locales tienes?",
-    posLabel: "¿Qué sistema de punto de venta usas?",
-  },
+  step1: es.step1,
+  step2: es.step2,
   step3: {
-    title: "¿En qué te ayuda Milton?",
-    subtitle: `Elige hasta ${MAX_PRIORITIES}.`,
+    title: es.step3.title,
+    subtitle: fmt(es.step3.subtitle, { max: MAX_PRIORITIES }),
   },
-  step4: {
-    heading: "Milton está listo para {restaurantName}.",
-    subtitle: "Un buen lugar para empezar:",
-  },
-  nav: {
-    back: "Atrás",
-    next: "Siguiente",
-    skip: "Omitir",
-    finish: "Vamos",
-    saving: "Configurando…",
-  },
+  step4: es.step4,
+  nav: es.nav,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -83,12 +117,12 @@ export const ONBOARDING_COPY = {
 // ---------------------------------------------------------------------------
 
 export const CONCEPT_TYPE_OPTIONS: { value: ConceptType; label: string }[] = [
-  { value: "restaurant", label: "Restaurante" },
-  { value: "bar", label: "Bar" },
-  { value: "cafe", label: "Café" },
-  { value: "bakery", label: "Panadería" },
-  { value: "fast_casual", label: "Comida rápida" },
-  { value: "other", label: "Otro" },
+  { value: "restaurant", label: es.concept.restaurant },
+  { value: "bar", label: es.concept.bar },
+  { value: "cafe", label: es.concept.cafe },
+  { value: "bakery", label: es.concept.bakery },
+  { value: "fast_casual", label: es.concept.fastCasual },
+  { value: "other", label: es.concept.other },
 ];
 
 export const LOCATION_COUNT_OPTIONS: {
@@ -106,17 +140,17 @@ export const POS_SYSTEM_OPTIONS: { value: PosSystemChoice; label: string }[] = [
   { value: "revel", label: "Revel" },
   { value: "square", label: "Square" },
   { value: "toast", label: "Toast" },
-  { value: "other", label: "Otro" },
-  { value: "unknown", label: "No sé" },
+  { value: "other", label: es.pos.other },
+  { value: "unknown", label: es.pos.unknown },
 ];
 
 export const PRIORITY_OPTIONS: { value: PriorityKey; label: string }[] = [
-  { value: "margins", label: "Entender mis márgenes" },
-  { value: "food_cost", label: "Controlar el costo de comida" },
-  { value: "sales", label: "Entender mis ventas" },
-  { value: "inventory", label: "Llevar mi inventario" },
-  { value: "waste", label: "Reducir desperdicio" },
-  { value: "forecast", label: "Pronosticar la demanda" },
+  { value: "margins", label: es.priority.margins },
+  { value: "food_cost", label: es.priority.foodCost },
+  { value: "sales", label: es.priority.sales },
+  { value: "inventory", label: es.priority.inventory },
+  { value: "waste", label: es.priority.waste },
+  { value: "forecast", label: es.priority.forecast },
 ];
 
 // ---------------------------------------------------------------------------
@@ -134,23 +168,23 @@ export interface CountryOption {
 }
 
 export const COUNTRY_OPTIONS: CountryOption[] = [
-  { code: "MX", label: "México", currency: "MXN" },
-  { code: "US", label: "Estados Unidos", currency: "USD" },
-  { code: "CA", label: "Canadá", currency: "CAD" },
-  { code: "AR", label: "Argentina", currency: "ARS" },
-  { code: "BR", label: "Brasil", currency: "BRL" },
-  { code: "CL", label: "Chile", currency: "CLP" },
-  { code: "CO", label: "Colombia", currency: "COP" },
-  { code: "SV", label: "El Salvador", currency: "USD" },
-  { code: "GT", label: "Guatemala", currency: "GTQ" },
-  { code: "ES", label: "España", currency: "EUR" },
-  { code: "DE", label: "Alemania", currency: "EUR" },
-  { code: "IT", label: "Italia", currency: "EUR" },
-  { code: "CH", label: "Suiza", currency: "CHF" },
-  { code: "PE", label: "Perú", currency: "PEN" },
-  { code: "GB", label: "Reino Unido", currency: "GBP" },
-  { code: "PT", label: "Portugal", currency: "EUR" },
-  { code: "OTHER", label: "Otro", currency: "USD" },
+  { code: "MX", label: es.country.MX, currency: "MXN" },
+  { code: "US", label: es.country.US, currency: "USD" },
+  { code: "CA", label: es.country.CA, currency: "CAD" },
+  { code: "AR", label: es.country.AR, currency: "ARS" },
+  { code: "BR", label: es.country.BR, currency: "BRL" },
+  { code: "CL", label: es.country.CL, currency: "CLP" },
+  { code: "CO", label: es.country.CO, currency: "COP" },
+  { code: "SV", label: es.country.SV, currency: "USD" },
+  { code: "GT", label: es.country.GT, currency: "GTQ" },
+  { code: "ES", label: es.country.ES, currency: "EUR" },
+  { code: "DE", label: es.country.DE, currency: "EUR" },
+  { code: "IT", label: es.country.IT, currency: "EUR" },
+  { code: "CH", label: es.country.CH, currency: "CHF" },
+  { code: "PE", label: es.country.PE, currency: "PEN" },
+  { code: "GB", label: es.country.GB, currency: "GBP" },
+  { code: "PT", label: es.country.PT, currency: "EUR" },
+  { code: "OTHER", label: es.country.OTHER, currency: "USD" },
 ];
 
 export function currencyForCountry(countryCode: string): string {
@@ -234,40 +268,42 @@ export interface NextStepCard {
  * dead link. Every other POS choice leads there directly since that page
  * is today's actual working ingestion path.
  */
-export function getNextStepCards(posSystem: PosSystemChoice): NextStepCard[] {
+export function getNextStepCards(
+  posSystem: PosSystemChoice,
+  lang: PreferredLanguage = "es"
+): NextStepCard[] {
+  const d = getDictionary(lang).onboarding.nextSteps;
   const connectPos: NextStepCard =
     posSystem === "odoo"
       ? {
           key: "connect_pos",
-          title: "Conecta tu POS",
-          description:
-            "Conecta Odoo o sube un archivo de ventas para empezar hoy.",
+          title: d.connectPosTitle,
+          description: d.connectPosOdooDescription,
           href: "/dashboard/restaurant/upload",
-          cta: "Subir ventas",
+          cta: d.connectPosOdooCta,
         }
       : {
           key: "connect_pos",
-          title: "Conecta tu POS",
-          description: "Trae tus ventas para ver números reales.",
+          title: d.connectPosTitle,
+          description: d.connectPosDescription,
           href: "/dashboard/restaurant/upload",
-          cta: "Empezar",
+          cta: d.connectPosCta,
         };
 
   const uploadSales: NextStepCard = {
     key: "upload_sales",
-    title: "Sube tus ventas",
-    description:
-      "Importa un archivo del POS y mira tu Cockpit con datos reales.",
+    title: d.uploadSalesTitle,
+    description: d.uploadSalesDescription,
     href: "/dashboard/restaurant/upload",
-    cta: "Subir ahora",
+    cta: d.uploadSalesCta,
   };
 
   const addRecipes: NextStepCard = {
     key: "add_recipes",
-    title: "Agrega recetas y costos",
-    description: "Arma tus recetas para que Milton calcule márgenes reales.",
+    title: d.addRecipesTitle,
+    description: d.addRecipesDescription,
     href: "/dashboard/restaurant/menu",
-    cta: "Agregar recetas",
+    cta: d.addRecipesCta,
   };
 
   // Lead with the connection step when the POS is unknown/unclear; lead

@@ -5,10 +5,10 @@
 
 "use client";
 
+import { moneyLocale } from "@/lib/restaurant/cockpit-format";
 import { useEffect, useRef, useState } from "react";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import type { HeatmapCell } from "@/lib/restaurant/cockpit-aggregates";
-import { localeForCurrency } from "@/lib/restaurant/currency";
 import { heatColor, heatText } from "@/lib/restaurant/ui/heat-scale";
 
 export type HeatmapDisplayCell = HeatmapCell & {
@@ -19,6 +19,7 @@ export type HeatmapDisplayCell = HeatmapCell & {
 
 const WEEKDAY_SHORT_EN = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_SHORT_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const WEEKDAY_SHORT_DE = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
 function cellFill(intensity: number): string {
   // The same blue scale as Ventas › hora × día (lib/restaurant/ui/heat-scale).
@@ -55,14 +56,19 @@ export function SalesHeatmap({
   onSelectCell?: (cell: HeatmapDisplayCell) => void;
 }) {
   const [focus, setFocus] = useState<HeatmapDisplayCell | null>(null);
-  const locale = localeForCurrency(currency);
+  const locale = moneyLocale(currency, lang);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(currency) ? currency : "USD",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  const days = lang === "es" ? WEEKDAY_SHORT_ES : WEEKDAY_SHORT_EN;
+  const days =
+    lang === "de"
+      ? WEEKDAY_SHORT_DE
+      : lang === "es"
+        ? WEEKDAY_SHORT_ES
+        : WEEKDAY_SHORT_EN;
   const hours = Array.from(new Set(cells.map((c) => c.hour))).sort(
     (a, b) => a - b
   );
@@ -111,7 +117,8 @@ export function SalesHeatmap({
           aria-label={t(
             lang,
             "Net sales by hour and weekday",
-            "Ventas netas por hora y día"
+            "Ventas netas por hora y día",
+            "Nettoumsatz nach Stunde und Wochentag"
           )}
           width={width}
           height={height}
@@ -256,7 +263,8 @@ export function SalesHeatmap({
           : t(
               lang,
               "Hover or focus a cell for the exact net sales.",
-              "Pasa el cursor o enfoca una celda para ver el monto exacto."
+              "Pasa el cursor o enfoca una celda para ver el monto exacto.",
+              "Zelle anzeigen oder fokussieren für den genauen Nettoumsatz."
             )}
       </p>
     </div>
@@ -271,11 +279,11 @@ function focusCaption(
 ): string {
   const parts = [
     `${days[focus.weekday]} ${String(focus.hour).padStart(2, "0")}:00 — ${money.format(focus.net_sales)}`,
-    `${focus.tickets} ${t(lang, "tickets", "tickets")}`,
+    `${focus.tickets} ${t(lang, "tickets", "tickets", "Bons")}`,
   ];
   if (focus.avg_ticket != null && focus.tickets > 0) {
     parts.push(
-      `${t(lang, "avg ticket", "ticket promedio")} ${money.format(focus.avg_ticket)}`
+      `${t(lang, "avg ticket", "ticket promedio", "Ø Bon")} ${money.format(focus.avg_ticket)}`
     );
   }
   if (focus.vs_typical_pct != null) {
@@ -283,7 +291,9 @@ function focusCaption(
       focus.vs_typical_pct > 0
         ? `+${focus.vs_typical_pct.toFixed(0)}%`
         : `${focus.vs_typical_pct.toFixed(0)}%`;
-    parts.push(`${signed} ${t(lang, "vs typical hour", "vs hora típica")}`);
+    parts.push(
+      `${signed} ${t(lang, "vs typical hour", "vs hora típica", "ggü. typischer Stunde")}`
+    );
   }
   return parts.join(" · ");
 }

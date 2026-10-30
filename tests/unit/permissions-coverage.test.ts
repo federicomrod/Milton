@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 const CHECKS =
   // recipes/editor starts resolveActor early and asks can() on that promise
   // (a parallel guard, for speed): the same helper, so it counts.
-  /requireCapability\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|resolveActor\([\s\S]*\bcan\(/;
+  /requireCapability(?:Localized)?\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|resolveActor\([\s\S]*\bcan\(/;
 const WRITE =
   /export\s+(?:async\s+function|const)\s+(?:POST|PUT|PATCH|DELETE)\b/;
 

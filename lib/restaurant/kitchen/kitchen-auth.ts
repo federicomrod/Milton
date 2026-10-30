@@ -16,7 +16,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { readBearerToken } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveKitchenDevice } from "@/lib/restaurant/kitchen/app-identity";
-import { mobileJson } from "@/lib/restaurant/kitchen/mobile-response";
+import { getDictionary } from "@/lib/i18n";
+import {
+  mobileJson,
+  mobileLanguage,
+} from "@/lib/restaurant/kitchen/mobile-response";
 
 export interface KitchenAuthOk {
   ok: true;
@@ -38,10 +42,18 @@ export type KitchenAuthResult =
   | KitchenAuthOk
   | { ok: false; response: NextResponse };
 
-function unauthorized(): { ok: false; response: NextResponse } {
+function unauthorized(request: Request): {
+  ok: false;
+  response: NextResponse;
+} {
   return {
     ok: false,
-    response: mobileJson({ error: "Vuelve a entrar con tu invitación." }, 401),
+    response: mobileJson(
+      {
+        error: getDictionary(mobileLanguage(request)).kitchen.api.signInAgain,
+      },
+      401
+    ),
   };
 }
 
@@ -49,11 +61,11 @@ export async function authKitchenDevice(
   request: Request
 ): Promise<KitchenAuthResult> {
   const token = readBearerToken(request);
-  if (!token) return unauthorized();
+  if (!token) return unauthorized(request);
   try {
     const admin = createAdminClient();
     const resolved = await resolveKitchenDevice(admin, token);
-    if (!resolved) return unauthorized();
+    if (!resolved) return unauthorized(request);
     return {
       ok: true,
       admin,
@@ -75,7 +87,13 @@ export async function authKitchenDevice(
     );
     return {
       ok: false,
-      response: mobileJson({ error: "No pude revisar tu sesión." }, 500),
+      response: mobileJson(
+        {
+          error: getDictionary(mobileLanguage(request)).kitchen.api
+            .sessionCheckFailed,
+        },
+        500
+      ),
     };
   }
 }

@@ -10,6 +10,7 @@
 //            payment_terms?, tax_id?, status? }
 //   Creates a new supplier.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -29,6 +30,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId } = auth;
 
   type SupplierRow = Record<string, unknown> & { id: string; name: string };
@@ -67,7 +69,7 @@ export async function GET() {
     console.error("[suppliers GET]", suppliersRes.error.message);
     return NextResponse.json(
       {
-        error: "No pude leer los proveedores. Inténtalo de nuevo.",
+        error: a.suppliersReadFailed,
         details: suppliersRes.error.message,
       },
       { status: 500 }
@@ -134,23 +136,18 @@ export async function POST(req: NextRequest) {
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
 
   let body: CreateBody;
   try {
     body = (await req.json()) as CreateBody;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo de la solicitud debe ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyJson }, { status: 400 });
   }
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) {
-    return NextResponse.json(
-      { error: "El nombre es obligatorio." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.nameRequired }, { status: 400 });
   }
 
   const str = (v: unknown) =>
@@ -184,15 +181,12 @@ export async function POST(req: NextRequest) {
   if (error || !data) {
     const pgCode = (error as { code?: string } | null)?.code;
     if (pgCode === "23505") {
-      return NextResponse.json(
-        { error: "Ya existe un proveedor con ese nombre." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: a.supplierExists }, { status: 409 });
     }
     console.error("[suppliers POST]", error?.message);
     return NextResponse.json(
       {
-        error: "No pude crear el proveedor. Inténtalo de nuevo.",
+        error: a.supplierCreateFailed,
         details: error?.message,
       },
       { status: 500 }

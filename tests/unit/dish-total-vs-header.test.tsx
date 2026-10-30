@@ -266,7 +266,7 @@ describe("the same, but the price unit does NOT convert", () => {
     // and the header component names it
     const src = read("components/restaurant/recipes-costing/PlatoScreen.tsx");
     expect(src).toContain('data-testid="header-pending"');
-    expect(src).toContain("línea pendiente");
+    expect(read("lib/i18n/es/menu-workspace.ts")).toContain("línea pendiente");
   });
   it("each pending line says why: Unidad distinta / Falta precio / Unidad por confirmar", async () => {
     const { ctx } = editorCtx({
@@ -571,6 +571,9 @@ describe("no banner on approved recipes", () => {
     expect(src).not.toContain(
       "Corrige el precio del ingrediente (no hace falta versión nueva) o"
     );
-    expect(src).toMatch(/<DropdownMenuItem[\s\S]{0,160}Crear versión nueva/);
+    expect(src).toMatch(/<DropdownMenuItem[\s\S]{0,160}d\.lines\.newVersion/);
+    expect(read("lib/i18n/es/menu-editor.ts")).toContain(
+      'newVersion: "Crear versión nueva"'
+    );
   });
 });

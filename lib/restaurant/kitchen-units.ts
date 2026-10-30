@@ -3,6 +3,7 @@
 // mapped to one of these when the draft is made; if it cannot be mapped the
 // dropdown stays empty and Confirmar waits for a choice.
 
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { isSubRecipePortionUnit, normalizeUnit } from "@/lib/restaurant/units";
 
 export const KITCHEN_UNITS = [
@@ -18,6 +19,23 @@ export const KITCHEN_UNITS = [
 ] as const;
 
 export type KitchenUnit = (typeof KITCHEN_UNITS)[number]["value"];
+
+/** The dropdown label of a unit in the person's language (Spanish by default). */
+export function kitchenUnitLabel(
+  unit: { value: string; label: string },
+  lang: PreferredLanguage
+): string {
+  switch (unit.value) {
+    case "pza":
+      return t(lang, "pc (piece)", "pza (pieza)", "Stk. (Stück)");
+    case "unidad":
+      return t(lang, "unit", "unidad", "Einheit");
+    case "orden":
+      return t(lang, "serving", "orden", "Portion");
+    default:
+      return unit.label;
+  }
+}
 
 const KITCHEN_UNIT_VALUES = new Set<string>(KITCHEN_UNITS.map((u) => u.value));
 

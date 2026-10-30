@@ -5,6 +5,8 @@
 //   Idempotent: never duplicates and never overwrites a value already there.
 //   → { created }
 
+import { apiLanguage } from "@/lib/restaurant/api-lang";
+import { getDictionary } from "@/lib/i18n";
 import { NextRequest, NextResponse } from "next/server";
 import { repeatFixedCosts } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
@@ -15,6 +17,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const lang = await apiLanguage();
+  const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
   const denied = requireCapability(auth.actor, "costs.fixed");
@@ -22,8 +26,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { month?: unknown };
   const month =
     typeof body.month === "string" ? monthStartOf(body.month) : null;
-  if (!month)
-    return NextResponse.json({ error: "Mes no válido." }, { status: 400 });
+  if (!month) return NextResponse.json({ error: fe.month }, { status: 400 });
   try {
     const created = await repeatFixedCosts(
       {
@@ -36,9 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ created: created.length });
   } catch (err) {
     console.error("[fixed-costs] repeat failed:", err);
-    return NextResponse.json(
-      { error: "No se pudo repetir los costos del mes." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: fe.repeatFailed }, { status: 500 });
   }
 }

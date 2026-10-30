@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { resolveActor } from "@/lib/auth/permissions";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { actionableError } from "@/lib/restaurant/actionable-error";
 
 export const UUID =
@@ -19,11 +20,12 @@ export async function gate() {
   return { ok: true as const, auth, actor };
 }
 
-export function failureResponse(
+export async function failureResponse(
   error: { code?: string; message?: string },
   fallback: string,
   tag: string
 ) {
+  const api = (await apiDictionary()).menu.screens.api;
   const code = error.code;
   // The function or table is missing: 051 (or 050) is not applied yet.
   if (
@@ -35,7 +37,7 @@ export function failureResponse(
     return NextResponse.json(
       {
         unavailable: true,
-        error: "Falta aplicar las migraciones 050 y 051 en este ambiente.",
+        error: api.migrationsMissing,
       },
       { status: 409 }
     );

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
 import { PasswordInput } from "@/components/auth/password-input";
 import { ResendConfirmation } from "@/components/auth/resend-confirmation";
 import {
@@ -29,6 +30,8 @@ import {
 } from "@/lib/auth/email-confirmation";
 
 export function LoginForm() {
+  const { d, lang } = useT();
+  const a = d.auth.login;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const router = useRouter();
@@ -37,11 +40,11 @@ export function LoginForm() {
 
   const notice =
     searchParams.get("notice") === "password_updated"
-      ? "Cambiaste tu contraseña. Inicia sesión con la nueva."
+      ? a.passwordUpdated
       : null;
   const urlError = searchParams.get("error");
   const [problem, setProblem] = useState<LoginProblem | null>(
-    loginUrlProblem(urlError)
+    loginUrlProblem(urlError, lang)
   );
   const error = problem?.message ?? null;
   const setError = (message: string | null) =>
@@ -81,7 +84,7 @@ export function LoginForm() {
                 });
 
               if (setSessionError) {
-                setError(setSessionError.message || "No pudimos autenticarte");
+                setError(setSessionError.message || a.authFailed);
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
                 return;
@@ -98,7 +101,7 @@ export function LoginForm() {
                   ) ?? (await getPostLoginRedirect(supabase))
                 );
               } else {
-                setError("No pudimos autenticarte. Inténtalo de nuevo.");
+                setError(a.authFailedRetry);
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
               }
@@ -112,7 +115,7 @@ export function LoginForm() {
               } = await supabase.auth.getSession();
 
               if (sessionError) {
-                setError(sessionError.message || "No pudimos autenticarte");
+                setError(sessionError.message || a.authFailed);
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
                 return;
@@ -127,7 +130,7 @@ export function LoginForm() {
                 );
                 router.refresh();
               } else {
-                setError("No pudimos autenticarte. Inténtalo de nuevo.");
+                setError(a.authFailedRetry);
                 setLoading(false);
                 window.history.replaceState(null, "", window.location.pathname);
               }
@@ -135,9 +138,7 @@ export function LoginForm() {
           } catch (err) {
             console.error("Magic link authentication error:", err);
             const errorMessage =
-              err instanceof Error
-                ? err.message
-                : "No pudimos autenticarte with magic link";
+              err instanceof Error ? err.message : a.magicLinkFailed;
             setError(errorMessage);
             setLoading(false);
             window.history.replaceState(null, "", window.location.pathname);
@@ -161,7 +162,7 @@ export function LoginForm() {
 
     if (error) {
       // Spanish, and for an unconfirmed email the way to get a new link.
-      setProblem(loginProblem(error));
+      setProblem(loginProblem(error, lang));
       setLoading(false);
     } else {
       router.refresh();
@@ -175,10 +176,8 @@ export function LoginForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Bienvenido de vuelta</CardTitle>
-        <CardDescription>
-          Entra a tu espacio de rentabilidad del restaurante
-        </CardDescription>
+        <CardTitle>{a.title}</CardTitle>
+        <CardDescription>{a.subtitle}</CardDescription>
       </CardHeader>
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
@@ -193,17 +192,14 @@ export function LoginForm() {
             </Alert>
           )}
           {problem?.kind === "unconfirmed" ? (
-            <ResendConfirmation
-              email={email}
-              label="Reenviar correo de confirmación"
-            />
+            <ResendConfirmation email={email} label={a.resendLabel} />
           ) : null}
           <div className="space-y-2">
-            <Label htmlFor="email">Correo</Label>
+            <Label htmlFor="email">{a.email}</Label>
             <Input
               id="email"
               type="email"
-              placeholder="tu@correo.com"
+              placeholder={a.emailPlaceholder}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -211,12 +207,12 @@ export function LoginForm() {
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password">{a.password}</Label>
               <Link
                 href="/auth/forgot-password"
                 className="text-sm text-primary hover:underline"
               >
-                ¿Olvidaste tu contraseña?
+                {a.forgot}
               </Link>
             </div>
             <PasswordInput
@@ -230,12 +226,12 @@ export function LoginForm() {
         </CardContent>
         <CardFooter className="flex flex-col space-y-4 pt-6">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Entrando…" : "Entrar"}
+            {loading ? a.submitting : a.submit}
           </Button>
           <p className="text-sm text-center text-muted-foreground">
-            ¿No tienes cuenta?{" "}
+            {a.noAccount}{" "}
             <Link href="/auth/signup" className="text-primary hover:underline">
-              Crea una
+              {a.createOne}
             </Link>
           </p>
         </CardFooter>

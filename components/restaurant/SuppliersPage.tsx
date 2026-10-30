@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fmtMoney } from "@/components/restaurant/InvoicesPage";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,16 +42,14 @@ export interface SupplierRow {
   currency?: string;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "Activo",
-  inactive: "Inactivo",
-  archived: "Archivado",
-};
-
-/** «2026-03-05» → «05/03/2026» (string split: no timezone shift). */
-export function formatSupplierDate(iso: string): string {
+/** «2026-03-05» → «05/03/2026» («05.03.2026» in German; string split: no timezone shift). */
+export function formatSupplierDate(
+  iso: string,
+  lang: "en" | "es" | "de" = "es"
+): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
+  const sep = lang === "de" ? "." : "/";
+  return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : iso;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,6 +64,8 @@ export function SuppliersPage({
   /** The server's can("prices.edit") answer; false = read-only. */
   canEditPrices?: boolean;
 }) {
+  const { d, locale, fmt } = useT();
+  const sp = d.costs.suppliers;
   const [showCreate, setShowCreate] = useState(false);
   // R1-09c: saves update this list from the API's answer; no refresh of
   // the whole server page.
@@ -73,7 +74,7 @@ export function SuppliersPage({
     setSuppliers((prev) =>
       prev.some((s) => s.id === row.id)
         ? prev.map((s) => (s.id === row.id ? { ...s, ...row } : s))
-        : [...prev, row].sort((a, b) => a.name.localeCompare(b.name, "es"))
+        : [...prev, row].sort((a, b) => a.name.localeCompare(b.name, locale))
     );
 
   // Rendered inside Costos › Proveedores (R1-09b): no page header here.
@@ -83,8 +84,8 @@ export function SuppliersPage({
         <div className="flex items-center justify-between gap-4">
           <p className="text-sm text-[#6b7385]">
             {suppliers.length === 1
-              ? "1 proveedor"
-              : `${suppliers.length} proveedores`}
+              ? sp.countOne
+              : fmt(sp.countOther, { n: suppliers.length })}
           </p>
           <Button
             size="sm"
@@ -94,7 +95,7 @@ export function SuppliersPage({
             onClick={() => setShowCreate((v) => !v)}
           >
             <Plus className="h-4 w-4" />
-            {showCreate ? "Cancelar" : "Agregar proveedor"}
+            {showCreate ? sp.cancel : sp.add}
           </Button>
         </div>
 
@@ -109,7 +110,7 @@ export function SuppliersPage({
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Plus className="h-4 w-4" /> Nuevo proveedor
+                <Plus className="h-4 w-4" /> {sp.newTitle}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -128,9 +129,7 @@ export function SuppliersPage({
         {suppliers.length === 0 ? (
           <Card>
             <CardContent className="py-6">
-              <p className="text-sm text-muted-foreground">
-                Aún no hay proveedores.
-              </p>
+              <p className="text-sm text-muted-foreground">{sp.empty}</p>
             </CardContent>
           </Card>
         ) : (
@@ -172,17 +171,19 @@ function SupplierCard({
   onSaved: (row: SupplierRow) => void;
   onArchived: (id: string) => void;
 }) {
+  const { d, lang, fmt } = useT();
+  const sp = d.costs.suppliers;
+  const statusLabel: Record<string, string> = {
+    active: sp.statusActive,
+    inactive: sp.statusInactive,
+    archived: sp.statusArchived,
+  };
   const [editing, setEditing] = useState(false);
   const [archiving, startArchiveTx] = useTransition();
   const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const onArchive = () => {
-    if (
-      !confirm(
-        `¿Archivar a «${supplier.name}»?\n\nEl proveedor se ocultará en los costos nuevos, pero el historial de costos se conserva.`
-      )
-    )
-      return;
+    if (!confirm(fmt(sp.archiveConfirm, { name: supplier.name }))) return;
     setArchiveError(null);
     startArchiveTx(async () => {
       try {
@@ -192,17 +193,12 @@ function SupplierCard({
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          setArchiveError(
-            userErrorMessage(
-              body,
-              "No pude archivar el proveedor. Inténtalo de nuevo."
-            )
-          );
+          setArchiveError(userErrorMessage(body, sp.archiveFailed));
           return;
         }
         onArchived(supplier.id);
       } catch (err) {
-        setArchiveError(err instanceof Error ? err.message : "Error de red");
+        setArchiveError(err instanceof Error ? err.message : sp.networkError);
       }
     });
   };
@@ -235,7 +231,7 @@ function SupplierCard({
                 <span
                   className={`text-xs rounded px-1.5 py-0.5 font-medium ${statusColor}`}
                 >
-                  {STATUS_LABEL[supplier.status] ?? supplier.status}
+                  {statusLabel[supplier.status] ?? supplier.status}
                 </span>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
@@ -256,22 +252,26 @@ function SupplierCard({
                 <div className="font-semibold text-base">
                   {supplier.ingredient_count}
                 </div>
-                <div className="text-muted-foreground">ingredientes</div>
+                <div className="text-muted-foreground">{sp.ingredients}</div>
               </div>
               {supplier.latest_cost_date && (
                 <div>
                   <div className="font-semibold text-base">
-                    {formatSupplierDate(supplier.latest_cost_date)}
+                    {formatSupplierDate(supplier.latest_cost_date, lang)}
                   </div>
-                  <div className="text-muted-foreground">última compra</div>
+                  <div className="text-muted-foreground">{sp.lastPurchase}</div>
                 </div>
               )}
               {supplier.total_spend !== null && (
                 <div>
                   <div className="font-semibold text-base">
-                    {fmtMoney(supplier.total_spend, supplier.currency ?? "USD")}
+                    {fmtMoney(
+                      supplier.total_spend,
+                      supplier.currency ?? "USD",
+                      lang
+                    )}
                   </div>
-                  <div className="text-muted-foreground">gasto total</div>
+                  <div className="text-muted-foreground">{sp.totalSpend}</div>
                 </div>
               )}
             </div>
@@ -286,7 +286,7 @@ function SupplierCard({
                 onClick={() => setEditing(true)}
               >
                 <Pencil className="h-3.5 w-3.5" />
-                Editar
+                {sp.edit}
               </Button>
               {supplier.status !== "archived" && (
                 <Button
@@ -296,7 +296,7 @@ function SupplierCard({
                   onClick={onArchive}
                   disabled={archiving || !canEdit}
                 >
-                  Archivar
+                  {sp.archive}
                 </Button>
               )}
             </div>
@@ -324,6 +324,8 @@ interface SupplierFormProps {
 }
 
 function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
+  const { d } = useT();
+  const sp = d.costs.suppliers;
   const isEdit = !!supplier;
 
   const [name, setName] = useState(supplier?.name ?? "");
@@ -342,7 +344,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
   const submit = () => {
     setError(null);
     if (!name.trim()) {
-      setError("El nombre es obligatorio.");
+      setError(sp.nameRequired);
       return;
     }
     startTx(async () => {
@@ -367,12 +369,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          setError(
-            userErrorMessage(
-              body,
-              "No pude guardar el proveedor. Inténtalo de nuevo."
-            )
-          );
+          setError(userErrorMessage(body, sp.saveFailed));
           return;
         }
         onSuccess(
@@ -381,7 +378,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
             : null
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Error de red");
+        setError(err instanceof Error ? err.message : sp.networkError);
       }
     });
   };
@@ -390,84 +387,88 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-xs text-muted-foreground">Nombre *</span>
+          <span className="text-xs text-muted-foreground">{sp.fieldName}</span>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ej. Distribuidora La Esperanza"
+            placeholder={sp.namePlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Estado</span>
+          <span className="text-xs text-muted-foreground">
+            {sp.fieldStatus}
+          </span>
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"
           >
-            <option value="active">Activo</option>
+            <option value="active">{sp.statusActive}</option>
             {status === "inactive" && (
-              <option value="inactive">Inactivo</option>
+              <option value="inactive">{sp.statusInactive}</option>
             )}
-            <option value="archived">Archivado</option>
+            <option value="archived">{sp.statusArchived}</option>
           </select>
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">
-            Nombre de contacto
+            {sp.fieldContact}
           </span>
           <Input
             value={contactName}
             onChange={(e) => setContactName(e.target.value)}
-            placeholder="Ana López"
+            placeholder={sp.contactPlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Correo</span>
+          <span className="text-xs text-muted-foreground">{sp.fieldEmail}</span>
           <Input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="contacto@proveedor.com"
+            placeholder={sp.emailPlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Teléfono</span>
+          <span className="text-xs text-muted-foreground">{sp.fieldPhone}</span>
           <Input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+503 2222 3333"
+            placeholder={sp.phonePlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-xs text-muted-foreground">
-            Condiciones de pago
+            {sp.fieldPaymentTerms}
           </span>
           <Input
             value={paymentTerms}
             onChange={(e) => setPaymentTerms(e.target.value)}
-            placeholder="30 días"
+            placeholder={sp.paymentTermsPlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1 md:col-span-2">
-          <span className="text-xs text-muted-foreground">Dirección</span>
+          <span className="text-xs text-muted-foreground">
+            {sp.fieldAddress}
+          </span>
           <Input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="Calle Arce 100, San Salvador"
+            placeholder={sp.addressPlaceholder}
             className="h-9"
           />
         </label>
         <label className="flex flex-col gap-1 md:col-span-3">
-          <span className="text-xs text-muted-foreground">Notas</span>
+          <span className="text-xs text-muted-foreground">{sp.fieldNotes}</span>
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notas opcionales…"
+            placeholder={sp.notesPlaceholder}
             className="h-9"
           />
         </label>
@@ -480,11 +481,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           className="gap-1"
         >
           <Check className="h-4 w-4" />
-          {pending
-            ? "Guardando…"
-            : isEdit
-              ? "Guardar cambios"
-              : "Agregar proveedor"}
+          {pending ? sp.saving : isEdit ? sp.saveChanges : sp.add}
         </Button>
         <Button
           size="sm"
@@ -494,7 +491,7 @@ function SupplierForm({ supplier, onSuccess, onCancel }: SupplierFormProps) {
           className="gap-1"
         >
           <X className="h-4 w-4" />
-          Cancelar
+          {sp.cancel}
         </Button>
         {error && (
           <span className="text-xs text-red-700 dark:text-red-300">

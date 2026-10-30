@@ -11,6 +11,7 @@
 //           rotating, which stops the old sheet immediately.
 // The company always comes from authAndCompany(), never the request.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { can, requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -29,6 +30,7 @@ async function callerCanManage(companyId: string, userId: string) {
 }
 
 export async function GET() {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -47,13 +49,14 @@ export async function GET() {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude cargar el QR de cocina." },
+      { error: d.kitchen.api.qrLoadFailed },
       { status: 500 }
     );
   }
 }
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -68,7 +71,7 @@ export async function POST(req: NextRequest) {
       body = await req.json();
     } catch {
       return NextResponse.json(
-        { error: "El cuerpo tiene que ser JSON." },
+        { error: d.kitchen.api.bodyMustBeJson },
         { status: 400 }
       );
     }
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest) {
       !UUID_RE.test(body.location_id)
     ) {
       return NextResponse.json(
-        { error: "El restaurante no es válido." },
+        { error: d.kitchen.api.restaurantInvalid },
         { status: 400 }
       );
     }
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
     );
     if (!result.ok) {
       return NextResponse.json(
-        { error: "No encontré ese restaurante." },
+        { error: d.kitchen.api.restaurantNotFound },
         { status: 404 }
       );
     }
@@ -104,7 +107,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude crear el QR." },
+      { error: d.kitchen.api.qrCreateFailed },
       { status: 500 }
     );
   }

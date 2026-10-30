@@ -23,7 +23,8 @@ export function CockpitOnboardingChip({
       {t(
         lang,
         `Set up your menu · ${progress.done}/${progress.total}`,
-        `Configura tu menú · ${progress.done}/${progress.total}`
+        `Configura tu menú · ${progress.done}/${progress.total}`,
+        `Speisekarte einrichten · ${progress.done}/${progress.total}`
       )}
     </Link>
   );

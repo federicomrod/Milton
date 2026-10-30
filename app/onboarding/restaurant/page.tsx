@@ -13,6 +13,9 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { getDictionary } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
+import { normalizePreferredLanguage } from "@/lib/restaurant/language";
 import { RestaurantShell } from "@/components/restaurant/RestaurantShell";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { RestaurantOnboardingWizard } from "@/components/restaurant/onboarding/RestaurantOnboardingWizard";
@@ -38,12 +41,17 @@ export default async function RestaurantOnboardingPage() {
 
   const { data: company } = await supabase
     .from("companies")
-    .select("name")
+    .select("name, preferred_language")
     .eq("id", companyId)
     .maybeSingle();
 
-  const restaurantName = company?.name || "tu restaurante";
   const chrome = await loadRestaurantShellChrome();
+  // No stored language yet during onboarding: follow the browser's.
+  const lang =
+    normalizePreferredLanguage(company?.preferred_language) ??
+    (await requestLanguage());
+  const restaurantName =
+    company?.name || getDictionary(lang).onboarding.fallbackName;
 
   // The same shell as the rest of the app (slim: no sections or switcher yet),
   // not the old English top bar.
@@ -51,7 +59,7 @@ export default async function RestaurantOnboardingPage() {
     <RestaurantShell
       slim
       locations={[]}
-      lang={chrome.lang}
+      lang={lang}
       isAdmin={chrome.isAdmin}
       lastSyncedAt={null}
       userName={chrome.userName ?? null}

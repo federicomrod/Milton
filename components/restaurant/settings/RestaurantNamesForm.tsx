@@ -9,6 +9,8 @@ import { NOT_AVAILABLE_YET } from "@/lib/restaurant/ui-copy";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { fmt } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
 import {
   MAX_RESTAURANT_NAME,
   validateRestaurantName,
@@ -31,15 +33,16 @@ export function RestaurantNamesForm({
   currentId: string | null;
 }) {
   const router = useRouter();
+  const { d } = useT();
   const activeCount = restaurants.filter((r) => !r.archived).length;
   return (
     <section
       className="rounded-[14px] border border-[#dbe3f7] bg-white p-4"
       data-testid="restaurant-names"
     >
-      <h2 className="text-[14px] font-bold">Tus restaurantes</h2>
+      <h2 className="text-[14px] font-bold">{d.settings.restaurants.title}</h2>
       <p className="mb-2 text-[12px] text-[#8a92a3]">
-        Cambia el nombre que ves en el menú lateral y en los encabezados.
+        {d.settings.restaurants.hint}
       </p>
       <ul>
         {restaurants.map((r) => (
@@ -76,6 +79,8 @@ function Row({
   isLastActive: boolean;
   onSaved: () => void;
 }) {
+  const { d } = useT();
+  const dr = d.settings.restaurants;
   const [name, setName] = useState(row.name);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -92,13 +97,13 @@ function Row({
         body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
+      if (!res.ok) throw new Error(userErrorMessage(json, dr.saveFailed));
       setNote({ ok: true, text: done });
       onSaved();
     } catch (e) {
       setNote({
         ok: false,
-        text: e instanceof Error ? e.message : "No pude guardar.",
+        text: e instanceof Error ? e.message : dr.saveFailed,
       });
     } finally {
       setBusy(false);
@@ -107,15 +112,14 @@ function Row({
 
   async function save() {
     if (!check.ok) return setNote({ ok: false, text: check.message });
-    if (unchanged)
-      return setNote({ ok: true, text: "No hay cambios que guardar." });
-    await call({ name: check.name }, "Nombre guardado.");
+    if (unchanged) return setNote({ ok: true, text: dr.noChanges });
+    await call({ name: check.name }, dr.nameSaved);
   }
 
   return (
     <li className="flex flex-wrap items-center gap-2 border-t border-[#eef0f4] py-2.5 first:border-t-0">
       <input
-        aria-label={`Nombre de ${row.name}`}
+        aria-label={fmt(dr.nameOf, { name: row.name })}
         value={name}
         maxLength={MAX_RESTAURANT_NAME}
         disabled={busy || row.archived}
@@ -135,16 +139,16 @@ function Row({
           onClick={() => void save()}
           className="rounded-lg bg-[#1b40c8] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:opacity-50"
         >
-          {busy ? "Guardando…" : "Guardar"}
+          {busy ? dr.saving : dr.save}
         </button>
       ) : (
         <span className="rounded-md bg-[#f1f3f7] px-2 py-0.5 text-[12px] font-semibold text-[#5b6476]">
-          Archivado
+          {dr.archived}
         </span>
       )}
       {current ? (
         <span className="rounded-md bg-[#eef2fd] px-2 py-0.5 text-[12px] font-semibold text-[#1b40c8]">
-          En pantalla
+          {dr.current}
         </span>
       ) : null}
       {canArchive ? (
@@ -152,28 +156,20 @@ function Row({
           <button
             type="button"
             disabled={busy}
-            onClick={() =>
-              void call({ archived: false }, "Restaurante restaurado.")
-            }
+            onClick={() => void call({ archived: false }, dr.restored)}
             className="text-[12px] font-semibold text-[#1b40c8] hover:underline"
           >
-            Restaurar
+            {dr.restore}
           </button>
         ) : (
           <button
             type="button"
             disabled={busy || isLastActive}
-            title={
-              isLastActive
-                ? "No puedes archivar tu único restaurante activo."
-                : "Se oculta del menú; no se borra nada."
-            }
-            onClick={() =>
-              void call({ archived: true }, "Restaurante archivado.")
-            }
+            title={isLastActive ? dr.cannotArchiveLast : dr.archiveHint}
+            onClick={() => void call({ archived: true }, dr.archivedDone)}
             className="text-[12px] font-semibold text-[#8a92a3] hover:text-[#c03535] disabled:opacity-50"
           >
-            Archivar
+            {dr.archive}
           </button>
         )
       ) : null}

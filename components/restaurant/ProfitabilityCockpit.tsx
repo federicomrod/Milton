@@ -35,6 +35,7 @@ import type {
 } from "@/lib/restaurant/profitability-server";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  localeFor,
   t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
@@ -43,9 +44,10 @@ import {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-function makeFmt(currency: string) {
+function makeFmt(currency: string, lang: PreferredLanguage) {
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  const locale = safe === "MXN" ? "es-MX" : "en-US";
+  const locale =
+    lang === "de" ? localeFor(lang) : safe === "MXN" ? "es-MX" : "en-US";
   return {
     money: new Intl.NumberFormat(locale, {
       style: "currency",
@@ -79,9 +81,15 @@ const STATUS_LABEL: Record<string, string> = {
   workbook_mismatch: "No cuadra con el Excel",
 };
 
-function formatUnitCost(n: number, unit: string, currency: string): string {
+function formatUnitCost(
+  n: number,
+  unit: string,
+  currency: string,
+  lang: PreferredLanguage
+): string {
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  const locale = safe === "MXN" ? "es-MX" : "en-US";
+  const locale =
+    lang === "de" ? localeFor(lang) : safe === "MXN" ? "es-MX" : "en-US";
   return (
     new Intl.NumberFormat(locale, {
       style: "currency",
@@ -103,17 +111,22 @@ export function ProfitabilityKpisSection({
   data: ProfitabilityData;
   lang?: PreferredLanguage;
 }) {
-  const fmt = makeFmt(data.kpis.currency);
+  const fmt = makeFmt(data.kpis.currency, lang);
   const { kpis } = data;
   return (
     <section>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-base font-semibold">
-          {t(lang, "Profitability", "Rentabilidad")}
+          {t(lang, "Profitability", "Rentabilidad", "Rentabilität")}
         </h2>
         <Link href={platosHref()} className="hover:underline">
           <Badge variant="outline" className="text-xs">
-            {t(lang, "Sales with cost:", "Ventas con costo:")}{" "}
+            {t(
+              lang,
+              "Sales with cost:",
+              "Ventas con costo:",
+              "Umsatz mit Kosten:"
+            )}{" "}
             {pct(kpis.cost_coverage_pct)}
           </Badge>
         </Link>
@@ -125,34 +138,41 @@ export function ProfitabilityKpisSection({
             {t(
               lang,
               `${data.dataQuality.currency_mismatch_rows} row${data.dataQuality.currency_mismatch_rows === 1 ? "" : "s"} used a different currency than ${kpis.currency} and were not summed into these KPIs. There is no FX conversion.`,
-              `${data.dataQuality.currency_mismatch_rows} ${data.dataQuality.currency_mismatch_rows === 1 ? "fila usó" : "filas usaron"} una moneda distinta a ${kpis.currency} y no se sumaron a estas cifras. No hay conversión de tipo de cambio.`
+              `${data.dataQuality.currency_mismatch_rows} ${data.dataQuality.currency_mismatch_rows === 1 ? "fila usó" : "filas usaron"} una moneda distinta a ${kpis.currency} y no se sumaron a estas cifras. No hay conversión de tipo de cambio.`,
+              `${data.dataQuality.currency_mismatch_rows} ${data.dataQuality.currency_mismatch_rows === 1 ? "Zeile verwendet" : "Zeilen verwendeten"} eine andere Währung als ${kpis.currency} und wurden nicht in diese Kennzahlen eingerechnet. Es gibt keine Währungsumrechnung.`
             )}
           </span>
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <Kpi
-          label={t(lang, "Revenue", "Ventas")}
+          label={t(lang, "Revenue", "Ventas", "Umsatz")}
           value={fmt.money.format(kpis.revenue_total)}
           sub={kpis.currency}
         />
         <Kpi
-          label={t(lang, "Estimated COGS", "Costo estimado")}
+          label={t(
+            lang,
+            "Estimated COGS",
+            "Costo estimado",
+            "Geschätzter Wareneinsatz"
+          )}
           href={platosHref(["aprobado"])}
           value={
             // Never $0 for "nothing costed yet" (#211).
             kpis.revenue_with_known_cost > 0
               ? fmt.money.format(kpis.estimated_cogs)
-              : t(lang, "No price", "Sin precio")
+              : t(lang, "No price", "Sin precio", "Kein Preis")
           }
           sub={t(
             lang,
             `from ${pct(kpis.cost_coverage_pct, 0)} of revenue`,
-            `sobre el ${pct(kpis.cost_coverage_pct, 0)} de las ventas`
+            `sobre el ${pct(kpis.cost_coverage_pct, 0)} de las ventas`,
+            `auf Basis von ${pct(kpis.cost_coverage_pct, 0)} des Umsatzes`
           )}
         />
         <Kpi
-          label={t(lang, "Gross Profit", "Utilidad bruta")}
+          label={t(lang, "Gross Profit", "Utilidad bruta", "Rohertrag")}
           value={
             kpis.revenue_with_known_cost > 0
               ? fmt.money.format(kpis.estimated_gross_profit)
@@ -160,23 +180,53 @@ export function ProfitabilityKpisSection({
           }
           sub={
             kpis.revenue_with_known_cost > 0
-              ? t(lang, "on covered revenue", "sobre ventas con costo")
-              : t(lang, "no cost coverage", "sin cobertura de costo")
+              ? t(
+                  lang,
+                  "on covered revenue",
+                  "sobre ventas con costo",
+                  "auf Umsatz mit Kosten"
+                )
+              : t(
+                  lang,
+                  "no cost coverage",
+                  "sin cobertura de costo",
+                  "keine Kostenabdeckung"
+                )
           }
         />
         <Kpi
-          label={t(lang, "Gross Margin", "Margen bruto")}
+          label={t(lang, "Gross Margin", "Margen bruto", "Rohmarge")}
           value={pct(kpis.estimated_gross_margin_pct)}
-          sub={t(lang, "on covered revenue", "sobre ventas con costo")}
+          sub={t(
+            lang,
+            "on covered revenue",
+            "sobre ventas con costo",
+            "auf Umsatz mit Kosten"
+          )}
         />
         <Kpi
-          label={t(lang, "% costo de comida", "% costo de comida")}
+          label={t(
+            lang,
+            "% costo de comida",
+            "% costo de comida",
+            "Wareneinsatz %"
+          )}
           href={platosHref(["aprobado"])}
           value={pct(kpis.food_cost_pct)}
-          sub={t(lang, "cogs / covered revenue", "costo / ventas con costo")}
+          sub={t(
+            lang,
+            "cogs / covered revenue",
+            "costo / ventas con costo",
+            "Wareneinsatz / Umsatz mit Kosten"
+          )}
         />
         <Kpi
-          label={t(lang, "Items w/ Issues", "Platos con problemas")}
+          label={t(
+            lang,
+            "Items w/ Issues",
+            "Platos con problemas",
+            "Gerichte mit Problemen"
+          )}
           href={platosHref(["falta_precio", "borrador", "sin_receta"])}
           value={`${
             kpis.menu_items_with_issues + kpis.menu_items_without_recipe
@@ -184,7 +234,8 @@ export function ProfitabilityKpisSection({
           sub={t(
             lang,
             `${kpis.menu_items_without_recipe} no recipe · ${kpis.menu_items_with_issues} other`,
-            `${kpis.menu_items_without_recipe} sin receta · ${kpis.menu_items_with_issues} otros`
+            `${kpis.menu_items_without_recipe} sin receta · ${kpis.menu_items_with_issues} otros`,
+            `${kpis.menu_items_without_recipe} ohne Rezept · ${kpis.menu_items_with_issues} sonstige`
           )}
         />
       </div>
@@ -193,7 +244,8 @@ export function ProfitabilityKpisSection({
         {t(
           lang,
           "Margin numbers include only menu items with complete recipes and ingredient costs. Items with missing recipes or unit mismatches are excluded — see Margin Risk and Setup tabs.",
-          "El margen solo incluye platos con receta y costos completos. Los que no tienen receta o tienen unidades distintas quedan fuera: míralos en Riesgo de margen y Configuración."
+          "El margen solo incluye platos con receta y costos completos. Los que no tienen receta o tienen unidades distintas quedan fuera: míralos en Riesgo de margen y Configuración.",
+          "Die Marge enthält nur Gerichte mit vollständigem Rezept und vollständigen Zutatenkosten. Gerichte ohne Rezept oder mit abweichenden Einheiten bleiben außen vor — siehe Margenrisiko und Einrichtung."
         )}
       </p>
     </section>
@@ -214,21 +266,28 @@ export function MarginRiskSection({
   compact?: boolean;
   lang?: PreferredLanguage;
 }) {
-  const fmt = makeFmt(data.kpis.currency);
+  const fmt = makeFmt(data.kpis.currency, lang);
   const cards = (
     <>
       <RiskCard
-        title={t(lang, "Low margin items", "Platos de margen bajo")}
+        title={t(
+          lang,
+          "Low margin items",
+          "Platos de margen bajo",
+          "Gerichte mit niedriger Marge"
+        )}
         subtitle={t(
           lang,
           `Gross margin below 60% · ${data.lowMargin.length} items`,
-          `Margen bruto menor a 60% · ${data.lowMargin.length} platos`
+          `Margen bruto menor a 60% · ${data.lowMargin.length} platos`,
+          `Rohmarge unter 60 % · ${data.lowMargin.length} Gerichte`
         )}
         icon={<TrendingDown className="h-4 w-4 text-gray-500" />}
         empty={t(
           lang,
           "No low-margin items below 60%.",
-          "No hay platos con margen menor a 60%."
+          "No hay platos con margen menor a 60%.",
+          "Keine Gerichte mit einer Marge unter 60 %."
         )}
       >
         {data.lowMargin.map((r) => (
@@ -238,7 +297,8 @@ export function MarginRiskSection({
             detail={t(
               lang,
               `${pct(r.cost.gross_margin_pct)} margin · ${fmt.money.format(r.revenue)} revenue`,
-              `${pct(r.cost.gross_margin_pct)} de margen · ${fmt.money.format(r.revenue)} en ventas`
+              `${pct(r.cost.gross_margin_pct)} de margen · ${fmt.money.format(r.revenue)} en ventas`,
+              `${pct(r.cost.gross_margin_pct)} Marge · ${fmt.money.format(r.revenue)} Umsatz`
             )}
             trailing={pct(r.cost.gross_margin_pct)}
             trailingClass="text-gray-700 dark:text-gray-400"
@@ -247,17 +307,24 @@ export function MarginRiskSection({
       </RiskCard>
 
       <RiskCard
-        title={t(lang, "High food cost items", "Platos de costo alto")}
+        title={t(
+          lang,
+          "High food cost items",
+          "Platos de costo alto",
+          "Gerichte mit hohem Wareneinsatz"
+        )}
         subtitle={t(
           lang,
           `Food cost above 35% · ${data.highFoodCost.length} items`,
-          `Costo de comida mayor a 35% · ${data.highFoodCost.length} platos`
+          `Costo de comida mayor a 35% · ${data.highFoodCost.length} platos`,
+          `Wareneinsatz über 35 % · ${data.highFoodCost.length} Gerichte`
         )}
         icon={<TrendingUp className="h-4 w-4 text-red-600" />}
         empty={t(
           lang,
           "No items with food cost above 35%.",
-          "No hay platos con costo de comida mayor a 35%."
+          "No hay platos con costo de comida mayor a 35%.",
+          "Keine Gerichte mit Wareneinsatz über 35 %."
         )}
       >
         {data.highFoodCost.map((r) => (
@@ -267,7 +334,8 @@ export function MarginRiskSection({
             detail={t(
               lang,
               `${pct(r.cost.food_cost_pct)} food cost · ${fmt.money.format(r.revenue)} revenue`,
-              `${pct(r.cost.food_cost_pct)} de costo · ${fmt.money.format(r.revenue)} en ventas`
+              `${pct(r.cost.food_cost_pct)} de costo · ${fmt.money.format(r.revenue)} en ventas`,
+              `${pct(r.cost.food_cost_pct)} Wareneinsatz · ${fmt.money.format(r.revenue)} Umsatz`
             )}
             trailing={pct(r.cost.food_cost_pct)}
             trailingClass="text-red-700 dark:text-red-300"
@@ -280,18 +348,21 @@ export function MarginRiskSection({
           title={t(
             lang,
             "High revenue, incomplete costing",
-            "Alto ingreso, costeo incompleto"
+            "Alto ingreso, costeo incompleto",
+            "Hoher Umsatz, unvollständige Kalkulation"
           )}
           subtitle={t(
             lang,
             `Revenue but unknown cost · ${data.highRevenueIncomplete.length} items`,
-            `Ventas sin costo conocido · ${data.highRevenueIncomplete.length} platos`
+            `Ventas sin costo conocido · ${data.highRevenueIncomplete.length} platos`,
+            `Umsatz ohne bekannte Kosten · ${data.highRevenueIncomplete.length} Gerichte`
           )}
           icon={<AlertTriangle className="h-4 w-4 text-gray-500" />}
           empty={t(
             lang,
             "Every revenue-generating item has a complete cost.",
-            "Todos los platos que venden ya tienen costo completo."
+            "Todos los platos que venden ya tienen costo completo.",
+            "Alle umsatzstarken Gerichte haben eine vollständige Kalkulation."
           )}
         >
           {data.highRevenueIncomplete.map((r) => (
@@ -311,18 +382,21 @@ export function MarginRiskSection({
           title={t(
             lang,
             "Missing recipe, high volume",
-            "Sin receta, alto volumen"
+            "Sin receta, alto volumen",
+            "Rezept fehlt, hohes Volumen"
           )}
           subtitle={t(
             lang,
             `No recipe but selling · ${data.missingRecipeHighVolume.length} items`,
-            `Sin receta y se venden · ${data.missingRecipeHighVolume.length} platos`
+            `Sin receta y se venden · ${data.missingRecipeHighVolume.length} platos`,
+            `Kein Rezept, aber verkauft · ${data.missingRecipeHighVolume.length} Gerichte`
           )}
           icon={<AlertTriangle className="h-4 w-4 text-red-600" />}
           empty={t(
             lang,
             "Every selling menu item has at least a draft recipe.",
-            "Todos los platos que se venden ya tienen al menos un borrador de receta."
+            "Todos los platos que se venden ya tienen al menos un borrador de receta.",
+            "Jedes verkaufte Gericht hat mindestens einen Rezeptentwurf."
           )}
         >
           {data.missingRecipeHighVolume.map((r) => (
@@ -332,7 +406,8 @@ export function MarginRiskSection({
               detail={t(
                 lang,
                 `${fmt.num.format(r.units_sold)} units · ${fmt.money.format(r.revenue)} revenue`,
-                `${fmt.num.format(r.units_sold)} unidades · ${fmt.money.format(r.revenue)} en ventas`
+                `${fmt.num.format(r.units_sold)} unidades · ${fmt.money.format(r.revenue)} en ventas`,
+                `${fmt.num.format(r.units_sold)} Einheiten · ${fmt.money.format(r.revenue)} Umsatz`
               )}
               trailing={fmt.money.format(r.revenue)}
               trailingClass="text-red-700 dark:text-red-300"
@@ -346,7 +421,7 @@ export function MarginRiskSection({
   return (
     <section>
       <h2 className="text-base font-semibold mb-3">
-        {t(lang, "Margin risk", "Riesgo de margen")}
+        {t(lang, "Margin risk", "Riesgo de margen", "Margenrisiko")}
       </h2>
       <div
         className={
@@ -373,18 +448,24 @@ export function SupplierTrendsSection({
   data: ProfitabilityData;
   lang?: PreferredLanguage;
 }) {
-  const fmt = makeFmt(data.kpis.currency);
+  const fmt = makeFmt(data.kpis.currency, lang);
   return (
     <section>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-base font-semibold">
-          {t(lang, "Supplier trends", "Tendencias de proveedores")}
+          {t(
+            lang,
+            "Supplier trends",
+            "Tendencias de proveedores",
+            "Lieferantentrends"
+          )}
         </h2>
         <span className="text-xs text-muted-foreground">
           {t(
             lang,
             "Uses all available cost entries (not filtered by date)",
-            "Usa todos los costos disponibles (no el filtro de fechas)"
+            "Usa todos los costos disponibles (no el filtro de fechas)",
+            "Nutzt alle verfügbaren Kosten (nicht nach Datum gefiltert)"
           )}
         </span>
       </div>
@@ -397,7 +478,8 @@ export function SupplierTrendsSection({
               {t(
                 lang,
                 "Ingredient price changes",
-                "Cambios de precio de ingredientes"
+                "Cambios de precio de ingredientes",
+                "Preisänderungen bei Zutaten"
               )}
             </CardTitle>
           </CardHeader>
@@ -407,7 +489,8 @@ export function SupplierTrendsSection({
                 {t(
                   lang,
                   "Supplier price trends will appear after at least two cost entries for the same ingredient.",
-                  "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente."
+                  "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente.",
+                  "Preistrends der Lieferanten erscheinen, sobald es mindestens zwei Kosten derselben Zutat gibt."
                 )}
               </p>
             ) : (
@@ -416,25 +499,30 @@ export function SupplierTrendsSection({
                   <thead className="border-b border-border bg-muted/40">
                     <tr className="text-left text-muted-foreground">
                       <th className="px-3 py-2 font-medium">
-                        {t(lang, "Ingredient", "Ingrediente")}
+                        {t(lang, "Ingredient", "Ingrediente", "Zutat")}
                       </th>
                       <th className="px-3 py-2 font-medium">
-                        {t(lang, "Supplier", "Proveedor")}
+                        {t(lang, "Supplier", "Proveedor", "Lieferant")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Previous", "Anterior")}
+                        {t(lang, "Previous", "Anterior", "Vorher")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Latest", "Último")}
+                        {t(lang, "Latest", "Último", "Aktuell")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Change", "Cambio")}
+                        {t(lang, "Change", "Cambio", "Änderung")}
                       </th>
                       <th className="px-3 py-2 font-medium">
-                        {t(lang, "Latest date", "Última fecha")}
+                        {t(
+                          lang,
+                          "Latest date",
+                          "Última fecha",
+                          "Letztes Datum"
+                        )}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Affects", "Afecta")}
+                        {t(lang, "Affects", "Afecta", "Betrifft")}
                       </th>
                     </tr>
                   </thead>
@@ -462,14 +550,16 @@ export function SupplierTrendsSection({
                           {formatUnitCost(
                             trend.previous_cost,
                             trend.unit,
-                            trend.currency
+                            trend.currency,
+                            lang
                           )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatUnitCost(
                             trend.latest_cost,
                             trend.unit,
-                            trend.currency
+                            trend.currency,
+                            lang
                           )}
                         </td>
                         <td
@@ -501,7 +591,7 @@ export function SupplierTrendsSection({
                               )}
                               className="hover:underline"
                             >
-                              {t(lang, "1 dish", "1 plato")}
+                              {t(lang, "1 dish", "1 plato", "1 Gericht")}
                             </Link>
                           ) : (
                             <Link
@@ -511,7 +601,8 @@ export function SupplierTrendsSection({
                               {t(
                                 lang,
                                 `${trend.affected_dishes.length} dishes`,
-                                `${trend.affected_dishes.length} platos`
+                                `${trend.affected_dishes.length} platos`,
+                                `${trend.affected_dishes.length} Gerichte`
                               )}
                             </Link>
                           )}
@@ -530,9 +621,14 @@ export function SupplierTrendsSection({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Building2 className="h-4 w-4 text-[#1B40C8]" />
-              {t(lang, "Top supplier spend", "Mayor gasto por proveedor")}
+              {t(
+                lang,
+                "Top supplier spend",
+                "Mayor gasto por proveedor",
+                "Höchste Ausgaben pro Lieferant"
+              )}
               <span className="text-xs text-muted-foreground font-normal">
-                · {t(lang, "total", "total")}{" "}
+                · {t(lang, "total", "total", "gesamt")}{" "}
                 {data.total_supplier_spend === null
                   ? "—"
                   : fmt.money.format(data.total_supplier_spend)}
@@ -545,7 +641,8 @@ export function SupplierTrendsSection({
                 {t(
                   lang,
                   "No supplier-tagged cost entries yet. Bulk-upload a cost file or pick a supplier when adding a manual cost entry.",
-                  "Aún no hay costos con proveedor. Sube un archivo de costos o elige un proveedor al agregar un costo."
+                  "Aún no hay costos con proveedor. Sube un archivo de costos o elige un proveedor al agregar un costo.",
+                  "Noch keine Kosten mit Lieferant. Laden Sie eine Kostendatei hoch oder wählen Sie beim Hinzufügen eines Kostenpunkts einen Lieferanten."
                 )}
               </p>
             ) : (
@@ -554,16 +651,16 @@ export function SupplierTrendsSection({
                   <thead className="border-b border-border bg-muted/40">
                     <tr className="text-left text-muted-foreground">
                       <th className="px-3 py-2 font-medium">
-                        {t(lang, "Supplier", "Proveedor")}
+                        {t(lang, "Supplier", "Proveedor", "Lieferant")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Spend", "Gasto")}
+                        {t(lang, "Spend", "Gasto", "Ausgaben")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Share", "Parte")}
+                        {t(lang, "Share", "Parte", "Anteil")}
                       </th>
                       <th className="px-3 py-2 font-medium text-right">
-                        {t(lang, "Ingredients", "Ingredientes")}
+                        {t(lang, "Ingredients", "Ingredientes", "Zutaten")}
                       </th>
                     </tr>
                   </thead>
@@ -630,7 +727,12 @@ export function DataQualityChecklistSection({
   return (
     <section>
       <h2 className="text-base font-semibold mb-3">
-        {t(lang, "Costing setup checklist", "Lista de costeo")}
+        {t(
+          lang,
+          "Costing setup checklist",
+          "Lista de costeo",
+          "Kalkulations-Checkliste"
+        )}
       </h2>
       <Card>
         <CardContent className="p-0">
@@ -640,15 +742,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 "All POS items mapped to menu items",
-                "Todos los platos del POS están ligados al menú"
+                "Todos los platos del POS están ligados al menú",
+                "Alle POS-Gerichte sind der Speisekarte zugeordnet"
               )}
               problemCopy={t(
                 lang,
                 "POS items unmapped",
-                "Platos del POS sin ligar"
+                "Platos del POS sin ligar",
+                "POS-Gerichte ohne Zuordnung"
               )}
               href="/dashboard/restaurant/menu"
-              hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
+              hrefLabel={t(
+                lang,
+                "Open Menu & Recipes",
+                "Abrir Menú y recetas",
+                "Speisekarte und Rezepte öffnen"
+              )}
               icon={<BookOpen className="h-4 w-4" />}
             />
             <ChecklistItem
@@ -656,15 +765,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 "Every menu item has a recipe",
-                "Todos los platos tienen receta"
+                "Todos los platos tienen receta",
+                "Jedes Gericht hat ein Rezept"
               )}
               problemCopy={t(
                 lang,
                 "Menu items without a recipe",
-                "Platos sin receta"
+                "Platos sin receta",
+                "Gerichte ohne Rezept"
               )}
               href="/dashboard/restaurant/menu"
-              hrefLabel={t(lang, "Open Menu & Recipes", "Abrir Menú y recetas")}
+              hrefLabel={t(
+                lang,
+                "Open Menu & Recipes",
+                "Abrir Menú y recetas",
+                "Speisekarte und Rezepte öffnen"
+              )}
               icon={<BookOpen className="h-4 w-4" />}
             />
             <ChecklistItem
@@ -672,15 +788,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 "No recipes blocked by unit mismatch",
-                "Ninguna receta está bloqueada por unidades"
+                "Ninguna receta está bloqueada por unidades",
+                "Kein Rezept ist wegen Einheiten blockiert"
               )}
               problemCopy={t(
                 lang,
                 "Recipes blocked by unit mismatch",
-                "Recetas bloqueadas por unidades"
+                "Recetas bloqueadas por unidades",
+                "Rezepte, die wegen Einheiten blockiert sind"
               )}
               href="/dashboard/restaurant/menu"
-              hrefLabel={t(lang, "Fix recipes", "Corregir recetas")}
+              hrefLabel={t(
+                lang,
+                "Fix recipes",
+                "Corregir recetas",
+                "Rezepte korrigieren"
+              )}
               icon={<AlertTriangle className="h-4 w-4" />}
             />
             <ChecklistItem
@@ -688,15 +811,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 "Every ingredient has at least one cost entry",
-                "Todos los ingredientes tienen al menos un costo"
+                "Todos los ingredientes tienen al menos un costo",
+                "Jede Zutat hat mindestens einen Kostenpunkt"
               )}
               problemCopy={t(
                 lang,
                 "Ingredients without any cost entry",
-                "Ingredientes sin costo"
+                "Ingredientes sin costo",
+                "Zutaten ohne Kosten"
               )}
               href="/dashboard/restaurant/menu/ingredientes"
-              hrefLabel={t(lang, "Open Ingredients", "Abrir Ingredientes")}
+              hrefLabel={t(
+                lang,
+                "Open Ingredients",
+                "Abrir Ingredientes",
+                "Zutaten öffnen"
+              )}
               icon={<Carrot className="h-4 w-4" />}
             />
             <ChecklistItem
@@ -704,15 +834,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 "Every prepared component has a recipe",
-                "Todos los componentes preparados tienen receta"
+                "Todos los componentes preparados tienen receta",
+                "Jede zubereitete Komponente hat ein Rezept"
               )}
               problemCopy={t(
                 lang,
                 "Prepared components without a recipe",
-                "Componentes preparados sin receta"
+                "Componentes preparados sin receta",
+                "Zubereitete Komponenten ohne Rezept"
               )}
               href="/dashboard/restaurant/menu"
-              hrefLabel={t(lang, "Open Components", "Abrir Componentes")}
+              hrefLabel={t(
+                lang,
+                "Open Components",
+                "Abrir Componentes",
+                "Komponenten öffnen"
+              )}
               icon={<BookOpen className="h-4 w-4" />}
             />
             <ChecklistItem
@@ -720,15 +857,22 @@ export function DataQualityChecklistSection({
               doneCopy={t(
                 lang,
                 `All money rows match ${data.kpis.currency}`,
-                `Todas las filas coinciden con ${data.kpis.currency}`
+                `Todas las filas coinciden con ${data.kpis.currency}`,
+                `Alle Zeilen stimmen mit ${data.kpis.currency} überein`
               )}
               problemCopy={t(
                 lang,
                 "Rows in a different currency (excluded from totals)",
-                "Filas en otra moneda (fuera de los totales)"
+                "Filas en otra moneda (fuera de los totales)",
+                "Zeilen in anderer Währung (aus den Summen ausgeschlossen)"
               )}
               href="/dashboard/restaurant/menu/platos"
-              hrefLabel={t(lang, "Review costs", "Revisar costos")}
+              hrefLabel={t(
+                lang,
+                "Review costs",
+                "Revisar costos",
+                "Kosten prüfen"
+              )}
               icon={<AlertTriangle className="h-4 w-4" />}
             />
             <li className="flex items-center justify-between gap-4 px-4 py-3">
@@ -738,7 +882,8 @@ export function DataQualityChecklistSection({
                   {t(
                     lang,
                     "Supplier-linked ingredients",
-                    "Ingredientes ligados a un proveedor"
+                    "Ingredientes ligados a un proveedor",
+                    "Zutaten mit Lieferantenzuordnung"
                   )}
                 </span>
               </div>
@@ -750,7 +895,13 @@ export function DataQualityChecklistSection({
                   href="/dashboard/restaurant/costs?tab=proveedores"
                   className="text-xs text-primary hover:underline"
                 >
-                  {t(lang, "Open Suppliers", "Abrir Proveedores")} ↗
+                  {t(
+                    lang,
+                    "Open Suppliers",
+                    "Abrir Proveedores",
+                    "Lieferanten öffnen"
+                  )}{" "}
+                  ↗
                 </Link>
               </div>
             </li>
@@ -758,14 +909,25 @@ export function DataQualityChecklistSection({
               <div className="flex items-center gap-3 min-w-0">
                 <Upload className="h-4 w-4 text-[#1B40C8] shrink-0" />
                 <span className="text-sm text-muted-foreground">
-                  {t(lang, "Import more cost data", "Importar más costos")}
+                  {t(
+                    lang,
+                    "Import more cost data",
+                    "Importar más costos",
+                    "Weitere Kosten importieren"
+                  )}
                 </span>
               </div>
               <Link
                 href="/dashboard/restaurant/menu/platos"
                 className="text-xs text-primary hover:underline shrink-0"
               >
-                {t(lang, "Open Import Costs", "Abrir Importar costos")} ↗
+                {t(
+                  lang,
+                  "Open Import Costs",
+                  "Abrir Importar costos",
+                  "Kostenimport öffnen"
+                )}{" "}
+                ↗
               </Link>
             </li>
           </ul>
@@ -787,7 +949,7 @@ export function ItemsNeedingAttention({
   data: ProfitabilityData;
   lang?: PreferredLanguage;
 }) {
-  const fmt = makeFmt(data.kpis.currency);
+  const fmt = makeFmt(data.kpis.currency, lang);
 
   // Pick the 6 most impactful items: blend missing-recipe-high-volume and
   // high-revenue-incomplete and low-margin, prefer revenue desc.
@@ -799,7 +961,7 @@ export function ItemsNeedingAttention({
     items.push({ row, reason });
   };
   for (const r of data.missingRecipeHighVolume)
-    pushIf(r, t(lang, "no recipe", "sin receta"));
+    pushIf(r, t(lang, "no recipe", "sin receta", "kein Rezept"));
   for (const r of data.highRevenueIncomplete) {
     pushIf(r, STATUS_LABEL[r.cost.status] ?? r.cost.status);
   }
@@ -809,7 +971,8 @@ export function ItemsNeedingAttention({
       t(
         lang,
         `low margin ${pct(r.cost.gross_margin_pct)}`,
-        `margen bajo ${pct(r.cost.gross_margin_pct)}`
+        `margen bajo ${pct(r.cost.gross_margin_pct)}`,
+        `niedrige Marge ${pct(r.cost.gross_margin_pct)}`
       )
     );
 
@@ -828,9 +991,15 @@ export function ItemsNeedingAttention({
               ? t(
                   lang,
                   "Margins are not available yet",
-                  "El margen aún no está disponible"
+                  "El margen aún no está disponible",
+                  "Die Marge ist noch nicht verfügbar"
                 )
-              : t(lang, "Everything in order", "Todo en orden")}
+              : t(
+                  lang,
+                  "Everything in order",
+                  "Todo en orden",
+                  "Alles in Ordnung"
+                )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -839,12 +1008,14 @@ export function ItemsNeedingAttention({
               ? t(
                   lang,
                   "Import ingredient costs and create recipes to unlock food cost and gross margin.",
-                  "Importa costos de ingredientes y crea recetas para ver el costo de comida y el margen."
+                  "Importa costos de ingredientes y crea recetas para ver el costo de comida y el margen.",
+                  "Importieren Sie Zutatenkosten und erstellen Sie Rezepte, um Wareneinsatz und Rohmarge zu sehen."
                 )
               : t(
                   lang,
                   "No items need urgent attention. Run a fresh costing cycle if your menu changed.",
-                  "Nada urgente. Vuelve a costear si cambió el menú."
+                  "Nada urgente. Vuelve a costear si cambió el menú.",
+                  "Nichts Dringendes. Kalkulieren Sie neu, falls sich die Speisekarte geändert hat."
                 )}
           </p>
         </CardContent>
@@ -857,7 +1028,12 @@ export function ItemsNeedingAttention({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-gray-500" />
-          {t(lang, "Items needing attention", "Platos que necesitan atención")}
+          {t(
+            lang,
+            "Items needing attention",
+            "Platos que necesitan atención",
+            "Gerichte, die Aufmerksamkeit brauchen"
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -871,7 +1047,7 @@ export function ItemsNeedingAttention({
                 <div className="font-medium truncate">{row.name}</div>
                 <div className="text-xs text-muted-foreground capitalize">
                   {reason} · {fmt.money.format(row.revenue)}{" "}
-                  {t(lang, "revenue", "en ventas")}
+                  {t(lang, "revenue", "en ventas", "Umsatz")}
                 </div>
               </div>
               <span className="font-medium tabular-nums shrink-0 text-gray-700 dark:text-gray-400">
@@ -904,7 +1080,12 @@ export function SupplierPriceAlerts({
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-[#1B40C8]" />
-          {t(lang, "Supplier price alerts", "Alertas de precio de proveedores")}
+          {t(
+            lang,
+            "Supplier price alerts",
+            "Alertas de precio de proveedores",
+            "Preisalarme der Lieferanten"
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -913,7 +1094,8 @@ export function SupplierPriceAlerts({
             {t(
               lang,
               "Supplier price trends will appear after at least two cost entries for the same ingredient.",
-              "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente."
+              "Las tendencias de precio aparecen cuando hay al menos dos costos del mismo ingrediente.",
+              "Preistrends der Lieferanten erscheinen, sobald es mindestens zwei Kosten derselben Zutat gibt."
             )}
           </p>
         ) : (
@@ -929,7 +1111,12 @@ export function SupplierPriceAlerts({
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
                     {trend.latest_supplier_name ??
-                      t(lang, "Unknown supplier", "Proveedor desconocido")}{" "}
+                      t(
+                        lang,
+                        "Unknown supplier",
+                        "Proveedor desconocido",
+                        "Unbekannter Lieferant"
+                      )}{" "}
                     · {trend.latest_date}
                   </div>
                 </div>

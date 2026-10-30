@@ -10,12 +10,13 @@
 // the user's company row (created_by) — same pattern as the existing data
 // upload routes in app/api/data/*.
 
+import { fmt } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import {
   requireCapability,
   resolveActor,
   unauthorizedResponse,
 } from "@/lib/auth/permissions";
-import { SALES_UPLOAD_DENIED_MESSAGE } from "@/lib/restaurant/pos-upload-messages";
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
@@ -62,6 +63,7 @@ interface UploadSummary {
 }
 
 export async function POST(req: NextRequest) {
+  const d = await apiDictionary();
   try {
     // --- Auth -------------------------------------------------------------
     const supabase = await createClient();
@@ -150,7 +152,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json(
         {
-          error: "No encontré la empresa.",
+          error: d.connect.api.companyNotFound,
           message:
             "No company could be resolved via created_by, profiles.id, profiles.user_id, or company_memberships. " +
             "Ensure the user is linked to a company in at least one of these tables.",
@@ -165,7 +167,7 @@ export async function POST(req: NextRequest) {
 
     const actor = await resolveActor(supabase, user.id, { companyId });
     const denied = requireCapability(actor, "imports.run", {
-      message: SALES_UPLOAD_DENIED_MESSAGE,
+      message: d.connect.api.salesUploadDenied,
     });
     if (denied) return denied;
 
@@ -179,17 +181,24 @@ export async function POST(req: NextRequest) {
     const replaceExisting =
       replaceRaw === "true" || replaceRaw === "1" || replaceRaw === "on";
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
+      return NextResponse.json(
+        { error: d.connect.api.uploadFile },
+        { status: 400 }
+      );
     }
     if (file.size === 0) {
       return NextResponse.json(
-        { error: "El archivo está vacío." },
+        { error: d.connect.api.fileEmpty },
         { status: 400 }
       );
     }
     if (file.size > MAX_FILE_BYTES) {
       return NextResponse.json(
-        { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
+        {
+          error: fmt(d.connect.api.fileTooBigMb, {
+            mb: MAX_FILE_BYTES / 1024 / 1024,
+          }),
+        },
         { status: 400 }
       );
     }
@@ -213,7 +222,7 @@ export async function POST(req: NextRequest) {
       const lines = text.split("\n").filter((l) => l.trim().length > 0);
       if (lines.length < 2) {
         return NextResponse.json(
-          { error: "El archivo está vacío." },
+          { error: d.connect.api.fileEmpty },
           { status: 400 }
         );
       }
@@ -239,7 +248,7 @@ export async function POST(req: NextRequest) {
       const sheetName = workbook.SheetNames[0];
       if (!sheetName) {
         return NextResponse.json(
-          { error: "El archivo no tiene hojas." },
+          { error: d.connect.api.noSheets },
           { status: 400 }
         );
       }
@@ -253,7 +262,7 @@ export async function POST(req: NextRequest) {
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: "El archivo está vacío." },
+        { error: d.connect.api.fileEmpty },
         { status: 400 }
       );
     }
@@ -263,7 +272,7 @@ export async function POST(req: NextRequest) {
     if (!colCheck.ok) {
       return NextResponse.json(
         {
-          error: "Faltan columnas obligatorias.",
+          error: d.connect.api.missingColumns,
           missing: colCheck.missingRequired,
           headers,
         },
@@ -365,7 +374,7 @@ export async function POST(req: NextRequest) {
     if (inserts.length === 0) {
       return NextResponse.json(
         {
-          error: "No hay filas válidas para guardar.",
+          error: d.connect.api.noValidRows,
           validation_errors,
         },
         { status: 400 }
@@ -402,7 +411,7 @@ export async function POST(req: NextRequest) {
         );
         return NextResponse.json(
           {
-            error: "No pude reemplazar las filas existentes.",
+            error: d.connect.api.replaceFailed,
             details: delError.message,
           },
           { status: 500 }
@@ -426,7 +435,7 @@ export async function POST(req: NextRequest) {
         console.error("[POS Upload] insert failed:", insertError.message);
         return NextResponse.json(
           {
-            error: "No pude guardar las filas.",
+            error: d.connect.api.rowsSaveFailed,
             details: insertError.message,
             inserted_before_failure: inserted,
             deleted_rows: deletedRows,
@@ -465,7 +474,7 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[POS Upload] Unexpected error:", message);
     return NextResponse.json(
-      { error: "No se pudo subir el archivo.", details: message },
+      { error: d.connect.api.uploadFailed, details: message },
       { status: 500 }
     );
   }

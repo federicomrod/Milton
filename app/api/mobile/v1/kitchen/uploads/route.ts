@@ -7,6 +7,8 @@
 // kitchen/uploads/complete. The object path is derived from the report id, so
 // a path can only ever belong to the report it was issued for.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import {
@@ -32,6 +34,7 @@ export const runtime = "nodejs";
 const MAX_DURATION_S = 60 * 60;
 
 export async function POST(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff } = auth;
@@ -41,30 +44,30 @@ export async function POST(request: NextRequest) {
     const parsed = await request.json();
     if (parsed && typeof parsed === "object") body = parsed;
   } catch {
-    return kitchenJson({ error: "El mensaje no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.messageInvalid }, 400);
   }
 
   const kind = body.kind;
   if (kind !== "photo" && kind !== "voice" && kind !== "document") {
-    return kitchenJson({ error: "El tipo de archivo no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileTypeInvalid }, 400);
   }
   const clientRef = typeof body.clientRef === "string" ? body.clientRef : "";
   if (!CLIENT_REF_RE.test(clientRef)) {
-    return kitchenJson({ error: "Falta el identificador del envío." }, 400);
+    return kitchenJson({ error: d.kitchen.api.clientRefMissing }, 400);
   }
   const mime =
     typeof body.mime === "string"
       ? body.mime.split(";")[0].trim().toLowerCase()
       : "";
   if (!KITCHEN_MEDIA_MIMES.includes(mime) || !mimeMatchesKind(kind, mime)) {
-    return kitchenJson({ error: "No puedo guardar ese tipo de archivo." }, 415);
+    return kitchenJson({ error: d.kitchen.api.fileTypeUnsupported }, 415);
   }
   const sizeBytes = Number(body.sizeBytes);
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) {
-    return kitchenJson({ error: "El archivo está vacío." }, 400);
+    return kitchenJson({ error: d.kitchen.api.fileEmpty }, 400);
   }
   if (sizeBytes > KITCHEN_MEDIA_MAX_BYTES) {
-    return kitchenJson({ error: "El archivo es demasiado grande." }, 413);
+    return kitchenJson({ error: d.kitchen.api.fileTooBig }, 413);
   }
   const rawDuration = Number(body.durationS);
   const durationS =
@@ -91,7 +94,7 @@ export async function POST(request: NextRequest) {
       sizeBytes,
     });
     if (!report.ok) {
-      return kitchenJson({ error: "No pude guardar tu envío." }, 500);
+      return kitchenJson({ error: d.kitchen.api.submissionSaveFailed }, 500);
     }
 
     if (report.duplicate) {
@@ -127,7 +130,7 @@ export async function POST(request: NextRequest) {
       if (!report.duplicate) {
         await deleteAppReport(admin, reportStaff, report.reportId);
       }
-      return kitchenJson({ error: "No pude preparar el envío." }, 502);
+      return kitchenJson({ error: d.kitchen.api.uploadPrepareFailed }, 502);
     }
 
     return kitchenJson(
@@ -146,6 +149,6 @@ export async function POST(request: NextRequest) {
       "[mobile-kitchen-uploads] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: "No pude preparar el envío." }, 500);
+    return kitchenJson({ error: d.kitchen.api.uploadPrepareFailed }, 500);
   }
 }

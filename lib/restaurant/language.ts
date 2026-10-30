@@ -15,7 +15,7 @@
 // Nothing in this file does I/O — pure constants, types, and functions,
 // safe to import from server and client code alike.
 
-export type PreferredLanguage = "en" | "es";
+export type PreferredLanguage = "en" | "es" | "de";
 
 export const DEFAULT_LANGUAGE: PreferredLanguage = "en";
 
@@ -36,7 +36,15 @@ export interface LanguageOption {
 export const LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "en", label: "English" },
   { value: "es", label: "Español" },
+  { value: "de", label: "Deutsch" },
 ];
+
+/** Intl locale for every date and number format of a language. */
+export function localeFor(lang: PreferredLanguage): string {
+  if (lang === "de") return "de-DE";
+  if (lang === "en") return "en-US";
+  return "es-MX";
+}
 
 /**
  * Countries (by lib/restaurant/onboarding-copy.ts's COUNTRY_OPTIONS code)
@@ -93,7 +101,7 @@ export function nextLanguageOnCountryChange(
 export function normalizePreferredLanguage(
   value: unknown
 ): PreferredLanguage | null {
-  return value === "en" || value === "es" ? value : null;
+  return value === "en" || value === "es" || value === "de" ? value : null;
 }
 
 /**
@@ -111,27 +119,28 @@ export function resolvePreferredLanguage(value: unknown): PreferredLanguage {
  * Language for R1 restaurant cockpit surfaces (shell, tabs, insights,
  * Ask Milton, briefing generation used by those surfaces).
  *
- * Migration 016 added `companies.preferred_language NOT NULL DEFAULT 'en'`
- * and backfilled every existing company — including the El Salvador pilot
- * that never picked English. `resolvePreferredLanguage` therefore returns
- * English for that account, while some tabs were later hardcoded to
- * Spanish. The cockpit keeps using this helper (not a second i18n system)
- * and treats the R1 UI as Spanish via RESTAURANT_COCKPIT_DEFAULT_LANGUAGE.
- * Emails and Telegram still go through resolvePreferredLanguage.
+ * Honours a stored "en" | "es" | "de"; falls back to Spanish
+ * (RESTAURANT_COCKPIT_DEFAULT_LANGUAGE) only when the value is unset or
+ * invalid. Emails and Telegram go through resolvePreferredLanguage.
  */
 export function resolveRestaurantCockpitLanguage(
   value?: unknown
 ): PreferredLanguage {
-  void value;
-  return RESTAURANT_COCKPIT_DEFAULT_LANGUAGE;
+  return (
+    normalizePreferredLanguage(value) ?? RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
+  );
 }
 
 /**
- * Picks between an English and a Spanish string based on `lang`. The
- * small, central primitive every deterministic/fallback text builder uses
- * instead of ad hoc `lang === "es" ? ... : ...` checks scattered around —
- * see briefing-prompt.ts and ask-milton-prompt.ts.
+ * Temporary wrapper for call sites not yet moved to the lib/i18n
+ * dictionaries. All three languages are required; new code must use
+ * `getDictionary` / `useT` instead.
  */
-export function t(lang: PreferredLanguage, en: string, es: string): string {
-  return lang === "es" ? es : en;
+export function t(
+  lang: PreferredLanguage,
+  en: string,
+  es: string,
+  de: string
+): string {
+  return lang === "de" ? de : lang === "es" ? es : en;
 }

@@ -5,11 +5,11 @@
 
 "use client";
 
+import { moneyLocale } from "@/lib/restaurant/cockpit-format";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-import { localeForCurrency } from "@/lib/restaurant/currency";
 import {
   polishCockpitCopy,
   type CockpitKpiStripModel,
@@ -30,7 +30,7 @@ export function CockpitKpiStrip({
   costSlot?: ReactNode;
 }) {
   const canSeeRentabilidad = useCan("costs.fixed");
-  const locale = localeForCurrency(model.currency);
+  const locale = moneyLocale(model.currency, lang);
   const money = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: /^[A-Z]{3}$/.test(model.currency) ? model.currency : "USD",
@@ -45,18 +45,18 @@ export function CockpitKpiStrip({
   });
   const rev = model.secondary;
   const estimatedHint = rev.discounts_estimated
-    ? ` ${t(lang, "(estimated)", "(estimado)")}`
+    ? ` ${t(lang, "(estimated)", "(estimado)", "(geschätzt)")}`
     : "";
 
   return (
-    <section aria-label={t(lang, "Key numbers", "Cifras clave")}>
+    <section aria-label={t(lang, "Key numbers", "Cifras clave", "Kennzahlen")}>
       <p className="text-[12px] text-muted-foreground mb-1">
-        {t(lang, "Key numbers", "Cifras clave")}
+        {t(lang, "Key numbers", "Cifras clave", "Kennzahlen")}
         {model.period_label ? ` · ${model.period_label}` : ""}
       </p>
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <Kpi
-          label={t(lang, "Net sales", "Ventas netas")}
+          label={t(lang, "Net sales", "Ventas netas", "Nettoumsatz")}
           value={moneyCompact.format(model.net_sales.value)}
           delta={model.net_sales.delta_pct}
           lang={lang}
@@ -67,7 +67,8 @@ export function CockpitKpiStrip({
                   t(
                     lang,
                     `Tips ${money.format(rev.tips)} excluded`,
-                    `Propinas ${money.format(rev.tips)} excluidas`
+                    `Propinas ${money.format(rev.tips)} excluidas`,
+                    `Trinkgeld ${money.format(rev.tips)} ausgenommen`
                   )
                 )
               : polishCockpitCopy(
@@ -75,7 +76,8 @@ export function CockpitKpiStrip({
                   t(
                     lang,
                     "versus the previous period",
-                    "frente al periodo anterior"
+                    "frente al periodo anterior",
+                    "ggü. Vorperiode"
                   )
                 )
           }
@@ -86,28 +88,44 @@ export function CockpitKpiStrip({
           <>
             <div
               role="status"
-              aria-label={t(lang, "Gross margin %", "Margen bruto %")}
+              aria-label={t(
+                lang,
+                "Gross margin %",
+                "Margen bruto %",
+                "Rohmarge %"
+              )}
               className="animate-pulse rounded-md bg-muted/70 min-h-[4.5rem]"
             />
             <div
               role="status"
-              aria-label={t(lang, "Food cost %", "% costo de comida")}
+              aria-label={t(
+                lang,
+                "Food cost %",
+                "% costo de comida",
+                "Wareneinsatz %"
+              )}
               className="animate-pulse rounded-md bg-muted/70 min-h-[4.5rem]"
             />
           </>
         ) : model.gross_margin_pct.available ? (
           <Kpi
-            label={t(lang, "Gross margin %", "Margen bruto %")}
+            label={t(lang, "Gross margin %", "Margen bruto %", "Rohmarge %")}
             value={`${model.gross_margin_pct.value.toFixed(1)}%`}
             delta={model.gross_margin_pct.delta_pct}
             lang={lang}
             sub={t(
               lang,
               "on covered net sales",
-              "sobre ventas netas cubiertas"
+              "sobre ventas netas cubiertas",
+              "auf erfassten Nettoumsatz"
             )}
             href={canSeeRentabilidad ? rentabilidadHref : undefined}
-            hrefLabel={t(lang, "See Profitability →", "Ver Rentabilidad →")}
+            hrefLabel={t(
+              lang,
+              "See Profitability →",
+              "Ver Rentabilidad →",
+              "Wareneinsatz %"
+            )}
           />
         ) : (
           <NotAvailableYet
@@ -121,14 +139,20 @@ export function CockpitKpiStrip({
         {costSlot ? null : model.cost_pending ? null : model.food_cost_pct
             .available ? (
           <Kpi
-            label={t(lang, "Food cost %", "% costo de comida")}
+            label={t(
+              lang,
+              "Food cost %",
+              "% costo de comida",
+              "auf erfassten Nettoumsatz"
+            )}
             value={`${model.food_cost_pct.value.toFixed(1)}%`}
             delta={model.food_cost_pct.delta_pct}
             lang={lang}
             sub={t(
               lang,
               "on covered net sales",
-              "sobre ventas netas cubiertas"
+              "sobre ventas netas cubiertas",
+              "Rentabilität ansehen →"
             )}
           />
         ) : (
@@ -141,31 +165,38 @@ export function CockpitKpiStrip({
           />
         )}
         <Kpi
-          label={t(lang, "Average ticket", "Ticket promedio")}
+          label={t(lang, "Average ticket", "Ticket promedio", "Ø Bon")}
           value={money.format(model.avg_ticket.value)}
           delta={model.avg_ticket.delta_pct}
           lang={lang}
-          sub={t(lang, "per order · net", "por orden · neto")}
+          sub={t(
+            lang,
+            "per order · net",
+            "por orden · neto",
+            "pro Bestellung · netto"
+          )}
         />
       </div>
 
       <p className="text-[12px] text-muted-foreground mt-1">
-        {t(lang, "Gross", "Bruto")} {money.format(rev.gross_sales)}
+        {t(lang, "Gross", "Bruto", "Brutto")} {money.format(rev.gross_sales)}
         {estimatedHint}
         {" · "}
-        {t(lang, "Discounts", "Descuentos")} {money.format(rev.discounts)}
+        {t(lang, "Discounts", "Descuentos", "Rabatte")}{" "}
+        {money.format(rev.discounts)}
         {estimatedHint}
         {" · "}
-        {t(lang, "Net", "Neto")} {money.format(rev.net_sales)}
+        {t(lang, "Net", "Neto", "Netto")} {money.format(rev.net_sales)}
         {rev.tips > 0 ? (
           <>
             {" · "}
-            {t(lang, "Tips", "Propinas")} {money.format(rev.tips)}
+            {t(lang, "Tips", "Propinas", "Trinkgeld")} {money.format(rev.tips)}
             {". "}
             {t(
               lang,
               "Totals differ from Odoo by the tip amount.",
-              "Los totales difieren de Odoo por el monto de propinas."
+              "Los totales difieren de Odoo por el monto de propinas.",
+              "Die Summen weichen von Odoo um den Trinkgeldbetrag ab."
             )}
           </>
         ) : null}
@@ -220,7 +251,12 @@ function Kpi({
       {delta !== undefined ? (
         <p className={"text-[12px] tabular-nums " + deltaClass}>
           {delta == null
-            ? t(lang ?? "es", "no previous period", "sin periodo anterior")
+            ? t(
+                lang ?? "es",
+                "no previous period",
+                "sin periodo anterior",
+                "keine Vorperiode"
+              )
             : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}%`}
         </p>
       ) : null}

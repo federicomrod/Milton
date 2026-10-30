@@ -60,6 +60,17 @@ vi.mock("@/lib/restaurant/api-auth", () => ({
   },
 }));
 
+// The company-language lookup is a read of companies.preferred_language, not
+// a touch of the data under test: pin it to Spanish (the default) so
+// dbTouches only counts what the route does after the permission check.
+vi.mock("@/lib/restaurant/api-lang", async () => {
+  const { getDictionary } = await import("@/lib/i18n");
+  return {
+    apiLanguage: async () => "es",
+    apiDictionary: async () => getDictionary("es"),
+  };
+});
+
 const UUID = "11111111-1111-4111-8111-111111111111";
 const BASE = "http://localhost/api/restaurant/";
 

@@ -4,6 +4,8 @@
 // Only this cook's rows (company + staff + location filters), serialized
 // through the allow-list: no money, never another cook's items.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import { serializeKitchenHistoryItem } from "@/lib/restaurant/kitchen/kitchen-serializer";
@@ -25,6 +27,7 @@ function decodeCursor(raw: string | null): string | null {
 }
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff, companyId, locationIds } = auth;
@@ -32,7 +35,7 @@ export async function GET(request: NextRequest) {
   const rawCursor = new URL(request.url).searchParams.get("cursor");
   const cursor = decodeCursor(rawCursor);
   if (rawCursor && !cursor) {
-    return kitchenJson({ error: "El cursor no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.cursorInvalid }, 400);
   }
 
   try {
@@ -49,7 +52,7 @@ export async function GET(request: NextRequest) {
     if (cursor) query = query.lt("created_at", cursor);
     const { data, error } = await query;
     if (error) {
-      return kitchenJson({ error: "No pude cargar tu historial." }, 500);
+      return kitchenJson({ error: d.kitchen.api.historyLoadFailed }, 500);
     }
     const rows = (data ?? []) as Record<string, unknown>[];
     const page = rows.slice(0, PAGE_SIZE);
@@ -67,6 +70,6 @@ export async function GET(request: NextRequest) {
       "[mobile-kitchen-history] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: "No pude cargar tu historial." }, 500);
+    return kitchenJson({ error: d.kitchen.api.historyLoadFailed }, 500);
   }
 }

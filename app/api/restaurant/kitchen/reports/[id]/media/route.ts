@@ -9,6 +9,7 @@
 // URL instead. Reports sent from the app (mobile P0b) have no Telegram file id,
 // only that Storage copy.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,6 +26,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -33,7 +35,7 @@ export async function GET(
     const { id } = await params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json(
-        { error: "El identificador no es válido." },
+        { error: d.kitchen.api.idInvalid },
         { status: 400 }
       );
     }
@@ -45,7 +47,10 @@ export async function GET(
       .maybeSingle();
     // Same 404 for "missing" and "someone else's" — no existence leak.
     if (!report || report.company_id !== companyId) {
-      return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
+      return NextResponse.json(
+        { error: d.kitchen.api.notFound },
+        { status: 404 }
+      );
     }
 
     // Prefer Milton's own copy when one exists. Any problem (table or bucket
@@ -72,7 +77,10 @@ export async function GET(
     }
 
     if (!report.media_kind || !report.telegram_file_id) {
-      return NextResponse.json({ error: "No lo encontré." }, { status: 404 });
+      return NextResponse.json(
+        { error: d.kitchen.api.notFound },
+        { status: 404 }
+      );
     }
 
     const file = await openTelegramFile(report.telegram_file_id as string);
@@ -93,7 +101,7 @@ export async function GET(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude cargar el archivo." },
+      { error: d.kitchen.api.fileLoadFailed },
       { status: 500 }
     );
   }

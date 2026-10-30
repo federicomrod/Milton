@@ -42,6 +42,7 @@ import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import {
   AI_UNAVAILABLE_COPY,
   AI_UNAVAILABLE_COPY_EN,
+  AI_UNAVAILABLE_COPY_DE,
 } from "@/lib/ai/unavailable-copy";
 import { useAskMiltonController } from "@/components/restaurant/shell/ask-milton-controller";
 import {
@@ -87,39 +88,51 @@ function suggestedQuestions(lang: PreferredLanguage): string[] {
     t(
       lang,
       "What are my biggest margin risks?",
-      "¿Cuáles son mis mayores riesgos de margen?"
+      "¿Cuáles son mis mayores riesgos de margen?",
+      "Wo liegen meine größten Margenrisiken?"
     ),
     t(
       lang,
       "Which dishes should I fix first?",
-      "¿Qué platos debo corregir primero?"
+      "¿Qué platos debo corregir primero?",
+      "Welche Gerichte sollte ich zuerst korrigieren?"
     ),
     t(
       lang,
       "Which suppliers increased prices?",
-      "¿Qué proveedores subieron los precios?"
+      "¿Qué proveedores subieron los precios?",
+      "Welche Lieferanten haben die Preise erhöht?"
     ),
     t(
       lang,
       "Which ingredients are most expensive?",
-      "¿Qué ingredientes salen más caros?"
+      "¿Qué ingredientes salen más caros?",
+      "Welche Zutaten sind am teuersten?"
     ),
     t(
       lang,
       "Which menu items have missing recipes?",
-      "¿Qué platos no tienen receta?"
+      "¿Qué platos no tienen receta?",
+      "Welche Gerichte haben kein Rezept?"
     ),
     t(
       lang,
       "Where is cost coverage incomplete?",
-      "¿Dónde está incompleta la cobertura de costo?"
+      "¿Dónde está incompleta la cobertura de costo?",
+      "Wo ist die Kostenabdeckung unvollständig?"
     ),
     t(
       lang,
       "What changed after the latest invoice?",
-      "¿Qué cambió después de la última factura?"
+      "¿Qué cambió después de la última factura?",
+      "Was hat sich nach der letzten Rechnung geändert?"
     ),
-    t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+    t(
+      lang,
+      "What should I do this week?",
+      "¿Qué debería hacer esta semana?",
+      "Was sollte ich diese Woche tun?"
+    ),
   ];
 }
 
@@ -248,7 +261,12 @@ function ChatWorkspaceSkeleton() {
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-6 text-sm text-muted-foreground">
-        {t(lang, "Loading Ask Milton...", "Cargando Preguntar a Milton...")}
+        {t(
+          lang,
+          "Loading Ask Milton...",
+          "Cargando Preguntar a Milton...",
+          "Ask Milton wird geladen …"
+        )}
       </CardContent>
     </Card>
   );
@@ -279,7 +297,12 @@ function ExecutiveBriefingPanelSkeleton() {
       <CardContent className="py-3">
         <div className="flex items-center gap-2 text-sm text-foreground">
           <Sparkles className="h-4 w-4" />
-          {t(lang, "Loading briefing...", "Cargando el briefing...")}
+          {t(
+            lang,
+            "Loading briefing...",
+            "Cargando el briefing...",
+            "Briefing wird geladen …"
+          )}
         </div>
       </CardContent>
     </Card>
@@ -292,7 +315,12 @@ function AiUnavailableNote({ lang }: { lang: PreferredLanguage }) {
       className="mt-1 text-xs text-muted-foreground"
       data-testid="ai-unavailable-note"
     >
-      {t(lang, AI_UNAVAILABLE_COPY_EN, AI_UNAVAILABLE_COPY)}
+      {t(
+        lang,
+        AI_UNAVAILABLE_COPY_EN,
+        AI_UNAVAILABLE_COPY,
+        AI_UNAVAILABLE_COPY_DE
+      )}
     </p>
   );
 }
@@ -329,7 +357,8 @@ function ExecutiveBriefingPanelInner({
             t(
               lang,
               "Could not load the briefing",
-              "No se pudo cargar el briefing"
+              "No se pudo cargar el briefing",
+              "Das Briefing konnte nicht geladen werden"
             )
           )
         );
@@ -338,7 +367,7 @@ function ExecutiveBriefingPanelInner({
       }
       setData(body as BriefingPayload);
     } catch {
-      setError(t(lang, "Network error", "Error de red"));
+      setError(t(lang, "Network error", "Error de red", "Netzwerkfehler"));
     } finally {
       setLoading(false);
     }
@@ -381,7 +410,12 @@ function ExecutiveBriefingPanelInner({
             <Sparkles className="h-4 w-4 text-[#1B40C8] dark:text-[#9fb4f2]" />
           </span>
           <h2 className="text-sm font-semibold">
-            {t(lang, "Executive briefing", "Briefing ejecutivo")}
+            {t(
+              lang,
+              "Executive briefing",
+              "Briefing ejecutivo",
+              "Management-Briefing"
+            )}
           </h2>
           <div className="ml-auto flex items-center gap-1.5">
             <Button
@@ -390,8 +424,8 @@ function ExecutiveBriefingPanelInner({
               className="h-7 w-7 p-0 text-[#1B40C8] dark:text-[#9fb4f2]"
               onClick={load}
               disabled={loading}
-              aria-label={t(lang, "Refresh", "Actualizar")}
-              title={t(lang, "Refresh", "Actualizar")}
+              aria-label={t(lang, "Refresh", "Actualizar", "Aktualisieren")}
+              title={t(lang, "Refresh", "Actualizar", "Aktualisieren")}
             >
               <RefreshCw
                 className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}
@@ -406,8 +440,8 @@ function ExecutiveBriefingPanelInner({
                 className="inline-flex items-center h-7 rounded-full bg-[#1B40C8] px-3 text-xs font-semibold text-white shadow-sm hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
               >
                 {expanded
-                  ? t(lang, "Show less", "Ver menos")
-                  : t(lang, "Show more", "Ver más")}
+                  ? t(lang, "Show less", "Ver menos", "Weniger anzeigen")
+                  : t(lang, "Show more", "Ver más", "Mehr anzeigen")}
               </button>
             )}
           </div>
@@ -418,7 +452,8 @@ function ExecutiveBriefingPanelInner({
             {t(
               lang,
               "Reading your latest restaurant numbers…",
-              "Leyendo los números más recientes…"
+              "Leyendo los números más recientes…",
+              "Ihre aktuellen Zahlen werden gelesen …"
             )}
           </p>
         )}
@@ -428,7 +463,8 @@ function ExecutiveBriefingPanelInner({
             {t(
               lang,
               "Could not load briefing:",
-              "No se pudo cargar el briefing:"
+              "No se pudo cargar el briefing:",
+              "Das Briefing konnte nicht geladen werden:"
             )}{" "}
             {error}
           </p>
@@ -460,7 +496,12 @@ function ExecutiveBriefingPanelInner({
             {hasLists && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <BriefingList
-                  title={t(lang, "Top risks", "Principales riesgos")}
+                  title={t(
+                    lang,
+                    "Top risks",
+                    "Principales riesgos",
+                    "Wichtigste Risiken"
+                  )}
                   items={risks}
                   tone="risk"
                 />
@@ -468,7 +509,8 @@ function ExecutiveBriefingPanelInner({
                   title={t(
                     lang,
                     "Top opportunities",
-                    "Principales oportunidades"
+                    "Principales oportunidades",
+                    "Wichtigste Chancen"
                   )}
                   items={opportunities}
                   tone="opportunity"
@@ -477,7 +519,8 @@ function ExecutiveBriefingPanelInner({
                   title={t(
                     lang,
                     "Recommended actions",
-                    "Acciones recomendadas"
+                    "Acciones recomendadas",
+                    "Empfohlene Maßnahmen"
                   )}
                   items={actions}
                   tone="action"
@@ -499,7 +542,8 @@ function ExecutiveBriefingPanelInner({
               {t(
                 lang,
                 "See the numbers in Cockpit",
-                "Ver las cifras en el Cockpit"
+                "Ver las cifras en el Cockpit",
+                "Zahlen im Cockpit ansehen"
               )}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -618,7 +662,8 @@ function ChatWorkspace({ onSent }: { onSent?: () => void }) {
               t(
                 lang,
                 "Could not get an answer",
-                "No se pudo obtener una respuesta"
+                "No se pudo obtener una respuesta",
+                "Es konnte keine Antwort abgerufen werden"
               )
             )
           );
@@ -633,7 +678,7 @@ function ChatWorkspace({ onSent }: { onSent?: () => void }) {
         };
         setTurns((prev) => [...prev, assistantTurn]);
       } catch {
-        setError(t(lang, "Network error", "Error de red"));
+        setError(t(lang, "Network error", "Error de red", "Netzwerkfehler"));
       } finally {
         setPending(false);
       }
@@ -698,7 +743,8 @@ function ChatWorkspace({ onSent }: { onSent?: () => void }) {
               placeholder={t(
                 lang,
                 "Ask Milton about sales, margins, suppliers, recipes…",
-                "Pregúntale a Milton sobre ventas, márgenes, proveedores, recetas…"
+                "Pregúntale a Milton sobre ventas, márgenes, proveedores, recetas…",
+                "Fragen Sie Milton zu Umsatz, Margen, Lieferanten, Rezepten …"
               )}
               rows={2}
               className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#c6d3f5] dark:focus:ring-[#2a3f8f]/50"
@@ -714,7 +760,7 @@ function ChatWorkspace({ onSent }: { onSent?: () => void }) {
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              {t(lang, "Send", "Enviar")}
+              {t(lang, "Send", "Enviar", "Senden")}
             </Button>
           </div>
         </form>
@@ -738,7 +784,12 @@ function SuggestedQuestions({
   return (
     <div className="border-b border-border px-4 sm:px-6 py-4 bg-muted/20">
       <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium mb-2">
-        {t(lang, "Suggested questions", "Preguntas sugeridas")}
+        {t(
+          lang,
+          "Suggested questions",
+          "Preguntas sugeridas",
+          "Vorgeschlagene Fragen"
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         {suggestedQuestions(lang).map((q) => (
@@ -768,7 +819,8 @@ function EmptyState() {
         {t(
           lang,
           "Ask Milton anything about your data",
-          "Pregúntale a Milton sobre tus datos"
+          "Pregúntale a Milton sobre tus datos",
+          "Fragen Sie Ask Milton alles zu Ihren Daten"
         )}
       </p>
     </div>
@@ -899,7 +951,12 @@ function SuggestedActionChips({
     <div className="space-y-1.5 pt-0.5">
       <p className="text-[12px] uppercase tracking-wide text-muted-foreground font-medium flex items-center gap-1">
         <Zap className="h-3 w-3" />
-        {t(lang, "Suggested actions", "Acciones sugeridas")}
+        {t(
+          lang,
+          "Suggested actions",
+          "Acciones sugeridas",
+          "Vorgeschlagene Maßnahmen"
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         {actions.map((action, i) => (
@@ -938,7 +995,8 @@ function PendingBubble() {
         {t(
           lang,
           "Reading your latest restaurant data…",
-          "Leyendo los datos más recientes de tu restaurante…"
+          "Leyendo los datos más recientes de tu restaurante…",
+          "Die aktuellen Daten Ihres Restaurants werden gelesen …"
         )}
       </div>
     </div>

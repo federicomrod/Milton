@@ -6,6 +6,7 @@
 // the "Deshacer" toast. Presentation only: no number is computed here.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/lib/i18n/client";
 import type { GroupToast } from "./use-item-groups";
 
 export type GroupingFilterValue = "todos" | "agrupados" | "sin_agrupar";
@@ -33,10 +34,12 @@ export function GroupingFilter({
   /** Next to "Sin agrupar": "$4,120 en ventas sin agrupar · 4.6%". */
   note?: string | null;
 }) {
+  const { d } = useT();
+  const g = d.menu.groups.filter;
   const items: Array<[GroupingFilterValue, string, number]> = [
-    ["todos", "Todos", counts.all],
-    ["agrupados", "Agrupados", counts.grouped],
-    ["sin_agrupar", "Sin agrupar", counts.ungrouped],
+    ["todos", g.all, counts.all],
+    ["agrupados", g.grouped, counts.grouped],
+    ["sin_agrupar", g.ungrouped, counts.ungrouped],
   ];
   return (
     <div
@@ -45,7 +48,7 @@ export function GroupingFilter({
     >
       <div
         role="group"
-        aria-label="Filtro de agrupación"
+        aria-label={g.ariaLabel}
         className="inline-flex rounded-[11px] bg-[#e1e8fa] p-[3px]"
       >
         {items.map(([id, label, n]) => (
@@ -97,6 +100,8 @@ export function GroupActionBar({
   onClear: () => void;
   busy?: boolean;
 }) {
+  const { d, fmt } = useT();
+  const g = d.menu.groups.bar;
   if (count === 0) return null;
   const primary =
     "rounded-lg bg-[#2f5be0] px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-[#1b40c8] disabled:opacity-60";
@@ -105,12 +110,12 @@ export function GroupActionBar({
   return (
     <div
       role="region"
-      aria-label="Acciones de agrupación"
+      aria-label={g.ariaLabel}
       data-testid="group-action-bar"
       className="flex flex-wrap items-center gap-2 rounded-[10px] border-l-4 border-[#2f5be0] bg-[#151c2c] px-4 py-2.5 text-white"
     >
       <b className="text-[13px]">
-        {count} {count === 1 ? "seleccionado" : "seleccionados"}
+        {count} {count === 1 ? g.selectedOne : g.selectedOther}
       </b>
       {summary ? (
         <span className="text-[13px] text-[#c9d0de]">{summary}</span>
@@ -123,7 +128,7 @@ export function GroupActionBar({
             onClick={onAcceptSuggestion}
             className={primary}
           >
-            Añadir a {suggestionName}
+            {fmt(g.addTo, { name: suggestionName })}
           </button>
         ) : null}
         <button
@@ -132,7 +137,7 @@ export function GroupActionBar({
           onClick={onAddToExisting}
           className={suggestionName ? secondary : primary}
         >
-          Añadir a grupo existente…
+          {g.addToExisting}
         </button>
         <button
           type="button"
@@ -140,7 +145,7 @@ export function GroupActionBar({
           onClick={onGroupAs}
           className={secondary}
         >
-          Agrupar como…
+          {g.groupAs}
         </button>
         {onMerge ? (
           <button
@@ -149,7 +154,7 @@ export function GroupActionBar({
             onClick={onMerge}
             className={secondary}
           >
-            Unir…
+            {g.merge}
           </button>
         ) : null}
         {canUngroup && onUngroup ? (
@@ -159,13 +164,13 @@ export function GroupActionBar({
             onClick={onUngroup}
             className={secondary}
           >
-            Desagrupar
+            {g.ungroup}
           </button>
         ) : null}
         <button
           type="button"
           onClick={onClear}
-          aria-label="Quitar la selección"
+          aria-label={g.clearSelection}
           className="px-2 text-[16px] text-[#c9d0de] hover:text-white"
         >
           ×
@@ -187,13 +192,15 @@ export function GroupAsPopover({
   onCreate: (name: string, parentId: string | null) => void;
   onCancel: () => void;
 }) {
+  const { d } = useT();
+  const g = d.menu.groups.groupAs;
   const [name, setName] = useState(initialName);
   const [parentId, setParentId] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
   return (
-    <Overlay onClose={onCancel} label="Agrupar como">
-      <h3 className="text-[15px] font-bold text-[#151c2c]">Agrupar como…</h3>
+    <Overlay onClose={onCancel} label={g.dialogLabel}>
+      <h3 className="text-[15px] font-bold text-[#151c2c]">{g.title}</h3>
       <input
         ref={input}
         value={name}
@@ -203,28 +210,25 @@ export function GroupAsPopover({
             onCreate(name, parentId || null);
           if (e.key === "Escape") onCancel();
         }}
-        placeholder="Nombre del grupo"
-        aria-label="Nombre del grupo"
+        placeholder={g.namePlaceholder}
+        aria-label={g.nameAria}
         className="mt-2 w-full rounded-lg border border-[#1b40c8] px-3 py-2 text-[14px] outline-none"
       />
       <label className="mt-3 block text-[12px] text-[#8a92a3]">
-        Dentro de
+        {g.inside}
         <select
           value={parentId}
           onChange={(e) => setParentId(e.target.value)}
           className="mt-1 w-full rounded-lg border border-[#dfe3ea] bg-white px-3 py-2 text-[14px] text-[#151c2c]"
         >
-          <option value="">Ninguno (grupo principal)</option>
+          <option value="">{g.noParent}</option>
           {parents.map((g) => (
             <option key={g.id} value={g.id}>
               {g.path}
             </option>
           ))}
         </select>
-        <span className="mt-1 block text-[12px]">
-          Opcional: ponlo dentro de otro grupo, p. ej. Limonadas dentro de
-          Bebidas.
-        </span>
+        <span className="mt-1 block text-[12px]">{g.hint}</span>
       </label>
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -232,7 +236,7 @@ export function GroupAsPopover({
           onClick={onCancel}
           className="rounded-lg border border-[#dfe3ea] px-3.5 py-1.5 text-[13px] font-semibold"
         >
-          Cancelar
+          {g.cancel}
         </button>
         <button
           type="button"
@@ -240,7 +244,7 @@ export function GroupAsPopover({
           onClick={() => onCreate(name, parentId || null)}
           className="rounded-lg bg-[#151c2c] px-3.5 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
         >
-          Crear grupo
+          {g.create}
         </button>
       </div>
     </Overlay>
@@ -262,6 +266,8 @@ export function GroupPicker({
   /** "Ninguno (grupo principal)" as a choice (moving a group out of its parent). */
   allowTop?: boolean;
 }) {
+  const { d } = useT();
+  const g = d.menu.groups.picker;
   const [query, setQuery] = useState("");
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -276,8 +282,8 @@ export function GroupPicker({
         autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar grupo…"
-        aria-label="Buscar grupo"
+        placeholder={g.searchPlaceholder}
+        aria-label={g.searchAria}
         className="mt-2 w-full rounded-lg border border-[#dfe3ea] px-3 py-2 text-[14px] outline-none focus:border-[#1B40C8]"
       />
       <ul className="mt-2 max-h-[280px] overflow-auto">
@@ -288,7 +294,7 @@ export function GroupPicker({
               onClick={() => onPick(null)}
               className="w-full rounded-md px-3 py-2 text-left text-[14px] text-[#5b6476] hover:bg-[#f4f6fb]"
             >
-              Ninguno (grupo principal)
+              {g.noParent}
             </button>
           </li>
         ) : null}
@@ -304,9 +310,7 @@ export function GroupPicker({
           </li>
         ))}
         {shown.length === 0 ? (
-          <li className="px-3 py-3 text-[13px] text-[#8a92a3]">
-            No hay grupos con ese nombre.
-          </li>
+          <li className="px-3 py-3 text-[13px] text-[#8a92a3]">{g.empty}</li>
         ) : null}
       </ul>
       <div className="mt-3 flex justify-end">
@@ -315,7 +319,7 @@ export function GroupPicker({
           onClick={onCancel}
           className="rounded-lg border border-[#dfe3ea] px-3.5 py-1.5 text-[13px] font-semibold"
         >
-          Cancelar
+          {g.cancel}
         </button>
       </div>
     </Overlay>
@@ -359,19 +363,21 @@ export function SuggestionChip({
   onAccept: () => void;
   busy?: boolean;
 }) {
+  const { d, fmt } = useT();
+  const g = d.menu.groups.chip;
   if (!targetName) {
-    return <span className="text-[13px] text-[#8a92a3]">Sin sugerencia</span>;
+    return <span className="text-[13px] text-[#8a92a3]">{g.none}</span>;
   }
   return (
     <span className="inline-flex items-center gap-1.5">
       <span className="rounded-full border border-dashed border-[#e5e7eb] bg-[#f9fafb] px-2.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
-        ✦ ¿Añadir a {targetName}?
+        ✦ {fmt(g.ask, { name: targetName })}
       </span>
       <button
         type="button"
         disabled={busy}
         onClick={onAccept}
-        aria-label={`Añadir a ${targetName}`}
+        aria-label={fmt(g.askAria, { name: targetName })}
         className="rounded-md border border-[#dfe3ea] bg-white px-1.5 py-0.5 text-[12px] font-bold text-[#151c2c] hover:border-[#1b40c8] disabled:opacity-50"
       >
         ✓
@@ -388,6 +394,7 @@ export function GroupToastView({
   toast: GroupToast | null;
   onDismiss: () => void;
 }) {
+  const { d } = useT();
   if (!toast) return null;
   return (
     <div
@@ -409,13 +416,13 @@ export function GroupToastView({
           }}
           className="font-bold text-[#d1d5db] hover:text-white"
         >
-          Deshacer
+          {d.menu.groups.toast.undo}
         </button>
       ) : null}
       <button
         type="button"
         onClick={onDismiss}
-        aria-label="Cerrar"
+        aria-label={d.menu.groups.toast.close}
         className="text-[#c9d0de] hover:text-white"
       >
         ×
@@ -438,6 +445,8 @@ export function GroupMenu({
   onCombine: () => void;
   onUngroup: () => void;
 }) {
+  const { d } = useT();
+  const g = d.menu.groups.menu;
   const [shown, setShown] = useState(false);
   const item =
     "block w-full px-3 py-1.5 text-left text-[13px] hover:bg-[#f1f3f7]";
@@ -445,7 +454,7 @@ export function GroupMenu({
     <span className="relative inline-block">
       <button
         type="button"
-        aria-label="Acciones del grupo"
+        aria-label={g.ariaLabel}
         onClick={() => setShown((v) => !v)}
         className="rounded-md px-1.5 text-[#6b7385] hover:bg-[#f1f3f7]"
       >
@@ -461,14 +470,14 @@ export function GroupMenu({
             className={item}
             onClick={() => (setShown(false), onRename())}
           >
-            Renombrar
+            {g.rename}
           </button>
           <button
             type="button"
             className={item}
             onClick={() => (setShown(false), onMove())}
           >
-            Mover dentro de…
+            {g.moveInside}
           </button>
           {!isAuto ? (
             <>
@@ -477,14 +486,14 @@ export function GroupMenu({
                 className={item}
                 onClick={() => (setShown(false), onCombine())}
               >
-                Combinar con…
+                {g.combine}
               </button>
               <button
                 type="button"
                 className={item}
                 onClick={() => (setShown(false), onUngroup())}
               >
-                Desagrupar
+                {g.ungroup}
               </button>
             </>
           ) : null}

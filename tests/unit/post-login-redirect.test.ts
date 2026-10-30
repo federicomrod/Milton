@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { es } from "@/lib/i18n/es";
 import {
   CONNECT_DATA_PATH,
   MANAGEMENT_DASHBOARD_PATH,
@@ -283,6 +284,7 @@ describe("the wiring", () => {
     expect(shell).toMatch(
       /\{isAdmin \? \(\s*<Link\s+href="\/management\/dashboard"/
     );
-    expect(shell).toContain("Administración");
+    expect(shell).toContain("sidebar.admin");
+    expect(es.shell.sidebar.admin).toBe("Administración");
   });
 });

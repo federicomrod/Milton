@@ -14,6 +14,8 @@
 //   * A comparison never lines a full period up against a partial one: the
 //     other side has the same number of days, aligned by weekday.
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { addDays, eachDay, weekdayIndex } from "@/lib/restaurant/objetivos";
 
 export { addDays, eachDay, weekdayIndex };
@@ -127,12 +129,16 @@ export function trailingWindow(
 }
 
 /** "solo 4 meses de datos" / "solo 20 días de datos" when the window is cut, else null. */
-export function dataSpanNote(w: TrailingWindow): string | null {
+export function dataSpanNote(
+  w: TrailingWindow,
+  lang: PreferredLanguage = "es"
+): string | null {
   if (!w.cut) return null;
+  const d = getDictionary(lang).cockpit.dataSpan;
   if (w.days < 30)
-    return `solo ${w.days} ${w.days === 1 ? "día" : "días"} de datos`;
+    return fmt(w.days === 1 ? d.daysOne : d.daysOther, { n: w.days });
   const months = Math.floor(w.days / 30.4375);
-  return `solo ${months} ${months === 1 ? "mes" : "meses"} de datos`;
+  return fmt(months === 1 ? d.monthsOne : d.monthsOther, { n: months });
 }
 
 // ---------------------------------------------------------------------------

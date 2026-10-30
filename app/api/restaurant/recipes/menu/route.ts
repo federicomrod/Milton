@@ -17,6 +17,9 @@ import {
   MenuReadError,
   readMenuIntoDrafts,
 } from "@/lib/restaurant/menu-reading/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,7 +36,7 @@ export async function POST(req: NextRequest) {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "Envía la dirección del menú o el texto del menú." },
+      { error: (await apiMsg()).menuSendUrlOrText },
       { status: 400 }
     );
   }
@@ -42,21 +45,20 @@ export async function POST(req: NextRequest) {
   if ((url && text) || (!url && !text)) {
     return NextResponse.json(
       {
-        error:
-          "Envía la dirección del menú o el texto del menú (uno de los dos).",
+        error: (await apiMsg()).menuSendOneOfTwo,
       },
       { status: 400 }
     );
   }
   if (url.length > MAX_URL_LENGTH) {
     return NextResponse.json(
-      { error: "Esa dirección es demasiado larga." },
+      { error: (await apiMsg()).menuUrlTooLong },
       { status: 400 }
     );
   }
   if (text.length > MAX_MENU_TEXT) {
     return NextResponse.json(
-      { error: "Ese texto es demasiado largo. Pega solo el menú." },
+      { error: (await apiMsg()).menuTextTooLong },
       { status: 400 }
     );
   }
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "recipes.edit", {
-    message: "Tu rol no puede preparar recetas.",
+    message: (await apiMsg()).roleCannotPrepare,
   });
   if (denied) return denied;
 
@@ -89,7 +91,7 @@ export async function POST(req: NextRequest) {
     }
     console.error("[recipes-menu]", err);
     return NextResponse.json(
-      { error: "No pude leer el menú. Intenta de nuevo." },
+      { error: (await apiMsg()).menuReadFailed },
       { status: 500 }
     );
   }

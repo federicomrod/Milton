@@ -168,7 +168,9 @@ export function resolveFollowupReferences(
     m.includes("this ingredient") ||
     m.includes("those") ||
     m.includes("these") ||
-    m.includes("what recipes use");
+    m.includes("what recipes use") ||
+    m.includes("diese zutat") ||
+    m.includes("diese produkte");
 
   const needsMenuItems =
     m.includes("those dishes") ||
@@ -176,7 +178,9 @@ export function resolveFollowupReferences(
     m.includes("those items") ||
     m.includes("these items") ||
     m.includes("those menu") ||
-    m.includes("these menu");
+    m.includes("these menu") ||
+    m.includes("diese gerichte") ||
+    m.includes("diese speisen");
 
   if (!needsIngredients && !needsMenuItems) return result;
 
@@ -307,32 +311,42 @@ type RelatedLinkRoute =
 
 const RELATED_LINK_LABELS: Record<
   RelatedLinkRoute,
-  { en: string; es: string }
+  { en: string; es: string; de: string }
 > = {
-  "/dashboard/restaurant": { en: "Cockpit", es: "Panel principal" },
+  "/dashboard/restaurant": {
+    en: "Cockpit",
+    es: "Panel principal",
+    de: "Cockpit",
+  },
   "/dashboard/restaurant/menu": {
     en: "Menu",
     es: "Menú",
+    de: "Speisekarte",
   },
   "/dashboard/restaurant/menu/ingredientes": {
     en: "Ingredients",
     es: "Ingredientes",
+    de: "Zutaten",
   },
   "/dashboard/restaurant/costs?tab=proveedores": {
     en: "Suppliers",
     es: "Proveedores",
+    de: "Lieferanten",
   },
   "/dashboard/restaurant/costs?tab=compras": {
     en: "Supplier Invoices",
     es: "Facturas de Proveedores",
+    de: "Lieferantenrechnungen",
   },
   "/dashboard/restaurant/menu/platos": {
     en: "Dishes",
     es: "Platos",
+    de: "Gerichte",
   },
   "/dashboard/restaurant/data?seccion=conexiones": {
     en: "Connections",
     es: "Conexiones",
+    de: "Verbindungen",
   },
 };
 
@@ -361,7 +375,7 @@ export function ventasLink(
   }
   const query = q.toString();
   return {
-    label: t(lang, "Sales", "Ventas"),
+    label: t(lang, "Sales", "Ventas", "Umsatz"),
     href: query ? `${SALES_HREF}?${query}` : SALES_HREF,
   };
 }
@@ -387,7 +401,8 @@ function mostProfitableAnswer(
       answer: t(
         lang,
         "I don't have enough complete costing data to identify your most profitable dish yet. Add recipes and ingredient costs to enable margin calculation.",
-        "Aún no tengo suficientes datos de costeo completos para identificar tu plato más rentable. Agrega recetas y costos de ingredientes para habilitar el cálculo de margen."
+        "Aún no tengo suficientes datos de costeo completos para identificar tu plato más rentable. Agrega recetas y costos de ingredientes para habilitar el cálculo de margen.",
+        "Mir fehlen noch ausreichend vollständige Kalkulationsdaten, um Ihr rentabelstes Gericht zu bestimmen. Ergänzen Sie Rezepte und Zutatenkosten, damit die Marge berechnet werden kann."
       ),
       supporting_facts: [],
       related_links: [
@@ -398,12 +413,14 @@ function mostProfitableAnswer(
         t(
           lang,
           "Which dishes have missing recipes?",
-          "¿Qué platos no tienen receta?"
+          "¿Qué platos no tienen receta?",
+          "Welche Gerichte haben kein Rezept?"
         ),
         t(
           lang,
           "Where is cost coverage incomplete?",
-          "¿Dónde está incompleta la cobertura de costo?"
+          "¿Dónde está incompleta la cobertura de costo?",
+          "Wo ist die Kostenabdeckung unvollständig?"
         ),
       ],
       confidence_notes: [],
@@ -424,6 +441,11 @@ function mostProfitableAnswer(
         (top.gross_profit_per_item !== null
           ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} de utilidad por porción)`
           : "") +
+        ".",
+      `Ihr rentabelstes Gericht ist ${displayName(top.name)} mit ${pct(top.gross_margin_pct)} Bruttomarge` +
+        (top.gross_profit_per_item !== null
+          ? ` (${fmtCurrencyDec(top.gross_profit_per_item, c)} Gewinn pro Portion)`
+          : "") +
         "."
     )
   );
@@ -432,7 +454,8 @@ function mostProfitableAnswer(
       t(
         lang,
         `It sells for ${fmtCurrencyDec(top.selling_price, c)} and its ingredients cost ${fmtCurrencyDec(top.estimated_cost, c)}.`,
-        `Se vende en ${fmtCurrencyDec(top.selling_price, c)} y sus ingredientes cuestan ${fmtCurrencyDec(top.estimated_cost, c)}.`
+        `Se vende en ${fmtCurrencyDec(top.selling_price, c)} y sus ingredientes cuestan ${fmtCurrencyDec(top.estimated_cost, c)}.`,
+        `Es wird für ${fmtCurrencyDec(top.selling_price, c)} verkauft, die Zutaten kosten ${fmtCurrencyDec(top.estimated_cost, c)}.`
       )
     );
   }
@@ -441,7 +464,14 @@ function mostProfitableAnswer(
       .slice(1, 1 + extra)
       .map((i) => `${displayName(i.name)} (${pct(i.gross_margin_pct)})`)
       .join(", ");
-    lines.push(t(lang, `Then: ${runners}.`, `Le siguen: ${runners}.`));
+    lines.push(
+      t(
+        lang,
+        `Then: ${runners}.`,
+        `Le siguen: ${runners}.`,
+        `Danach folgen: ${runners}.`
+      )
+    );
   }
 
   const notes: string[] = [];
@@ -450,7 +480,8 @@ function mostProfitableAnswer(
       t(
         lang,
         `Cost coverage is ${ctx.briefing.kpis.cost_coverage_pct}% — only items with complete recipes and ingredient costs appear in this list.`,
-        `La cobertura de costo es ${ctx.briefing.kpis.cost_coverage_pct}% — solo los platos con receta y costos de ingredientes completos aparecen en esta lista.`
+        `La cobertura de costo es ${ctx.briefing.kpis.cost_coverage_pct}% — solo los platos con receta y costos de ingredientes completos aparecen en esta lista.`,
+        `Die Kostenabdeckung beträgt ${ctx.briefing.kpis.cost_coverage_pct} % — nur Gerichte mit vollständigem Rezept und vollständigen Zutatenkosten erscheinen in dieser Liste.`
       )
     );
   }
@@ -467,7 +498,8 @@ function mostProfitableAnswer(
       label: t(
         lang,
         `${top.name} profit/serving`,
-        `${top.name} utilidad/porción`
+        `${top.name} utilidad/porción`,
+        `${top.name} Gewinn/Portion`
       ),
       value: fmtCurrencyDec(top.gross_profit_per_item, c),
       source_area: "menu",
@@ -485,14 +517,21 @@ function mostProfitableAnswer(
       t(
         lang,
         "Which dishes are least profitable?",
-        "¿Qué platos son menos rentables?"
+        "¿Qué platos son menos rentables?",
+        "Welche Gerichte sind am wenigsten rentabel?"
       ),
       t(
         lang,
         "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
+        "¿Qué ingredientes son más costosos?",
+        "Welche Zutaten sind am teuersten?"
       ),
-      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+      t(
+        lang,
+        "What should I do this week?",
+        "¿Qué debería hacer esta semana?",
+        "Was sollte ich diese Woche tun?"
+      ),
     ],
     confidence_notes: notes,
   };
@@ -517,22 +556,26 @@ function expensiveIngredientsAnswer(
     t(
       lang,
       "Which dishes use these ingredients?",
-      "¿Qué platos usan estos ingredientes?"
+      "¿Qué platos usan estos ingredientes?",
+      "Welche Gerichte verwenden diese Zutaten?"
     ),
     t(
       lang,
       "Which dishes have the highest food cost?",
-      "¿Qué platos tienen el mayor costo de alimentos?"
+      "¿Qué platos tienen el mayor costo de alimentos?",
+      "Welche Gerichte haben den höchsten Wareneinsatz?"
     ),
     t(
       lang,
       "Which supplier prices increased recently?",
-      "¿Qué precios de proveedores subieron recientemente?"
+      "¿Qué precios de proveedores subieron recientemente?",
+      "Bei welchen Lieferanten sind die Preise zuletzt gestiegen?"
     ),
     t(
       lang,
       "Which suppliers provide these ingredients?",
-      "¿Qué proveedores surten estos ingredientes?"
+      "¿Qué proveedores surten estos ingredientes?",
+      "Welche Lieferanten liefern diese Zutaten?"
     ),
   ];
   const LINKS: AskMiltonRelatedLink[] = [
@@ -554,18 +597,21 @@ function expensiveIngredientsAnswer(
         ? t(
             lang,
             `Only ${n} ingredients have a price so far:`,
-            `Por ahora solo ${n} ingredientes tienen precio:`
+            `Por ahora solo ${n} ingredientes tienen precio:`,
+            `Bisher haben nur ${n} Zutaten einen Preis:`
           )
         : n === 1
           ? t(
               lang,
               "Your most expensive ingredient by latest price:",
-              "Tu ingrediente más caro por su último precio:"
+              "Tu ingrediente más caro por su último precio:",
+              "Ihre teuerste Zutat nach letztem Preis:"
             )
           : t(
               lang,
               `Your ${n} most expensive ingredients by latest price:`,
-              `Tus ${n} ingredientes más caros por su último precio:`
+              `Tus ${n} ingredientes más caros por su último precio:`,
+              `Ihre ${n} teuersten Zutaten nach letztem Preis:`
             ),
       ...top.map(line),
     ];
@@ -579,7 +625,10 @@ function expensiveIngredientsAnswer(
             : `Note: ${prices.unpriced_count} ingredients are still «Sin precio», so they aren't in this list.`,
           prices.unpriced_count === 1
             ? "Ojo: 1 ingrediente sigue «Sin precio», así que no entra en esta lista."
-            : `Ojo: ${prices.unpriced_count} ingredientes siguen «Sin precio», así que no entran en esta lista.`
+            : `Ojo: ${prices.unpriced_count} ingredientes siguen «Sin precio», así que no entran en esta lista.`,
+          prices.unpriced_count === 1
+            ? "Hinweis: 1 Zutat hat noch «Kein Preis» und steht daher nicht in dieser Liste."
+            : `Hinweis: ${prices.unpriced_count} Zutaten haben noch «Kein Preis» und stehen daher nicht in dieser Liste.`
         )
       );
     }
@@ -609,6 +658,10 @@ function expensiveIngredientsAnswer(
         `Ingrediente más costoso por costo unitario: ${top.name} a ` +
           `${fmtCurrencyDec(top.unit_cost, top.currency)} por ${top.unit}` +
           (top.supplier_name ? ` (${top.supplier_name})` : "") +
+          ".",
+        `Teuerste Zutat nach Stückkosten: ${top.name} zu ` +
+          `${fmtCurrencyDec(top.unit_cost, top.currency)} pro ${top.unit}` +
+          (top.supplier_name ? ` (${top.supplier_name})` : "") +
           "."
       )
     );
@@ -628,7 +681,12 @@ function expensiveIngredientsAnswer(
         )
         .join("; ");
       lines.push(
-        t(lang, `Also expensive: ${rest}.`, `También costosos: ${rest}.`)
+        t(
+          lang,
+          `Also expensive: ${rest}.`,
+          `También costosos: ${rest}.`,
+          `Ebenfalls teuer: ${rest}.`
+        )
       );
       for (const i of items.slice(1, 3)) {
         facts.push({
@@ -645,7 +703,8 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `${top.name} is used in: ${top.used_in.slice(0, 4).join(", ")}.`,
-          `${top.name} se usa en: ${top.used_in.slice(0, 4).join(", ")}.`
+          `${top.name} se usa en: ${top.used_in.slice(0, 4).join(", ")}.`,
+          `${top.name} wird verwendet in: ${top.used_in.slice(0, 4).join(", ")}.`
         )
       );
     }
@@ -677,7 +736,9 @@ function expensiveIngredientsAnswer(
         `Highest-cost ingredient (from recipe data): ${top.ingredient_name} at ` +
           `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} per ${top.unit}.`,
         `Ingrediente de mayor costo (de datos de receta): ${top.ingredient_name} a ` +
-          `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} por ${top.unit}.`
+          `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} por ${top.unit}.`,
+        `Zutat mit den höchsten Kosten (aus Rezeptdaten): ${top.ingredient_name} zu ` +
+          `${fmtCurrencyDec(top.unit_cost!, top.currency ?? c)} pro ${top.unit}.`
       )
     );
     facts.push({
@@ -694,7 +755,9 @@ function expensiveIngredientsAnswer(
             `${u.ingredient_name}: ${fmtCurrencyDec(u.unit_cost!, u.currency ?? c)}/${u.unit}`
         )
         .join("; ");
-      lines.push(t(lang, `Also: ${rest}.`, `También: ${rest}.`));
+      lines.push(
+        t(lang, `Also: ${rest}.`, `También: ${rest}.`, `Außerdem: ${rest}.`)
+      );
       for (const u of usageWithCost.slice(1, 3)) {
         facts.push({
           label: u.ingredient_name,
@@ -728,7 +791,9 @@ function expensiveIngredientsAnswer(
         "I do not have a clean ingredient unit-cost ranking available yet, " +
           "but based on recipe and menu costing, the biggest cost-impact areas are:",
         "Aún no tengo un ranking claro de costo unitario de ingredientes, " +
-          "pero según el costeo de recetas y menú, las áreas de mayor impacto en costo son:"
+          "pero según el costeo de recetas y menú, las áreas de mayor impacto en costo son:",
+        "Mir liegt noch keine klare Rangliste der Zutaten-Stückkosten vor, " +
+          "aber nach der Rezept- und Speisekarten-Kalkulation haben diese Bereiche den größten Kosteneinfluss:"
       )
     );
 
@@ -741,14 +806,16 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `High food-cost dishes — ${names}.`,
-          `Platos con alto costo de alimentos — ${names}.`
+          `Platos con alto costo de alimentos — ${names}.`,
+          `Gerichte mit hohem Wareneinsatz — ${names}.`
         )
       );
       for (const i of highFoodCost.slice(0, 2)) {
         facts.push({
           label: i.name,
           value:
-            pct(i.food_cost_pct) + t(lang, " food cost", " costo de alimentos"),
+            pct(i.food_cost_pct) +
+            t(lang, " food cost", " costo de alimentos", " Wareneinsatz"),
           source_area: "menu",
         });
       }
@@ -763,13 +830,15 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `Low-margin dishes — ${names}.`,
-          `Platos de bajo margen — ${names}.`
+          `Platos de bajo margen — ${names}.`,
+          `Gerichte mit niedriger Marge — ${names}.`
         )
       );
       for (const i of lowMargin.slice(0, 2)) {
         facts.push({
           label: i.name,
-          value: pct(i.gross_margin_pct) + t(lang, " margin", " margen"),
+          value:
+            pct(i.gross_margin_pct) + t(lang, " margin", " margen", " Marge"),
           source_area: "menu",
         });
       }
@@ -781,7 +850,8 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           `Cost coverage is ${b.kpis.cost_coverage_pct}% — add ingredient prices to see per-item cost drivers.`,
-          `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — agrega precios de ingredientes para ver qué pesa más en el costo de cada plato.`
+          `La cobertura de costo es ${b.kpis.cost_coverage_pct}% — agrega precios de ingredientes para ver qué pesa más en el costo de cada plato.`,
+          `Die Kostenabdeckung beträgt ${b.kpis.cost_coverage_pct} % — ergänzen Sie Zutatenpreise, um die Kostentreiber pro Gericht zu sehen.`
         )
       );
     }
@@ -798,22 +868,26 @@ function expensiveIngredientsAnswer(
         t(
           lang,
           "Which dishes have the highest food cost?",
-          "¿Qué platos tienen el mayor costo de alimentos?"
+          "¿Qué platos tienen el mayor costo de alimentos?",
+          "Welche Gerichte haben den höchsten Wareneinsatz?"
         ),
         t(
           lang,
           "Which dishes are least profitable?",
-          "¿Qué platos son menos rentables?"
+          "¿Qué platos son menos rentables?",
+          "Welche Gerichte sind am wenigsten rentabel?"
         ),
         t(
           lang,
           "Where is cost coverage incomplete?",
-          "¿Dónde está incompleta la cobertura de costo?"
+          "¿Dónde está incompleta la cobertura de costo?",
+          "Wo ist die Kostenabdeckung unvollständig?"
         ),
         t(
           lang,
           "Which supplier prices increased recently?",
-          "¿Qué precios de proveedores subieron recientemente?"
+          "¿Qué precios de proveedores subieron recientemente?",
+          "Bei welchen Lieferanten sind die Preise zuletzt gestiegen?"
         ),
       ],
       confidence_notes: notes,
@@ -829,7 +903,10 @@ function expensiveIngredientsAnswer(
         "and build recipes to see which dishes drive cost.",
       "Aún no hay costos de ingredientes ni datos de rentabilidad del menú disponibles. " +
         "Sube facturas o usa Importar Costos para empezar a registrar precios de ingredientes, " +
-        "y crea recetas para ver qué platos generan más costo."
+        "y crea recetas para ver qué platos generan más costo.",
+      "Es liegen noch keine Zutatenkosten und keine Rentabilitätsdaten der Speisekarte vor. " +
+        "Laden Sie Rechnungen hoch oder nutzen Sie Kosten importieren, um Zutatenpreise zu erfassen, " +
+        "und legen Sie Rezepte an, um zu sehen, welche Gerichte die Kosten treiben."
     ),
     supporting_facts: [],
     related_links: [
@@ -841,19 +918,22 @@ function expensiveIngredientsAnswer(
       t(
         lang,
         "Where is cost coverage incomplete?",
-        "¿Dónde está incompleta la cobertura de costo?"
+        "¿Dónde está incompleta la cobertura de costo?",
+        "Wo ist die Kostenabdeckung unvollständig?"
       ),
       t(
         lang,
         "Which menu items have missing recipes?",
-        "¿Qué platos no tienen receta?"
+        "¿Qué platos no tienen receta?",
+        "Welche Gerichte haben kein Rezept?"
       ),
     ],
     confidence_notes: [
       t(
         lang,
         "No valid cost entries found in ingredient_cost_entries and no menu profitability data is available.",
-        "No se encontraron costos válidos en ingredient_cost_entries y no hay datos de rentabilidad del menú disponibles."
+        "No se encontraron costos válidos en ingredient_cost_entries y no hay datos de rentabilidad del menú disponibles.",
+        "Keine gültigen Kosteneinträge in ingredient_cost_entries gefunden und keine Rentabilitätsdaten der Speisekarte verfügbar."
       ),
     ],
   };
@@ -904,7 +984,8 @@ function ingredientUsageAnswer(
         answer: t(
           lang,
           "I don't have recipe usage data for ingredients in Milton yet. Build recipes and ingredient cost entries to enable this view.",
-          "Aún no tengo datos de uso de ingredientes en recetas en Milton. Crea recetas y costos de ingredientes para habilitar esta vista."
+          "Aún no tengo datos de uso de ingredientes en recetas en Milton. Crea recetas y costos de ingredientes para habilitar esta vista.",
+          "Mir liegen in Milton noch keine Daten zur Verwendung von Zutaten in Rezepten vor. Legen Sie Rezepte und Zutatenkosten an, um diese Ansicht zu aktivieren."
         ),
         supporting_facts: [],
         related_links: [
@@ -915,7 +996,8 @@ function ingredientUsageAnswer(
           t(
             lang,
             "Which ingredients are most expensive?",
-            "¿Qué ingredientes son más costosos?"
+            "¿Qué ingredientes son más costosos?",
+            "Welche Zutaten sind am teuersten?"
           ),
         ],
         confidence_notes: [],
@@ -931,7 +1013,12 @@ function ingredientUsageAnswer(
         return `${u.ingredient_name}: ${
           all.length > 0
             ? all.join(", ")
-            : t(lang, "not linked to recipes yet", "sin vincular a recetas aún")
+            : t(
+                lang,
+                "not linked to recipes yet",
+                "sin vincular a recetas aún",
+                "noch keinem Rezept zugeordnet"
+              )
         }`;
       })
       .join(". ");
@@ -939,7 +1026,8 @@ function ingredientUsageAnswer(
       answer: t(
         lang,
         `Top ingredient usage: ${sample}.`,
-        `Principal uso de ingredientes: ${sample}.`
+        `Principal uso de ingredientes: ${sample}.`,
+        `Wichtigste Zutatenverwendung: ${sample}.`
       ),
       supporting_facts: [],
       related_links: [
@@ -950,7 +1038,8 @@ function ingredientUsageAnswer(
         t(
           lang,
           "Which ingredients are most expensive?",
-          "¿Qué ingredientes son más costosos?"
+          "¿Qué ingredientes son más costosos?",
+          "Welche Zutaten sind am teuersten?"
         ),
       ],
       confidence_notes: [],
@@ -971,7 +1060,8 @@ function ingredientUsageAnswer(
         t(
           lang,
           `I don't have recipe usage for "${name}" in Milton yet.`,
-          `Aún no tengo el uso en recetas de "${name}" en Milton.`
+          `Aún no tengo el uso en recetas de "${name}" en Milton.`,
+          `Mir liegt in Milton noch keine Rezeptverwendung für „${name}“ vor.`
         )
       );
       continue;
@@ -984,7 +1074,12 @@ function ingredientUsageAnswer(
     const parts: string[] = [];
     if (entry.used_in_direct.length > 0) {
       parts.push(
-        t(lang, `directly in: ${directList}`, `directamente en: ${directList}`)
+        t(
+          lang,
+          `directly in: ${directList}`,
+          `directamente en: ${directList}`,
+          `direkt in: ${directList}`
+        )
       );
     }
     if (entry.components_using.length > 0) {
@@ -992,13 +1087,19 @@ function ingredientUsageAnswer(
         t(
           lang,
           `in component${entry.components_using.length > 1 ? "s" : ""} (${compList})`,
-          `en componente${entry.components_using.length > 1 ? "s" : ""} (${compList})`
+          `en componente${entry.components_using.length > 1 ? "s" : ""} (${compList})`,
+          `in Komponente${entry.components_using.length > 1 ? "n" : ""} (${compList})`
         )
       );
     }
     if (entry.used_in_via_component.length > 0) {
       parts.push(
-        t(lang, `and therefore in: ${viaList}`, `y por lo tanto en: ${viaList}`)
+        t(
+          lang,
+          `and therefore in: ${viaList}`,
+          `y por lo tanto en: ${viaList}`,
+          `und damit auch in: ${viaList}`
+        )
       );
     }
 
@@ -1007,7 +1108,8 @@ function ingredientUsageAnswer(
         t(
           lang,
           `${entry.ingredient_name} is not linked to any recipes yet.`,
-          `${entry.ingredient_name} aún no está vinculado a ninguna receta.`
+          `${entry.ingredient_name} aún no está vinculado a ninguna receta.`,
+          `${entry.ingredient_name} ist noch keinem Rezept zugeordnet.`
         )
       );
     } else {
@@ -1015,7 +1117,8 @@ function ingredientUsageAnswer(
         t(
           lang,
           `${entry.ingredient_name} appears ${parts.join(", ")}.`,
-          `${entry.ingredient_name} aparece ${parts.join(", ")}.`
+          `${entry.ingredient_name} aparece ${parts.join(", ")}.`,
+          `${entry.ingredient_name} kommt vor ${parts.join(", ")}.`
         )
       );
       facts.push({
@@ -1040,7 +1143,8 @@ function ingredientUsageAnswer(
         t(
           lang,
           "Which ingredients are most expensive?",
-          "¿Qué ingredientes son más costosos?"
+          "¿Qué ingredientes son más costosos?",
+          "Welche Zutaten sind am teuersten?"
         ),
       ],
       confidence_notes: [],
@@ -1058,14 +1162,21 @@ function ingredientUsageAnswer(
       t(
         lang,
         "Which of these dishes have the worst margin?",
-        "¿Cuáles de estos platos tienen el peor margen?"
+        "¿Cuáles de estos platos tienen el peor margen?",
+        "Welche dieser Gerichte haben die schlechteste Marge?"
       ),
       t(
         lang,
         "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
+        "¿Qué ingredientes son más costosos?",
+        "Welche Zutaten sind am teuersten?"
       ),
-      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+      t(
+        lang,
+        "What should I do this week?",
+        "¿Qué debería hacer esta semana?",
+        "Was sollte ich diese Woche tun?"
+      ),
     ],
     confidence_notes: [],
   };
@@ -1087,7 +1198,8 @@ function supplierAnswer(
       t(
         lang,
         `Top supplier by spend: ${top.supplier_name} at ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} of total).`,
-        `Principal proveedor por gasto: ${top.supplier_name} con ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} del total).`
+        `Principal proveedor por gasto: ${top.supplier_name} con ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} del total).`,
+        `Wichtigster Lieferant nach Ausgaben: ${top.supplier_name} mit ${fmtCurrency(top.total_spend, c)} (${pct(top.share_pct)} der Gesamtsumme).`
       )
     );
     facts.push({
@@ -1100,7 +1212,8 @@ function supplierAnswer(
       t(
         lang,
         "No supplier spend has been recorded yet.",
-        "Aún no se ha registrado gasto con proveedores."
+        "Aún no se ha registrado gasto con proveedores.",
+        "Bisher wurden keine Ausgaben bei Lieferanten erfasst."
       )
     );
   }
@@ -1114,7 +1227,8 @@ function supplierAnswer(
       t(
         lang,
         `Recent price increases: ${names}.`,
-        `Aumentos de precio recientes: ${names}.`
+        `Aumentos de precio recientes: ${names}.`,
+        `Jüngste Preiserhöhungen: ${names}.`
       )
     );
     for (const inc of ctx.briefing.supplier_price_increases.slice(0, 2)) {
@@ -1129,7 +1243,8 @@ function supplierAnswer(
       t(
         lang,
         "No supplier price increases detected in recent invoices.",
-        "No se detectaron aumentos de precio de proveedores en facturas recientes."
+        "No se detectaron aumentos de precio de proveedores en facturas recientes.",
+        "In den letzten Rechnungen wurden keine Preiserhöhungen bei Lieferanten festgestellt."
       )
     );
   }
@@ -1145,17 +1260,20 @@ function supplierAnswer(
       t(
         lang,
         "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
+        "¿Qué ingredientes son más costosos?",
+        "Welche Zutaten sind am teuersten?"
       ),
       t(
         lang,
         "What changed after the latest invoice?",
-        "¿Qué cambió después de la última factura?"
+        "¿Qué cambió después de la última factura?",
+        "Was hat sich nach der letzten Rechnung geändert?"
       ),
       t(
         lang,
         "Which invoices still need review?",
-        "¿Qué facturas aún necesitan revisión?"
+        "¿Qué facturas aún necesitan revisión?",
+        "Welche Rechnungen müssen noch geprüft werden?"
       ),
     ],
     confidence_notes: [],
@@ -1171,22 +1289,23 @@ function invoiceAnswer(
   const c = ctx.briefing.currency;
   const lines: string[] = [];
   const facts: AskMiltonSupportingFact[] = [];
-  const unknown = t(lang, "Unknown", "Desconocido");
+  const unknown = t(lang, "Unknown", "Desconocido", "Unbekannt");
 
   lines.push(
     t(
       lang,
       `${ctx.invoices.total_recent} recent invoice(s): ${ctx.invoices.posted_count} posted, ${ctx.invoices.needs_review_count} awaiting review.`,
-      `${ctx.invoices.total_recent} factura(s) reciente(s): ${ctx.invoices.posted_count} registrada(s), ${ctx.invoices.needs_review_count} esperando revisión.`
+      `${ctx.invoices.total_recent} factura(s) reciente(s): ${ctx.invoices.posted_count} registrada(s), ${ctx.invoices.needs_review_count} esperando revisión.`,
+      `${ctx.invoices.total_recent} aktuelle Rechnung(en): ${ctx.invoices.posted_count} verbucht, ${ctx.invoices.needs_review_count} warten auf Prüfung.`
     )
   );
   facts.push({
-    label: t(lang, "Needs review", "Necesita revisión"),
+    label: t(lang, "Needs review", "Necesita revisión", "Prüfung erforderlich"),
     value: String(ctx.invoices.needs_review_count),
     source_area: "invoice",
   });
   facts.push({
-    label: t(lang, "Posted", "Registrada"),
+    label: t(lang, "Posted", "Registrada", "Verbucht"),
     value: String(ctx.invoices.posted_count),
     source_area: "invoice",
   });
@@ -1200,7 +1319,12 @@ function invoiceAnswer(
       )
       .join("; ");
     lines.push(
-      t(lang, `Needs review: ${sample}.`, `Necesita revisión: ${sample}.`)
+      t(
+        lang,
+        `Needs review: ${sample}.`,
+        `Necesita revisión: ${sample}.`,
+        `Prüfung erforderlich: ${sample}.`
+      )
     );
   }
   if (ctx.invoices.latest.length > 0) {
@@ -1210,7 +1334,8 @@ function invoiceAnswer(
         t(
           lang,
           `Latest: ${i.supplier_name ?? unknown} for ${fmtCurrency(i.total_amount, i.currency || c)} on ${i.invoice_date} (${i.status}).`,
-          `Más reciente: ${i.supplier_name ?? unknown} por ${fmtCurrency(i.total_amount, i.currency || c)} el ${i.invoice_date} (${i.status}).`
+          `Más reciente: ${i.supplier_name ?? unknown} por ${fmtCurrency(i.total_amount, i.currency || c)} el ${i.invoice_date} (${i.status}).`,
+          `Zuletzt: ${i.supplier_name ?? unknown} über ${fmtCurrency(i.total_amount, i.currency || c)} am ${i.invoice_date} (${i.status}).`
         )
       );
     }
@@ -1227,12 +1352,14 @@ function invoiceAnswer(
       t(
         lang,
         "Which suppliers increased prices?",
-        "¿Qué proveedores subieron precios?"
+        "¿Qué proveedores subieron precios?",
+        "Welche Lieferanten haben die Preise erhöht?"
       ),
       t(
         lang,
         "What changed after the latest invoice?",
-        "¿Qué cambió después de la última factura?"
+        "¿Qué cambió después de la última factura?",
+        "Was hat sich nach der letzten Rechnung geändert?"
       ),
     ],
     confidence_notes: [],
@@ -1256,11 +1383,19 @@ function missingRecipesAnswer(
         `${b.data_quality.menu_items_without_recipe} menu item(s) have no recipe.`,
         b.data_quality.menu_items_without_recipe === 1
           ? "1 plato del menú no tiene receta."
-          : `${b.data_quality.menu_items_without_recipe} platos del menú no tienen receta.`
+          : `${b.data_quality.menu_items_without_recipe} platos del menú no tienen receta.`,
+        b.data_quality.menu_items_without_recipe === 1
+          ? "1 Gericht der Speisekarte hat kein Rezept."
+          : `${b.data_quality.menu_items_without_recipe} Gerichte der Speisekarte haben kein Rezept.`
       )
     );
     facts.push({
-      label: t(lang, "Dishes without recipe", "Platos sin receta"),
+      label: t(
+        lang,
+        "Dishes without recipe",
+        "Platos sin receta",
+        "Gerichte ohne Rezept"
+      ),
       value: String(b.data_quality.menu_items_without_recipe),
       source_area: "data_quality",
     });
@@ -1274,7 +1409,8 @@ function missingRecipesAnswer(
       t(
         lang,
         `High-revenue items missing a recipe: ${names}.`,
-        `Platos que venden mucho y no tienen receta: ${names}.`
+        `Platos que venden mucho y no tienen receta: ${names}.`,
+        `Umsatzstarke Gerichte ohne Rezept: ${names}.`
       )
     );
   }
@@ -1284,10 +1420,20 @@ function missingRecipesAnswer(
       .map((b2) => `${b2.name} (${b2.status})`)
       .join(", ");
     lines.push(
-      t(lang, `Costing blockers: ${blk}.`, `Bloqueos de costeo: ${blk}.`)
+      t(
+        lang,
+        `Costing blockers: ${blk}.`,
+        `Bloqueos de costeo: ${blk}.`,
+        `Kalkulationshindernisse: ${blk}.`
+      )
     );
     facts.push({
-      label: t(lang, "Costing blockers", "Bloqueos de costeo"),
+      label: t(
+        lang,
+        "Costing blockers",
+        "Bloqueos de costeo",
+        "Kalkulationshindernisse"
+      ),
       value: String(b.costing_blockers.length),
       source_area: "data_quality",
     });
@@ -1297,7 +1443,8 @@ function missingRecipesAnswer(
       t(
         lang,
         "All menu items appear to have recipes attached.",
-        "Todos los platos del menú tienen receta."
+        "Todos los platos del menú tienen receta.",
+        "Alle Gerichte der Speisekarte haben ein Rezept."
       )
     );
   }
@@ -1313,12 +1460,14 @@ function missingRecipesAnswer(
       t(
         lang,
         "Which dishes should I fix first?",
-        "¿Qué platos debería corregir primero?"
+        "¿Qué platos debería corregir primero?",
+        "Welche Gerichte sollte ich zuerst korrigieren?"
       ),
       t(
         lang,
         "Where is cost coverage incomplete?",
-        "¿Dónde está incompleta la cobertura de costo?"
+        "¿Dónde está incompleta la cobertura de costo?",
+        "Wo ist die Kostenabdeckung unvollständig?"
       ),
     ],
     confidence_notes: [],
@@ -1338,11 +1487,12 @@ function costCoverageAnswer(
     t(
       lang,
       `Cost coverage is ${b.kpis.cost_coverage_pct}%.`,
-      `La cobertura de costo es ${b.kpis.cost_coverage_pct}%.`
+      `La cobertura de costo es ${b.kpis.cost_coverage_pct}%.`,
+      `Die Kostenabdeckung beträgt ${b.kpis.cost_coverage_pct} %.`
     )
   );
   facts.push({
-    label: t(lang, "Cost coverage", "Cobertura de costo"),
+    label: t(lang, "Cost coverage", "Cobertura de costo", "Kostenabdeckung"),
     value: pct(b.kpis.cost_coverage_pct),
     source_area: "data_quality",
   });
@@ -1353,11 +1503,17 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.unmapped_pos_items} POS item(s) unmapped to menu items`,
-        `${dq.unmapped_pos_items} productos del POS sin vincular a un plato`
+        `${dq.unmapped_pos_items} productos del POS sin vincular a un plato`,
+        `${dq.unmapped_pos_items} Kassenartikel ohne Zuordnung zu einem Gericht`
       )
     );
     facts.push({
-      label: t(lang, "Unmapped POS items", "Productos del POS sin vincular"),
+      label: t(
+        lang,
+        "Unmapped POS items",
+        "Productos del POS sin vincular",
+        "Nicht zugeordnete Kassenartikel"
+      ),
       value: String(dq.unmapped_pos_items),
       source_area: "data_quality",
     });
@@ -1367,7 +1523,8 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.menu_items_without_recipe} menu item(s) without a recipe`,
-        `${dq.menu_items_without_recipe} platos sin receta`
+        `${dq.menu_items_without_recipe} platos sin receta`,
+        `${dq.menu_items_without_recipe} Gerichte ohne Rezept`
       )
     );
   }
@@ -1376,7 +1533,8 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.recipes_with_unit_mismatch} recipe(s) with unit mismatches`,
-        `${dq.recipes_with_unit_mismatch} receta(s) con discrepancias de unidad`
+        `${dq.recipes_with_unit_mismatch} receta(s) con discrepancias de unidad`,
+        `${dq.recipes_with_unit_mismatch} Rezept(e) mit abweichenden Einheiten`
       )
     );
   }
@@ -1385,7 +1543,8 @@ function costCoverageAnswer(
       t(
         lang,
         `${dq.ingredients_without_cost_entries} ingredient(s) with no cost entries`,
-        `${dq.ingredients_without_cost_entries} ingrediente(s) sin costos registrados`
+        `${dq.ingredients_without_cost_entries} ingrediente(s) sin costos registrados`,
+        `${dq.ingredients_without_cost_entries} Zutat(en) ohne Kosteneinträge`
       )
     );
   }
@@ -1395,7 +1554,8 @@ function costCoverageAnswer(
       t(
         lang,
         `Gaps: ${blockers.join("; ")}.`,
-        `Brechas: ${blockers.join("; ")}.`
+        `Brechas: ${blockers.join("; ")}.`,
+        `Lücken: ${blockers.join("; ")}.`
       )
     );
   } else if (b.kpis.cost_coverage_pct >= 90) {
@@ -1403,7 +1563,8 @@ function costCoverageAnswer(
       t(
         lang,
         "Coverage is strong. Fix any remaining costing blockers to reach 100%.",
-        "La cobertura es sólida. Corrige los bloqueos de costeo restantes para llegar al 100%."
+        "La cobertura es sólida. Corrige los bloqueos de costeo restantes para llegar al 100%.",
+        "Die Abdeckung ist gut. Beheben Sie die verbleibenden Kalkulationshindernisse, um 100 % zu erreichen."
       )
     );
   }
@@ -1420,12 +1581,14 @@ function costCoverageAnswer(
       t(
         lang,
         "Which menu items have missing recipes?",
-        "¿Qué platos no tienen receta?"
+        "¿Qué platos no tienen receta?",
+        "Welche Gerichte haben kein Rezept?"
       ),
       t(
         lang,
         "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
+        "¿Qué ingredientes son más costosos?",
+        "Welche Zutaten sind am teuersten?"
       ),
     ],
     confidence_notes: [],
@@ -1446,11 +1609,17 @@ function agentAnswer(
     t(
       lang,
       `${b.open_recommendations.total} open recommendation(s): ${b.open_recommendations.critical} critical, ${b.open_recommendations.warning} warning, ${b.open_recommendations.info} info.`,
-      `${b.open_recommendations.total} recomendación(es) abierta(s): ${b.open_recommendations.critical} crítica(s), ${b.open_recommendations.warning} de advertencia, ${b.open_recommendations.info} informativa(s).`
+      `${b.open_recommendations.total} recomendación(es) abierta(s): ${b.open_recommendations.critical} crítica(s), ${b.open_recommendations.warning} de advertencia, ${b.open_recommendations.info} informativa(s).`,
+      `${b.open_recommendations.total} offene Empfehlung(en): ${b.open_recommendations.critical} kritisch, ${b.open_recommendations.warning} Warnung(en), ${b.open_recommendations.info} Hinweis(e).`
     )
   );
   facts.push({
-    label: t(lang, "Open recommendations", "Recomendaciones abiertas"),
+    label: t(
+      lang,
+      "Open recommendations",
+      "Recomendaciones abiertas",
+      "Offene Empfehlungen"
+    ),
     value: String(b.open_recommendations.total),
     source_area: "agent",
   });
@@ -1459,7 +1628,14 @@ function agentAnswer(
       .slice(0, 3)
       .map((g) => `${g.agent_key} (${g.severity}, ${g.count})`)
       .join("; ");
-    lines.push(t(lang, `By agent: ${sample}.`, `Por agente: ${sample}.`));
+    lines.push(
+      t(
+        lang,
+        `By agent: ${sample}.`,
+        `Por agente: ${sample}.`,
+        `Nach Agent: ${sample}.`
+      )
+    );
   }
   const openActions = ctx.agent_actions.open;
   if (openActions.length > 0) {
@@ -1467,11 +1643,12 @@ function agentAnswer(
       t(
         lang,
         `${openActions.length} open action(s); most recent: "${openActions[0].title}".`,
-        `${openActions.length} acción(es) abierta(s); la más reciente: "${openActions[0].title}".`
+        `${openActions.length} acción(es) abierta(s); la más reciente: "${openActions[0].title}".`,
+        `${openActions.length} offene Maßnahme(n); die jüngste: „${openActions[0].title}“.`
       )
     );
     facts.push({
-      label: t(lang, "Open actions", "Acciones abiertas"),
+      label: t(lang, "Open actions", "Acciones abiertas", "Offene Maßnahmen"),
       value: String(openActions.length),
       source_area: "agent",
     });
@@ -1482,11 +1659,17 @@ function agentAnswer(
     supporting_facts: facts.slice(0, 4),
     related_links: [relatedLink(lang, "/dashboard/restaurant")],
     suggested_followups: [
-      t(lang, "What should I do this week?", "¿Qué debería hacer esta semana?"),
+      t(
+        lang,
+        "What should I do this week?",
+        "¿Qué debería hacer esta semana?",
+        "Was sollte ich diese Woche tun?"
+      ),
       t(
         lang,
         "Which dishes should I fix first?",
-        "¿Qué platos debería corregir primero?"
+        "¿Qué platos debería corregir primero?",
+        "Welche Gerichte sollte ich zuerst korrigieren?"
       ),
     ],
     confidence_notes: [],
@@ -1495,14 +1678,14 @@ function agentAnswer(
 
 // ---- Sales snapshot (top items / best weekday) ----
 
-const WEEKDAY_LABELS: Record<string, { en: string; es: string }> = {
-  Sunday: { en: "Sunday", es: "domingo" },
-  Monday: { en: "Monday", es: "lunes" },
-  Tuesday: { en: "Tuesday", es: "martes" },
-  Wednesday: { en: "Wednesday", es: "miércoles" },
-  Thursday: { en: "Thursday", es: "jueves" },
-  Friday: { en: "Friday", es: "viernes" },
-  Saturday: { en: "Saturday", es: "sábado" },
+const WEEKDAY_LABELS: Record<string, { en: string; es: string; de: string }> = {
+  Sunday: { en: "Sunday", es: "domingo", de: "Sonntag" },
+  Monday: { en: "Monday", es: "lunes", de: "Montag" },
+  Tuesday: { en: "Tuesday", es: "martes", de: "Dienstag" },
+  Wednesday: { en: "Wednesday", es: "miércoles", de: "Mittwoch" },
+  Thursday: { en: "Thursday", es: "jueves", de: "Donnerstag" },
+  Friday: { en: "Friday", es: "viernes", de: "Freitag" },
+  Saturday: { en: "Saturday", es: "sábado", de: "Samstag" },
 };
 
 function weekdayLabel(key: string, lang: PreferredLanguage): string {
@@ -1520,22 +1703,27 @@ function weekdayCountPhrase(
       label === "sábado" ? "sábados" : label === "domingo" ? "domingos" : label;
     return `${count} ${plural}`;
   }
+  if (lang === "de") {
+    // Montag → Montage; Mittwoch → Mittwoche; Sonntag → Sonntage.
+    const plural = label === "Mittwoch" ? "Mittwoche" : `${label}e`;
+    return `${count} ${count === 1 ? label : plural}`;
+  }
   return `${count} ${label}${count === 1 ? "" : "s"}`;
 }
 
-const MONTH_LABELS: Record<number, { en: string; es: string }> = {
-  1: { en: "January", es: "enero" },
-  2: { en: "February", es: "febrero" },
-  3: { en: "March", es: "marzo" },
-  4: { en: "April", es: "abril" },
-  5: { en: "May", es: "mayo" },
-  6: { en: "June", es: "junio" },
-  7: { en: "July", es: "julio" },
-  8: { en: "August", es: "agosto" },
-  9: { en: "September", es: "septiembre" },
-  10: { en: "October", es: "octubre" },
-  11: { en: "November", es: "noviembre" },
-  12: { en: "December", es: "diciembre" },
+const MONTH_LABELS: Record<number, { en: string; es: string; de: string }> = {
+  1: { en: "January", es: "enero", de: "Januar" },
+  2: { en: "February", es: "febrero", de: "Februar" },
+  3: { en: "March", es: "marzo", de: "März" },
+  4: { en: "April", es: "abril", de: "April" },
+  5: { en: "May", es: "mayo", de: "Mai" },
+  6: { en: "June", es: "junio", de: "Juni" },
+  7: { en: "July", es: "julio", de: "Juli" },
+  8: { en: "August", es: "agosto", de: "August" },
+  9: { en: "September", es: "septiembre", de: "September" },
+  10: { en: "October", es: "octubre", de: "Oktober" },
+  11: { en: "November", es: "noviembre", de: "November" },
+  12: { en: "December", es: "diciembre", de: "Dezember" },
 };
 
 function formatDateKey(dateKey: string, lang: PreferredLanguage): string {
@@ -1547,6 +1735,9 @@ function formatDateKey(dateKey: string, lang: PreferredLanguage): string {
   const monthLabel = MONTH_LABELS[month]?.[lang] ?? match[2];
   if (lang === "es") {
     return `${day} de ${monthLabel} de ${year}`;
+  }
+  if (lang === "de") {
+    return `${day}. ${monthLabel} ${year}`;
   }
   return `${day} ${monthLabel} ${year}`;
 }
@@ -1563,6 +1754,7 @@ function formatDayMonth(
   if (year !== currentYear) return formatDateKey(dateKey, lang);
   const monthLabel = MONTH_LABELS[Number(match[2])]?.[lang] ?? match[2];
   const day = Number(match[3]);
+  if (lang === "de") return `${day}. ${monthLabel}`;
   return lang === "es" ? `${day} de ${monthLabel}` : `${monthLabel} ${day}`;
 }
 
@@ -1579,29 +1771,46 @@ export function formatDateRange(
 ): string {
   const s = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
   const e = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
-  if (!s || !e) return t(lang, `${start} – ${end}`, `del ${start} al ${end}`);
+  if (!s || !e)
+    return t(
+      lang,
+      `${start} – ${end}`,
+      `del ${start} al ${end}`,
+      `vom ${start} bis ${end}`
+    );
   const sameYear = s[1] === e[1];
   const showYear = !(sameYear && Number(e[1]) === currentYear);
   const endText = showYear
     ? formatDateKey(end, lang)
     : formatDayMonth(end, lang, currentYear);
   if (start === end) {
-    return t(lang, `on ${endText}`, `el ${endText}`);
+    return t(lang, `on ${endText}`, `el ${endText}`, `am ${endText}`);
   }
   if (sameYear && s[2] === e[2]) {
     const yearEs = showYear ? ` de ${e[1]}` : "";
     const yearEn = showYear ? `, ${e[1]}` : "";
-    const monthLabel = MONTH_LABELS[Number(e[2])] ?? { en: e[2], es: e[2] };
+    const yearDe = showYear ? ` ${e[1]}` : "";
+    const monthLabel = MONTH_LABELS[Number(e[2])] ?? {
+      en: e[2],
+      es: e[2],
+      de: e[2],
+    };
     return t(
       lang,
       `${monthLabel.en} ${Number(s[3])}–${Number(e[3])}${yearEn}`,
-      `del ${Number(s[3])} al ${Number(e[3])} de ${monthLabel.es}${yearEs}`
+      `del ${Number(s[3])} al ${Number(e[3])} de ${monthLabel.es}${yearEs}`,
+      `vom ${Number(s[3])}. bis ${Number(e[3])}. ${monthLabel.de}${yearDe}`
     );
   }
   const startText = sameYear
     ? formatDayMonth(start, lang, Number(s[1]))
     : formatDateKey(start, lang);
-  return t(lang, `${startText} – ${endText}`, `del ${startText} al ${endText}`);
+  return t(
+    lang,
+    `${startText} – ${endText}`,
+    `del ${startText} al ${endText}`,
+    `vom ${startText} bis ${endText}`
+  );
 }
 
 function formatBestDate(
@@ -1628,7 +1837,10 @@ function salesUnavailableAnswer(
         : "I don't have POS sales in Milton for this restaurant and period yet. Upload or sync sales to see top items and busiest days.",
       reason === "read_error"
         ? "No pude leer las ventas del POS ahora, así que aún no tengo un desglose de ventas confiable."
-        : "Aún no tengo ventas de POS en Milton para este restaurante y período. Sube o sincroniza ventas para ver lo más vendido y los días más fuertes."
+        : "Aún no tengo ventas de POS en Milton para este restaurante y período. Sube o sincroniza ventas para ver lo más vendido y los días más fuertes.",
+      reason === "read_error"
+        ? "Ich konnte die Kassenumsätze gerade nicht lesen, daher liegt mir noch keine verlässliche Umsatzaufschlüsselung vor."
+        : "Für dieses Restaurant und diesen Zeitraum liegen in Milton noch keine Kassenumsätze vor. Laden Sie Umsätze hoch oder synchronisieren Sie sie, um Bestseller und umsatzstärkste Tage zu sehen."
     ),
     supporting_facts: [],
     related_links: [
@@ -1639,7 +1851,8 @@ function salesUnavailableAnswer(
       t(
         lang,
         "Where is cost coverage incomplete?",
-        "¿Dónde está incompleta la cobertura de costo?"
+        "¿Dónde está incompleta la cobertura de costo?",
+        "Wo ist die Kostenabdeckung unvollständig?"
       ),
     ],
     confidence_notes: reason
@@ -1647,7 +1860,8 @@ function salesUnavailableAnswer(
           t(
             lang,
             `Sales snapshot unavailable (${reason}).`,
-            `Instantánea de ventas no disponible (${reason}).`
+            `Instantánea de ventas no disponible (${reason}).`,
+            `Umsatzübersicht nicht verfügbar (${reason}).`
           ),
         ]
       : [],
@@ -1701,7 +1915,8 @@ export function salesPeriodPhrase(
     return t(
       lang,
       `in the last ${days} days of sales (${range})`,
-      `en los últimos ${days} días con ventas (${range})`
+      `en los últimos ${days} días con ventas (${range})`,
+      `in den letzten ${days} Tagen mit Umsatz (${range})`
     );
   }
   const m = /^(\d{4})-(\d{2})-01$/.exec(start);
@@ -1711,19 +1926,19 @@ export function salesPeriodPhrase(
     return t(
       lang,
       year ? `in ${monthLabel} ${year}` : `in ${monthLabel}`,
-      year ? `en ${monthLabel} de ${year}` : `en ${monthLabel}`
+      year ? `en ${monthLabel} de ${year}` : `en ${monthLabel}`,
+      year ? `im ${monthLabel} ${year}` : `im ${monthLabel}`
     );
   }
-  return lang === "es" ? range : `from ${range}`;
+  return lang === "en" ? `from ${range}` : range;
 }
 
 function asksForDishes(message: string): boolean {
-  const m = message
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
+  const m = message.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
   // input matcher: keep «platillo»
-  return /\b(plato|platos|platillo|platillos|dish|dishes)\b/.test(m);
+  return /\b(plato|platos|platillo|platillos|dish|dishes|gericht|gerichte)\b/.test(
+    m
+  );
 }
 
 /** True for a list that tags kinds (snapshots built by this version). */
@@ -1739,7 +1954,11 @@ export function pickTopSellers(
   sales: AskMiltonSalesSnapshot,
   message: string,
   category: string | null
-): { category: string | null; items: SalesSnapshotItem[]; dishesOnly: boolean } {
+): {
+  category: string | null;
+  items: SalesSnapshotItem[];
+  dishesOnly: boolean;
+} {
   const picked = pickCategoryItems(sales, category);
   if (!asksForDishes(message)) return { ...picked, dishesOnly: false };
   if (picked.category) {
@@ -1781,18 +2000,26 @@ function topSellingItemsAnswer(
   }
 
   const dishes = asksForDishes(message);
-  const nounOne = dishes ? t(lang, "dish", "plato") : t(lang, "item", "producto");
+  const nounOne = dishes
+    ? t(lang, "dish", "plato", "Gericht")
+    : t(lang, "item", "producto", "Produkt");
   const nounMany = dishes
-    ? t(lang, "dishes", "platos")
-    : t(lang, "items", "productos");
+    ? t(lang, "dishes", "platos", "Gerichte")
+    : t(lang, "items", "productos", "Produkte");
   const scope = picked.category
-    ? t(lang, ` in ${picked.category}`, ` en ${picked.category}`)
+    ? t(
+        lang,
+        ` in ${picked.category}`,
+        ` en ${picked.category}`,
+        ` in ${picked.category}`
+      )
     : "";
   const units = (n: number) =>
     t(
       lang,
       `${roundUnits(n)} ${roundUnits(n) === 1 ? "unit" : "units"}`,
-      `${roundUnits(n)} ${roundUnits(n) === 1 ? "unidad" : "unidades"}`
+      `${roundUnits(n)} ${roundUnits(n) === 1 ? "unidad" : "unidades"}`,
+      `${roundUnits(n)} ${roundUnits(n) === 1 ? "Stück" : "Stück"}`
     );
   const row = (i: SalesSnapshotItem, idx: number) =>
     `${idx + 1}. ${i.name} — ${units(i.units)} · ${fmtCurrency(i.revenue, c)}`;
@@ -1805,12 +2032,14 @@ function topSellingItemsAnswer(
         ? t(
             lang,
             `I only have ${n} ${nounMany}${scope} with sales ${period}:`,
-            `Solo tengo ${n} ${nounMany}${scope} con ventas ${period}:`
+            `Solo tengo ${n} ${nounMany}${scope} con ventas ${period}:`,
+            `Ich habe nur ${n} ${nounMany}${scope} mit Umsatz ${period}:`
           )
         : t(
             lang,
             `Your ${n} best-selling ${nounMany}${scope} ${period}:`,
-            `Tus ${n} ${nounMany} más vendidos${scope} ${period}:`
+            `Tus ${n} ${nounMany} más vendidos${scope} ${period}:`,
+            `Ihre ${n} meistverkauften ${nounMany}${scope} ${period}:`
           ),
       ...items.map(row)
     );
@@ -1820,13 +2049,14 @@ function topSellingItemsAnswer(
       t(
         lang,
         `Your best-selling ${nounOne}${scope} ${period} is ${top.name}: ${units(top.units)} for ${fmtCurrency(top.revenue, c)}.`,
-        `Tu ${nounOne} más vendido${scope} ${period} es ${top.name}: ${units(top.units)} por ${fmtCurrency(top.revenue, c)}.`
+        `Tu ${nounOne} más vendido${scope} ${period} es ${top.name}: ${units(top.units)} por ${fmtCurrency(top.revenue, c)}.`,
+        `Ihr meistverkauftes ${nounOne}${scope} ${period} ist ${top.name}: ${units(top.units)} für ${fmtCurrency(top.revenue, c)}.`
       )
     );
     const rest = requested === 1 ? [] : items.slice(1);
     if (rest.length > 0) {
       lines.push(
-        t(lang, "Then:", "Le siguen:"),
+        t(lang, "Then:", "Le siguen:", "Danach:"),
         ...rest.map((i, idx) => row(i, idx + 1))
       );
     }
@@ -1840,7 +2070,8 @@ function topSellingItemsAnswer(
         t(
           lang,
           `The best-selling drink was ${drink.name} (${units(drink.units)}).`,
-          `La bebida más vendida fue ${drink.name} (${units(drink.units)}).`
+          `La bebida más vendida fue ${drink.name} (${units(drink.units)}).`,
+          `Das meistverkaufte Getränk war ${drink.name} (${units(drink.units)}).`
         )
       );
     }
@@ -1862,7 +2093,8 @@ function topSellingItemsAnswer(
           t(
             lang,
             "POS read hit the safety cap — totals may be partial.",
-            "La lectura del POS alcanzó el tope de seguridad — los totales pueden ser parciales."
+            "La lectura del POS alcanzó el tope de seguridad — los totales pueden ser parciales.",
+            "Das Auslesen der Kassendaten hat die Sicherheitsgrenze erreicht — die Summen können unvollständig sein."
           ),
         ]
       : [],
@@ -1890,18 +2122,21 @@ function topSellingFollowups(
     t(
       lang,
       "Which day of the week do I sell the most?",
-      "¿Qué día de la semana vendo más?"
+      "¿Qué día de la semana vendo más?",
+      "An welchem Wochentag verkaufe ich am meisten?"
     ),
     dishes || top.kind === "food"
       ? t(
           lang,
           "What is my most profitable dish?",
-          "¿Cuál es mi plato más rentable?"
+          "¿Cuál es mi plato más rentable?",
+          "Was ist mein rentabelstes Gericht?"
         )
       : t(
           lang,
           "What are my 5 best-selling dishes?",
-          "¿Cuáles son mis 5 platos más vendidos?"
+          "¿Cuáles son mis 5 platos más vendidos?",
+          "Was sind meine 5 meistverkauften Gerichte?"
         ),
   ];
 }
@@ -1941,8 +2176,13 @@ function bestSalesDayAnswer(
     ctx.briefing.period_label
   );
   const scope = picked.category
-    ? t(lang, `${picked.category} items`, `${picked.category}`)
-    : t(lang, "all sales", "tus ventas");
+    ? t(
+        lang,
+        `${picked.category} items`,
+        `${picked.category}`,
+        `${picked.category}`
+      )
+    : t(lang, "all sales", "tus ventas", "Ihren Umsatz");
   const dayPhrase = weekdayCountPhrase(top.key, top.day_count, lang);
   const dayLabel = weekdayLabel(top.key, lang);
   const runners = ranked
@@ -1950,9 +2190,9 @@ function bestSalesDayAnswer(
     .filter((d) => d.units > 0 || d.revenue > 0)
     .map((d) => {
       const avg = picked.category
-        ? `${roundUnits(weekdayAvgUnits(d))} ${t(lang, "units/day", "unidades/día")}`
-        : `${fmtCurrency(d.avg_revenue_per_day, c)}/${t(lang, "day", "día")}`;
-      return `${weekdayLabel(d.key, lang)} (${avg}, ${t(lang, "total", "total")} ${fmtCurrency(d.revenue, c)})`;
+        ? `${roundUnits(weekdayAvgUnits(d))} ${t(lang, "units/day", "unidades/día", "Stück/Tag")}`
+        : `${fmtCurrency(d.avg_revenue_per_day, c)}/${t(lang, "day", "día", "Tag")}`;
+      return `${weekdayLabel(d.key, lang)} (${avg}, ${t(lang, "total", "total", "gesamt")} ${fmtCurrency(d.revenue, c)})`;
     })
     .join(", ");
 
@@ -1960,11 +2200,14 @@ function bestSalesDayAnswer(
     t(
       lang,
       `Strongest weekday for ${scope} ${period}, ranked by average per day: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/day and ${top.avg_orders_per_day} orders/day across ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} orders).`,
-      `El día de la semana más fuerte para ${scope} ${period}, según el promedio por día: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/día y ${top.avg_orders_per_day} pedidos/día en ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} pedidos).`
+      `El día de la semana más fuerte para ${scope} ${period}, según el promedio por día: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/día y ${top.avg_orders_per_day} pedidos/día en ${dayPhrase} (total ${fmtCurrency(top.revenue, c)}, ${top.orders} pedidos).`,
+      `Stärkster Wochentag für ${scope} ${period}, gereiht nach Durchschnitt pro Tag: ${dayLabel} — ${fmtCurrency(top.avg_revenue_per_day, c)}/Tag und ${top.avg_orders_per_day} Bestellungen/Tag über ${dayPhrase} (gesamt ${fmtCurrency(top.revenue, c)}, ${top.orders} Bestellungen).`
     ),
   ];
   if (runners) {
-    lines.push(t(lang, `Next: ${runners}.`, `Siguen: ${runners}.`));
+    lines.push(
+      t(lang, `Next: ${runners}.`, `Siguen: ${runners}.`, `Danach: ${runners}.`)
+    );
   }
 
   const dayCounts = picked.weekdays
@@ -1980,7 +2223,8 @@ function bestSalesDayAnswer(
       t(
         lang,
         `Weekday counts in this period are uneven (${countList}), so a raw total would favor days that appear more often.`,
-        `En este período el número de días no es igual para todos (${countList}), así que un total crudo favorecería a los días que aparecen más veces.`
+        `En este período el número de días no es igual para todos (${countList}), así que un total crudo favorecería a los días que aparecen más veces.`,
+        `Die Anzahl der Wochentage ist in diesem Zeitraum ungleich verteilt (${countList}), daher würde eine reine Summe Tage begünstigen, die häufiger vorkommen.`
       )
     );
   }
@@ -1990,26 +2234,42 @@ function bestSalesDayAnswer(
       t(
         lang,
         `Best single date: ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} orders.`,
-        `El mejor día individual fue el ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} pedidos.`
+        `El mejor día individual fue el ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} pedidos.`,
+        `Bester Einzeltag: ${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}, ${sales.best_date.orders} Bestellungen.`
       )
     );
   }
 
   const facts: AskMiltonSupportingFact[] = [
     {
-      label: t(lang, `Total across ${dayPhrase}`, `Total de los ${dayPhrase}`),
+      label: t(
+        lang,
+        `Total across ${dayPhrase}`,
+        `Total de los ${dayPhrase}`,
+        `Summe über ${dayPhrase}`
+      ),
       value: fmtCurrency(top.revenue, c),
       source_area: "sales",
     },
     {
-      label: t(lang, `Average per ${dayLabel}`, `Promedio por ${dayLabel}`),
+      label: t(
+        lang,
+        `Average per ${dayLabel}`,
+        `Promedio por ${dayLabel}`,
+        `Durchschnitt pro ${dayLabel}`
+      ),
       value: fmtCurrency(top.avg_revenue_per_day, c),
       source_area: "sales",
     },
   ];
   if (!picked.category && sales.best_date) {
     facts.push({
-      label: t(lang, "Best single date", "Mejor día individual"),
+      label: t(
+        lang,
+        "Best single date",
+        "Mejor día individual",
+        "Bester Einzeltag"
+      ),
       value: `${formatBestDate(sales.best_date, lang)} — ${fmtCurrency(sales.best_date.revenue, c)}`,
       source_area: "sales",
     });
@@ -2023,19 +2283,22 @@ function bestSalesDayAnswer(
       t(
         lang,
         "Which breakfast items sell the most?",
-        "¿Cuáles son los desayunos más vendidos?"
+        "¿Cuáles son los desayunos más vendidos?",
+        "Welche Frühstücksgerichte verkaufen sich am besten?"
       ),
       t(
         lang,
         "What is my most profitable dish?",
-        "¿Cuál es mi plato más rentable?"
+        "¿Cuál es mi plato más rentable?",
+        "Was ist mein rentabelstes Gericht?"
       ),
     ],
     confidence_notes: [
       t(
         lang,
         `Weekdays use ${sales.period.timezone}, not UTC.`,
-        `Los días de la semana usan ${sales.period.timezone}, no UTC.`
+        `Los días de la semana usan ${sales.period.timezone}, no UTC.`,
+        `Die Wochentage beziehen sich auf ${sales.period.timezone}, nicht auf UTC.`
       ),
     ],
   };
@@ -2058,26 +2321,36 @@ function genericBriefingAnswer(
 
   if (k.revenue > 0) {
     facts.push({
-      label: t(lang, "Revenue", "Ingresos"),
+      label: t(lang, "Revenue", "Ingresos", "Umsatz"),
       value: fmtCurrency(k.revenue, c),
       source_area: "sales",
     });
   }
   facts.push({
-    label: t(lang, "Cost coverage", "Cobertura de costo"),
+    label: t(lang, "Cost coverage", "Cobertura de costo", "Kostenabdeckung"),
     value: pct(k.cost_coverage_pct),
     source_area: "data_quality",
   });
   if (k.estimated_gross_margin_pct !== null) {
     facts.push({
-      label: t(lang, "Gross margin (est.)", "Margen bruto (est.)"),
+      label: t(
+        lang,
+        "Gross margin (est.)",
+        "Margen bruto (est.)",
+        "Bruttomarge (gesch.)"
+      ),
       value: pct(k.estimated_gross_margin_pct),
       source_area: "menu",
     });
   }
   if (ctx.briefing.open_recommendations.total > 0) {
     facts.push({
-      label: t(lang, "Open recommendations", "Recomendaciones abiertas"),
+      label: t(
+        lang,
+        "Open recommendations",
+        "Recomendaciones abiertas",
+        "Offene Empfehlungen"
+      ),
       value: String(ctx.briefing.open_recommendations.total),
       source_area: "agent",
     });
@@ -2087,7 +2360,8 @@ function genericBriefingAnswer(
       t(
         lang,
         `Cost coverage is ${k.cost_coverage_pct}% — margin numbers only reflect that share of revenue.`,
-        `La cobertura de costo es ${k.cost_coverage_pct}% — los márgenes solo reflejan esa parte de los ingresos.`
+        `La cobertura de costo es ${k.cost_coverage_pct}% — los márgenes solo reflejan esa parte de los ingresos.`,
+        `Die Kostenabdeckung beträgt ${k.cost_coverage_pct} % — die Margen gelten nur für diesen Anteil des Umsatzes.`
       )
     );
   }
@@ -2096,7 +2370,8 @@ function genericBriefingAnswer(
       t(
         lang,
         `${ctx.briefing.data_quality.menu_items_without_recipe} menu item(s) still need a recipe.`,
-        `${ctx.briefing.data_quality.menu_items_without_recipe} platos aún necesitan receta.`
+        `${ctx.briefing.data_quality.menu_items_without_recipe} platos aún necesitan receta.`,
+        `${ctx.briefing.data_quality.menu_items_without_recipe} Gerichte brauchen noch ein Rezept.`
       )
     );
   }
@@ -2106,12 +2381,14 @@ function genericBriefingAnswer(
       ? t(
           lang,
           `Across ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} recorded ${fmtCurrency(k.revenue, c)} in revenue with ${pct(k.cost_coverage_pct)} cost coverage. Estimated gross margin is ${pct(k.estimated_gross_margin_pct)}.`,
-          `En ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} registró ${fmtCurrency(k.revenue, c)} en ingresos con ${pct(k.cost_coverage_pct)} de cobertura de costo. El margen bruto estimado es ${pct(k.estimated_gross_margin_pct)}.`
+          `En ${ctx.briefing.period_label}, ${ctx.briefing.restaurant_name} registró ${fmtCurrency(k.revenue, c)} en ingresos con ${pct(k.cost_coverage_pct)} de cobertura de costo. El margen bruto estimado es ${pct(k.estimated_gross_margin_pct)}.`,
+          `Im Zeitraum ${ctx.briefing.period_label} erzielte ${ctx.briefing.restaurant_name} einen Umsatz von ${fmtCurrency(k.revenue, c)} bei ${pct(k.cost_coverage_pct)} Kostenabdeckung. Die geschätzte Bruttomarge beträgt ${pct(k.estimated_gross_margin_pct)}.`
         )
       : t(
           lang,
           `${ctx.briefing.restaurant_name} has no POS revenue loaded yet. Upload sales data to start tracking margin.`,
-          `${ctx.briefing.restaurant_name} aún no tiene ingresos de POS cargados. Sube datos de ventas para empezar a rastrear el margen.`
+          `${ctx.briefing.restaurant_name} aún no tiene ingresos de POS cargados. Sube datos de ventas para empezar a rastrear el margen.`,
+          `Für ${ctx.briefing.restaurant_name} sind noch keine Kassenumsätze geladen. Laden Sie Umsatzdaten hoch, um die Marge zu verfolgen.`
         );
 
   return {
@@ -2125,22 +2402,26 @@ function genericBriefingAnswer(
       t(
         lang,
         "What is my most profitable dish?",
-        "¿Cuál es mi plato más rentable?"
+        "¿Cuál es mi plato más rentable?",
+        "Was ist mein rentabelstes Gericht?"
       ),
       t(
         lang,
         "Which dishes are least profitable?",
-        "¿Qué platos son menos rentables?"
+        "¿Qué platos son menos rentables?",
+        "Welche Gerichte sind am wenigsten rentabel?"
       ),
       t(
         lang,
         "Which ingredients are most expensive?",
-        "¿Qué ingredientes son más costosos?"
+        "¿Qué ingredientes son más costosos?",
+        "Welche Zutaten sind am teuersten?"
       ),
       t(
         lang,
         "Where is cost coverage incomplete?",
-        "¿Dónde está incompleta la cobertura de costo?"
+        "¿Dónde está incompleta la cobertura de costo?",
+        "Wo ist die Kostenabdeckung unvollständig?"
       ),
     ],
     confidence_notes: notes.slice(0, 3),

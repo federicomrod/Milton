@@ -6,6 +6,9 @@
  * cannot invent prices. When in doubt it answers `price_intent_unclear`.
  */
 
+import { KITCHEN_COPY, renderKitchenCopy } from "./kitchen-copy";
+import { currentKitchenLanguage } from "./kitchen-language";
+
 export const PRICE_UPDATE_MAX_ITEMS = 25;
 const MAX_PRICE = 100000;
 
@@ -1213,15 +1216,82 @@ export function currencySymbolFor(code: string | null | undefined): string {
   }
 }
 
+/** Unit names for reply copy in English and German («per lb», «pro Pfund»). */
+const UNIT_NAMES: Record<"en" | "de", Record<string, string>> = {
+  en: {
+    lb: "lb",
+    kg: "kg",
+    unidad: "unit",
+    pza: "piece",
+    pieza: "piece",
+    caja: "box",
+    docena: "dozen",
+    litro: "liter",
+    galón: "gallon",
+    botella: "bottle",
+    bolsa: "bag",
+    paquete: "pack",
+    saco: "sack",
+    atado: "bunch",
+    manojo: "bunch",
+    lata: "can",
+    quintal: "quintal",
+    arroba: "arroba",
+    bandeja: "tray",
+    frasco: "jar",
+    gramo: "g",
+    onza: "oz",
+    oz: "oz",
+    g: "g",
+  },
+  de: {
+    lb: "Pfund",
+    kg: "kg",
+    unidad: "Stück",
+    pza: "Stück",
+    pieza: "Stück",
+    caja: "Kiste",
+    docena: "Dutzend",
+    litro: "Liter",
+    galón: "Gallone",
+    botella: "Flasche",
+    bolsa: "Beutel",
+    paquete: "Packung",
+    saco: "Sack",
+    atado: "Bund",
+    manojo: "Bund",
+    lata: "Dose",
+    quintal: "Zentner",
+    arroba: "Arroba",
+    bandeja: "Tablett",
+    frasco: "Glas",
+    gramo: "g",
+    onza: "Unze",
+    oz: "Unze",
+    g: "g",
+  },
+};
+
 /** «aguacate $1.50 la libra, tomate $0.80 la libra» for reply copy. */
 export function formatPriceUpdateItems(
   items: PriceUpdateItem[],
   currencySymbol = "$"
 ): string {
+  const lang = currentKitchenLanguage();
   return items
     .map((i) => {
-      const per = UNIT_PHRASE[i.unit.toLowerCase()] ?? `por ${i.unit}`;
-      return `${i.name} ${currencySymbol}${i.price.toFixed(2)} ${per}`;
+      const unit = i.unit.toLowerCase();
+      const per =
+        lang === "es"
+          ? (UNIT_PHRASE[unit] ?? `por ${i.unit}`)
+          : renderKitchenCopy(KITCHEN_COPY.FRAG_PER_UNIT, {
+              unidad: UNIT_NAMES[lang][unit] ?? i.unit,
+            });
+      const price =
+        lang === "de"
+          ? i.price.toFixed(2).replace(".", ",")
+          : i.price.toFixed(2);
+      return `${i.name} ${currencySymbol}${price} ${per}`;
     })
     .join(", ");
 }

@@ -17,7 +17,7 @@
 // $0 or 0%. A day with no sales rows at all is reported as such (the sync may
 // not have run) instead of being treated as a day with zero sales.
 
-import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 export interface DailySalesPoint {
   /** Local calendar date, YYYY-MM-DD. */
@@ -66,6 +66,7 @@ const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
 const WEEKDAYS: Record<PreferredLanguage, readonly string[]> = {
   es: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
   en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  de: ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."],
 };
 const MONTHS: Record<PreferredLanguage, readonly string[]> = {
   es: [
@@ -95,6 +96,20 @@ const MONTHS: Record<PreferredLanguage, readonly string[]> = {
     "Oct",
     "Nov",
     "Dec",
+  ],
+  de: [
+    "Jan.",
+    "Feb.",
+    "März",
+    "Apr.",
+    "Mai",
+    "Juni",
+    "Juli",
+    "Aug.",
+    "Sept.",
+    "Okt.",
+    "Nov.",
+    "Dez.",
   ],
 };
 
@@ -255,14 +270,14 @@ export function computeBriefingSalesPeriods(
   const yDate = addDaysToKey(today, -1);
   const yWeekAgo = addDaysToKey(yDate, -7);
 
-  const yLabel = `${lang === "es" ? "Ayer" : "Yesterday"}, ${formatDayLabel(yDate, lang)}`;
+  const yLabel = `${t(lang, "Yesterday", "Ayer", "Gestern")}, ${formatDayLabel(yDate, lang)}`;
   const yesterday = compare(
     aggregate(byDate, yDate, yDate, yLabel),
     aggregate(
       byDate,
       yWeekAgo,
       yWeekAgo,
-      `${lang === "es" ? "Mismo día de la semana pasada" : "Same weekday last week"}, ${formatDayLabel(yWeekAgo, lang)}`
+      `${t(lang, "Same weekday last week", "Mismo día de la semana pasada", "Gleicher Wochentag der Vorwoche")}, ${formatDayLabel(yWeekAgo, lang)}`
     )
   );
 
@@ -274,13 +289,13 @@ export function computeBriefingSalesPeriods(
       byDate,
       curFrom,
       yDate,
-      `${lang === "es" ? "Últimos 7 días" : "Last 7 days"} (${formatRangeLabel(curFrom, yDate, lang)})`
+      `${t(lang, "Last 7 days", "Últimos 7 días", "Letzte 7 Tage")} (${formatRangeLabel(curFrom, yDate, lang)})`
     ),
     aggregate(
       byDate,
       prevFrom,
       prevTo,
-      `${lang === "es" ? "7 días anteriores" : "Previous 7 days"} (${formatRangeLabel(prevFrom, prevTo, lang)})`
+      `${t(lang, "Previous 7 days", "7 días anteriores", "Vorherige 7 Tage")} (${formatRangeLabel(prevFrom, prevTo, lang)})`
     )
   );
 
@@ -305,13 +320,21 @@ export function formatDeltaPct(pct: number): string {
 }
 
 export function noComparisonText(lang: PreferredLanguage): string {
-  return lang === "es" ? "Sin datos para comparar" : "No data to compare";
+  return t(
+    lang,
+    "No data to compare",
+    "Sin datos para comparar",
+    "Keine Daten zum Vergleichen"
+  );
 }
 
 export function noYesterdaySalesText(lang: PreferredLanguage): string {
-  return lang === "es"
-    ? "No hay ventas sincronizadas para ayer"
-    : "No synced sales for yesterday";
+  return t(
+    lang,
+    "No synced sales for yesterday",
+    "No hay ventas sincronizadas para ayer",
+    "Keine synchronisierten Umsätze für gestern"
+  );
 }
 
 function metricsText(
@@ -322,13 +345,23 @@ function metricsText(
   if (m.sales === null) return noComparisonText(lang);
   const parts = [money(m.sales)];
   if (m.orders !== null) {
-    parts.push(lang === "es" ? `${m.orders} órdenes` : `${m.orders} orders`);
+    parts.push(
+      t(
+        lang,
+        `${m.orders} orders`,
+        `${m.orders} órdenes`,
+        `${m.orders} Bestellungen`
+      )
+    );
   }
   if (m.avg_ticket !== null) {
     parts.push(
-      lang === "es"
-        ? `ticket promedio ${money(m.avg_ticket)}`
-        : `avg ticket ${money(m.avg_ticket)}`
+      t(
+        lang,
+        `avg ticket ${money(m.avg_ticket)}`,
+        `ticket promedio ${money(m.avg_ticket)}`,
+        `Ø Bon ${money(m.avg_ticket)}`
+      )
     );
   }
   return parts.join(" · ");
@@ -358,7 +391,7 @@ export function buildSalesFacts(
   } else {
     facts.push(`${y.current.label}: ${metricsText(y.current, lang, money)}`);
     facts.push(
-      `${lang === "es" ? "vs" : "vs"} ${y.previous.label}: ${
+      `${t(lang, "vs", "vs", "ggü.")} ${y.previous.label}: ${
         y.previous.sales === null
           ? noComparisonText(lang)
           : `${metricsText(y.previous, lang, money)} → ${deltaText(y, lang, money)}`
@@ -370,11 +403,12 @@ export function buildSalesFacts(
   const header = `${w.current.label} vs ${w.previous.label}`;
   if (w.current.sales === null) {
     facts.push(
-      `${header}: ${
-        lang === "es"
-          ? "No hay ventas sincronizadas en los últimos 7 días"
-          : "No synced sales in the last 7 days"
-      }`
+      `${header}: ${t(
+        lang,
+        "No synced sales in the last 7 days",
+        "No hay ventas sincronizadas en los últimos 7 días",
+        "Keine synchronisierten Umsätze in den letzten 7 Tagen"
+      )}`
     );
   } else {
     facts.push(`${w.current.label}: ${metricsText(w.current, lang, money)}`);
@@ -385,9 +419,12 @@ export function buildSalesFacts(
     );
     for (const m of partial) {
       facts.push(
-        lang === "es"
-          ? `${m.label}: solo ${m.days_with_data} de ${m.days_total} días con ventas sincronizadas`
-          : `${m.label}: only ${m.days_with_data} of ${m.days_total} days have synced sales`
+        t(
+          lang,
+          `${m.label}: only ${m.days_with_data} of ${m.days_total} days have synced sales`,
+          `${m.label}: solo ${m.days_with_data} de ${m.days_total} días con ventas sincronizadas`,
+          `${m.label}: nur ${m.days_with_data} von ${m.days_total} Tagen mit synchronisierten Umsätzen`
+        )
       );
     }
   }

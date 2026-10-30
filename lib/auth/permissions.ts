@@ -18,6 +18,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUserAdminServer } from "@/lib/profile-service-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
+
 import {
   CAPABILITY_MESSAGES,
   DEFAULT_FORBIDDEN_MESSAGE,
@@ -27,6 +31,15 @@ import {
   type Actor,
   type Capability,
 } from "./capabilities";
+
+/**
+ * The signed-in company's language. Imported lazily: api-lang -> api-auth ->
+ * auth-user -> permissions would otherwise be a static import cycle.
+ */
+async function companyLanguage() {
+  const { apiLanguage } = await import("@/lib/restaurant/api-lang");
+  return apiLanguage();
+}
 
 export * from "./capabilities";
 
@@ -103,6 +116,63 @@ export function requireCapability(
   );
 }
 
+const CAPABILITY_KEYS = {
+  "recipes.edit": "recipesEdit",
+  "recipes.submit": "recipesSubmit",
+  "recipes.approve": "recipesApprove",
+  "prices.edit": "pricesEdit",
+  "links.confirm": "linksConfirm",
+  "ingredients.manage": "ingredientsManage",
+  "menu.manage": "menuManage",
+  "groups.manage": "groupsManage",
+  "locations.archive": "locationsArchive",
+  "targets.edit": "targetsEdit",
+  "shifts.edit": "shiftsEdit",
+  "costs.fixed": "costsFixed",
+  "imports.run": "importsRun",
+  "company.edit": "companyEdit",
+} as const;
+
+/** The 403 text for a capability in `lang` (the generic line when it has none). */
+export function localizedCapabilityMessage(
+  capability: Capability,
+  lang: PreferredLanguage
+): string {
+  const d = getDictionary(lang).admin;
+  const key = (CAPABILITY_KEYS as Record<string, keyof typeof d.capabilities>)[
+    capability
+  ];
+  return key ? d.capabilities[key] : d.api.forbidden;
+}
+
+/**
+ * Same as requireCapability, but the 403 comes back in the signed-in
+ * company's language. Prefer this in new code; the sync version stays for
+ * callers that cannot await.
+ */
+export async function requireCapabilityLocalized(
+  actor: Actor,
+  capability: Capability,
+  opts?: { message?: string; extra?: Record<string, unknown> }
+): Promise<NextResponse | null> {
+  if (can(actor, capability)) return null;
+  if (process.env.NODE_ENV !== "production") {
+    console.warn(`[permissions] ${capability} denied: ${denialReason(actor)}`);
+  }
+  return forbiddenResponse(
+    opts?.message ??
+      localizedCapabilityMessage(capability, await companyLanguage()),
+    opts?.extra
+  );
+}
+
+export async function unauthorizedResponseLocalized(): Promise<NextResponse> {
+  return NextResponse.json(
+    { error: getDictionary(await requestLanguage()).admin.api.signInAgain },
+    { status: 401 }
+  );
+}
+
 /**
  * Milton-staff-only endpoints (app/api/admin/*, management/*). null when the
  * signed-in user is Milton staff; otherwise the Spanish 403.
@@ -114,5 +184,7 @@ export async function requireMiltonStaff(
   if (process.env.NODE_ENV !== "production") {
     console.warn("[permissions] milton staff only: denied");
   }
-  return forbiddenResponse(DEFAULT_FORBIDDEN_MESSAGE);
+  return forbiddenResponse(
+    getDictionary(await requestLanguage()).admin.api.forbidden
+  );
 }

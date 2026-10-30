@@ -9,6 +9,8 @@
 // - Every read and write is scoped by the company that came from auth.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
 import { pickApprovedVersion } from "@/lib/restaurant/recipe-versions";
 import type { VersionInput } from "./editor";
@@ -231,14 +233,17 @@ export async function copyRecipeLinesForCompany(input: {
   locationId?: string | null;
   sourceMenuItemId: string;
   mode?: CopyMode | null;
+  /** Language of the error messages (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<CopyResult> {
   const { store, companyId } = input;
+  const msg = getDictionary(input.lang ?? "es").menu.editor.api;
   // 1. The source first: a bad pick must not create anything.
   const source = await input.loadSource(input.sourceMenuItemId);
   if (!source) {
     return {
       ok: false,
-      error: "No encontré esa receta, o todavía no tiene ingredientes.",
+      error: msg.sourceNotFound,
       status: 404,
     };
   }
@@ -295,7 +300,7 @@ export async function copyRecipeLinesForCompany(input: {
   if (link.menu_item_id === source.menu_item_id) {
     return {
       ok: false,
-      error: "Ese plato ya usa esa receta. Elige otro.",
+      error: msg.alreadySameRecipe,
       status: 400,
     };
   }
@@ -303,7 +308,7 @@ export async function copyRecipeLinesForCompany(input: {
   if (!newest) {
     return {
       ok: false,
-      error: "Este plato no tiene una versión de receta. Usa «Crear receta».",
+      error: msg.noRecipeVersion,
       status: 409,
     };
   }
@@ -318,7 +323,7 @@ export async function copyRecipeLinesForCompany(input: {
       if (input.mode !== "replace" && input.mode !== "append") {
         return {
           ok: false,
-          error: "El borrador ya tiene líneas. Elige qué hacer con ellas.",
+          error: msg.draftHasLines,
           status: 409,
           needs_mode: true,
           draft_line_count: existing.length,

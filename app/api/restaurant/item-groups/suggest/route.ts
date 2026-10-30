@@ -7,6 +7,7 @@
 // suggestions; nothing is written here.
 
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { suggestGroupsWithAi } from "@/lib/ai/group-suggestions";
@@ -18,30 +19,22 @@ export const runtime = "nodejs";
 const SCOPES = new Set(["product", "preparation", "ingredient"]);
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const scope = body.scope;
   if (typeof scope !== "string" || !SCOPES.has(scope)) {
-    return NextResponse.json(
-      { error: "Tipo de grupo no válido." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.groupTypeInvalid }, { status: 400 });
   }
   const rawItems = Array.isArray(body.items) ? body.items : [];
   if (rawItems.length > MAX_AI_ITEMS * 2) {
-    return NextResponse.json(
-      { error: "Demasiados elementos." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.tooMany }, { status: 400 });
   }
   const items = rawItems
     .map((i) => i as Record<string, unknown>)
@@ -66,7 +59,7 @@ export async function POST(req: NextRequest) {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "groups.manage", {
-    message: "Tu rol no puede cambiar las agrupaciones.",
+    message: api.roleGroups,
   });
   if (denied) return denied;
   try {
@@ -82,7 +75,7 @@ export async function POST(req: NextRequest) {
     console.error("[item-groups/suggest]", err);
     return NextResponse.json(
       {
-        error: "Milton no pudo sugerir grupos ahora. Inténtalo en un momento.",
+        error: api.miltonGroups,
       },
       { status: 502 }
     );

@@ -7,6 +7,7 @@
 // request. Editing needs the role that may prepare a recipe.
 
 import { after, NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import {
@@ -33,22 +34,20 @@ function text(raw: unknown): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "menu.manage", {
-    message: "Tu rol no puede cambiar los platos del menú.",
+    message: api.roleMenuDishes,
   });
   if (denied) return denied;
 
@@ -77,7 +76,7 @@ export async function POST(req: NextRequest) {
       const name = text(body.odoo_name);
       if (!id || !name || (!text(body.menu_dish_id) && !text(body.dish_name))) {
         return NextResponse.json(
-          { error: "Faltan datos para mover la variante." },
+          { error: api.missingMoveData },
           { status: 400 }
         );
       }
@@ -107,7 +106,7 @@ export async function POST(req: NextRequest) {
         : [];
       if (!dishName || variants.length === 0) {
         return NextResponse.json(
-          { error: "Faltan datos para excluir el plato." },
+          { error: api.missingExcludeData },
           { status: 400 }
         );
       }
@@ -121,16 +120,15 @@ export async function POST(req: NextRequest) {
       followWithAutoGroups();
       return NextResponse.json({ ok: true, ...r });
     }
-    return NextResponse.json({ error: "Acción desconocida." }, { status: 400 });
+    return NextResponse.json({ error: api.unknownAction }, { status: 400 });
   } catch (err) {
     if (err instanceof MenuDishError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      return NextResponse.json(
+        { error: err.key ? api[err.key] : err.message },
+        { status: err.status }
+      );
     }
-    const failure = actionableError(
-      err,
-      "No pude guardar el cambio del plato.",
-      "menu-dishes"
-    );
+    const failure = actionableError(err, api.saveDishChange, "menu-dishes");
     return NextResponse.json(
       { error: failure.message, ref: failure.ref },
       { status: failure.status }

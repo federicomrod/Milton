@@ -11,12 +11,13 @@
 
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import {
-  requireCapability,
+  requireCapabilityLocalized,
   resolveActor,
-  unauthorizedResponse,
+  unauthorizedResponseLocalized,
 } from "@/lib/auth/permissions";
 import { loadShifts } from "@/lib/restaurant/business-day-server";
 import {
@@ -39,7 +40,7 @@ async function authAndCompany() {
   if (!user) {
     return {
       ok: false as const,
-      response: unauthorizedResponse(),
+      response: await unauthorizedResponseLocalized(),
     };
   }
   const companyId = await resolveCompanyIdForUser(supabase, user.id);
@@ -107,8 +108,9 @@ export async function POST(req: NextRequest) {
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
-  const denied = requireCapability(actor, "shifts.edit");
+  const denied = await requireCapabilityLocalized(actor, "shifts.edit");
   if (denied) return denied;
+  const d = (await apiDictionary()).admin;
   let body: { restaurant_id?: unknown; shifts?: unknown };
   try {
     body = await req.json();
@@ -118,17 +120,11 @@ export async function POST(req: NextRequest) {
   const restaurantId =
     typeof body.restaurant_id === "string" ? body.restaurant_id : "";
   if (!UUID.test(restaurantId)) {
-    return NextResponse.json(
-      { error: "Elige un restaurante." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: d.api.pickRestaurant }, { status: 400 });
   }
   const shifts = parseShifts(body.shifts);
   if (!shifts) {
-    return NextResponse.json(
-      { error: "Los turnos no tienen el formato esperado." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: d.api.shiftsBadFormat }, { status: 400 });
   }
   const check = validateShifts(shifts);
   if (!check.ok)
@@ -149,7 +145,7 @@ export async function POST(req: NextRequest) {
     const code = (error as { code?: string }).code;
     if (code === "42501") {
       return NextResponse.json(
-        { error: "Tu rol no puede cambiar los turnos." },
+        { error: d.capabilities.shiftsEdit },
         { status: 403 }
       );
     }
@@ -164,15 +160,14 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error:
-            "Falta aplicar la migración 054 en este ambiente: todavía no se pueden guardar turnos.",
+          error: d.api.shiftsMigrationMissing,
         },
         { status: 409 }
       );
     }
     console.error("[shifts] save failed:", error.message);
     return NextResponse.json(
-      { error: "No pude guardar los turnos." },
+      { error: d.api.shiftsSaveFailed },
       { status: 500 }
     );
   }

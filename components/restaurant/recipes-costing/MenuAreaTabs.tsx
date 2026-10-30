@@ -6,7 +6,8 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { withShellParams } from "@/lib/restaurant/navigation";
 import {
   MENU_TAB_PATHS,
@@ -19,12 +20,7 @@ import {
   trySwitchMenuTab,
 } from "@/lib/restaurant/recipe-costing/menu-tab-bridge";
 
-const TABS: Array<{ id: MenuTab; en: string; es: string }> = [
-  { id: "resumen", en: "Overview", es: "Resumen" },
-  { id: "platos", en: "Dishes", es: "Platos" },
-  { id: "preparaciones", en: "Preparations", es: "Preparaciones" },
-  { id: "ingredientes", en: "Ingredients", es: "Ingredientes" },
-];
+const TABS: MenuTab[] = ["resumen", "platos", "preparaciones", "ingredientes"];
 
 export function activeMenuTab(pathname: string): MenuTab {
   for (const tab of ["platos", "preparaciones", "ingredientes"] as const) {
@@ -35,6 +31,7 @@ export function activeMenuTab(pathname: string): MenuTab {
 }
 
 export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
+  const w = getDictionary(lang).menu.workspace.tabs;
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const active = activeMenuTab(pathname);
@@ -49,10 +46,11 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
   };
   return (
     <nav
-      aria-label={t(lang, "Menu sections", "Secciones del menú")}
+      aria-label={w.ariaLabel}
       className="mt-2 mb-2 flex gap-7 border-b border-[#dfe3ea]"
     >
-      {TABS.map((tab) => {
+      {TABS.map((id) => {
+        const tab = { id };
         const isPage = tab.id === "ingredientes" || active === "ingredientes";
         const href = withSaveEpoch(
           withShellParams(MENU_TAB_PATHS[tab.id], shell),
@@ -88,7 +86,7 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
                 : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
             }
           >
-            {t(lang, tab.en, tab.es)}
+            {w[tab.id]}
           </Link>
         );
       })}

@@ -5,6 +5,7 @@
 // server already sent (no role rules here).
 
 import Link from "next/link";
+import { useT } from "@/lib/i18n/client";
 
 export function uploadRecipesHref(locationId?: string | null): string {
   const params = new URLSearchParams({ tab: "drafts" });
@@ -24,6 +25,7 @@ export function UploadRecipesLink({
   locationId?: string | null;
   className?: string;
 }) {
+  const { d } = useT();
   const allowed = actor.capabilities?.["kitchen.drafts"] ?? actor.can_submit;
   if (!allowed) return null;
   return (
@@ -35,7 +37,7 @@ export function UploadRecipesLink({
         className
       }
     >
-      Subir recetas
+      {d.menu.screens.uploadRecipes.link}
     </Link>
   );
 }

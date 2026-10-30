@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useT } from "@/lib/i18n/client";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { READ_MENU_HREF } from "./CostsSetupSection";
 import { READ_MENU_LABEL } from "@/lib/restaurant/ui-copy";
@@ -36,6 +37,8 @@ export function CostsSetupCompact({
   setup: SetupData;
   onFileAction: () => void;
 }) {
+  const { d, fmt } = useT();
+  const s = d.costs.setup;
   const [expanded, setExpanded] = useState(false);
 
   if (setup.complete) {
@@ -46,7 +49,7 @@ export function CostsSetupCompact({
             ✓
           </span>
           <span className="font-semibold text-[#151c2c]">
-            Costos configurados
+            {s.costsConfigured}
           </span>
         </div>
       </section>
@@ -59,7 +62,7 @@ export function CostsSetupCompact({
     <section className="rounded-lg border border-[#dfe3ea] bg-white p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-[13px] font-bold text-[#151c2c]">
-          {setup.done} de {setup.total} listos
+          {fmt(s.readyCount, { done: setup.done, total: setup.total })}
         </h2>
         <button
           type="button"
@@ -67,7 +70,7 @@ export function CostsSetupCompact({
           className="text-[11px] font-semibold text-[#1B40C8] hover:underline flex items-center gap-0.5"
           aria-expanded={expanded}
         >
-          Ver pasos
+          {s.viewSteps}
           {expanded ? (
             <ChevronUp className="h-3 w-3" />
           ) : (

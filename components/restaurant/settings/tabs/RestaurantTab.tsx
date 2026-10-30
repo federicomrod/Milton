@@ -1,3 +1,5 @@
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { getDictionary } from "@/lib/i18n";
 import { RestaurantNamesForm } from "@/components/restaurant/settings/RestaurantNamesForm";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -10,13 +12,10 @@ import { listAllCompanyRestaurants } from "@/lib/restaurant/restaurant-context-s
 export async function RestaurantTab({ location }: { location?: string }) {
   const user = await getCachedAuthUser();
   const companyId = user ? await getCachedCompanyId(user.id) : null;
+  const { lang } = await loadRestaurantShellChrome();
+  const d = getDictionary(lang).settings.tabs;
   if (!user || !companyId) {
-    return (
-      <p className="text-[13px] text-[#8a92a3]">
-        Conecta tu cuenta a una empresa para cambiar el nombre de tu
-        restaurante.
-      </p>
-    );
+    return <p className="text-[13px] text-[#8a92a3]">{d.noCompanyToRename}</p>;
   }
   const supabase = await createClient();
   const { locations, archiveAvailable } = await listAllCompanyRestaurants(
@@ -24,7 +23,7 @@ export async function RestaurantTab({ location }: { location?: string }) {
     companyId
   );
   return locations.length === 0 ? (
-    <p className="text-[13px] text-[#8a92a3]">Aún no hay restaurantes.</p>
+    <p className="text-[13px] text-[#8a92a3]">{d.noRestaurants}</p>
   ) : (
     <RestaurantNamesForm
       restaurants={locations.map((l) => ({

@@ -26,12 +26,15 @@ function mentionsDish(m: string): boolean {
     m.includes("platillo") || // input matcher / model instruction: keep «platillo»
     m.includes("dish") ||
     m.includes("dishes") ||
-    m.includes("menu item")
+    m.includes("menu item") ||
+    m.includes("gericht") // de: Gericht / Gerichte
   );
 }
 
 function mentionsIngredient(m: string): boolean {
-  return m.includes("ingrediente") || m.includes("ingredient");
+  return (
+    m.includes("ingrediente") || m.includes("ingredient") || m.includes("zutat") // de: Zutat / Zutaten
+  );
 }
 
 export function detectIntent(message: string): AskMiltonIntent {
@@ -57,7 +60,15 @@ export function detectIntent(message: string): AskMiltonIntent {
       "affected by",
       "use this ingredient",
       "use these ingredients",
-      "use those ingredients"
+      "use those ingredients",
+      // de
+      "welche rezepte",
+      "welche gerichte verwenden",
+      "welches gericht verwendet",
+      "in welchen gerichten",
+      "verwenden diese zutat",
+      "wird verwendet",
+      "betroffen von"
     )
   ) {
     return "ingredient_usage";
@@ -74,7 +85,16 @@ export function detectIntent(message: string): AskMiltonIntent {
       "best day",
       "día más",
       "dia mas",
-      "sell the most"
+      "sell the most",
+      // de
+      "welcher tag",
+      "welche tage",
+      "welchen tag",
+      "umsatzstarkste",
+      "bester tag",
+      "starkster tag",
+      "am meisten verkaufe",
+      "ich am meisten"
     )
   ) {
     return "best_sales_day";
@@ -92,7 +112,16 @@ export function detectIntent(message: string): AskMiltonIntent {
       "mas vendido",
       "top items",
       "artículos de desayuno",
-      "articulos de desayuno"
+      "articulos de desayuno",
+      // de
+      "meistverkauft",
+      "bestverkauft",
+      "bestseller",
+      "am besten verkauf",
+      "verkaufen sich am besten",
+      "verkauft sich am besten",
+      "haufigsten verkauft",
+      "verkaufsschlager"
     )
   ) {
     return "top_selling_items";
@@ -109,7 +138,15 @@ export function detectIntent(message: string): AskMiltonIntent {
       "mejor margen",
       "mejores margenes",
       "me deja mas",
-      "deja mas ganancia"
+      "deja mas ganancia",
+      // de
+      "rentabelste",
+      "profitabelste",
+      "hochste marge",
+      "hochsten marge",
+      "beste marge",
+      "beste margen",
+      "hochsten margen"
     )
   ) {
     return "most_profitable_dish";
@@ -136,7 +173,18 @@ export function detectIntent(message: string): AskMiltonIntent {
       "costo de alimentos",
       "costo de alimento",
       "% de costo",
-      "porcentaje de costo"
+      "porcentaje de costo",
+      // de
+      "niedrigste marge",
+      "geringste marge",
+      "schlechteste marge",
+      "niedrige marge",
+      "niedrigsten margen",
+      "am wenigsten rentabel",
+      "wenigsten rentabel",
+      "unrentabel",
+      "wareneinsatz",
+      "zuerst korrigieren"
     ) ||
     (mentionsDish(m) &&
       !mentionsIngredient(m) &&
@@ -150,7 +198,12 @@ export function detectIntent(message: string): AskMiltonIntent {
         "profit",
         "%",
         "porcentaje",
-        "precio de venta"
+        "precio de venta",
+        // de
+        "kosten",
+        "marge",
+        "prozent",
+        "verkaufspreis"
       ));
   if (dishFoodCostSignal) {
     return "dish_food_cost";
@@ -190,7 +243,15 @@ export function detectIntent(message: string): AskMiltonIntent {
       "ingredient spending",
       "ingredient expense",
       "what ingredients are",
-      "which ingredients are"
+      "which ingredients are",
+      // de
+      "teuerste zutat",
+      "teuersten zutaten",
+      "zutaten teuer",
+      "zutatenpreis",
+      "zutatenkosten",
+      "kostentreiber",
+      "welche zutat"
     )
   ) {
     return "expensive_ingredients";
@@ -202,12 +263,33 @@ export function detectIntent(message: string): AskMiltonIntent {
       "price went up",
       "supplier risk",
       "supplier cost",
-      "which supplier"
+      "which supplier",
+      // de
+      "welche lieferant",
+      "lieferantenrisiko",
+      "lieferantenkosten",
+      "preiserhohung",
+      "preise erhoht",
+      "preis erhoht",
+      "preise gestiegen",
+      "preis gestiegen",
+      "preisanstieg"
     )
   ) {
     return "supplier_risk";
   }
-  if (has("invoice", "review", "need review", "pending invoice")) {
+  if (
+    has(
+      "invoice",
+      "review",
+      "need review",
+      "pending invoice",
+      // de
+      "rechnung",
+      "zu prufen",
+      "prufung"
+    )
+  ) {
     return "invoices_needing_review";
   }
   if (
@@ -217,7 +299,15 @@ export function detectIntent(message: string): AskMiltonIntent {
       "without recipe",
       "recipe missing",
       "items without recipe",
-      "items missing recipe"
+      "items missing recipe",
+      // de
+      "fehlendes rezept",
+      "fehlende rezepte",
+      "kein rezept",
+      "keine rezepte",
+      "ohne rezept",
+      "rezept fehlt",
+      "rezepte fehlen"
     )
   ) {
     return "missing_recipes";
@@ -228,7 +318,12 @@ export function detectIntent(message: string): AskMiltonIntent {
       "coverage incomplete",
       "costing incomplete",
       "coverage gap",
-      "incomplete cost"
+      "incomplete cost",
+      // de
+      "kostenabdeckung",
+      "abdeckung unvollstandig",
+      "kalkulation unvollstandig",
+      "unvollstandige kosten"
     )
   ) {
     return "cost_coverage";
@@ -241,13 +336,30 @@ export function detectIntent(message: string): AskMiltonIntent {
       "what should i do",
       "this week",
       "do next",
-      "priority"
+      "priority",
+      // de
+      "empfehlung",
+      "diese woche",
+      "als nachstes",
+      "prioritat",
+      "was soll ich tun",
+      "was sollte ich tun"
     )
   ) {
     return "agent_recommendations";
   }
   if (
-    has("margin", "margen", "profit", "food cost", "gross margin", "rentabil")
+    has(
+      "margin",
+      "margen",
+      "profit",
+      "food cost",
+      "gross margin",
+      "rentabil",
+      // de
+      "marge",
+      "gewinn"
+    )
   ) {
     return "dish_food_cost";
   }
@@ -256,17 +368,28 @@ export function detectIntent(message: string): AskMiltonIntent {
   if (
     mentionsDish(m) &&
     !mentionsIngredient(m) &&
-    has("cost", "costo", "price", "precio")
+    has("cost", "costo", "price", "precio", "kosten", "preis")
   ) {
     return "dish_food_cost";
   }
-  if (has("cost", "expensive", "ingredient", "price")) {
+  if (
+    has(
+      "cost",
+      "expensive",
+      "ingredient",
+      "price",
+      "kosten",
+      "teuer",
+      "zutat",
+      "preis"
+    )
+  ) {
     return "expensive_ingredients";
   }
-  if (has("recipe", "blocking")) {
+  if (has("recipe", "blocking", "rezept")) {
     return "missing_recipes";
   }
-  if (has("supplier", "vendor")) {
+  if (has("supplier", "vendor", "lieferant")) {
     return "supplier_risk";
   }
   return "generic";

@@ -4,6 +4,8 @@
 // clientRef from the same cook is the same report. AI processing of app items
 // is a later PR.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import {
@@ -18,6 +20,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff } = auth;
@@ -27,14 +30,14 @@ export async function POST(request: NextRequest) {
     const parsed = await request.json();
     if (parsed && typeof parsed === "object") body = parsed;
   } catch {
-    return kitchenJson({ error: "El mensaje no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.messageInvalid }, 400);
   }
   const clientRef = typeof body.clientRef === "string" ? body.clientRef : "";
   if (!CLIENT_REF_RE.test(clientRef)) {
-    return kitchenJson({ error: "Falta el identificador del envío." }, 400);
+    return kitchenJson({ error: d.kitchen.api.clientRefMissing }, 400);
   }
   const text = cleanReportText(body.text);
-  if (!text) return kitchenJson({ error: "Escribe un mensaje." }, 400);
+  if (!text) return kitchenJson({ error: d.kitchen.api.writeMessage }, 400);
 
   const report = await findOrCreateAppReport(
     admin,
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
   );
   if (!report.ok) {
-    return kitchenJson({ error: "No pude guardar tu mensaje." }, 500);
+    return kitchenJson({ error: d.kitchen.api.messageSaveFailed }, 500);
   }
   return kitchenJson(
     serializeKitchenUpload({

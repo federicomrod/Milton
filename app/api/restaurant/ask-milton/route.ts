@@ -23,6 +23,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+import { fmt } from "@/lib/i18n";
 import {
   buildAskMiltonContext,
   type AskMiltonContext,
@@ -179,19 +181,26 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as AskMiltonRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    return NextResponse.json(
+      { error: (await apiDictionary()).ask.api.invalidJson },
+      { status: 400 }
+    );
   }
 
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) {
     return NextResponse.json(
-      { error: "`message` is required" },
+      { error: (await apiDictionary()).ask.api.messageRequired },
       { status: 400 }
     );
   }
   if (message.length > MAX_MESSAGE_CHARS) {
     return NextResponse.json(
-      { error: `Message too long (max ${MAX_MESSAGE_CHARS} chars)` },
+      {
+        error: fmt((await apiDictionary()).ask.api.messageTooLong, {
+          max: MAX_MESSAGE_CHARS,
+        }),
+      },
       { status: 400 }
     );
   }
@@ -230,7 +239,7 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[ask-milton] context build failed:", msg);
     return NextResponse.json(
-      { error: "Could not build context", details: msg },
+      { error: (await apiDictionary()).ask.api.contextFailed, details: msg },
       { status: 500 }
     );
   }
@@ -258,7 +267,12 @@ export async function POST(req: NextRequest) {
     resolved
   );
 
-  const suggested_actions = generateSuggestedActions(message, ctx, intent);
+  const suggested_actions = generateSuggestedActions(
+    message,
+    ctx,
+    intent,
+    ctx.briefing.preferred_language
+  );
 
   return NextResponse.json({
     source,

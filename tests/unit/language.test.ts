@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   LANGUAGE_OPTIONS,
+  localeFor,
   DEFAULT_LANGUAGE,
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
   defaultLanguageForCountry,
@@ -14,10 +15,11 @@ import {
 // Milton Language Foundation v1 — the centralized language helper.
 
 describe("LANGUAGE_OPTIONS / DEFAULT_LANGUAGE", () => {
-  it("offers exactly English and Spanish, English first", () => {
+  it("offers English, Spanish and German, English first", () => {
     expect(LANGUAGE_OPTIONS).toEqual([
       { value: "en", label: "English" },
       { value: "es", label: "Español" },
+      { value: "de", label: "Deutsch" },
     ]);
   });
 
@@ -32,9 +34,16 @@ describe("LANGUAGE_OPTIONS / DEFAULT_LANGUAGE", () => {
     expect(resolveRestaurantCockpitLanguage("garbage")).toBe("es");
   });
 
-  it("keeps the R1 cockpit in Spanish even when preferred_language was backfilled to en", () => {
-    expect(resolveRestaurantCockpitLanguage("en")).toBe("es");
+  it("honours a stored en, es or de", () => {
+    expect(resolveRestaurantCockpitLanguage("en")).toBe("en");
     expect(resolveRestaurantCockpitLanguage("es")).toBe("es");
+    expect(resolveRestaurantCockpitLanguage("de")).toBe("de");
+  });
+
+  it("maps each language to its Intl locale", () => {
+    expect(localeFor("es")).toBe("es-MX");
+    expect(localeFor("en")).toBe("en-US");
+    expect(localeFor("de")).toBe("de-DE");
   });
 });
 
@@ -94,6 +103,7 @@ describe("normalizePreferredLanguage", () => {
   it("passes through valid values", () => {
     expect(normalizePreferredLanguage("en")).toBe("en");
     expect(normalizePreferredLanguage("es")).toBe("es");
+    expect(normalizePreferredLanguage("de")).toBe("de");
   });
 
   it("rejects anything else", () => {
@@ -119,8 +129,9 @@ describe("resolvePreferredLanguage (Phase 6, scenario 8 — existing companies d
 });
 
 describe("t (language picker)", () => {
-  it("picks English for 'en' and Spanish for 'es'", () => {
-    expect(t("en", "Hello", "Hola")).toBe("Hello");
-    expect(t("es", "Hello", "Hola")).toBe("Hola");
+  it("picks the string of the requested language", () => {
+    expect(t("en", "Hello", "Hola", "Hallo")).toBe("Hello");
+    expect(t("es", "Hello", "Hola", "Hallo")).toBe("Hola");
+    expect(t("de", "Hello", "Hola", "Hallo")).toBe("Hallo");
   });
 });

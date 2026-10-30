@@ -1,5 +1,6 @@
 // Catalog-only prefill and the unit-label check. Synthetic data only.
 
+import { menuEditor } from "@/lib/i18n/es/menu-editor";
 import { describe, expect, it } from "vitest";
 import {
   prefillLines,
@@ -280,8 +281,13 @@ describe("suggestion path guards", () => {
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx",
       "utf8"
     );
-    expect(ui).toContain("pero su precio corresponde a");
+    // The wording lives in the Spanish dictionary; the editor reads it from there.
+    expect(readFileSync("lib/i18n/es/menu-editor.ts", "utf8")).toContain(
+      "pero su precio corresponde a"
+    );
+    expect(ui).toContain("d.lines.unitQuestion");
     expect(ui).toContain('action: "answer_unit"');
-    expect(ui).toContain("en tu Excel:");
+    expect(menuEditor.lines.inYourExcel).toContain("en tu Excel:");
+    expect(ui).toContain("d.lines.inYourExcel");
   });
 });

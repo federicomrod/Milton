@@ -9,6 +9,7 @@ import { accessTokenOf, cacheClientFor } from "@/lib/restaurant/cache-client";
 import { cachedForCompany, salesTag } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { loadSalesDetail } from "@/lib/restaurant/sales-detail-server";
 
@@ -55,7 +56,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[sales-detail]", err);
     return NextResponse.json(
-      { error: "No pude cargar las ventas." },
+      { error: (await apiDictionary()).sales.api.salesLoadFailed },
       { status: 500 }
     );
   }

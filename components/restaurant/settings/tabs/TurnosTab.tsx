@@ -1,3 +1,5 @@
+import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
+import { getDictionary } from "@/lib/i18n";
 import { can, resolveActor } from "@/lib/auth/permissions";
 import { TurnosForm } from "@/components/restaurant/settings/TurnosForm";
 import { createClient } from "@/lib/supabase/server";
@@ -12,12 +14,10 @@ import type { Shift } from "@/lib/restaurant/business-day";
 export async function TurnosTab() {
   const user = await getCachedAuthUser();
   const companyId = user ? await getCachedCompanyId(user.id) : null;
+  const { lang } = await loadRestaurantShellChrome();
+  const d = getDictionary(lang).settings.tabs;
   if (!user || !companyId) {
-    return (
-      <p className="text-[13px] text-[#8a92a3]">
-        Conecta tu cuenta a una empresa para definir tus turnos.
-      </p>
-    );
+    return <p className="text-[13px] text-[#8a92a3]">{d.noCompanyForShifts}</p>;
   }
   const supabase = await createClient();
   const [loaded, locations, actor] = await Promise.all([
@@ -44,9 +44,7 @@ export async function TurnosTab() {
     });
   }
   return restaurants.length === 0 ? (
-    <p className="text-[13px] text-[#8a92a3]">
-      Aún no hay restaurantes para definir turnos.
-    </p>
+    <p className="text-[13px] text-[#8a92a3]">{d.noRestaurantsForShifts}</p>
   ) : (
     <TurnosForm
       restaurants={restaurants}

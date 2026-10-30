@@ -19,16 +19,10 @@ import {
   IMPORT_RECIPES_BUTTON_ID,
   RecipeImportPreview,
 } from "./RecipeImportPreview";
-import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
+import { pendingPriceChoicesNote } from "./pending-price-note";
+import { useT } from "@/lib/i18n/client";
 import { Card, Chip, GhostBtn, PrimaryBtn } from "./ui";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
-
-const UNIT_LABEL: Record<CatalogUnit, string> = {
-  oz: "onza",
-  lb: "libra",
-  unit: "unidad",
-  g: "gramo",
-};
 
 function money(value: number): string {
   const text = value >= 1 ? value.toFixed(2) : value.toPrecision(3);
@@ -73,7 +67,6 @@ interface UploadDraftView {
 
 /** "Ninguna / Pendiente": every option is wrong, no price for now. */
 const NONE = "none";
-const NONE_LABEL = "Ninguna / Pendiente";
 
 interface OpenConflict {
   id: string;
@@ -87,7 +80,7 @@ interface OpenConflict {
   }>;
 }
 
-async function postJson(url: string, body: unknown) {
+async function postJson(url: string, body: unknown, fallback: string) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -95,7 +88,7 @@ async function postJson(url: string, body: unknown) {
   });
   const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    throw new Error(userErrorMessage(json, "No pude guardar."));
+    throw new Error(userErrorMessage(json, fallback));
   }
   return json;
 }
@@ -141,6 +134,13 @@ export const PriceCatalogPanel = forwardRef<
   },
   ref
 ) {
+  const { d, fmt, lang } = useT();
+  const w = d.menu.workspace.priceCatalog;
+  const NONE_LABEL = w.noneLabel;
+  const UNIT_LABEL = d.menu.workspace.preparaciones.unitSingular as Record<
+    CatalogUnit,
+    string
+  >;
   const fileRef = useRef<HTMLInputElement>(null);
   // The picked file lives server-side as a draft (with every choice), so
   // leaving the page or reloading never loses it.
@@ -231,8 +231,7 @@ export const PriceCatalogPanel = forwardRef<
         body: form,
       });
       const json = (await res.json()) as Preview & { error?: string };
-      if (!res.ok)
-        throw new Error(userErrorMessage(json, "No pude leer el archivo."));
+      if (!res.ok) throw new Error(userErrorMessage(json, w.readFailed));
       setPreview(json);
       // Suggested units are pre-filled, unless the person already chose.
       const initial: Record<string, string> = {};
@@ -242,7 +241,7 @@ export const PriceCatalogPanel = forwardRef<
       }
       setUnits({ ...initial, ...restored });
     },
-    []
+    [w.readFailed]
   );
 
   // Opening the page: bring back the file, the choices and what was saved.
@@ -271,9 +270,7 @@ export const PriceCatalogPanel = forwardRef<
         }
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "No pude recuperar tu avance."
-          );
+          setError(err instanceof Error ? err.message : w.recoverFailed);
         }
       } finally {
         if (!cancelled) {
@@ -330,7 +327,7 @@ export const PriceCatalogPanel = forwardRef<
         error?: string;
       };
       if (!res.ok || !json.draft) {
-        throw new Error(userErrorMessage(json, "No pude guardar tu archivo."));
+        throw new Error(userErrorMessage(json, w.saveFileFailed));
       }
       setDraftName(json.draft.filename);
       setDraftToken(json.draft.updated_at ?? `${Date.now()}`);
@@ -340,7 +337,7 @@ export const PriceCatalogPanel = forwardRef<
       setReviewedUnits(false);
       await previewFromDraft({});
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude leer el archivo.");
+      setError(err instanceof Error ? err.message : w.readFailed);
     } finally {
       setBusy(false);
       setHydrated(true);
@@ -373,8 +370,7 @@ export const PriceCatalogPanel = forwardRef<
         body: form,
       });
       const json = (await res.json()) as Saved & { error?: string };
-      if (!res.ok)
-        throw new Error(userErrorMessage(json, "No pude guardar la lista."));
+      if (!res.ok) throw new Error(userErrorMessage(json, w.saveListFailed));
       setSaved(json);
       setPreview(null);
       void loadOpen();
@@ -392,9 +388,7 @@ export const PriceCatalogPanel = forwardRef<
       } else if (recipesImported) onRecipesImported?.();
       else onUploaded?.();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No pude guardar la lista."
-      );
+      setError(err instanceof Error ? err.message : w.saveListFailed);
     } finally {
       setBusy(false);
     }
@@ -404,7 +398,11 @@ export const PriceCatalogPanel = forwardRef<
     setBusy(true);
     setError(null);
     try {
-      await postJson(`/api/restaurant/costs/batches/${batchId}/undo`, {});
+      await postJson(
+        `/api/restaurant/costs/batches/${batchId}/undo`,
+        {},
+        w.undoFailed
+      );
       setSaved(null);
       void loadOpen();
       // The file and its choices are still there: show the preview again.
@@ -415,7 +413,7 @@ export const PriceCatalogPanel = forwardRef<
       });
       if (draftName) await previewFromDraft(units);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude deshacer.");
+      setError(err instanceof Error ? err.message : w.undoFailed);
     } finally {
       setBusy(false);
     }
@@ -425,14 +423,14 @@ export const PriceCatalogPanel = forwardRef<
     setBusy(true);
     setError(null);
     try {
-      await postJson(`/api/restaurant/recipes/price-catalog/conflicts/${id}`, {
-        choice,
-      });
+      await postJson(
+        `/api/restaurant/recipes/price-catalog/conflicts/${id}`,
+        { choice },
+        w.decisionFailed
+      );
       await loadOpen();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No pude guardar tu decisión."
-      );
+      setError(err instanceof Error ? err.message : w.decisionFailed);
     } finally {
       setBusy(false);
     }
@@ -453,7 +451,7 @@ export const PriceCatalogPanel = forwardRef<
     <Wrapper className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {embedded ? null : (
-          <h2 className="text-[15px] font-semibold">Subir Excel de costos</h2>
+          <h2 className="text-[15px] font-semibold">{w.title}</h2>
         )}
         <input
           ref={fileRef}
@@ -471,9 +469,7 @@ export const PriceCatalogPanel = forwardRef<
           disabled={busy || busyExternal || !canEditPrices}
           onClick={() => fileRef.current?.click()}
         >
-          {preview || saved
-            ? "Elegir otro archivo"
-            : "Elegir archivo de costos"}
+          {preview || saved ? w.pickOther : w.pickFile}
         </GhostBtn>
       </div>
 
@@ -485,7 +481,7 @@ export const PriceCatalogPanel = forwardRef<
 
       {draftName ? (
         <p className="text-[12px] text-[#6b7385]">
-          Archivo: <b>{draftName}</b>
+          {fmt(w.file, { name: draftName })}
         </p>
       ) : null}
 
@@ -496,41 +492,47 @@ export const PriceCatalogPanel = forwardRef<
       ) : null}
 
       {busy && !preview ? (
-        <p className="text-xs text-[#5b6476]">Leyendo tu archivo…</p>
+        <p className="text-xs text-[#5b6476]">{w.readingFile}</p>
       ) : null}
 
       {preview ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2 text-[12px]">
-            <Chip tone="ok">{preview.summary.ready} listos</Chip>
+            <Chip tone="ok">
+              {fmt(w.chipReady, { n: preview.summary.ready })}
+            </Chip>
             {check.length + ambiguous.length > 0 ? (
               <Chip tone="warn">
-                {check.length + ambiguous.length} por confirmar
+                {fmt(w.chipToConfirm, { n: check.length + ambiguous.length })}
               </Chip>
             ) : null}
             {preview.summary.preparations > 0 ? (
               <Chip tone="pur">
-                {preview.summary.preparations} parecen preparaciones
+                {fmt(w.chipPreparations, { n: preview.summary.preparations })}
               </Chip>
             ) : null}
             {preview.summary.conflicts > 0 ? (
-              <Chip tone="sug">{preview.summary.conflicts} con dos costos</Chip>
+              <Chip tone="sug">
+                {fmt(w.chipTwoCosts, { n: preview.summary.conflicts })}
+              </Chip>
             ) : null}
             {problems.length > 0 ? (
-              <Chip tone="bad">{problems.length} sin precio usable</Chip>
+              <Chip tone="bad">
+                {fmt(w.chipNoPrice, { n: problems.length })}
+              </Chip>
             ) : null}
           </div>
 
           {openDecisions + preps.length > 0 ? (
             <details className="rounded-lg border border-slate-200 px-2.5 py-1.5">
               <summary className="cursor-pointer text-[12.5px] font-semibold">
-                Puedes decidir algunas cosas ahora (opcional)
+                {w.decideNow}
               </summary>
               <div className="mt-2 space-y-3">
                 {ambiguous.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      ¿En qué unidad viene este precio?
+                      {w.whichUnit}
                     </h3>
                     {ambiguous.map((row) => (
                       <div
@@ -556,8 +558,10 @@ export const PriceCatalogPanel = forwardRef<
                                 }))
                               }
                             />
-                            {money(option.unitCost)} por{" "}
-                            {UNIT_LABEL[option.unit]}
+                            {fmt(w.perUnit, {
+                              cost: money(option.unitCost),
+                              unit: UNIT_LABEL[option.unit],
+                            })}
                           </label>
                         ))}
                         <label className="inline-flex items-center gap-1 text-[#8a92a3]">
@@ -579,7 +583,7 @@ export const PriceCatalogPanel = forwardRef<
                 {check.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      Revisa estas unidades
+                      {w.reviewUnits}
                     </h3>
                     <div className="max-h-56 overflow-auto rounded-lg border border-slate-200">
                       {check.map((row) => (
@@ -611,8 +615,10 @@ export const PriceCatalogPanel = forwardRef<
                                   }))
                                 }
                               />
-                              {money(option.unitCost)} por{" "}
-                              {UNIT_LABEL[option.unit]}
+                              {fmt(w.perUnit, {
+                                cost: money(option.unitCost),
+                                unit: UNIT_LABEL[option.unit],
+                              })}
                             </label>
                           ))}
                           <label className="inline-flex items-center gap-1 text-[#8a92a3]">
@@ -640,7 +646,7 @@ export const PriceCatalogPanel = forwardRef<
                           setReviewedUnits(event.target.checked)
                         }
                       />
-                      Revisé estas unidades
+                      {w.reviewedUnits}
                     </label>
                   </section>
                 ) : null}
@@ -648,7 +654,7 @@ export const PriceCatalogPanel = forwardRef<
                 {preview.conflicts.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      Encontramos dos costos para algunos ingredientes
+                      {w.twoCosts}
                     </h3>
                     <div className="max-h-64 overflow-auto rounded-lg border border-slate-200">
                       {preview.conflicts.map((conflict) => (
@@ -673,8 +679,10 @@ export const PriceCatalogPanel = forwardRef<
                                 }))
                               }
                             />
-                            Lista {money(conflict.catalog.unitCost)}/
-                            {UNIT_LABEL[conflict.catalog.unit]}
+                            {fmt(w.listCost, {
+                              cost: money(conflict.catalog.unitCost),
+                              unit: UNIT_LABEL[conflict.catalog.unit],
+                            })}
                           </label>
                           {conflict.candidates.map((candidate, index) => (
                             <label
@@ -692,9 +700,16 @@ export const PriceCatalogPanel = forwardRef<
                                   }))
                                 }
                               />
-                              Recetas {money(candidate.unitCost)}/
-                              {UNIT_LABEL[candidate.unit]} ({candidate.recipes}{" "}
-                              {candidate.recipes === 1 ? "plato" : "platos"})
+                              {fmt(
+                                candidate.recipes === 1
+                                  ? w.recipesCostOne
+                                  : w.recipesCostOther,
+                                {
+                                  cost: money(candidate.unitCost),
+                                  unit: UNIT_LABEL[candidate.unit],
+                                  n: candidate.recipes,
+                                }
+                              )}
                             </label>
                           ))}
                           <label className="inline-flex items-center gap-1 text-[#8a92a3]">
@@ -720,7 +735,7 @@ export const PriceCatalogPanel = forwardRef<
                 {preps.length > 0 ? (
                   <section className="space-y-1.5">
                     <h3 className="text-[12.5px] font-semibold">
-                      Parecen preparaciones
+                      {w.lookLikePreps}
                     </h3>
                     <div className="max-h-40 overflow-auto rounded-lg border border-slate-200">
                       {preps.map((row) => (
@@ -732,11 +747,13 @@ export const PriceCatalogPanel = forwardRef<
                             {row.name}
                           </span>
                           <span className="text-[#4b5466]">
-                            ¿Lo compras ya hecho?
+                            {w.boughtReady}
                           </span>
                           <input
                             type="checkbox"
-                            aria-label={`${row.name}: ¿Lo compras ya hecho?`}
+                            aria-label={fmt(w.boughtReadyAria, {
+                              name: row.name,
+                            })}
                             checked={asIngredient[row.key] === true}
                             onChange={(event) =>
                               setAsIngredient((prev) => ({
@@ -745,9 +762,7 @@ export const PriceCatalogPanel = forwardRef<
                               }))
                             }
                           />
-                          {asIngredient[row.key]
-                            ? "Sí, lo compro hecho"
-                            : "No, lo preparamos"}
+                          {asIngredient[row.key] ? w.yesBought : w.noPrepared}
                           {row.unitCost !== null && row.unit ? (
                             <span className="text-[#8a92a3]">
                               {money(row.unitCost)}/{UNIT_LABEL[row.unit]}
@@ -764,17 +779,17 @@ export const PriceCatalogPanel = forwardRef<
 
           {problems.length > 0 ? (
             <p className="text-[12px] text-[#6b7280]">
-              {problems.length} filas sin precio usable: quedan Pendiente.
+              {fmt(w.rowsNoPrice, { n: problems.length })}
             </p>
           ) : null}
 
           <div className="flex items-center gap-2">
             <PrimaryBtn disabled={!canSave} onClick={() => void save()}>
-              1. Guardar precios
+              {w.savePrices}
             </PrimaryBtn>
             {openDecisions > 0 ? (
               <span className="text-[12px] text-[#8a92a3]">
-                {openDecisions} por decidir (ahora o en cada plato)
+                {fmt(w.toDecide, { n: openDecisions })}
               </span>
             ) : null}
           </div>
@@ -783,16 +798,16 @@ export const PriceCatalogPanel = forwardRef<
 
       {saved ? (
         <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-xs text-[#1f7a45]">
-          Guardamos {saved.saved} precios
+          {fmt(w.savedPrices, { n: saved.saved })}
           {saved.ingredients_created > 0
-            ? ` (${saved.ingredients_created} ingredientes nuevos)`
+            ? fmt(w.savedNewIngredients, { n: saved.ingredients_created })
             : ""}
           .
           {saved.pending_rows > 0
-            ? ` ${saved.pending_rows} filas no estaban claras: te las preguntamos en el plato que las usa.`
+            ? fmt(w.savedPending, { n: saved.pending_rows })
             : ""}
           {saved.conflicts_open > 0
-            ? ` ${saved.conflicts_open} costos esperan tu decisión abajo.`
+            ? fmt(w.savedOpen, { n: saved.conflicts_open })
             : ""}{" "}
           <button
             type="button"
@@ -800,7 +815,7 @@ export const PriceCatalogPanel = forwardRef<
             disabled={busy || !canEditPrices}
             onClick={() => void undo(saved.batch_id)}
           >
-            Deshacer esta carga
+            {w.undoUpload}
           </button>
         </div>
       ) : null}
@@ -820,10 +835,10 @@ export const PriceCatalogPanel = forwardRef<
       {open.length > 0 ? (
         <section className="space-y-1.5">
           <h3 className="text-[12.5px] font-semibold">
-            Costos por decidir ({open.length})
+            {fmt(w.costsToDecide, { n: open.length })}
           </h3>
           <p className="text-[12px] text-[#6b7280]">
-            {PENDING_PRICE_CHOICES_NOTE}
+            {pendingPriceChoicesNote(lang)}
           </p>
           <div className="rounded-lg border border-slate-200">
             {open.map((item) => (
@@ -836,8 +851,10 @@ export const PriceCatalogPanel = forwardRef<
                   disabled={busy || !canEditPrices}
                   onClick={() => void resolve(item.id, "catalog")}
                 >
-                  Usar lista {money(item.catalog.unitCost)}/
-                  {UNIT_LABEL[item.catalog.unit]}
+                  {fmt(w.useList, {
+                    cost: money(item.catalog.unitCost),
+                    unit: UNIT_LABEL[item.catalog.unit],
+                  })}
                 </GhostBtn>
                 {item.candidates.map((candidate, index) => (
                   <GhostBtn
@@ -845,9 +862,16 @@ export const PriceCatalogPanel = forwardRef<
                     disabled={busy || !canEditPrices}
                     onClick={() => void resolve(item.id, index)}
                   >
-                    Usar recetas {money(candidate.unitCost)}/
-                    {UNIT_LABEL[candidate.unit]} ({candidate.recipes}{" "}
-                    {candidate.recipes === 1 ? "plato" : "platos"})
+                    {fmt(
+                      candidate.recipes === 1
+                        ? w.useRecipesOne
+                        : w.useRecipesOther,
+                      {
+                        cost: money(candidate.unitCost),
+                        unit: UNIT_LABEL[candidate.unit],
+                        n: candidate.recipes,
+                      }
+                    )}
                   </GhostBtn>
                 ))}
                 <GhostBtn

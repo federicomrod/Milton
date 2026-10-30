@@ -429,23 +429,27 @@ export async function buildBriefingContext(
       ? t(
           preferredLanguage,
           `all loaded POS data (through ${formatDayLabel(lastDay, "en")})`,
-          `todos los datos de POS cargados (hasta ${formatDayLabel(lastDay, "es")})`
+          `todos los datos de POS cargados (hasta ${formatDayLabel(lastDay, "es")})`,
+          `alle geladenen Kassendaten (bis ${formatDayLabel(lastDay, "de")})`
         )
       : t(
           preferredLanguage,
           "all loaded POS data",
-          "todos los datos de POS cargados"
+          "todos los datos de POS cargados",
+          "alle geladenen Kassendaten"
         )
     : firstDay
       ? t(
           preferredLanguage,
           `all loaded POS data (${formatDayLabel(firstDay, "en")} to ${formatDayLabel(lastDay ?? firstDay, "en")})`,
-          `todos los datos de POS cargados (${formatDayLabel(firstDay, "es")} a ${formatDayLabel(lastDay ?? firstDay, "es")})`
+          `todos los datos de POS cargados (${formatDayLabel(firstDay, "es")} a ${formatDayLabel(lastDay ?? firstDay, "es")})`,
+          `alle geladenen Kassendaten (${formatDayLabel(firstDay, "de")} bis ${formatDayLabel(lastDay ?? firstDay, "de")})`
         )
       : t(
           preferredLanguage,
           "all loaded POS data",
-          "todos los datos de POS cargados"
+          "todos los datos de POS cargados",
+          "alle geladenen Kassendaten"
         );
 
   // Distinct checks come from the profitability POS read — do not page
@@ -456,7 +460,8 @@ export async function buildBriefingContext(
     ordersReason = t(
       preferredLanguage,
       "Could not read check_id from pos_sales_items.",
-      "No se pudo leer check_id de pos_sales_items."
+      "No se pudo leer check_id de pos_sales_items.",
+      "check_id konnte nicht aus pos_sales_items gelesen werden."
     );
   } else if (data.distinct_check_count > 0) {
     orders = data.distinct_check_count;
@@ -464,7 +469,8 @@ export async function buildBriefingContext(
     ordersReason = t(
       preferredLanguage,
       "POS rows have no check_id (summary export) — orders not counted.",
-      "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes."
+      "Las filas del POS no tienen check_id (exportación resumida) — no se contaron órdenes.",
+      "Die Kassenzeilen haben keine check_id (Summenexport) — Bestellungen wurden nicht gezählt."
     );
   }
 
@@ -476,7 +482,8 @@ export async function buildBriefingContext(
       ? t(
           preferredLanguage,
           "avg_ticket requires order count — see orders_reason.",
-          "avg_ticket requiere el número de órdenes — ver orders_reason."
+          "avg_ticket requiere el número de órdenes — ver orders_reason.",
+          "avg_ticket benötigt die Bestellanzahl — siehe orders_reason."
         )
       : undefined;
 
@@ -676,7 +683,8 @@ export async function buildBriefingContext(
           ? t(
               preferredLanguage,
               "No revenue with complete cost coverage — set up recipes and ingredient costs.",
-              "No hay ingresos con cobertura de costo completa — configura recetas y costos de ingredientes."
+              "No hay ingresos con cobertura de costo completa — configura recetas y costos de ingredientes.",
+              "Kein Umsatz mit vollständiger Kostenabdeckung — richten Sie Rezepte und Zutatenkosten ein."
             )
           : undefined,
       food_cost_pct: round(data.kpis.food_cost_pct, 1),
@@ -685,7 +693,8 @@ export async function buildBriefingContext(
           ? t(
               preferredLanguage,
               "Food cost % requires revenue with complete cost — see cost_coverage_pct.",
-              "El % de costo de alimentos requiere ingresos con costo completo — ver cost_coverage_pct."
+              "El % de costo de alimentos requiere ingresos con costo completo — ver cost_coverage_pct.",
+              "Der Wareneinsatz in % benötigt Umsatz mit vollständigen Kosten — siehe cost_coverage_pct."
             )
           : undefined,
     },

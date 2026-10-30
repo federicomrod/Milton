@@ -11,6 +11,10 @@
 // belongs to the row's company and is not archived.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  resolveRestaurantCockpitLanguage,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 
 export interface KitchenLink {
   staffId: string;
@@ -19,6 +23,8 @@ export interface KitchenLink {
   locationId: string;
   locationName: string;
   telegramUserId: number;
+  /** The company's language: what the cook's replies are written in. */
+  language?: PreferredLanguage;
 }
 
 interface StaffRow {
@@ -41,7 +47,10 @@ async function resolveLinks(
       .from("restaurant_locations")
       .select("id, company_id, name, status, archived_at")
       .in("id", locationIds),
-    admin.from("companies").select("id, name").in("id", companyIds),
+    admin
+      .from("companies")
+      .select("id, name, preferred_language")
+      .in("id", companyIds),
   ]);
   if (locRes.error || coRes.error) throw new Error("link lookup failed");
 
@@ -50,6 +59,14 @@ async function resolveLinks(
   );
   const companies = new Map(
     (coRes.data ?? []).map((c) => [c.id as string, (c.name as string) ?? ""])
+  );
+  const languages = new Map(
+    (coRes.data ?? []).map((c) => [
+      c.id as string,
+      resolveRestaurantCockpitLanguage(
+        (c as { preferred_language?: unknown }).preferred_language
+      ),
+    ])
   );
 
   const links: KitchenLink[] = [];
@@ -65,6 +82,7 @@ async function resolveLinks(
       locationId: row.location_id,
       locationName: (loc.name as string) ?? "",
       telegramUserId,
+      language: languages.get(row.company_id),
     });
   }
   return links;

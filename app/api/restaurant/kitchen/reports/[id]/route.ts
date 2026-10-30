@@ -5,6 +5,7 @@
 // update is company-checked; the write uses the service role because
 // kitchen_reports has no write policies for tenant members.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -21,6 +22,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -33,7 +35,7 @@ export async function PATCH(
     const { id } = await params;
     if (!UUID_RE.test(id)) {
       return NextResponse.json(
-        { error: "El identificador no es válido." },
+        { error: d.kitchen.api.idInvalid },
         { status: 400 }
       );
     }
@@ -42,7 +44,7 @@ export async function PATCH(
       body = await req.json();
     } catch {
       return NextResponse.json(
-        { error: "El cuerpo tiene que ser JSON." },
+        { error: d.kitchen.api.bodyMustBeJson },
         { status: 400 }
       );
     }
@@ -51,7 +53,7 @@ export async function PATCH(
       !(REPORT_TYPES as readonly string[]).includes(body.report_type)
     ) {
       return NextResponse.json(
-        { error: "El tipo de aviso no es válido." },
+        { error: d.kitchen.api.reportTypeInvalid },
         { status: 400 }
       );
     }
@@ -66,13 +68,13 @@ export async function PATCH(
     if (error) {
       console.error("[kitchen-reports] reclassify failed:", error.message);
       return NextResponse.json(
-        { error: "No pude actualizar el aviso." },
+        { error: d.kitchen.api.reportUpdateFailed },
         { status: 500 }
       );
     }
     if (!data) {
       return NextResponse.json(
-        { error: "No encontré el aviso." },
+        { error: d.kitchen.api.reportNotFound },
         { status: 404 }
       );
     }
@@ -83,7 +85,7 @@ export async function PATCH(
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude actualizar el aviso." },
+      { error: d.kitchen.api.reportUpdateFailed },
       { status: 500 }
     );
   }

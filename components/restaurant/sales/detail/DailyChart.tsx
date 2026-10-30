@@ -9,6 +9,7 @@ import { useMemo, useRef, useState } from "react";
 import type { ChartMetric, DayBar } from "@/lib/restaurant/sales-detail";
 import { selectTicks } from "@/lib/restaurant/ui/axis-ticks";
 import { useElementWidth } from "@/lib/restaurant/ui/use-element-width";
+import { useT } from "@/lib/i18n/client";
 import { BLUE, dayLabelEs } from "./format";
 
 const H = 190;
@@ -29,6 +30,8 @@ export function DailyChart({
   onMetric: (m: ChartMetric) => void;
   onDay: (date: string) => void;
 }) {
+  const { d, lang, fmt: fmtT } = useT();
+  const t0 = d.sales.detail.daily;
   const [hover, setHover] = useState<number | null>(null);
   // Drawn in real pixels: the text keeps its size and nothing is letterboxed.
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -45,17 +48,17 @@ export function DailyChart({
   const useBars = n < 8;
   const bw = Math.min(46, slot * 0.6);
   const fmt = (v: number) =>
-    metric === "ventas" ? money(v) : `${Math.round(v)} tickets`;
+    metric === "ventas" ? money(v) : fmtT(t0.ticketsFmt, { n: Math.round(v) });
   const ticks = useMemo(
     () =>
       selectTicks({
         count: n,
         positionOf: (i) => PAD.l + slot * i + slot / 2,
-        labelOf: (i) => dayLabelEs(bars[i].date),
+        labelOf: (i) => dayLabelEs(bars[i].date, lang),
         width: W,
         fontSize: 10.5,
       }),
-    [bars, n, slot, W]
+    [bars, n, slot, W, lang]
   );
   const tgtPath = targets.some((t) => t !== null)
     ? targets
@@ -81,10 +84,10 @@ export function DailyChart({
       data-testid="sales-daily-chart"
     >
       <div className="mb-1 flex items-center gap-2">
-        <h2 className="text-[13px] font-bold">Ventas por día</h2>
+        <h2 className="text-[13px] font-bold">{t0.title}</h2>
         <div
           role="group"
-          aria-label="Métrica"
+          aria-label={t0.metric}
           className="inline-flex rounded-[9px] bg-[#e9ecf2] p-[2px]"
         >
           {(["ventas", "tickets"] as const).map((m) => (
@@ -100,21 +103,17 @@ export function DailyChart({
                   : "text-[#5b6476]")
               }
             >
-              {m === "ventas" ? "Ventas" : "Tickets"}
+              {m === "ventas" ? t0.sales : t0.tickets}
             </button>
           ))}
         </div>
       </div>
-      <div
-        className="relative"
-        ref={wrapRef}
-        title="Clic en un día para filtrar la página"
-      >
+      <div className="relative" ref={wrapRef} title={t0.clickDay}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="h-[190px] w-full"
           role="img"
-          aria-label="Ventas por día"
+          aria-label={t0.title}
         >
           {useBars ? (
             bars.map((b, i) => {
@@ -213,16 +212,16 @@ export function DailyChart({
         </svg>
         {hover !== null ? (
           <div className="pointer-events-none absolute left-1/2 top-1 -translate-x-1/2 rounded-md bg-[#151c2c] px-2 py-1 text-[11.5px] text-white">
-            {dayLabelEs(bars[hover].date)} · {fmt(values[hover])}
+            {dayLabelEs(bars[hover].date, lang)} · {fmt(values[hover])}
             {targets[hover] !== null
-              ? ` · objetivo ${money(targets[hover] as number)}`
+              ? fmtT(t0.targetTip, { amount: money(targets[hover] as number) })
               : ""}
           </div>
         ) : null}
       </div>
       {hasTarget && metric === "ventas" && withTarget > 0 ? (
         <p className="text-[11.5px] text-[#8a92a3]">
-          {`${above} de ${n} días sobre el objetivo (línea punteada).`}
+          {fmtT(t0.aboveCount, { above, n })}
         </p>
       ) : null}
     </section>

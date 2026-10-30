@@ -6,6 +6,7 @@
 // Telegram file ids are never returned; media is viewed through the
 // company-checked /reports/[id]/media proxy.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { REPORT_TYPES } from "@/lib/restaurant/telegram/kitchen-reports";
@@ -22,6 +23,7 @@ const UUID_RE =
 const LIMIT = 50;
 
 export async function GET(req: NextRequest) {
+  const d = await apiDictionary();
   try {
     const auth = await authAndCompany();
     if (!auth.ok) return auth.response;
@@ -32,13 +34,13 @@ export async function GET(req: NextRequest) {
     const type = sp.get("type");
     if (locationId && !UUID_RE.test(locationId)) {
       return NextResponse.json(
-        { error: "El restaurante no es válido." },
+        { error: d.kitchen.api.restaurantInvalid },
         { status: 400 }
       );
     }
     if (type && !(REPORT_TYPES as readonly string[]).includes(type)) {
       return NextResponse.json(
-        { error: "El tipo no es válido." },
+        { error: d.kitchen.api.typeInvalid },
         { status: 400 }
       );
     }
@@ -67,7 +69,7 @@ export async function GET(req: NextRequest) {
     if (error) {
       console.error("[kitchen-reports] list failed:", error.message);
       return NextResponse.json(
-        { error: "No pude cargar los avisos." },
+        { error: d.kitchen.api.reportsLoadFailed },
         { status: 500 }
       );
     }
@@ -107,7 +109,7 @@ export async function GET(req: NextRequest) {
       err instanceof Error ? err.name : "Unknown error"
     );
     return NextResponse.json(
-      { error: "No pude cargar los avisos." },
+      { error: d.kitchen.api.reportsLoadFailed },
       { status: 500 }
     );
   }

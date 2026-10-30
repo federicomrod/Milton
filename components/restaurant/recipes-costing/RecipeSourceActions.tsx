@@ -7,7 +7,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { GhostBtn } from "./ui";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
 
+/** Spanish defaults; the screens read the dictionary (menu.editor.source). */
 export const USE_RECIPE_LABEL = "Usar la receta de otro plato";
 export const COPY_RECIPE_LABEL = "Copiar receta de…";
 export const RECIPE_SOURCE_HELP =
@@ -58,6 +61,8 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
     onUse,
     onCopied,
   } = props;
+  const { d: dict } = useT();
+  const d = dict.menu.editor.source;
   const [mode, setMode] = useState<Mode | null>(null);
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
@@ -84,9 +89,7 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
         };
         if (!alive) return;
         if (!res.ok) {
-          setError(
-            userErrorMessage(body, "No pude cargar las recetas para copiar.")
-          );
+          setError(userErrorMessage(body, d.loadFailed));
           setCandidates([]);
           return;
         }
@@ -94,13 +97,13 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
       })
       .catch(() => {
         if (!alive) return;
-        setError("No pude cargar las recetas para copiar.");
+        setError(d.loadFailed);
         setCandidates([]);
       });
     return () => {
       alive = false;
     };
-  }, [mode, candidates, currentMenuItemId]);
+  }, [mode, candidates, currentMenuItemId, d]);
 
   const close = () => {
     setMode(null);
@@ -122,13 +125,13 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
         ? (candidates ?? []).map((c) => ({
             id: c.menu_item_id,
             name: c.name,
-            note: c.status === "aprobada" ? "Aprobada" : "Borrador",
+            note: c.status === "aprobada" ? d.approved : d.draft,
           }))
         : menuItems
             .filter((item) => item.id !== currentMenuItemId)
             .map((item) => ({ id: item.id, name: item.name }));
     return base.filter((item) => !q || fold(item.name).includes(q));
-  }, [mode, candidates, menuItems, currentMenuItemId, query]);
+  }, [mode, candidates, menuItems, currentMenuItemId, query, d]);
 
   async function copyFrom(
     sourceId: string,
@@ -163,13 +166,13 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
         return;
       }
       if (!res.ok) {
-        setError(userErrorMessage(body, "No pude copiar la receta."));
+        setError(userErrorMessage(body, d.copyFailed));
         return;
       }
       close();
       onCopied();
     } catch {
-      setError("No pude copiar la receta. Intenta otra vez.");
+      setError(d.copyFailedRetry);
     } finally {
       setWorking(false);
     }
@@ -178,17 +181,17 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
   const buttons = (
     <>
       <GhostBtn disabled={disabled} onClick={() => open("use")}>
-        {USE_RECIPE_LABEL}
+        {d.useRecipe}
       </GhostBtn>
       <GhostBtn disabled={disabled} onClick={() => open("copy")}>
-        {COPY_RECIPE_LABEL}
+        {d.copyRecipe}
       </GhostBtn>
     </>
   );
 
   const helper = (
     <p className="text-[12px] text-[#6b7385]" data-testid="recipe-source-help">
-      {RECIPE_SOURCE_HELP}
+      {d.help}
     </p>
   );
 
@@ -199,19 +202,19 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[13px] font-semibold text-[#1b2333]">
-          {mode === "copy" ? "Copiar la receta de" : "Usar la receta de"}
+          {mode === "copy" ? d.copyTitle : d.useTitle}
         </span>
         <input
           type="search"
           autoFocus
-          aria-label="Buscar plato"
-          placeholder="Buscar plato…"
+          aria-label={d.searchLabel}
+          placeholder={d.searchPlaceholder}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           className="min-w-[200px] flex-1 rounded-md border border-[#d5dae3] px-2 py-1 text-[13px]"
         />
         <GhostBtn onClick={close} disabled={working}>
-          Cancelar
+          {d.cancel}
         </GhostBtn>
       </div>
       {choice ? (
@@ -220,9 +223,10 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
           data-testid="copy-choice"
         >
           <p>
-            El borrador de este plato ya tiene {choice.lines}{" "}
-            {choice.lines === 1 ? "línea" : "líneas"}. ¿Qué hacemos con las
-            líneas de «{choice.sourceName}»?
+            {fmt(choice.lines === 1 ? d.draftHasOne : d.draftHasOther, {
+              count: choice.lines,
+              name: choice.sourceName,
+            })}
           </p>
           <div className="flex flex-wrap gap-2">
             <GhostBtn
@@ -231,7 +235,7 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
                 void copyFrom(choice.sourceId, choice.sourceName, "replace")
               }
             >
-              Reemplazar las líneas del borrador
+              {d.replaceLines}
             </GhostBtn>
             <GhostBtn
               disabled={working}
@@ -239,20 +243,18 @@ export function useRecipeSourceActions(props: RecipeSourceActionsProps): {
                 void copyFrom(choice.sourceId, choice.sourceName, "append")
               }
             >
-              Agregar al final
+              {d.appendLines}
             </GhostBtn>
             <GhostBtn disabled={working} onClick={close}>
-              Cancelar
+              {d.cancel}
             </GhostBtn>
           </div>
         </div>
       ) : mode === "copy" && candidates === null ? (
-        <p className="text-[13px] text-[#5b6476]">Cargando recetas…</p>
+        <p className="text-[13px] text-[#5b6476]">{d.loadingRecipes}</p>
       ) : options.length === 0 ? (
         <p className="text-[13px] text-[#5b6476]">
-          {mode === "copy"
-            ? "No encontré platos con receta que coincidan."
-            : "No encontré platos que coincidan."}
+          {mode === "copy" ? d.noneWithRecipe : d.noneMatching}
         </p>
       ) : (
         <ul className="max-h-56 space-y-1 overflow-auto" role="listbox">

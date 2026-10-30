@@ -11,6 +11,8 @@
 //   catalog when the recipe is costed. The Excel number is kept only as
 //   evidence (and to spot a wrong unit label).
 
+import { fmt, getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { normalizeMatchName } from "@/lib/restaurant/cost-workbook/names";
 import { resolveRecipeLineUnit } from "@/lib/restaurant/cost-workbook/portion-unit";
 import { convertUnitPriceStr, normalizeUnit } from "@/lib/restaurant/units";
@@ -106,7 +108,10 @@ export function prefillLines(input: {
   preparations: readonly PrefillCatalogPreparation[];
   /** normalizeMatchName(alias) -> ingredient id, confirmed by a person. */
   aliases?: ReadonlyMap<string, string>;
+  /** Language of the review reasons (default Spanish). */
+  lang?: PreferredLanguage;
 }): PrefilledLine[] {
+  const msg = getDictionary(input.lang ?? "es").menu.editor.prefill;
   const ingredientsByKey = new Map<string, PrefillCatalogIngredient[]>();
   for (const row of input.ingredients) {
     const key = normalizeMatchName(row.name);
@@ -165,9 +170,7 @@ export function prefillLines(input: {
         via: "exact",
       };
     } else if (ingredientHits.length + prepHits.length > 1) {
-      reasons.push(
-        `«${line.raw_name}» coincide con más de un ingrediente o preparación. Elige cuál.`
-      );
+      reasons.push(fmt(msg.ambiguous, { name: line.raw_name }));
     } else {
       const remembered = input.aliases?.get(key);
       const target = remembered ? ingredientById.get(remembered) : undefined;
@@ -183,9 +186,7 @@ export function prefillLines(input: {
     if (!resolved) {
       flags.push(FLAG_PENDING_INGREDIENT);
       if (ingredientHits.length + prepHits.length <= 1) {
-        reasons.push(
-          `«${line.raw_name}» no está en tu lista de ingredientes ni de preparaciones. Elige cuál es.`
-        );
+        reasons.push(fmt(msg.notInList, { name: line.raw_name }));
       }
     }
 

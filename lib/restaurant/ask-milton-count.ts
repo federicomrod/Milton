@@ -32,6 +32,16 @@ const NUMBER_WORDS: Record<string, number> = {
   eight: 8,
   nine: 9,
   ten: 10,
+  eins: 1,
+  zwei: 2,
+  drei: 3,
+  vier: 4,
+  funf: 5,
+  sechs: 6,
+  sieben: 7,
+  acht: 8,
+  neun: 9,
+  zehn: 10,
 };
 
 // Words that make a number a list size.
@@ -69,6 +79,17 @@ const LIST_WORDS = [
   "highest",
   "lowest",
   "biggest",
+  // de
+  "gerichte?",
+  "zutaten?",
+  "lieferanten?",
+  "rechnungen?",
+  "rezepte?",
+  "produkte?",
+  "artikel",
+  "besten",
+  "schlechtesten",
+  "meistverkauften",
 ].join("|");
 
 function fold(s: string): string {

@@ -1,4 +1,9 @@
 import type { SuggestionEvidenceView, SuggestionLineView } from "./evidence";
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { formatMoneyEs, formatPctLabel, lineCostDisplay } from "./format";
 
 export interface ReviewLineView {
@@ -47,7 +52,8 @@ export function isUncertainEvidence(evidence: SuggestionEvidenceView): boolean {
 function purchaseUnitCostLabel(
   label: string,
   amount: number | null,
-  unit: string
+  unit: string,
+  lang: PreferredLanguage
 ): string {
   if (amount == null || !unit) return label;
   const folded = unit
@@ -55,16 +61,16 @@ function purchaseUnitCostLabel(
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
   if (folded === "g" || folded === "gr" || folded.startsWith("gramo")) {
-    return `${formatMoneyEs(amount * 1000)} / kg`;
+    return `${formatMoneyEs(amount * 1000, undefined, undefined, lang)} / kg`;
   }
   if (folded === "ml") {
-    return `${formatMoneyEs(amount * 1000)} / L`;
+    return `${formatMoneyEs(amount * 1000, undefined, undefined, lang)} / L`;
   }
   if (folded === "unidad" || folded === "u" || folded.startsWith("unidad")) {
     return `${label} / u`;
   }
   if (folded.startsWith("porcion")) {
-    return `${label} / porción`;
+    return `${label} / ${getDictionary(lang).menu.workspace.format.perPortion}`;
   }
   return `${label} / ${unit}`;
 }
@@ -72,12 +78,14 @@ function purchaseUnitCostLabel(
 export function toReviewLine(
   line: SuggestionLineView,
   currency?: string,
-  portionCost?: number | null
+  portionCost?: number | null,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): ReviewLineView {
   const cost = lineCostDisplay({
     pending: line.pending,
     unit_cost: line.unit_cost,
     currency,
+    lang,
   });
   const aporte =
     !line.pending && cost.amount != null && line.qty > 0
@@ -95,16 +103,24 @@ export function toReviewLine(
     pending: line.pending,
     cost_label: cost.label,
     unit_cost: cost.amount,
-    unit_cost_label: purchaseUnitCostLabel(cost.label, cost.amount, line.unit),
+    unit_cost_label: purchaseUnitCostLabel(
+      cost.label,
+      cost.amount,
+      line.unit,
+      lang
+    ),
     aporte,
-    aporte_label: aporte != null ? formatMoneyEs(aporte, currency) : cost.label,
+    aporte_label:
+      aporte != null
+        ? formatMoneyEs(aporte, currency, undefined, lang)
+        : cost.label,
     dish_pct: dishPct,
     dish_pct_label: dishPct != null ? formatPctLabel(dishPct) : "—",
     flags: line.flags,
     reasons: line.reasons,
     is_sub_recipe: Boolean(line.sub_recipe_match),
     source_note: line.sub_recipe_match
-      ? "Preparación"
+      ? getDictionary(lang).menu.workspace.review.preparation
       : (line.reasons.find((reason) =>
           /compra|proveedor|oct|sep|nov|dic/i.test(reason)
         ) ?? null),

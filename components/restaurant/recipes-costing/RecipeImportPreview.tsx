@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GhostBtn, PrimaryBtn } from "./ui";
-import { PENDING_PRICE_CHOICES_NOTE } from "./pending-price-note";
+import { pendingPriceChoicesNote } from "./pending-price-note";
+import { useT } from "@/lib/i18n/client";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 /** Id of the «2. Importar recetas» button (scrolled into view after step 1). */
@@ -96,6 +97,8 @@ export function RecipeImportPreview({
   /** Step 2 is the next primary action (prices already saved or nothing to save). */
   primary?: boolean;
 }) {
+  const { d, fmt, lang } = useT();
+  const w = d.menu.workspace.importPreview;
   const [preview, setPreview] = useState<RecipePreview | null>(null);
   const [imported, setImported] = useState<Imported | null>(
     (initialImported as unknown as Imported | null) ?? null
@@ -128,8 +131,7 @@ export function RecipeImportPreview({
     fetch("/api/restaurant/recipes/import", { method: "POST", body: form })
       .then(async (res) => {
         const json = (await res.json()) as RecipePreview & { error?: string };
-        if (!res.ok)
-          throw new Error(userErrorMessage(json, "No pude leer las recetas."));
+        if (!res.ok) throw new Error(userErrorMessage(json, w.readFailed));
         if (!cancelled) {
           setPreview(json);
           onDishesRef.current?.(json.dishes ?? 0);
@@ -137,9 +139,7 @@ export function RecipeImportPreview({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "No pude leer las recetas."
-          );
+          setError(err instanceof Error ? err.message : w.readFailed);
         }
       })
       .finally(() => {
@@ -148,6 +148,7 @@ export function RecipeImportPreview({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftToken, hasImported, locationId]);
 
   async function importRecipes() {
@@ -170,13 +171,13 @@ export function RecipeImportPreview({
         body: form,
       });
       const json = (await res.json()) as Imported & { error?: string };
-      if (!res.ok) throw new Error(userErrorMessage(json, "No pude importar."));
+      if (!res.ok) throw new Error(userErrorMessage(json, w.importFailed));
       setImported(json);
       setPreview(null);
       onDishesRef.current?.(0);
       onImported();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude importar.");
+      setError(err instanceof Error ? err.message : w.importFailed);
     } finally {
       setBusy(false);
     }
@@ -189,7 +190,7 @@ export function RecipeImportPreview({
       const res = await fetch(`/api/restaurant/costs/batches/${batchId}/undo`, {
         method: "POST",
       });
-      if (!res.ok) throw new Error("No pude deshacer.");
+      if (!res.ok) throw new Error(w.undoFailed);
       setImported(null);
       // The file is still saved: forget the import and preview it again.
       await fetch("/api/restaurant/recipes/upload-draft", {
@@ -199,7 +200,7 @@ export function RecipeImportPreview({
       });
       onImported();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude deshacer.");
+      setError(err instanceof Error ? err.message : w.undoFailed);
     } finally {
       setBusy(false);
     }
@@ -209,9 +210,9 @@ export function RecipeImportPreview({
 
   return (
     <section className="space-y-2 border-t border-slate-100 pt-3">
-      <h3 className="text-[13px] font-semibold">Recetas de tu archivo</h3>
+      <h3 className="text-[13px] font-semibold">{w.title}</h3>
       {busy && !preview ? (
-        <p className="text-xs text-[#5b6476]">Leyendo tus recetas…</p>
+        <p className="text-xs text-[#5b6476]">{w.reading}</p>
       ) : null}
       {error ? (
         <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-xs text-[#c03535]">
@@ -222,20 +223,22 @@ export function RecipeImportPreview({
       {preview ? (
         <>
           <p className="text-xs text-[#5b6476]">
-            {preview.dishes} platos · {preview.matching} cuadran con el COSTO
-            TOTAL del Excel · {preview.preparations} preparaciones ·{" "}
-            {preview.ingredients_new} ingredientes nuevos
-            {preview.ingredients_reused > 0
-              ? ` (${preview.ingredients_reused} ya estaban)`
-              : ""}{" "}
-            · {preview.linked} vinculados a tu POS. Todo entra como borrador:
-            nada cuenta en los márgenes hasta que lo apruebes.
+            {fmt(w.summary, {
+              dishes: preview.dishes,
+              matching: preview.matching,
+              preparations: preview.preparations,
+              ingredients: preview.ingredients_new,
+              reused:
+                preview.ingredients_reused > 0
+                  ? fmt(w.reused, { n: preview.ingredients_reused })
+                  : "",
+              linked: preview.linked,
+            })}
           </p>
           {preview.unmatched && preview.unmatched.length > 0 ? (
             <details className="text-[12px] text-[#5b6476]">
               <summary className="cursor-pointer font-semibold">
-                {preview.unmatched.length} platos sin vínculo al POS (sin contar
-                eventos): por qué
+                {fmt(w.unmatched, { n: preview.unmatched.length })}
               </summary>
               <ul className="mt-1 list-disc pl-4">
                 {preview.unmatched.map((row) => (
@@ -250,11 +253,11 @@ export function RecipeImportPreview({
             <table className="w-full text-[12px]">
               <thead className="sticky top-0 bg-white">
                 <tr className="text-left text-[12px] font-semibold text-[#8a92a3]">
-                  <th className="px-2 py-1.5">Plato</th>
-                  <th className="px-2 py-1.5 text-right">Nuestro costo</th>
-                  <th className="px-2 py-1.5 text-right">COSTO TOTAL Excel</th>
-                  <th className="px-2 py-1.5 text-center">Cuadra</th>
-                  <th className="px-2 py-1.5">Avisos</th>
+                  <th className="px-2 py-1.5">{w.colDish}</th>
+                  <th className="px-2 py-1.5 text-right">{w.colOurCost}</th>
+                  <th className="px-2 py-1.5 text-right">{w.colExcelCost}</th>
+                  <th className="px-2 py-1.5 text-center">{w.colMatch}</th>
+                  <th className="px-2 py-1.5">{w.colNotes}</th>
                 </tr>
               </thead>
               <tbody>
@@ -288,7 +291,9 @@ export function RecipeImportPreview({
                         <div className="text-[#6b7280]">{row.skip_reason}</div>
                       ) : null}
                       <div>
-                        {row.pos_name ? `POS: ${row.pos_name}` : row.link_note}
+                        {row.pos_name
+                          ? fmt(w.posName, { name: row.pos_name })
+                          : row.link_note}
                       </div>
                       {row.flags.length > 0 ? (
                         <div>{row.flags.join(" · ")}</div>
@@ -321,7 +326,7 @@ export function RecipeImportPreview({
               <>
                 {hasPendingPriceChoices ? (
                   <p className="text-[12px] text-[#6b7280]">
-                    {PENDING_PRICE_CHOICES_NOTE}
+                    {pendingPriceChoicesNote(lang)}
                   </p>
                 ) : null}
                 <Btn
@@ -330,8 +335,13 @@ export function RecipeImportPreview({
                   onClick={() => void importRecipes()}
                 >
                   {busy
-                    ? "Importando…"
-                    : `2. Importar recetas (${preview.dishes} ${preview.dishes === 1 ? "plato" : "platos"})`}
+                    ? w.importing
+                    : fmt(
+                        preview.dishes === 1
+                          ? w.importButtonOne
+                          : w.importButtonOther,
+                        { n: preview.dishes }
+                      )}
                 </Btn>
               </>
             );
@@ -341,39 +351,48 @@ export function RecipeImportPreview({
 
       {imported ? (
         <div className="rounded-lg border border-[#cfe9d9] bg-[#f1faf5] px-3 py-2 text-xs text-[#1f7a45]">
-          Importamos {imported.dishes_imported} platos como borrador (
-          {imported.dishes_linked} vinculados a tu POS),{" "}
-          {imported.preparations_created} preparaciones y{" "}
-          {imported.ingredients_created} ingredientes nuevos.
+          {fmt(w.doneSummary, {
+            dishes: imported.dishes_imported,
+            linked: imported.dishes_linked,
+            preparations: imported.preparations_created,
+            ingredients: imported.ingredients_created,
+          })}
           {imported.dishes_filled
-            ? ` ${imported.dishes_filled} ${imported.dishes_filled === 1 ? "plato vacío se llenó" : "platos vacíos se llenaron"} con la receta del Excel.`
+            ? fmt(imported.dishes_filled === 1 ? w.filledOne : w.filledOther, {
+                n: imported.dishes_filled,
+              })
             : ""}
           {imported.dishes_kept
-            ? ` Mantuvimos ${imported.dishes_kept} ${imported.dishes_kept === 1 ? "receta tuya" : "recetas tuyas"}.`
+            ? fmt(imported.dishes_kept === 1 ? w.keptOne : w.keptOther, {
+                n: imported.dishes_kept,
+              })
             : ""}
           {imported.dishes_replaced
-            ? ` ${imported.dishes_replaced} ${imported.dishes_replaced === 1 ? "plato tiene" : "platos tienen"} un borrador nuevo del Excel (la receta anterior sigue en su historial).`
+            ? fmt(
+                imported.dishes_replaced === 1
+                  ? w.replacedOne
+                  : w.replacedOther,
+                { n: imported.dishes_replaced }
+              )
             : ""}
           {imported.dishes_skipped > 0
-            ? ` ${imported.dishes_skipped} platos no se tocaron.`
+            ? fmt(w.skipped, { n: imported.dishes_skipped })
             : ""}
           {imported.typed_prices_not_carried
-            ? ` ${imported.typed_prices_not_carried} precios escritos a mano cambiaron de unidad y quedaron Pendiente: escríbelos de nuevo en el plato.`
+            ? fmt(w.typedPricesNotCarried, {
+                n: imported.typed_prices_not_carried,
+              })
             : ""}{" "}
           <GhostBtn
             disabled={busy || !canEditPrices}
             onClick={() => void undo(imported.batch_id)}
           >
-            Deshacer lote
+            {w.undoBatch}
           </GhostBtn>
         </div>
       ) : null}
     </section>
   );
-}
-
-function linesWord(n: number): string {
-  return `${n} ${n === 1 ? "línea" : "líneas"}`;
 }
 
 /** «N platos ya tienen receta»: keep mine (default) or use the Excel's, per dish. */
@@ -388,6 +407,11 @@ function ConflictSection({
   onChoice: (key: string, choice: Choice) => void;
   onAllExcel: () => void;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.importPreview;
+  const linesWord = (n: number) =>
+    fmt(n === 1 ? w.linesOne : w.linesOther, { n });
+  const noPrice = d.menu.screens.noPrice;
   return (
     <section
       className="space-y-1.5 rounded-lg border border-[#c6d3f5] bg-[#f6f8fe] px-3 py-2"
@@ -395,22 +419,19 @@ function ConflictSection({
     >
       <div className="flex items-center gap-2">
         <h4 className="text-[12.5px] font-semibold text-[#151c2c]">
-          {conflicts.length}{" "}
-          {conflicts.length === 1 ? "plato ya tiene" : "platos ya tienen"}{" "}
-          receta
+          {fmt(conflicts.length === 1 ? w.conflictsOne : w.conflictsOther, {
+            n: conflicts.length,
+          })}
         </h4>
         <button
           type="button"
           onClick={onAllExcel}
           className="ml-auto text-[12px] font-semibold text-[#1B40C8] hover:underline"
         >
-          Usar Excel en todos
+          {w.allExcel}
         </button>
       </div>
-      <p className="text-[12px] text-[#5b6476]">
-        Por defecto se queda la tuya. Si eliges el Excel, se crea un borrador
-        nuevo y la receta anterior sigue en su historial.
-      </p>
+      <p className="text-[12px] text-[#5b6476]">{w.conflictHint}</p>
       <ul className="max-h-48 divide-y divide-[#e3e9f8] overflow-auto rounded-md border border-[#e3e9f8] bg-white">
         {conflicts.map((row) => {
           const choice = choices[row.key] ?? "mine";
@@ -421,24 +442,27 @@ function ConflictSection({
             >
               <b className="min-w-32">{row.dish}</b>
               <span className="text-[#5b6476]">
-                Tu receta:{" "}
-                {row.my_cost !== null ? money(row.my_cost) : "Sin precio"} ·{" "}
-                {linesWord(row.my_lines)}
+                {fmt(w.yourRecipe, {
+                  cost: row.my_cost !== null ? money(row.my_cost) : noPrice,
+                  lines: linesWord(row.my_lines),
+                })}
               </span>
               <span className="text-[#5b6476]">
-                Excel:{" "}
-                {row.excel_cost !== null ? money(row.excel_cost) : "Sin precio"}{" "}
-                · {linesWord(row.excel_lines)}
+                {fmt(w.excelRecipe, {
+                  cost:
+                    row.excel_cost !== null ? money(row.excel_cost) : noPrice,
+                  lines: linesWord(row.excel_lines),
+                })}
               </span>
               <span
                 role="group"
-                aria-label={`Receta de ${row.dish}`}
+                aria-label={fmt(w.recipeOf, { dish: row.dish })}
                 className="ml-auto inline-flex overflow-hidden rounded-md border border-[#1B40C8]"
               >
                 {(
                   [
-                    ["mine", "Mantener la mía"],
-                    ["excel", "Usar la del Excel"],
+                    ["mine", w.keepMine],
+                    ["excel", w.useExcel],
                   ] as const
                 ).map(([value, label]) => (
                   <button

@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import { resolvePosTimezone } from "@/lib/restaurant/pos-timezone";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[cockpit-cost-days]", err);
     return NextResponse.json(
-      { error: "No pude calcular el costo por día." },
+      { error: (await apiDictionary()).sales.api.costDaysFailed },
       { status: 500 }
     );
   }

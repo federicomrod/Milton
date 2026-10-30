@@ -61,10 +61,15 @@ export function KitchenSummaries({
             </p>
             <span className="text-[12px] font-medium text-[#1B40C8]">
               {row.id === "drafts"
-                ? t(lang, "Review →", "Revisar →")
+                ? t(lang, "Review →", "Revisar →", "Prüfen →")
                 : row.id === "waste"
-                  ? t(lang, "See details →", "Ver detalles →")
-                  : t(lang, "See all →", "Ver todo →")}
+                  ? t(
+                      lang,
+                      "See details →",
+                      "Ver detalles →",
+                      "Details anzeigen →"
+                    )
+                  : t(lang, "See all →", "Ver todo →", "Alle anzeigen →")}
             </span>
           </div>
           <p className="text-[17px] font-bold mt-1">{row.value}</p>

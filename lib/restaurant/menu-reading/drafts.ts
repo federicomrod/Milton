@@ -23,6 +23,8 @@ import {
   type DishMatch,
 } from "./match";
 import type { CatalogIngredientRef } from "@/lib/restaurant/recipe-costing/ingredient-match";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { menuMsg } from "./messages";
 
 export const MENU_EVIDENCE_SOURCE = "menu";
 import {
@@ -34,11 +36,10 @@ import {
 
 export { FLAG_FROM_MENU, FLAG_NEW_SUGGESTED, FLAG_PENDING_QTY };
 
-export const NOT_FOUND_IN_MENU = "No encontrado en el menú";
-export const HAS_RECIPE_REASON =
-  "ya tiene receta (de tu Excel o hecha a mano); el menú no la cambia";
-export const NO_COMPONENTS_REASON = "el menú no dice qué lleva este plato";
-export const MENU_DRAFT_EXISTS_REASON = "ya tiene un borrador del menú";
+export const NOT_FOUND_IN_MENU = menuMsg("es", "notFoundInMenu");
+export const HAS_RECIPE_REASON = menuMsg("es", "hasRecipeReason");
+export const NO_COMPONENTS_REASON = menuMsg("es", "noComponentsReason");
+export const MENU_DRAFT_EXISTS_REASON = menuMsg("es", "draftExistsReason");
 
 export interface MenuDraftProduct {
   odoo_product_id: number;
@@ -81,7 +82,8 @@ export type OmittedCode = "has_recipe" | "no_ingredients" | "draft_exists";
 
 export function menuDraftLines(
   components: readonly string[],
-  catalog: MenuDraftCatalog
+  catalog: MenuDraftCatalog,
+  lang: PreferredLanguage = "es"
 ): Array<Record<string, unknown>> {
   return components.map((name) => {
     const hit = matchMenuComponent(name, catalog);
@@ -103,8 +105,12 @@ export function menuDraftLines(
       ],
       reasons: [
         hit
-          ? `Del menú; parece ${hit.kind === "component" ? "tu preparación" : "tu ingrediente"} «${hit.name}». Confírmalo y escribe cuánto lleva.`
-          : "Del menú; no está en tu lista. Nuevo, sugerido: créalo o elige uno de tu lista.",
+          ? menuMsg(
+              lang,
+              hit.kind === "component" ? "hitPreparation" : "hitIngredient",
+              { name: hit.name }
+            )
+          : menuMsg(lang, "notInList"),
       ],
     };
   });
@@ -115,7 +121,9 @@ export function menuDraftEvidence(input: {
   lines: Array<Record<string, unknown>>;
   menuSourceId: string | null;
   menuUrl: string | null;
+  lang?: PreferredLanguage;
 }): Record<string, unknown> {
+  const lang = input.lang ?? "es";
   const { dish, variant } = input.match;
   return {
     source: MENU_EVIDENCE_SOURCE,
@@ -123,7 +131,7 @@ export function menuDraftEvidence(input: {
     block_name: null,
     filename: null,
     confidence: null,
-    evidence: `Del menú: ${dish.name}${variant ? ` (${variant.label})` : ""}`,
+    evidence: `${menuMsg(lang, "fromMenu", { name: dish.name })}${variant ? ` (${variant.label})` : ""}`,
     menu_source_id: input.menuSourceId,
     menu_url: input.menuUrl,
     menu_dish: dish.name,
@@ -141,7 +149,7 @@ export function menuDraftEvidence(input: {
     variance_pct: null,
     status: "borrador",
     pending: true,
-    reasons: ["Faltan las cantidades: el menú dice qué lleva, no cuánto."],
+    reasons: [menuMsg(lang, "missingQuantities")],
     lines: input.lines,
   };
 }
@@ -152,7 +160,10 @@ export function planMenuDrafts(input: {
   catalog: MenuDraftCatalog;
   menuSourceId: string | null;
   menuUrl: string | null;
+  /** Language of the reasons and notes (default Spanish). */
+  lang?: PreferredLanguage;
 }): MenuDraftDecision[] {
+  const lang = input.lang ?? "es";
   return input.products.map((product): MenuDraftDecision => {
     const match = matchPosDishToMenu(
       { name: product.odoo_name, price: product.pos_price },
@@ -163,7 +174,7 @@ export function planMenuDrafts(input: {
       return {
         kind: "omitido",
         product,
-        reason: HAS_RECIPE_REASON,
+        reason: menuMsg(lang, "hasRecipeReason"),
         code: "has_recipe",
         match,
       };
@@ -172,7 +183,7 @@ export function planMenuDrafts(input: {
       return {
         kind: "omitido",
         product,
-        reason: MENU_DRAFT_EXISTS_REASON,
+        reason: menuMsg(lang, "draftExistsReason"),
         code: "draft_exists",
         match,
       };
@@ -181,12 +192,12 @@ export function planMenuDrafts(input: {
       return {
         kind: "omitido",
         product,
-        reason: NO_COMPONENTS_REASON,
+        reason: menuMsg(lang, "noComponentsReason"),
         code: "no_ingredients",
         match,
       };
     }
-    const lines = menuDraftLines(match.dish.components, input.catalog);
+    const lines = menuDraftLines(match.dish.components, input.catalog, lang);
     return {
       kind: "draft",
       product,
@@ -196,6 +207,7 @@ export function planMenuDrafts(input: {
         lines,
         menuSourceId: input.menuSourceId,
         menuUrl: input.menuUrl,
+        lang,
       }),
       new_components: lines.filter((line) =>
         (line.flags as string[]).includes(FLAG_NEW_SUGGESTED)

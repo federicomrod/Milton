@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import type { DetailView, Kpi } from "@/lib/restaurant/sales-detail";
+import { useT } from "@/lib/i18n/client";
 import { dayLabelEs, moneyFmt, pctLabel } from "./format";
 
 function Chip({ text, tone }: { text: string; tone: "good" | "bad" | "flat" }) {
@@ -28,19 +29,21 @@ const tone = (d: number | null) =>
   d === null || Math.abs(d) < 1 ? "flat" : d > 0 ? "good" : "bad";
 
 function Chips({ kpi, short }: { kpi: Kpi; short: string }) {
+  const { d, lang, fmt } = useT();
+  const k = d.sales.detail.kpi;
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {kpi.vsTarget !== null ? (
         <Chip
-          text={`${pctLabel(kpi.vsTarget, 1)} vs objetivo`}
+          text={fmt(k.vsTarget, { pct: pctLabel(kpi.vsTarget, 1, lang) })}
           tone={tone(kpi.vsTarget)}
         />
       ) : null}
       <Chip
         text={
           kpi.delta === null
-            ? `vs ${short} —`
-            : `${pctLabel(kpi.delta, 1)} vs ${short}`
+            ? fmt(k.vsShortNone, { short })
+            : fmt(k.vsShort, { pct: pctLabel(kpi.delta, 1, lang), short })
         }
         tone={tone(kpi.delta)}
       />
@@ -85,7 +88,9 @@ export function KpiRow({
   view: DetailView;
   currency: string;
 }) {
-  const money = moneyFmt(currency);
+  const { d, lang, fmt, locale } = useT();
+  const k0 = d.sales.detail.kpi;
+  const money = moneyFmt(currency, lang);
   const [tip, setTip] = useState(false);
   const k = view.kpis;
   const short = view.compare.short;
@@ -96,16 +101,18 @@ export function KpiRow({
       data-testid="sales-kpis"
     >
       <Card
-        label="Ventas netas"
+        label={k0.net}
         value={k.net.value === null ? dash : money(k.net.value)}
         sub={
-          k.net.target !== null ? `Objetivo ${money(k.net.target)}` : undefined
+          k.net.target !== null
+            ? fmt(k0.target, { amount: money(k.net.target) })
+            : undefined
         }
         info={
           <span className="relative">
             <button
               type="button"
-              aria-label="Cómo se calculan las ventas netas"
+              aria-label={k0.netInfoAria}
               onMouseEnter={() => setTip(true)}
               onMouseLeave={() => setTip(false)}
               onFocus={() => setTip(true)}
@@ -120,19 +127,19 @@ export function KpiRow({
                 className="absolute left-0 top-5 z-30 w-52 rounded-lg bg-[#151c2c] p-2.5 text-[12px] text-white shadow-lg"
               >
                 <span className="flex justify-between">
-                  <span>Venta bruta</span>
+                  <span>{k0.gross}</span>
                   <b>{money(k.gross, 2)}</b>
                 </span>
                 <span className="flex justify-between">
-                  <span>Descuentos</span>
+                  <span>{k0.discounts}</span>
                   <b>−{money(k.discounts, 2)}</b>
                 </span>
                 <span className="flex justify-between border-t border-white/20 pt-1">
-                  <span>Ventas netas</span>
+                  <span>{k0.net}</span>
                   <b>{money(k.net.value ?? 0, 2)}</b>
                 </span>
                 <span className="mt-1 flex justify-between text-[#cfd5e2]">
-                  <span>Propinas (aparte)</span>
+                  <span>{k0.tipsApart}</span>
                   <b>{money(k.tips, 2)}</b>
                 </span>
               </span>
@@ -143,48 +150,53 @@ export function KpiRow({
         <Chips kpi={k.net} short={short} />
       </Card>
       <Card
-        label="Tickets"
+        label={k0.tickets}
         value={
           k.tickets.value === null
             ? dash
-            : k.tickets.value.toLocaleString("es-MX")
+            : k.tickets.value.toLocaleString(locale)
         }
       >
         <Chips kpi={k.tickets} short={short} />
       </Card>
       <Card
-        label="Ticket promedio"
+        label={k0.avgTicket}
         value={k.ticket.value === null ? dash : money(k.ticket.value, 2)}
         sub={
           k.ticket.target !== null
-            ? `Objetivo ${money(k.ticket.target, 2)}`
+            ? fmt(k0.target, { amount: money(k.ticket.target, 2) })
             : undefined
         }
       >
         <Chips kpi={k.ticket} short={short} />
       </Card>
       <Card
-        label="Unidades"
+        label={k0.units}
         value={
           k.units.value === null
             ? dash
-            : Math.round(k.units.value).toLocaleString("es-MX")
+            : Math.round(k.units.value).toLocaleString(locale)
         }
         sub={
           k.units.value && k.net.value !== null
-            ? `${money(k.net.value / k.units.value, 2)} por unidad`
+            ? fmt(k0.perUnit, {
+                amount: money(k.net.value / k.units.value, 2),
+              })
             : undefined
         }
       >
         <Chips kpi={k.units} short={short} />
       </Card>
       <Card
-        label="Mejor día"
+        label={k0.bestDay}
         value={k.best ? money(k.best.net) : dash}
         sub={
           k.best
-            ? `${dayLabelEs(k.best.date)} · ${k.best.tickets} tickets`
-            : "Sin ventas en el período"
+            ? fmt(k0.bestDaySub, {
+                day: dayLabelEs(k.best.date, lang),
+                tickets: k.best.tickets,
+              })
+            : k0.noSalesPeriod
         }
       />
     </div>

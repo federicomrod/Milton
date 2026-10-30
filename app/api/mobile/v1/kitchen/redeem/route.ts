@@ -5,6 +5,8 @@
 // becomes a kitchen_staff row without Telegram ids; never a company member,
 // never a Supabase user.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redeemKitchenInvite } from "@/lib/restaurant/kitchen/app-identity";
@@ -18,30 +20,36 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const REASON_RESPONSE = {
-  invalid: { status: 404, error: "Esta invitación no es válida." },
-  used: { status: 409, error: "Esta invitación ya se usó." },
-  revoked: { status: 410, error: "Esta invitación ya no está activa." },
-  expired: { status: 410, error: "Esta invitación venció." },
-  error: { status: 500, error: "No pude abrir tu cuenta. Inténtalo otra vez." },
+const REASON_STATUS = {
+  invalid: 404,
+  used: 409,
+  revoked: 410,
+  expired: 410,
+  error: 500,
+} as const;
+
+const REASON_KEY = {
+  invalid: "redeemInvalid",
+  used: "redeemUsed",
+  revoked: "redeemRevoked",
+  expired: "redeemExpired",
+  error: "redeemFailed",
 } as const;
 
 export async function POST(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   if (isRedeemRateLimited(clientIp(request))) {
-    return kitchenJson(
-      { error: "Demasiados intentos. Espera un minuto." },
-      429
-    );
+    return kitchenJson({ error: d.kitchen.api.tooManyAttempts }, 429);
   }
   let body: Record<string, unknown> = {};
   try {
     const parsed = await request.json();
     if (parsed && typeof parsed === "object") body = parsed;
   } catch {
-    return kitchenJson({ error: "El mensaje no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.messageInvalid }, 400);
   }
   if (typeof body.secret !== "string" || !body.secret.trim()) {
-    return kitchenJson({ error: "Falta la invitación." }, 400);
+    return kitchenJson({ error: d.kitchen.api.inviteMissing }, 400);
   }
 
   try {
@@ -53,8 +61,13 @@ export async function POST(request: NextRequest) {
         typeof body.deviceLabel === "string" ? body.deviceLabel : null,
     });
     if (!result.ok) {
-      const r = REASON_RESPONSE[result.reason];
-      return kitchenJson({ error: r.error, reason: result.reason }, r.status);
+      return kitchenJson(
+        {
+          error: d.kitchen.api[REASON_KEY[result.reason]],
+          reason: result.reason,
+        },
+        REASON_STATUS[result.reason]
+      );
     }
     return kitchenJson(
       serializeKitchenRedeem({
@@ -71,6 +84,6 @@ export async function POST(request: NextRequest) {
       "[mobile-redeem] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: REASON_RESPONSE.error.error }, 500);
+    return kitchenJson({ error: d.kitchen.api.redeemFailed }, 500);
   }
 }

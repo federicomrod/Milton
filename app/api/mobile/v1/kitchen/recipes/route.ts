@@ -5,6 +5,8 @@
 // nothing here writes a recipe. Allow-list serializer; no price or cost field
 // can reach the cook.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import {
@@ -19,6 +21,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authKitchenDevice(request);
   if (!auth.ok) return auth.response;
   const { admin, staff } = auth;
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
   const params = new URL(request.url).searchParams;
   const offset = decodeRecipesCursor(params.get("cursor"));
   if (offset === null) {
-    return kitchenJson({ error: "El cursor no es válido." }, 400);
+    return kitchenJson({ error: d.kitchen.api.cursorInvalid }, 400);
   }
   try {
     const result = await loadKitchenRecipes(
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
       { offset, search: cleanRecipeSearch(params.get("q")) }
     );
     if (!result.ok) {
-      return kitchenJson({ error: "No pude cargar las recetas." }, 500);
+      return kitchenJson({ error: d.kitchen.api.recipesLoadFailed }, 500);
     }
     return kitchenJson({
       recipes: result.recipes,
@@ -49,6 +52,6 @@ export async function GET(request: NextRequest) {
       "[mobile-kitchen-recipes] unexpected:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return kitchenJson({ error: "No pude cargar las recetas." }, 500);
+    return kitchenJson({ error: d.kitchen.api.recipesLoadFailed }, 500);
   }
 }

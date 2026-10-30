@@ -7,6 +7,11 @@
 // at least one line, every line has a cost, nothing is unresolved or waiting
 // for a unit, and every preparation it uses is approved.
 
+import { getDictionary, fmt } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { FLAG_PENDING_UNIT, type EditorLine } from "./editor";
 
 export type ApprovalFix =
@@ -47,18 +52,24 @@ export interface LiveApprovalInput {
   classification_unsaved?: boolean;
 }
 
-function nameOf(line: EditorLine): string {
-  return (line.name ?? line.raw_name).trim() || "este ingrediente";
+function nameOf(line: EditorLine, fallback: string): string {
+  return (line.name ?? line.raw_name).trim() || fallback;
 }
 
-export function liveApproval(input: LiveApprovalInput): LiveApproval {
+export function liveApproval(
+  input: LiveApprovalInput,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
+): LiveApproval {
+  const dict = getDictionary(lang).menu.workspace;
+  const l = dict.approval.live;
+  const nameOfLine = (line: EditorLine) => nameOf(line, l.thisIngredient);
   const blockers: ApprovalBlocker[] = [];
   const { lines } = input;
 
   if (lines.length === 0) {
     blockers.push({
       kind: "no_lines",
-      text: "La receta no tiene ingredientes.",
+      text: dict.approval.blocker.noIngredients,
       fix: null,
       fix_label: null,
     });
@@ -67,7 +78,7 @@ export function liveApproval(input: LiveApprovalInput): LiveApproval {
     if (line.kind !== "unresolved") continue;
     blockers.push({
       kind: "unresolved",
-      text: `Falta elegir el ingrediente de ${nameOf(line)}`,
+      text: fmt(l.unresolved, { name: nameOfLine(line) }),
       fix: null,
       fix_label: null,
       line_key: line.key,
@@ -79,9 +90,9 @@ export function liveApproval(input: LiveApprovalInput): LiveApproval {
     }
     blockers.push({
       kind: "sub_preparation",
-      text: `Primero aprueba la preparación ${nameOf(line)}`,
+      text: fmt(l.prepFirst, { name: nameOfLine(line) }),
       fix: "open_preparation",
-      fix_label: "Abrir la preparación",
+      fix_label: l.openPrep,
       line_key: line.key,
       ...(line.component_id ? { component_id: line.component_id } : {}),
     });
@@ -89,12 +100,16 @@ export function liveApproval(input: LiveApprovalInput): LiveApproval {
   for (const line of lines) {
     if (line.kind === "unresolved") continue;
     if (!line.flags.includes(FLAG_PENDING_UNIT)) continue;
-    const priceUnit = line.price?.unit ?? "unidades";
+    const priceUnit = line.price?.unit ?? l.defaultUnits;
     blockers.push({
       kind: "unit",
-      text: `Falta decir cuántas ${priceUnit} lleva 1 ${line.unit} de ${nameOf(line)}`,
+      text: fmt(l.unitMissing, {
+        priceUnit,
+        unit: line.unit,
+        name: nameOfLine(line),
+      }),
       fix: "unit_question",
-      fix_label: "Decirlo ahora",
+      fix_label: l.sayNow,
       line_key: line.key,
     });
   }
@@ -107,18 +122,18 @@ export function liveApproval(input: LiveApprovalInput): LiveApproval {
     }
     blockers.push({
       kind: "price",
-      text: `Falta el precio de ${nameOf(line)}`,
+      text: fmt(l.priceMissing, { name: nameOfLine(line) }),
       fix: "price",
-      fix_label: "Poner el precio",
+      fix_label: l.setPrice,
       line_key: line.key,
     });
   }
   if (input.classification_unsaved) {
     blockers.push({
       kind: "classification",
-      text: "Guarda el tipo de plato primero",
+      text: l.saveClassification,
       fix: "classification",
-      fix_label: "Ir al tipo de plato",
+      fix_label: l.goClassification,
     });
   }
 

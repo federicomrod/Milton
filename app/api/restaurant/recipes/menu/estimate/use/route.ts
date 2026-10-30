@@ -14,6 +14,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { applyEstimateAsDraft } from "@/lib/restaurant/menu-reading/estimate-server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,7 +28,7 @@ export async function POST(req: NextRequest) {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "recipes.edit", {
-    message: "Tu rol no puede preparar recetas.",
+    message: (await apiMsg()).roleCannotPrepare,
   });
   if (denied) return denied;
 
@@ -38,7 +41,10 @@ export async function POST(req: NextRequest) {
   const menuItemId =
     typeof body.menu_item_id === "string" ? body.menu_item_id.trim() : "";
   if (!menuItemId) {
-    return NextResponse.json({ error: "Indica el plato." }, { status: 400 });
+    return NextResponse.json(
+      { error: (await apiMsg()).estimateUseNeedsDish },
+      { status: 400 }
+    );
   }
   try {
     const out = await applyEstimateAsDraft(auth.supabase, {
@@ -58,7 +64,7 @@ export async function POST(req: NextRequest) {
   } catch {
     console.error("[recipes-menu-estimate-use]");
     return NextResponse.json(
-      { error: "No pude usar el estimado. Intenta de nuevo." },
+      { error: (await apiMsg()).estimateUseFailed },
       { status: 500 }
     );
   }

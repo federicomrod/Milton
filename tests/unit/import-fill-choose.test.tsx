@@ -290,7 +290,9 @@ describe("the dish page offers the last file's recipe", () => {
   const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
   const plato = read("components/restaurant/recipes-costing/PlatoScreen.tsx");
   it("a button when the recipe is empty, the ⋯ menu entry only when it differs", () => {
-    expect(plato).toContain("Traer receta del último archivo");
+    expect(read("lib/i18n/es/menu-workspace.ts")).toContain(
+      "Traer receta del último archivo"
+    );
     expect(plato).toMatch(/fileRecipe && fileRecipe\.empty/);
     expect(plato).toMatch(/fileRecipe\?\.differs/);
   });

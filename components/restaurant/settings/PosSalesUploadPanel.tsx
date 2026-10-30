@@ -13,7 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
 import { SALES_UPLOAD_DENIED_MESSAGE } from "@/lib/restaurant/pos-upload-messages";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
 
 interface UploadSummary {
@@ -55,9 +59,9 @@ const REQUIRED_COLUMNS = [
   "Gross_Item_Total / Total_Sales",
 ];
 
-function moneyFmt(currency: string) {
+function moneyFmt(currency: string, locale: string) {
   const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  return new Intl.NumberFormat(safe === "MXN" ? "es-MX" : "en-US", {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: safe,
     minimumFractionDigits: 0,
@@ -99,14 +103,15 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
             t(
               lang,
               "Could not upload the file. Try again.",
-              "No se pudo subir el archivo. Inténtalo de nuevo."
+              "No se pudo subir el archivo. Inténtalo de nuevo.",
+              "Die Datei konnte nicht hochgeladen werden. Bitte versuchen Sie es erneut."
             )
           ),
         });
       } else setSummary(json as UploadSummary);
     } catch (err) {
       setError({
-        error: t(lang, "Network error", "Error de red"),
+        error: t(lang, "Network error", "Error de red", "Netzwerkfehler"),
         details: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -118,7 +123,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
     <ul className="text-xs text-muted-foreground space-y-0.5 max-h-40 overflow-y-auto">
       {rows.slice(0, 50).map((e, i) => (
         <li key={i}>
-          {t(lang, "Row", "Fila")} {e.rowIndex + 2}: {e.reason}
+          {t(lang, "Row", "Fila", "Zeile")} {e.rowIndex + 2}: {e.reason}
           {e.rawOrderNumber ? ` (${e.rawOrderNumber})` : ""}
         </li>
       ))}
@@ -132,11 +137,12 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         title={t(
           lang,
           "CSV or XLSX, Revel Customer Items export. Optional: Establishment, POS_Station, Order_Type, Payment_Type, Discount, Total_Product_Tax.",
-          "CSV o XLSX, exportación Customer Items de Revel. Opcionales: Establishment, POS_Station, Order_Type, Payment_Type, Discount, Total_Product_Tax."
+          "CSV o XLSX, exportación Customer Items de Revel. Opcionales: Establishment, POS_Station, Order_Type, Payment_Type, Discount, Total_Product_Tax.",
+          "CSV oder XLSX, Export „Customer Items“ von Revel. Optional: Establishment, POS_Station, Order_Type, Payment_Type, Discount, Total_Product_Tax."
         )}
       >
         <span className="text-xs text-muted-foreground">
-          {t(lang, "Columns:", "Columnas:")}
+          {t(lang, "Columns:", "Columnas:", "Spalten:")}
         </span>
         {REQUIRED_COLUMNS.map((c) => (
           <Badge key={c} variant="outline" className="text-xs font-mono">
@@ -149,7 +155,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         <input
           type="file"
           accept=".csv,.xlsx,.xls"
-          aria-label={t(lang, "Sales file", "Archivo de ventas")}
+          aria-label={t(lang, "Sales file", "Archivo de ventas", "Umsatzdatei")}
           disabled={!canUpload}
           onChange={(e) => {
             setFile(e.target.files?.[0] ?? null);
@@ -163,7 +169,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           title={t(
             lang,
             "Deletes this company's previous POS sales rows so the same file is not counted twice.",
-            "Borra las ventas del POS anteriores para no contar el mismo archivo dos veces."
+            "Borra las ventas del POS anteriores para no contar el mismo archivo dos veces.",
+            "Löscht die bisherigen Kassenumsätze, damit dieselbe Datei nicht doppelt gezählt wird."
           )}
         >
           <input
@@ -175,7 +182,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           {t(
             lang,
             "Replace previous sales",
-            "Reemplazar las ventas anteriores"
+            "Reemplazar las ventas anteriores",
+            "Bisherige Umsätze ersetzen"
           )}
         </label>
         {!replaceExisting && (
@@ -184,7 +192,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
             {t(
               lang,
               "The same file twice doubles revenue.",
-              "Subir el mismo archivo dos veces duplica las ventas."
+              "Subir el mismo archivo dos veces duplica las ventas.",
+              "Dieselbe Datei zweimal hochzuladen verdoppelt den Umsatz."
             )}
           </p>
         )}
@@ -196,8 +205,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         >
           <Upload className="h-4 w-4" />
           {submitting
-            ? t(lang, "Uploading…", "Subiendo…")
-            : t(lang, "Upload sales", "Subir ventas")}
+            ? t(lang, "Uploading…", "Subiendo…", "Wird hochgeladen …")
+            : t(lang, "Upload sales", "Subir ventas", "Umsätze hochladen")}
         </Button>
         {!canUpload && (
           <p className="text-[13px] text-[#6b7280]">
@@ -218,7 +227,12 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           {error.missing && error.missing.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-sm">
-                {t(lang, "Missing columns:", "Faltan columnas:")}
+                {t(
+                  lang,
+                  "Missing columns:",
+                  "Faltan columnas:",
+                  "Fehlende Spalten:"
+                )}
               </span>
               {error.missing.map((m) => (
                 <Badge
@@ -233,7 +247,12 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           )}
           {error.headers && (
             <p className="text-xs text-muted-foreground font-mono">
-              {t(lang, "Your file has:", "Tu archivo tiene:")}{" "}
+              {t(
+                lang,
+                "Your file has:",
+                "Tu archivo tiene:",
+                "Ihre Datei enthält:"
+              )}{" "}
               {error.headers.join(", ")}
             </p>
           )}
@@ -247,30 +266,51 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         <div className="space-y-3 rounded-md border border-green-200 px-3 py-3 dark:border-green-900">
           <p className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
             <CheckCircle2 className="h-4 w-4" />
-            {t(lang, "Upload complete", "Ventas cargadas")}
+            {t(
+              lang,
+              "Upload complete",
+              "Ventas cargadas",
+              "Upload abgeschlossen"
+            )}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <Stat
-              label={t(lang, "Rows inserted", "Filas cargadas")}
-              value={summary.inserted_rows.toLocaleString()}
-            />
-            <Stat
-              label={t(lang, "Orders", "Órdenes")}
-              value={summary.unique_orders.toLocaleString()}
-            />
-            <Stat
-              label={t(lang, "Sales", "Ventas")}
-              value={moneyFmt(summary.currency ?? "USD").format(
-                summary.total_revenue
+              label={t(
+                lang,
+                "Rows inserted",
+                "Filas cargadas",
+                "Zeilen importiert"
               )}
+              value={summary.inserted_rows.toLocaleString(localeFor(lang))}
             />
             <Stat
-              label={t(lang, "Rows in file", "Filas en el archivo")}
-              value={summary.total_rows_in_file.toLocaleString()}
+              label={t(lang, "Orders", "Órdenes", "Bestellungen")}
+              value={summary.unique_orders.toLocaleString(localeFor(lang))}
             />
             <Stat
-              label={t(lang, "Rows replaced", "Filas reemplazadas")}
-              value={summary.deleted_rows.toLocaleString()}
+              label={t(lang, "Sales", "Ventas", "Umsatz")}
+              value={moneyFmt(
+                summary.currency ?? "USD",
+                localeFor(lang)
+              ).format(summary.total_revenue)}
+            />
+            <Stat
+              label={t(
+                lang,
+                "Rows in file",
+                "Filas en el archivo",
+                "Zeilen in der Datei"
+              )}
+              value={summary.total_rows_in_file.toLocaleString(localeFor(lang))}
+            />
+            <Stat
+              label={t(
+                lang,
+                "Rows replaced",
+                "Filas reemplazadas",
+                "Zeilen ersetzt"
+              )}
+              value={summary.deleted_rows.toLocaleString(localeFor(lang))}
             />
           </div>
           {summary.unmatched_menu_items.length > 0 && (
@@ -278,7 +318,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
               label={t(
                 lang,
                 `Unmatched dishes (${summary.unmatched_menu_items.length})`,
-                `Platos sin vincular (${summary.unmatched_menu_items.length})`
+                `Platos sin vincular (${summary.unmatched_menu_items.length})`,
+                `Nicht zugeordnete Gerichte (${summary.unmatched_menu_items.length})`
               )}
               items={summary.unmatched_menu_items}
             />
@@ -288,7 +329,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
               label={t(
                 lang,
                 `Unmatched locations (${summary.unmatched_locations.length})`,
-                `Locales sin vincular (${summary.unmatched_locations.length})`
+                `Locales sin vincular (${summary.unmatched_locations.length})`,
+                `Nicht zugeordnete Standorte (${summary.unmatched_locations.length})`
               )}
               items={summary.unmatched_locations}
             />
@@ -299,7 +341,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
                 {t(
                   lang,
                   `Skipped rows (${summary.validation_errors.length})`,
-                  `Filas omitidas (${summary.validation_errors.length})`
+                  `Filas omitidas (${summary.validation_errors.length})`,
+                  `Übersprungene Zeilen (${summary.validation_errors.length})`
                 )}
               </p>
               {errorRows(summary.validation_errors)}

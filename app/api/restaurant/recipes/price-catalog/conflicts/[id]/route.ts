@@ -15,6 +15,9 @@ import {
   resolveCostConflict,
   type ConflictChoice,
 } from "@/lib/restaurant/price-catalog/apply";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+
+const apiMsg = async () => (await apiDictionary()).menu.workspace.api;
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,7 +40,7 @@ export async function POST(
     body = (await req.json()) as Record<string, unknown>;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: (await apiMsg()).bodyNotJson },
       { status: 400 }
     );
   }
@@ -49,8 +52,7 @@ export async function POST(
   ) {
     return NextResponse.json(
       {
-        error:
-          "Elige el costo de la lista, uno de las recetas o «Ninguna (dejar Pendiente)».",
+        error: (await apiMsg()).conflictChoose,
       },
       { status: 400 }
     );
@@ -74,7 +76,7 @@ export async function POST(
   } catch (err) {
     console.error("[recipes/price-catalog/conflicts]", err);
     return NextResponse.json(
-      { error: "No pude guardar tu decisión." },
+      { error: (await apiMsg()).conflictSaveFailed },
       { status: 500 }
     );
   }

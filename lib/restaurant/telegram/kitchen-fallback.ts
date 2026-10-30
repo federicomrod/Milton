@@ -12,6 +12,7 @@
 import {
   destinationVars,
   destinationWhere,
+  joinNames,
   KITCHEN_COPY,
   renderKitchenCopy,
 } from "./kitchen-copy";
@@ -91,12 +92,14 @@ export function looksPriceLike(text: string): boolean {
 
 export function priceNotUnderstoodReply(text: string): string {
   return renderKitchenCopy(KITCHEN_COPY.PRICE_NOT_UNDERSTOOD, {
-    productos: guessProductLabel(text) ?? "un precio",
+    productos: guessProductLabel(text) ?? KITCHEN_COPY.FRAG_A_PRICE,
   });
 }
 
 export function stockSection(type: KitchenReportType): string {
-  return type === "waste" ? "Merma" : "Se agota";
+  return type === "waste"
+    ? KITCHEN_COPY.SECTION_WASTE
+    : KITCHEN_COPY.SECTION_RUNNING_OUT;
 }
 
 /** «se agotó tomate», «merma de pollo», or the cook's own words (short) when no product is known. */
@@ -107,16 +110,15 @@ export function describeStock(
 ): string {
   const names = products.filter(Boolean);
   if (names.length > 0) {
-    const list =
-      names.length === 1
-        ? names[0]
-        : `${names.slice(0, -1).join(", ")} y ${names[names.length - 1]}`;
-    if (type === "waste") return `merma de ${list}`;
-    if (type === "running_out") return `queda poco ${list}`;
-    return `se agotó ${list}`;
+    const lista = joinNames(names);
+    if (type === "waste")
+      return renderKitchenCopy(KITCHEN_COPY.STOCK_WASTE, { lista });
+    if (type === "running_out")
+      return renderKitchenCopy(KITCHEN_COPY.STOCK_LOW, { lista });
+    return renderKitchenCopy(KITCHEN_COPY.STOCK_OUT, { lista });
   }
   const snippet = text.trim().replace(/\s+/g, " ").slice(0, 80);
-  return snippet ? `«${snippet}»` : "tu aviso";
+  return snippet ? `«${snippet}»` : KITCHEN_COPY.FRAG_YOUR_REPORT;
 }
 
 export function stockSavedReply(

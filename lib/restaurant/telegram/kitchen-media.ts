@@ -277,14 +277,19 @@ export function skippedSentence(
 ): string {
   const parts: string[] = [];
   for (const [reason, what] of [
-    ["no_price", "sin precio"],
-    ["no_quantity", "sin cantidad"],
-    ["no_unit", "sin unidad legible"],
+    ["no_price", KITCHEN_COPY.FRAG_NO_PRICE],
+    ["no_quantity", KITCHEN_COPY.FRAG_NO_QUANTITY],
+    ["no_unit", KITCHEN_COPY.FRAG_NO_UNIT],
   ] as const) {
     const n = skipped.filter((l) => l.reason === reason).length;
     if (n > 0) {
       parts.push(
-        `${n === 1 ? "1 línea quedó" : `${n} líneas quedaron`} ${what}.`
+        renderKitchenCopy(
+          n === 1
+            ? KITCHEN_COPY.FRAG_SKIPPED_ONE
+            : KITCHEN_COPY.FRAG_SKIPPED_MANY,
+          { n: String(n), what }
+        )
       );
     }
   }
@@ -298,8 +303,10 @@ function reply(chatId: number, text: string, markup?: InlineKeyboardMarkup) {
     : sendTelegramMessage(chatId, text);
 }
 
-function plural(n: number, one: string, many: string): string {
-  return n === 1 ? `1 ${one}` : `${n} ${many}`;
+function linesPhrase(n: number): string {
+  return n === 1
+    ? KITCHEN_COPY.FRAG_LINE_ONE
+    : renderKitchenCopy(KITCHEN_COPY.FRAG_LINES, { n: String(n) });
 }
 
 /**
@@ -451,8 +458,12 @@ export async function processInvoicePhoto(
     chatId,
     renderKitchenCopy(KITCHEN_COPY.INVOICE_RECEIVED, {
       ...destinationVars(staff),
-      de_proveedor: created.supplierName ? ` de ${created.supplierName}` : "",
-      lineas: plural(created.linesInserted, "línea", "líneas"),
+      de_proveedor: created.supplierName
+        ? renderKitchenCopy(KITCHEN_COPY.FRAG_OF_SUPPLIER, {
+            proveedor: created.supplierName,
+          })
+        : "",
+      lineas: linesPhrase(created.linesInserted),
       sin_precio: skippedSentence(created.linesSkipped),
     }),
     input.replyMarkup
@@ -481,18 +492,20 @@ export interface PriceUpdateInput {
 }
 
 /** How a currency is named in a reply: «pesos mexicanos (MXN)». */
-const CURRENCY_NAMES: Record<string, string> = {
-  USD: "dólares (USD)",
-  MXN: "pesos mexicanos (MXN)",
-  CRC: "colones (CRC)",
-  GTQ: "quetzales (GTQ)",
-  HNL: "lempiras (HNL)",
-  PEN: "soles (PEN)",
-  EUR: "euros (EUR)",
-  NIO: "córdobas (NIO)",
-};
+const CURRENCY_COPY_KEYS = {
+  USD: "CURRENCY_USD",
+  MXN: "CURRENCY_MXN",
+  CRC: "CURRENCY_CRC",
+  GTQ: "CURRENCY_GTQ",
+  HNL: "CURRENCY_HNL",
+  PEN: "CURRENCY_PEN",
+  EUR: "CURRENCY_EUR",
+  NIO: "CURRENCY_NIO",
+} as const;
 export function currencyName(code: string): string {
-  return CURRENCY_NAMES[code.toUpperCase()] ?? code;
+  const key =
+    CURRENCY_COPY_KEYS[code.toUpperCase() as keyof typeof CURRENCY_COPY_KEYS];
+  return key ? KITCHEN_COPY[key] : code;
 }
 
 /** Up to 3 close ACTIVE ingredients for a name that matched none. */
@@ -562,7 +575,11 @@ async function ingredientNotFoundLines(
           return renderKitchenCopy(KITCHEN_COPY.PRICE_INGREDIENT_NOT_FOUND, {
             ingrediente: name,
             parecidos:
-              close.length > 0 ? `Parecidos: ${close.join(", ")}. ` : "",
+              close.length > 0
+                ? renderKitchenCopy(KITCHEN_COPY.FRAG_SIMILAR, {
+                    lista: close.join(", "),
+                  })
+                : "",
           });
         })
     );

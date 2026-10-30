@@ -1,0 +1,41 @@
+import type { Dictionary } from "../types";
+
+export const common: Dictionary["common"] = {
+  save: "Save",
+  saving: "Saving…",
+  cancel: "Cancel",
+  loading: "Loading",
+  delete: "Delete",
+  back: "Back",
+  close: "Close",
+  retry: "Retry",
+  languageNames: {
+    en: "English",
+    es: "Español",
+    de: "Deutsch",
+  },
+  weekdaysShort: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  weekdaysLong: [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ],
+  months: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ],
+};

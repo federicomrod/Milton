@@ -8,7 +8,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   COMPARE_OPTIONS,
   NONE_TOKEN,
-  PERIODS,
   channelLabelEs,
   paymentLabelEs,
   type CompareKey,
@@ -16,14 +15,21 @@ import {
   type PeriodKey,
   type TabKey,
 } from "@/lib/restaurant/sales-detail";
+import type { Dictionary } from "@/lib/i18n";
 import type { DetailCube } from "@/lib/restaurant/sales-detail-cube";
 import { OBJECTIVES_HREF } from "@/lib/restaurant/navigation";
-import { dayLabelEs, WEEKDAYS_LONG, hourLabel } from "./format";
+import { useT } from "@/lib/i18n/client";
+import { compareText, categoryLabel } from "@/lib/restaurant/sales-detail";
+import { dayLabelEs, weekdaysLong, hourLabel } from "./format";
 
-const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "tendencia", label: "Tendencia" },
-  { key: "desglose", label: "Desglose" },
-  { key: "platos", label: "Platos" },
+const PERIOD_KEYS: Array<{
+  key: PeriodKey;
+  label: keyof Dictionary["sales"]["detail"]["periods"];
+}> = [
+  { key: "7d", label: "d7" },
+  { key: "30d", label: "d30" },
+  { key: "90d", label: "d90" },
+  { key: "custom", label: "custom" },
 ];
 
 const base =
@@ -42,6 +48,7 @@ function MultiSelect({
   selected: string[];
   onChange: (next: string[]) => void;
 }) {
+  const { d } = useT();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,7 +62,7 @@ function MultiSelect({
   }, [open]);
   const text =
     selected.length === 0
-      ? "Todos"
+      ? d.sales.detail.filter.all
       : selected.length === 1
         ? (options.find((o) => o.token === selected[0])?.label ?? selected[0])
         : String(selected.length);
@@ -78,7 +85,7 @@ function MultiSelect({
         >
           {options.length === 0 ? (
             <p className="px-2 py-1.5 text-[12px] text-[#8a92a3]">
-              Sin opciones
+              {d.sales.detail.filter.noOptions}
             </p>
           ) : (
             options.map((o) => (
@@ -108,7 +115,7 @@ function MultiSelect({
               onClick={() => onChange([])}
               className="mt-1 w-full rounded px-2 py-1 text-left text-[12px] font-semibold text-[#1b40c8] hover:bg-[#eef2fd]"
             >
-              Quitar filtro
+              {d.sales.detail.filter.removeFilter}
             </button>
           ) : null}
         </div>
@@ -130,17 +137,25 @@ export function FilterBar({
   lastDay: string | null;
   onChange: (patch: Partial<DetailState>) => void;
 }) {
+  const { d, lang, fmt, locale } = useT();
+  const f0 = d.sales.detail.filter;
+  const WEEKDAYS_LONG = weekdaysLong(lang);
+  const TABS: Array<{ key: TabKey; label: string }> = [
+    { key: "tendencia", label: d.sales.detail.tabs.trend },
+    { key: "desglose", label: d.sales.detail.tabs.breakdown },
+    { key: "platos", label: d.sales.detail.tabs.dishes },
+  ];
   const channelOptions = cube.channels.map((c) => ({
     token: c ?? NONE_TOKEN,
-    label: channelLabelEs(c),
+    label: channelLabelEs(c, lang),
   }));
   const paymentOptions = cube.payments.map((c) => ({
     token: c ?? NONE_TOKEN,
-    label: paymentLabelEs(c),
+    label: paymentLabelEs(c, lang),
   }));
   const categoryOptions = [...cube.categories]
-    .sort((a, b) => a.localeCompare(b, "es"))
-    .map((c) => ({ token: c, label: c }));
+    .sort((a, b) => a.localeCompare(b, locale))
+    .map((c) => ({ token: c, label: categoryLabel(c, lang) }));
   const shiftOptions = cube.shifts.map((s) => ({ token: s, label: s }));
   const chips: Array<{
     key: string;
@@ -150,13 +165,15 @@ export function FilterBar({
   if (state.weekdays.length)
     chips.push({
       key: "dia",
-      label: `Día: ${state.weekdays.map((d) => WEEKDAYS_LONG[d - 1]).join(", ")}`,
+      label: fmt(f0.dayChip, {
+        days: state.weekdays.map((w) => WEEKDAYS_LONG[w - 1]).join(", "),
+      }),
       clear: { weekdays: [] },
     });
   if (state.hours.length)
     chips.push({
       key: "hora",
-      label: `Hora: ${state.hours.map(hourLabel).join(", ")}`,
+      label: fmt(f0.hourChip, { hours: state.hours.map(hourLabel).join(", ") }),
       clear: { hours: [] },
     });
   const dayOnly =
@@ -170,7 +187,7 @@ export function FilterBar({
       <div className="flex flex-wrap items-center gap-2">
         <div
           role="tablist"
-          aria-label="Vista"
+          aria-label={f0.view}
           className="inline-flex rounded-[10px] bg-[#e9ecf2] p-[3px]"
         >
           {TABS.map((t) => (
@@ -192,14 +209,14 @@ export function FilterBar({
           ))}
         </div>
         <select
-          aria-label="Período"
+          aria-label={f0.period}
           value={state.period}
           onChange={(e) => onChange({ period: e.target.value as PeriodKey })}
           className={base + (dayOnly ? active : idle)}
         >
-          {PERIODS.map((p) => (
+          {PERIOD_KEYS.map((p) => (
             <option key={p.key} value={p.key}>
-              {p.label}
+              {d.sales.detail.periods[p.label]}
             </option>
           ))}
         </select>
@@ -207,16 +224,16 @@ export function FilterBar({
           <span className="inline-flex items-center gap-1 text-[12.5px]">
             <input
               type="date"
-              aria-label="Desde"
+              aria-label={f0.from}
               value={state.from ?? ""}
               max={lastDay ?? undefined}
               onChange={(e) => onChange({ from: e.target.value || null })}
               className={base + idle}
             />
-            a
+            {f0.toWord}
             <input
               type="date"
-              aria-label="Hasta"
+              aria-label={f0.to}
               value={state.to ?? ""}
               max={lastDay ?? undefined}
               onChange={(e) => onChange({ to: e.target.value || null })}
@@ -225,50 +242,50 @@ export function FilterBar({
           </span>
         ) : null}
         <select
-          aria-label="Comparar con"
+          aria-label={f0.compareWith}
           value={state.compare}
           onChange={(e) => onChange({ compare: e.target.value as CompareKey })}
           className={base + idle}
         >
           {COMPARE_OPTIONS.map((c) => (
             <option key={c.key} value={c.key}>
-              Comparar: {c.label}
+              {fmt(f0.compareOption, { label: compareText(c.key, lang).label })}
             </option>
           ))}
         </select>
         <MultiSelect
-          label="Canal"
+          label={f0.channel}
           options={channelOptions}
           selected={state.channels}
           onChange={(channels) => onChange({ channels })}
         />
         <MultiSelect
-          label="Pago"
+          label={f0.payment}
           options={paymentOptions}
           selected={state.payments}
           onChange={(payments) => onChange({ payments })}
         />
         <MultiSelect
-          label="Categoría"
+          label={f0.category}
           options={categoryOptions}
           selected={state.categories}
           onChange={(categories) => onChange({ categories })}
         />
         {shiftsVisible ? (
           <MultiSelect
-            label="Turno"
+            label={f0.shift}
             options={shiftOptions}
             selected={state.shifts}
             onChange={(shifts) => onChange({ shifts })}
           />
         ) : null}
         <span className="ml-auto text-[12px] text-[#8a92a3]">
-          Objetivos en{" "}
+          {f0.targetsIn}{" "}
           <a
             href={OBJECTIVES_HREF}
             className="font-semibold text-[#1b40c8] hover:underline"
           >
-            Configuración › Objetivos
+            {f0.targetsLink}
           </a>
         </span>
       </div>
@@ -282,7 +299,7 @@ export function FilterBar({
               {c.label}
               <button
                 type="button"
-                aria-label={`Quitar ${c.label}`}
+                aria-label={fmt(f0.removeChip, { label: c.label })}
                 onClick={() => onChange(c.clear)}
                 className="hover:text-[#151c2c]"
               >
@@ -295,10 +312,10 @@ export function FilterBar({
       {dayOnly && state.from ? (
         <div className="mt-1.5">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#eef2fd] px-2.5 py-0.5 text-[12px] font-semibold text-[#1b40c8]">
-            Día: {dayLabelEs(state.from)}
+            {fmt(f0.dayChip, { days: dayLabelEs(state.from, lang) })}
             <button
               type="button"
-              aria-label="Quitar el día"
+              aria-label={f0.removeDay}
               onClick={() => onChange({ period: "7d", from: null, to: null })}
             >
               ✕

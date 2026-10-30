@@ -13,6 +13,7 @@ import { COSTS_FILE_ANCHOR } from "@/lib/restaurant/costs-picker";
 import { EmptyState } from "@/components/restaurant/shell/EmptyState";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { CONNECT_DATA_PATH } from "@/lib/restaurant/post-login";
+import { getDictionary } from "@/lib/i18n";
 import { MenuProfitabilityTab } from "@/components/restaurant/cockpit/MenuProfitabilityTab";
 import {
   MenuWorkspacePage,
@@ -50,6 +51,7 @@ export default async function MenuResumenPage({
         loadRestaurantShellChrome(),
         loadMenuAreaModel(params.location),
       ]);
+      const d = getDictionary(lang).menu.screens;
       // A brand-new account (no POS products, no sales): say how to start
       // instead of a screen of $0.
       const nothingYet =
@@ -61,16 +63,16 @@ export default async function MenuResumenPage({
         return (
           <EmptyState
             testId="menu-empty"
-            text="Aún no tienes platos. Conecta tu POS o sube un archivo de costos y Milton arma tu menú."
+            text={d.resumenPage.emptyText}
             actions={[
               {
                 href: CONNECT_DATA_PATH,
-                label: "Conecta tu POS",
+                label: d.resumenPage.connectPos,
                 primary: true,
               },
               {
                 href: costsTabHref("precios", {}, COSTS_FILE_ANCHOR),
-                label: "Sube tus costos",
+                label: d.resumenPage.uploadCosts,
                 opensCostsPicker: true,
               },
             ]}

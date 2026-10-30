@@ -32,6 +32,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Mail, Send } from "lucide-react";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 type Cadence = "off" | "daily" | "weekly";
 
@@ -42,22 +43,6 @@ interface Preferences {
   timezone: string;
   default_timezone?: string | null;
 }
-
-const WEEKDAY_LABELS = [
-  "Domingo",
-  "Lunes",
-  "Martes",
-  "Miércoles",
-  "Jueves",
-  "Viernes",
-  "Sábado",
-];
-
-const CADENCE_LABELS: Record<Cadence, string> = {
-  off: "Apagado",
-  daily: "Diario",
-  weekly: "Semanal",
-};
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -83,6 +68,13 @@ async function parseJsonSafely(
 }
 
 export function EmailBriefingCard() {
+  const { d, fmt } = useT();
+  const c = d.comms.emailCard;
+  const CADENCE_LABELS: Record<Cadence, string> = {
+    off: c.cadenceOff,
+    daily: c.cadenceDaily,
+    weekly: c.cadenceWeekly,
+  };
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -117,12 +109,7 @@ export function EmailBriefingCard() {
         const res = await fetch("/api/restaurant/briefing/email/preferences");
         const json = await parseJsonSafely(res);
         if (!res.ok) {
-          setLoadError(
-            userErrorMessage(
-              json,
-              "No se pudieron cargar las preferencias de entrega."
-            )
-          );
+          setLoadError(userErrorMessage(json, c.loadFailed));
           return;
         }
         const loaded = json as unknown as Preferences;
@@ -133,7 +120,7 @@ export function EmailBriefingCard() {
         setTimezone(loaded.timezone);
         setDefaultTimezone(loaded.default_timezone ?? "");
       } catch {
-        setLoadError("No se pudieron cargar las preferencias de entrega.");
+        setLoadError(c.loadFailed);
       } finally {
         setLoading(false);
       }
@@ -176,10 +163,7 @@ export function EmailBriefingCard() {
       if (!res.ok) {
         setSaveFeedback({
           kind: "error",
-          message: userErrorMessage(
-            json,
-            "No se pudieron guardar los ajustes."
-          ),
+          message: userErrorMessage(json, c.saveFailed),
         });
         return;
       }
@@ -189,11 +173,11 @@ export function EmailBriefingCard() {
         weekday,
         timezone,
       });
-      setSaveFeedback({ kind: "success", message: "Guardado." });
+      setSaveFeedback({ kind: "success", message: c.saved });
     } catch {
       setSaveFeedback({
         kind: "error",
-        message: "No se pudieron guardar los ajustes.",
+        message: c.saveFailed,
       });
     } finally {
       setSaving(false);
@@ -211,21 +195,20 @@ export function EmailBriefingCard() {
       if (!res.ok) {
         setTestFeedback({
           kind: "error",
-          message: userErrorMessage(
-            json,
-            "No se pudo enviar el correo de prueba. Inténtalo de nuevo."
-          ),
+          message: userErrorMessage(json, c.testFailed),
         });
         return;
       }
       setTestFeedback({
         kind: "success",
-        message: `Enviado. Revisa ${prefs?.recipient ?? "tu bandeja"}.`,
+        message: prefs?.recipient
+          ? fmt(c.sentTo, { recipient: prefs.recipient })
+          : c.sentToInbox,
       });
     } catch {
       setTestFeedback({
         kind: "error",
-        message: "No se pudo enviar el correo de prueba. Inténtalo de nuevo.",
+        message: c.testFailed,
       });
     } finally {
       setSendingTest(false);
@@ -242,15 +225,13 @@ export function EmailBriefingCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Mail className="h-5 w-5" />
-          Entrega del briefing
+          {c.title}
         </CardTitle>
-        <CardDescription>
-          Recibe el briefing de Milton por correo
-        </CardDescription>
+        <CardDescription>{c.description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground">Cargando…</p>
+          <p className="text-sm text-muted-foreground">{c.loading}</p>
         ) : loadError ? (
           <Alert variant="destructive">
             <AlertDescription>{loadError}</AlertDescription>
@@ -258,7 +239,7 @@ export function EmailBriefingCard() {
         ) : (
           <>
             <div className="space-y-2">
-              <Label htmlFor="briefing-cadence">Frecuencia</Label>
+              <Label htmlFor="briefing-cadence">{c.cadence}</Label>
               <Select
                 value={cadence}
                 onValueChange={(v) => handleCadenceChange(v as Cadence)}
@@ -279,7 +260,7 @@ export function EmailBriefingCard() {
             {cadence !== "off" && (
               <>
                 <div className="space-y-2">
-                  <Label htmlFor="briefing-recipient">Correo destino</Label>
+                  <Label htmlFor="briefing-recipient">{c.recipient}</Label>
                   <Input
                     id="briefing-recipient"
                     type="email"
@@ -289,15 +270,13 @@ export function EmailBriefingCard() {
                     maxLength={254}
                   />
                   {recipient.trim().length > 0 && !recipientValid && (
-                    <p className="text-xs text-destructive">
-                      Escribe un correo válido.
-                    </p>
+                    <p className="text-xs text-destructive">{c.invalidEmail}</p>
                   )}
                 </div>
 
                 {cadence === "weekly" && (
                   <div className="space-y-2">
-                    <Label htmlFor="briefing-weekday">Día de la semana</Label>
+                    <Label htmlFor="briefing-weekday">{c.weekday}</Label>
                     <Select
                       value={String(weekday)}
                       onValueChange={(v) => setWeekday(Number(v))}
@@ -309,7 +288,7 @@ export function EmailBriefingCard() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {WEEKDAY_LABELS.map((label, i) => (
+                        {c.weekdays.map((label, i) => (
                           <SelectItem key={i} value={String(i)}>
                             {label}
                           </SelectItem>
@@ -320,15 +299,13 @@ export function EmailBriefingCard() {
                 )}
 
                 <div className="space-y-2">
-                  <Label htmlFor="briefing-timezone">
-                    Zona horaria de entrega
-                  </Label>
+                  <Label htmlFor="briefing-timezone">{c.timezone}</Label>
                   <Select value={timezone} onValueChange={setTimezone}>
                     <SelectTrigger
                       id="briefing-timezone"
                       className="h-11 w-full"
                     >
-                      <SelectValue placeholder="Elige una zona horaria" />
+                      <SelectValue placeholder={c.timezonePlaceholder} />
                     </SelectTrigger>
                     <SelectContent className="max-h-60">
                       {getTimezones().map((tz) => (
@@ -347,11 +324,11 @@ export function EmailBriefingCard() {
               disabled={saving || !canSave}
               className="w-full sm:w-auto"
             >
-              {saving ? "Guardando…" : "Guardar"}
+              {saving ? c.saving : c.save}
             </Button>
             {cadence !== "off" && !timezoneChosen ? (
               <p className="text-xs text-muted-foreground">
-                Falta la zona horaria: elígela arriba.
+                {c.timezoneMissing}
               </p>
             ) : null}
 
@@ -387,7 +364,7 @@ export function EmailBriefingCard() {
                   className="w-full sm:w-auto gap-2"
                 >
                   <Send className="h-4 w-4" />
-                  {sendingTest ? "Enviando…" : "Enviar correo de prueba"}
+                  {sendingTest ? c.sending : c.sendTest}
                 </Button>
                 {testFeedback && (
                   <Alert

@@ -75,13 +75,13 @@
 **Test Environment:** PostgreSQL 17.11 + Supabase stub  
 **Sequence:** stub → 001 → 019 → 020 → 021 → 022
 
-| Migration                         | Status        | Notes                                                                                      |
-| --------------------------------- | ------------- | ------------------------------------------------------------------------------------------ |
-| 001_baseline.sql                  | ✅ PASSED     | 36 tables, 105 policies, 5 functions created                                               |
-| 019_odoo_company_scope.sql        | ✅ PASSED     | odoo_company_ids column added                                                              |
+| Migration                         | Status        | Notes                                                                                            |
+| --------------------------------- | ------------- | ------------------------------------------------------------------------------------------------ |
+| 001_baseline.sql                  | ✅ PASSED     | 36 tables, 105 policies, 5 functions created                                                     |
+| 019_odoo_company_scope.sql        | ✅ PASSED     | odoo_company_ids column added                                                                    |
 | 020_workspace_invites.sql         | ⚠️ **FAILED** | **Root cause:** `is_milton_admin()` reads `profiles.role`, which has never existed in production |
-| 021_kitchen_telegram.sql          | ✅ PASSED     | Applied successfully                                                                       |
-| 022_secdef_function_hardening.sql | ✅ PASSED     | Applied successfully                                                                       |
+| 021_kitchen_telegram.sql          | ✅ PASSED     | Applied successfully                                                                             |
+| 022_secdef_function_hardening.sql | ✅ PASSED     | Applied successfully                                                                             |
 
 **Migration 020 Error Details:**
 

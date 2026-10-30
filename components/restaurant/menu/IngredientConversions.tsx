@@ -5,8 +5,9 @@
 // that uses the ingredient in that unit; removing one puts them back to
 // «Unidad distinta» (Sin precio), never a guess.
 
-import { NEW_PRICE_KEEPS_HISTORY } from "@/lib/restaurant/ui-copy";
-import { formatMoney } from "@/lib/restaurant/costs-format";
+import { useT } from "@/lib/i18n/client";
+import { fmt } from "@/lib/i18n";
+import { moneyLocaleFor } from "@/lib/restaurant/menu-dishes/money";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -18,6 +19,16 @@ import {
 } from "@/components/restaurant/recipes-costing/UnitConversionForm";
 import { sameUnit } from "@/lib/restaurant/units";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+
+function priceText(n: number, currency: string, lang: "es" | "en" | "de") {
+  const safe = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
+  return new Intl.NumberFormat(moneyLocaleFor(lang, safe), {
+    style: "currency",
+    currency: safe,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(n);
+}
 
 export function IngredientConversions({
   ingredientId,
@@ -39,6 +50,8 @@ export function IngredientConversions({
   price?: number | null;
   currency?: string;
 }) {
+  const { d, lang } = useT();
+  const t = d.menu.screens.conversions;
   const [correcting, setCorrecting] = useState(false);
   const [correctUnit, setCorrectUnit] = useState("");
   const [saving, setSaving] = useState(false);
@@ -82,9 +95,7 @@ export function IngredientConversions({
   return (
     <div className="mt-3" data-testid="ingredient-conversions">
       <div className="flex flex-wrap items-center gap-2 text-[13px]">
-        <span className="font-semibold text-[#4a5a85]">
-          Conversiones de unidad
-        </span>
+        <span className="font-semibold text-[#4a5a85]">{t.title}</span>
         {(rows ?? []).map((r) => (
           <span
             key={r.id}
@@ -94,7 +105,11 @@ export function IngredientConversions({
             {canEdit ? (
               <button
                 type="button"
-                aria-label={`Quitar 1 ${r.from_unit} = ${Number(r.factor)} ${r.to_unit}`}
+                aria-label={fmt(t.remove, {
+                  from: r.from_unit,
+                  factor: Number(r.factor),
+                  to: r.to_unit,
+                })}
                 onClick={async () => {
                   const failure = await removeConversion(r.id);
                   setError(failure);
@@ -116,7 +131,7 @@ export function IngredientConversions({
             }}
             className="text-[12px] font-semibold text-[#1b40c8] underline"
           >
-            Corregir unidad del precio
+            {t.correctUnit}
           </button>
         ) : null}
         {canEdit && !adding ? (
@@ -125,7 +140,7 @@ export function IngredientConversions({
             onClick={() => setAdding(true)}
             className="text-[12px] font-semibold text-[#1b40c8] underline"
           >
-            Definir conversión
+            {t.define}
           </button>
         ) : null}
       </div>
@@ -134,10 +149,10 @@ export function IngredientConversions({
           className="mt-1 text-[12px]"
           data-testid="ingredient-correct-price-unit"
         >
-          {formatMoney(price, currency)} por{" "}
+          {priceText(price, currency, lang)} {t.per}{" "}
           <select
             value={correctUnit}
-            aria-label="Unidad del precio"
+            aria-label={t.priceUnitLabel}
             onChange={(e) => setCorrectUnit(e.target.value)}
             className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
           >
@@ -186,24 +201,26 @@ export function IngredientConversions({
                   error?: string;
                 };
                 if (!res.ok) {
-                  setError(
-                    userErrorMessage(json, "No pude guardar el precio.")
-                  );
+                  setError(userErrorMessage(json, t.saveFailed));
                 } else {
                   setCorrecting(false);
                   changed();
                 }
               } catch {
-                setError("No pude conectar. Intenta otra vez.");
+                setError(t.connectFailed);
               } finally {
                 setSaving(false);
               }
             }}
             className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white disabled:opacity-50"
           >
-            {saving ? "Guardando…" : "Guardar"}
+            {saving
+              ? d.menu.screens.ingredientes.saving
+              : d.menu.screens.ingredientes.save}
           </button>
-          <span className="ml-2 text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</span>
+          <span className="ml-2 text-[#8a92a3]">
+            {d.menu.screens.ingredientes.newPriceKeepsHistory}
+          </span>
         </div>
       ) : null}
       {adding ? (

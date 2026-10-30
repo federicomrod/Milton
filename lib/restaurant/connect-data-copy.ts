@@ -7,7 +7,7 @@
 // built yet is labeled "Coming soon" / "Request" and saves a
 // data_source_requests row. No fake "connected" states, no dead buttons.
 
-import { POS_SYSTEM_OPTIONS, type PosSystemChoice } from "./onboarding-copy";
+import type { PosSystemChoice } from "./onboarding-copy";
 
 export const UPLOAD_PATH = "/dashboard/restaurant/upload";
 export const DASHBOARD_PATH = "/dashboard/restaurant";
@@ -29,127 +29,83 @@ export const DATA_SOURCE_REQUEST_SOURCES: readonly DataSourceRequestSource[] = [
 
 export const MAX_REQUEST_DETAILS = 1000;
 
+export type ConnectActionId =
+  | "spreadsheet_upload"
+  | "revel_export"
+  | "revel_live"
+  | "odoo_setup"
+  | "other_request";
+
 export type ConnectAction =
-  | { id: string; kind: "link"; label: string; href: string }
+  | { id: ConnectActionId; kind: "link"; href: string }
   | {
-      id: string;
+      id: ConnectActionId;
       kind: "request";
-      label: string;
       source: DataSourceRequestSource;
-      badge?: string;
+      /** Show a «Coming soon» badge. */
+      comingSoon?: boolean;
       /** Show an optional note field before sending. */
       note?: boolean;
-      /** Confirmation shown after a successful request (default: COPY.requestSent). */
-      sentMessage?: string;
+      /** Show its own confirmation instead of the default one. */
+      ownSentMessage?: boolean;
     };
 
 export interface ConnectOption {
   key: "spreadsheet" | "revel" | "odoo" | "other";
-  title: string;
-  description: string;
   /** onboarding primary_pos values that highlight this card. */
   matchesPos: PosSystemChoice[];
   actions: ConnectAction[];
 }
 
-export const CONNECT_DATA_COPY = {
-  header: "Connect your data so Milton can show real numbers",
-  subheader:
-    "Pick how your sales data will reach Milton. You can change this later.",
-  skip: "Skip for now → dashboard",
-  recommended: "Matches your POS",
-  requestSent: "Thanks — we'll get back to you",
-  requestError: "Something went wrong. Please try again.",
-  notePlaceholder: "Anything we should know? (optional)",
-  otherTextLabel: "What holds your sales data today?",
-  otherTextPlaceholder: "e.g. our POS is called … / we keep sales in …",
-  otherSubmit: "Send",
-  sendRequest: "Send request",
-} as const;
+// The texts (titles, descriptions, button labels) live in the `connect`
+// dictionary (lib/i18n/{es,en,de}/connect.ts); this file keeps the structure.
 
 export const CONNECT_OPTIONS: readonly ConnectOption[] = [
   {
     key: "spreadsheet",
-    title: "Excel / spreadsheet upload",
-    description:
-      "Works today. Heads up: the uploader currently expects the item-level sales format (the Revel “Customer Items” columns), so not every spreadsheet will import yet.",
     matchesPos: [],
-    actions: [
-      {
-        id: "spreadsheet_upload",
-        kind: "link",
-        label: "Upload a spreadsheet",
-        href: UPLOAD_PATH,
-      },
-    ],
+    actions: [{ id: "spreadsheet_upload", kind: "link", href: UPLOAD_PATH }],
   },
   {
     key: "revel",
-    title: "Revel",
-    description:
-      "Upload a Revel “Customer Items” export today. Live Revel sync is coming soon — request it and we'll let you know.",
     matchesPos: ["revel"],
     actions: [
-      {
-        id: "revel_export",
-        kind: "link",
-        label: "Upload a Revel export",
-        href: UPLOAD_PATH,
-      },
+      { id: "revel_export", kind: "link", href: UPLOAD_PATH },
       {
         id: "revel_live",
         kind: "request",
-        label: "Request it",
         source: "revel_live",
-        badge: "Coming soon",
+        comingSoon: true,
       },
     ],
   },
   {
     key: "odoo",
-    title: "Odoo",
-    description: "The Milton team connects Odoo for you during the pilot.",
     matchesPos: ["odoo"],
     actions: [
       {
         id: "odoo_setup",
         kind: "request",
-        label: "Connect Odoo",
         source: "odoo",
         note: true,
-        sentMessage:
-          "Thanks! The Milton team connects Odoo for you. We'll contact you to set it up.",
+        ownSentMessage: true,
       },
     ],
   },
   {
     key: "other",
-    title: "Other / tell us what holds your data",
-    description:
-      "Using something else? Tell us what holds your sales data and we'll look into it.",
     matchesPos: ["square", "toast", "other"],
     actions: [
-      {
-        id: "other_request",
-        kind: "request",
-        label: "Send",
-        source: "other",
-        note: true,
-      },
+      { id: "other_request", kind: "request", source: "other", note: true },
     ],
   },
 ];
 
-/** Quick picks for the "Other" card, reusing the onboarding POS labels. */
-export const OTHER_QUICK_PICKS: {
-  value: Extract<DataSourceRequestSource, "square" | "toast" | "other">;
-  label: string;
-}[] = POS_SYSTEM_OPTIONS.filter((o) =>
-  ["square", "toast", "other"].includes(o.value)
-).map((o) => ({
-  value: o.value as "square" | "toast" | "other",
-  label: o.label,
-}));
+/** Quick picks for the "Other" card (labels: `connect.picks`). */
+export const OTHER_QUICK_PICKS: readonly Extract<
+  DataSourceRequestSource,
+  "square" | "toast" | "other"
+>[] = ["square", "toast", "other"];
 
 /** Which option card to highlight for a location's primary_pos. */
 export function optionKeyForPrimaryPos(

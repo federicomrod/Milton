@@ -36,7 +36,7 @@ describe("5 · onboarding uses the restaurant shell, not the old top bar", () =>
     expect(page).toContain("loadRestaurantShellChrome");
     const shell = read("components/restaurant/RestaurantShell.tsx");
     expect(shell).toContain("SlimSidebar");
-    expect(shell).toContain("Configuración inicial");
+    expect(read("lib/i18n/es/shell.ts")).toContain("Configuración inicial");
   });
   it("all the onboarding copy is Spanish (tú)", () => {
     const strings: string[] = [];

@@ -9,7 +9,7 @@
 // Pure and client-safe (no server imports).
 
 import { formatMoneyEs } from "@/lib/restaurant/recipe-costing/format";
-import type { PreferredLanguage } from "@/lib/restaurant/language";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 
 /** The slice of BriefingSalesPeriods the API sends to the panel. */
 export interface BriefingCompactPeriods {
@@ -22,6 +22,7 @@ export interface BriefingCompactPeriods {
 const WEEKDAY_ABBR: Record<PreferredLanguage, readonly string[]> = {
   es: ["dom.", "lun.", "mar.", "mié.", "jue.", "vie.", "sáb."],
   en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  de: ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."],
 };
 
 function weekdayOf(key: string): number | null {
@@ -53,21 +54,23 @@ export function compactBriefingLine(
 
   const y = periods.yesterday;
   if (y && y.sales !== null && Number.isFinite(y.sales)) {
-    let s = `${lang === "es" ? "Ayer" : "Yesterday"} ${money(y.sales)}`;
+    let s = `${t(lang, "Yesterday", "Ayer", "Gestern")} ${money(y.sales)}`;
     const wd = weekdayOf(periods.yesterday_date);
     if (y.delta_pct !== null && Number.isFinite(y.delta_pct) && wd !== null) {
       const day = WEEKDAY_ABBR[lang][wd];
-      s +=
-        lang === "es"
-          ? ` (${pct(y.delta_pct)} vs. ${day} pasado)`
-          : ` (${pct(y.delta_pct)} vs. last ${day})`;
+      s += t(
+        lang,
+        ` (${pct(y.delta_pct)} vs. last ${day})`,
+        ` (${pct(y.delta_pct)} vs. ${day} pasado)`,
+        ` (${pct(y.delta_pct)} ggü. letztem ${day})`
+      );
     }
     parts.push(s);
   }
 
   const w = periods.last_7_days;
   if (w && w.sales !== null && Number.isFinite(w.sales)) {
-    let s = `${lang === "es" ? "7 días" : "7 days"} ${money(w.sales)}`;
+    let s = `${t(lang, "7 days", "7 días", "7 Tage")} ${money(w.sales)}`;
     if (w.delta_pct !== null && Number.isFinite(w.delta_pct)) {
       s += ` (${pct(w.delta_pct)})`;
     }

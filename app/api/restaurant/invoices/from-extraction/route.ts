@@ -17,6 +17,7 @@
 //     source_type?:      "pdf" | "image"   // defaults to "image"
 //   }
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -41,22 +42,19 @@ export async function POST(req: NextRequest) {
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId, userId } = auth;
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyHasToBeJson }, { status: 400 });
   }
   if (!isExtractedInvoice(body.extraction)) {
     return NextResponse.json(
       {
-        error:
-          "La lectura no tiene el formato de una factura. Vuelve a subirla o edita el borrador.",
+        error: a.extractionBadFormat,
       },
       { status: 400 }
     );

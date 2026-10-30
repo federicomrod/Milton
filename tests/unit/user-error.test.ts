@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { es } from "@/lib/i18n/es";
 
 const FALLBACK = "No se pudo guardar. Inténtalo de nuevo.";
 
@@ -18,6 +19,23 @@ function walkTsFiles(dir: string): string[] {
 const ERROR_LITERAL =
   /\berror:\s*(?:"((?:[^"\\]|\\.)*)"|`((?:[^`\\]|\\.|\$\{[^}]*\})*)`)/g;
 
+// API error messages moved out of the routes into lib/i18n/es: the `errors`
+// area and every `api` subtree (the routes resolve them via apiDictionary()).
+function collectDictionaryApiErrors(): string[] {
+  const out: string[] = [];
+  const leaves = (v: unknown) => {
+    if (typeof v === "string") out.push(v);
+    else if (v && typeof v === "object") Object.values(v).forEach(leaves);
+  };
+  const walk = (v: unknown, key: string) => {
+    if (!v || typeof v !== "object") return;
+    if (key === "api" || key === "errors") leaves(v);
+    else for (const [k, c] of Object.entries(v)) walk(c, k);
+  };
+  walk(es, "");
+  return out;
+}
+
 function collectRestaurantApiErrors(): string[] {
   const root = path.join(process.cwd(), "app/api/restaurant");
   const found: string[] = [];
@@ -29,6 +47,7 @@ function collectRestaurantApiErrors(): string[] {
       found.push(raw.replace(/\$\{[^}]*\}/g, "X"));
     }
   }
+  found.push(...collectDictionaryApiErrors());
   return [...new Set(found)];
 }
 

@@ -11,6 +11,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,8 @@ import {
 } from "@/components/ui/card";
 
 export default function ForgotPasswordPage() {
+  const { d } = useT();
+  const a = d.auth.forgot;
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
@@ -48,26 +51,22 @@ export default function ForgotPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Forgot your password?</CardTitle>
-          <CardDescription>
-            Enter your email and we&apos;ll send you a link to set a new one.
-          </CardDescription>
+          <CardTitle>{a.title}</CardTitle>
+          <CardDescription>{a.description}</CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit}>
           <CardContent className="space-y-4">
             {sent && (
               <Alert>
-                <AlertDescription>
-                  If an account exists, we&apos;ve sent a link.
-                </AlertDescription>
+                <AlertDescription>{a.sentNote}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{a.email}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@company.com"
+                placeholder={a.emailPlaceholder}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -76,13 +75,13 @@ export default function ForgotPasswordPage() {
           </CardContent>
           <CardFooter className="flex flex-col space-y-4 pt-6">
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Sending..." : sent ? "Send again" : "Send reset link"}
+              {loading ? a.sending : sent ? a.sendAgain : a.send}
             </Button>
             <Link
               href="/auth/login"
               className="text-sm text-primary hover:underline"
             >
-              Back to log in
+              {a.back}
             </Link>
           </CardFooter>
         </form>

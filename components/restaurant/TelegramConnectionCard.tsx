@@ -32,16 +32,17 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useCan } from "@/components/restaurant/shell/shell-chrome-context";
-import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Send, MessageCircle, RefreshCw, CheckCircle2 } from "lucide-react";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 interface ConnectionStatus {
   connected: boolean;
   connected_at: string | null;
   company_name?: string | null;
-  preferred_language: "en" | "es";
+  preferred_language: PreferredLanguage;
 }
 
 interface PairingState {
@@ -80,6 +81,8 @@ async function parseJsonSafely(
 
 export function TelegramConnectionCard() {
   const canEdit = useCan("company.edit");
+  const { d, fmt } = useT();
+  const dt = d.settings.telegram;
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -101,9 +104,7 @@ export function TelegramConnectionCard() {
       const json = await parseJsonSafely(res);
       if (!res.ok) {
         if (!silent) {
-          setStatusError(
-            userErrorMessage(json, "No se pudo cargar el estado de Telegram.")
-          );
+          setStatusError(userErrorMessage(json, dt.loadFailed));
         }
         return;
       }
@@ -113,7 +114,7 @@ export function TelegramConnectionCard() {
         setPairing(null);
       }
     } catch {
-      if (!silent) setStatusError("No se pudo cargar el estado de Telegram.");
+      if (!silent) setStatusError(dt.loadFailed);
     } finally {
       if (!silent) setStatusLoading(false);
     }
@@ -150,12 +151,7 @@ export function TelegramConnectionCard() {
       });
       const json = await parseJsonSafely(res);
       if (!res.ok) {
-        setPairingError(
-          userErrorMessage(
-            json,
-            "No se pudo empezar el emparejamiento de Telegram."
-          )
-        );
+        setPairingError(userErrorMessage(json, dt.pairingFailed));
         // The company may already be connected on the server (e.g. a
         // second tab completed pairing first) — re-check rather than
         // leaving a stale "Not connected" view up.
@@ -172,9 +168,7 @@ export function TelegramConnectionCard() {
         window.open(issued.deepLink, "_blank", "noopener,noreferrer");
       }
     } catch {
-      setPairingError(
-        "No se pudo empezar el emparejamiento de Telegram. Inténtalo de nuevo."
-      );
+      setPairingError(dt.pairingFailedRetry);
     } finally {
       setPairingLoading(false);
     }
@@ -191,21 +185,18 @@ export function TelegramConnectionCard() {
       if (!res.ok) {
         setSendFeedback({
           kind: "error",
-          message: userErrorMessage(
-            json,
-            "No se pudo enviar el briefing de prueba. Inténtalo de nuevo."
-          ),
+          message: userErrorMessage(json, dt.sendFailed),
         });
         return;
       }
       setSendFeedback({
         kind: "success",
-        message: "Enviado. Revisa tu chat de Telegram.",
+        message: dt.sent,
       });
     } catch {
       setSendFeedback({
         kind: "error",
-        message: "No se pudo enviar el briefing de prueba. Inténtalo de nuevo.",
+        message: dt.sendFailed,
       });
     } finally {
       setSendLoading(false);
@@ -213,28 +204,30 @@ export function TelegramConnectionCard() {
   }
 
   const languageLabel =
-    status?.preferred_language === "es" ? "español" : "inglés";
+    status?.preferred_language === "de"
+      ? dt.languageNameDe
+      : status?.preferred_language === "es"
+        ? dt.languageNameEs
+        : dt.languageNameEn;
 
   const botHandle = pairing ? extractBotUsername(pairing.deepLink) : null;
-  const botMention = botHandle ? `@${botHandle}` : "el bot de Milton";
+  const botMention = botHandle ? `@${botHandle}` : dt.miltonBot;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageCircle className="h-5 w-5" />
-          Briefing por Telegram
+          {dt.title}
         </CardTitle>
-        <CardDescription>
-          Recibe el briefing de Milton en Telegram
-        </CardDescription>
+        <CardDescription>{dt.description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {statusLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando…</p>
+          <p className="text-sm text-muted-foreground">{dt.loading}</p>
         ) : statusError ? (
           <Alert variant="destructive">
-            <AlertTitle>No se pudo cargar el estado de Telegram</AlertTitle>
+            <AlertTitle>{dt.loadFailedTitle}</AlertTitle>
             <AlertDescription>
               {statusError}
               <Button
@@ -244,7 +237,7 @@ export function TelegramConnectionCard() {
                 onClick={() => loadStatus()}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                Reintentar
+                {dt.retry}
               </Button>
             </AlertDescription>
           </Alert>
@@ -254,29 +247,25 @@ export function TelegramConnectionCard() {
               <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300 border-0">
                 <CheckCircle2 className="h-3 w-3" />
                 {status.company_name
-                  ? `Conectado a ${status.company_name}`
-                  : "Conectado"}
+                  ? fmt(dt.connectedTo, { name: status.company_name })
+                  : dt.connected}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Los briefings se envían en {languageLabel}, según el idioma de
-              Milton.
+              {fmt(dt.briefingsLanguage, { language: languageLabel })}
             </p>
-            <p className="text-sm text-[#6b7280]">
-              Para mandar facturas y recetas por Telegram, escanea el QR de
-              cocina (Cocina › Equipo de cocina).
-            </p>
+            <p className="text-sm text-[#6b7280]">{dt.kitchenHint}</p>
             <Button
               onClick={handleSendTest}
               disabled={sendLoading || !canEdit}
               className="w-full sm:w-auto gap-2"
             >
               <Send className="h-4 w-4" />
-              {sendLoading ? "Enviando…" : "Enviar briefing de prueba"}
+              {sendLoading ? dt.sending : dt.sendTest}
             </Button>
             {!canEdit && (
               <p className="text-[13px] text-[#6b7280]">
-                {CAPABILITY_MESSAGES["company.edit"]}
+                {d.settings.noEditCompany}
               </p>
             )}
             {sendFeedback && (
@@ -305,24 +294,21 @@ export function TelegramConnectionCard() {
         ) : (
           <>
             <div className="flex items-center gap-2">
-              <Badge variant="outline">Sin conectar</Badge>
+              <Badge variant="outline">{dt.notConnected}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Conecta un chat de Telegram para recibir también el briefing
-              diario de Milton.
-            </p>
+            <p className="text-sm text-muted-foreground">{dt.connectIntro}</p>
             <Button
               onClick={handleConnect}
               disabled={pairingLoading || !canEdit}
               className="w-full sm:w-auto gap-2"
             >
               <MessageCircle className="h-4 w-4" />
-              {pairingLoading ? "Empezando…" : "Conectar Telegram"}
+              {pairingLoading ? dt.starting : dt.connect}
             </Button>
 
             {!canEdit && (
               <p className="text-[13px] text-[#6b7280]">
-                {CAPABILITY_MESSAGES["company.edit"]}
+                {d.settings.noEditCompany}
               </p>
             )}
             {pairingError && (
@@ -334,21 +320,19 @@ export function TelegramConnectionCard() {
             {pairing && (
               <Alert className="min-w-0 max-w-full space-y-2 overflow-hidden">
                 <AlertTitle className="line-clamp-none whitespace-normal">
-                  Termina de conectar en Telegram
+                  {dt.finishTitle}
                 </AlertTitle>
                 <AlertDescription className="min-w-0 grid-cols-[minmax(0,1fr)] space-y-2">
                   <p className="break-words">
-                    {pairing.deepLink
-                      ? "Abrimos Telegram. Si no se abrió, envía este código a "
-                      : "Abre Telegram, escribe a "}
+                    {pairing.deepLink ? dt.openedTelegram : dt.openTelegram}
                     <span className="break-all max-w-full">{botMention}</span>
-                    {pairing.deepLink ? ":" : " y envía este código:"}
+                    {pairing.deepLink ? ":" : dt.andSendCode}
                   </p>
                   <code className="block w-fit max-w-full break-all rounded bg-muted px-2 py-1 text-sm font-mono">
                     /start {pairing.code}
                   </code>
                   <p className="text-xs text-muted-foreground">
-                    Este código vence en unos 15 minutos.
+                    {dt.codeExpires}
                   </p>
                   <Button
                     variant="outline"
@@ -358,7 +342,7 @@ export function TelegramConnectionCard() {
                     disabled={statusLoading}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    Ya me conecté — actualizar estado
+                    {dt.refresh}
                   </Button>
                 </AlertDescription>
               </Alert>

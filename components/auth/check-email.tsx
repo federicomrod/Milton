@@ -12,22 +12,24 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useT } from "@/lib/i18n/client";
 import { ResendConfirmation } from "@/components/auth/resend-confirmation";
 
 export function CheckEmail({ email }: { email: string }) {
+  const { d } = useT();
+  const a = d.auth.checkEmail;
   return (
     <Card className="w-full max-w-md" data-testid="check-email">
       <CardHeader>
-        <CardTitle>Revisa tu correo</CardTitle>
+        <CardTitle>{a.title}</CardTitle>
         <CardDescription>
-          Te enviamos un correo a <b>{email}</b>. Confírmalo y luego vuelve a
-          entrar.
+          {a.bodyBefore}
+          <b>{email}</b>
+          {a.bodyAfter}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          Si no lo ves en unos minutos, revisa tu carpeta de spam.
-        </p>
+        <p className="text-sm text-muted-foreground">{a.spam}</p>
         <ResendConfirmation email={email} startCooldown />
       </CardContent>
       <CardFooter>
@@ -35,7 +37,7 @@ export function CheckEmail({ email }: { email: string }) {
           href="/auth/login"
           className="text-sm text-primary hover:underline"
         >
-          Ir a iniciar sesión
+          {a.goToLogin}
         </Link>
       </CardFooter>
     </Card>

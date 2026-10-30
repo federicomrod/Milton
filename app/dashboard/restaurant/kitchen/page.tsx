@@ -84,7 +84,8 @@ export default async function KitchenPage({
           reason={t(
             lang,
             "Kitchen reports from your team will show up here.",
-            "Aquí aparecerán los reportes de cocina de tu equipo."
+            "Aquí aparecerán los reportes de cocina de tu equipo.",
+            "Hier erscheinen die Küchenmeldungen Ihres Teams."
           )}
         />
       )}

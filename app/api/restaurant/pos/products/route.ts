@@ -6,6 +6,7 @@
 // state. Coverage is computed on the server: only Confirmado + Aprobada
 // counts. No KPI logic in React.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { DATE_RE } from "@/lib/restaurant/odoo/sync-window";
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -26,7 +28,7 @@ export async function GET(req: NextRequest) {
   if ((startParam && !endParam) || (!startParam && endParam)) {
     return NextResponse.json(
       {
-        error: "start_date y end_date deben ir juntas, con formato YYYY-MM-DD.",
+        error: d.connect.api.datesTogether,
       },
       { status: 400 }
     );
@@ -43,7 +45,7 @@ export async function GET(req: NextRequest) {
     }
     if (startParam > endParam) {
       return NextResponse.json(
-        { error: "start_date debe ser anterior o igual a end_date." },
+        { error: d.connect.api.datesOrder },
         { status: 400 }
       );
     }

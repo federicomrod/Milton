@@ -14,27 +14,9 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/auth/password-input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useT } from "@/lib/i18n/client";
 
 const MIN_PASSWORD = 8;
-
-const ERROR_COPY: Record<string, string> = {
-  invite_invalid:
-    "This invite link isn't valid. Ask your Milton contact for a new link.",
-  invite_used: "This invite link has already been used.",
-  invite_revoked:
-    "This invite has been cancelled. Ask your Milton contact for a new link.",
-  invite_expired:
-    "This invite link has expired. Ask your Milton contact for a new link.",
-  email_mismatch:
-    "You're signed in with a different email than the one invited. Log out and use the invited email.",
-  already_member_of_other_company:
-    "This account already belongs to another workspace, so it can't join this one.",
-  invalid_password: "Password must be between 8 and 72 characters.",
-  login_required:
-    "Please log in with the invited email, then reopen this link.",
-  accept_failed:
-    "We couldn't activate this invite. Please try again, or ask your Milton contact for help.",
-};
 
 export function InviteAcceptForm({
   token,
@@ -46,6 +28,19 @@ export function InviteAcceptForm({
   signedInEmail: string | null;
 }) {
   const router = useRouter();
+  const { d, fmt } = useT();
+  const a = d.auth.invite;
+  const ERROR_COPY: Record<string, string> = {
+    invite_invalid: a.errInvalid,
+    invite_used: a.errUsed,
+    invite_revoked: a.errRevoked,
+    invite_expired: a.errExpired,
+    email_mismatch: a.errEmailMismatch,
+    already_member_of_other_company: a.errOtherCompany,
+    invalid_password: a.errInvalidPassword,
+    login_required: a.errLoginRequired,
+    accept_failed: a.errAcceptFailed,
+  };
   const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -74,12 +69,10 @@ export function InviteAcceptForm({
       if (data.error === "account_exists") {
         setAccountExists(true);
       } else {
-        setError(
-          ERROR_COPY[data.error] ?? "Something went wrong. Please try again."
-        );
+        setError(ERROR_COPY[data.error] ?? a.errGeneric);
       }
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(a.errGeneric);
     }
     setLoading(false);
   };
@@ -88,22 +81,19 @@ export function InviteAcceptForm({
     return (
       <Alert>
         <AlertDescription className="space-y-2">
-          <p>
-            An account with this email already exists, so we can&apos;t set a
-            new password from this link.
-          </p>
+          <p>{a.accountExists}</p>
           <p>
             <Link href="/auth/login" className="text-primary hover:underline">
-              Log in
-            </Link>{" "}
-            (or{" "}
+              {a.accountExistsLoginBefore}
+            </Link>
+            {a.accountExistsOr}
             <Link
               href="/auth/forgot-password"
               className="text-primary hover:underline"
             >
-              reset your password
+              {a.accountExistsReset}
             </Link>
-            ), then open this invite link again to join the workspace.
+            {a.accountExistsAfter}
           </p>
         </AlertDescription>
       </Alert>
@@ -119,14 +109,14 @@ export function InviteAcceptForm({
           </Alert>
         )}
         <p className="text-sm text-muted-foreground">
-          You&apos;re signed in as {email}.
+          {fmt(a.signedInAs, { email })}
         </p>
         <Button
           className="w-full"
           disabled={loading}
           onClick={() => submit({ token })}
         >
-          {loading ? "Joining..." : "Join workspace"}
+          {loading ? a.joining : a.joinButton}
         </Button>
       </div>
     );
@@ -135,11 +125,11 @@ export function InviteAcceptForm({
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length < MIN_PASSWORD) {
-      setError("Password must be at least 8 characters.");
+      setError(a.passwordTooShort);
       return;
     }
     if (password !== confirm) {
-      setError("Passwords don't match.");
+      setError(a.passwordMismatch);
       return;
     }
     void submit({
@@ -158,18 +148,15 @@ export function InviteAcceptForm({
       )}
       {signedInEmail && (
         <Alert>
-          <AlertDescription>
-            You&apos;re signed in with a different account. Log out to activate
-            this invite.
-          </AlertDescription>
+          <AlertDescription>{a.differentAccount}</AlertDescription>
         </Alert>
       )}
       <div className="space-y-2">
-        <Label htmlFor="invite-email">Email</Label>
+        <Label htmlFor="invite-email">{a.email}</Label>
         <Input id="invite-email" type="email" value={email} readOnly />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="full-name">Full name (optional)</Label>
+        <Label htmlFor="full-name">{a.fullName}</Label>
         <Input
           id="full-name"
           value={fullName}
@@ -177,7 +164,7 @@ export function InviteAcceptForm({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="new-password">Password</Label>
+        <Label htmlFor="new-password">{a.password}</Label>
         <PasswordInput
           id="new-password"
           autoComplete="new-password"
@@ -188,7 +175,7 @@ export function InviteAcceptForm({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="confirm-password">Confirm password</Label>
+        <Label htmlFor="confirm-password">{a.confirm}</Label>
         <PasswordInput
           id="confirm-password"
           autoComplete="new-password"
@@ -202,7 +189,7 @@ export function InviteAcceptForm({
         className="w-full"
         disabled={loading || !!signedInEmail}
       >
-        {loading ? "Activating..." : "Activate account"}
+        {loading ? a.activating : a.activate}
       </Button>
     </form>
   );

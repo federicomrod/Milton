@@ -15,7 +15,7 @@ import { useMemo, useState } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   AMOUNT_CATEGORIES,
-  CATEGORY_LABELS_ES,
+  categoryLabel,
   FIXED_COST_CATEGORIES,
   breakEvenPerDay,
   effectiveFixedCosts,
@@ -33,25 +33,16 @@ import type {
   FixedCostsView,
 } from "@/lib/restaurant/fixed-costs-server";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
+import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/client";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
-const MONTHS_ES = [
-  "enero",
-  "febrero",
-  "marzo",
-  "abril",
-  "mayo",
-  "junio",
-  "julio",
-  "agosto",
-  "septiembre",
-  "octubre",
-  "noviembre",
-  "diciembre",
-];
-
-export function monthLabelEs(month: string): string {
+export function monthLabelEs(
+  month: string,
+  lang: PreferredLanguage = "es"
+): string {
   const [y, m] = month.split("-").map(Number);
-  return `${MONTHS_ES[m - 1]} ${y}`;
+  return `${getDictionary(lang).rentabilidad.months[m - 1]} ${y}`;
 }
 
 /** Typed text → number; "" / invalid → null (an empty field is missing, never 0). */
@@ -68,25 +59,13 @@ const FLAG = "⚑";
 
 function describeValue(
   v: { amount: number | null; pct_of_sales: number | null } | null,
-  currency: string
+  currency: string,
+  lang: PreferredLanguage
 ): string {
   if (!v) return "—";
   if (v.pct_of_sales !== null) return `${v.pct_of_sales}%`;
-  return v.amount === null ? "—" : formatMoney(v.amount, currency);
+  return v.amount === null ? "—" : formatMoney(v.amount, currency, lang);
 }
-
-const ACTION_ES: Record<string, string> = {
-  create: "Agregó",
-  update: "Cambió",
-  delete: "Quitó",
-  repeat: "Repitió",
-};
-const SOURCE_ES: Record<string, string> = {
-  manual: "a mano",
-  repeat: "repetido del mes anterior",
-  estimate: "estimado",
-  upload: "archivo",
-};
 
 export interface FixedCostsTabProps {
   view: FixedCostsView;
@@ -113,6 +92,26 @@ export function FixedCostsTab({
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
+  const { d, lang, locale, fmt } = useT();
+  const f = d.costs.fixed;
+  // Spanish and English write a category inside a sentence in lower case;
+  // German nouns keep their capital.
+  const inText = (c: FixedCostCategory) =>
+    lang === "de"
+      ? categoryLabel(c, lang)
+      : categoryLabel(c, lang).toLowerCase();
+  const actionText: Record<string, string> = {
+    create: f.historyCreate,
+    update: f.historyUpdate,
+    delete: f.historyDelete,
+    repeat: f.historyRepeat,
+  };
+  const sourceText: Record<string, string> = {
+    manual: f.sourceManual,
+    repeat: f.sourceRepeat,
+    estimate: f.sourceEstimate,
+    upload: f.sourceUpload,
+  };
   const isGroup = view.locationId === null;
   const byCategory = useMemo(() => {
     const map = new Map<FixedCostCategory, FixedCostLine>();
@@ -233,27 +232,29 @@ export function FixedCostsTab({
       if (!res.ok) {
         setMessage({
           ok: false,
-          text: body.error ?? "No se pudieron guardar los cambios.",
+          text: body.error ?? f.saveFailed,
         });
       } else {
-        setMessage({ ok: true, text: "Cambios guardados." });
+        setMessage({ ok: true, text: f.saved });
         router.refresh();
       }
     } catch {
-      setMessage({ ok: false, text: "No se pudieron guardar los cambios." });
+      setMessage({ ok: false, text: f.saveFailed });
     } finally {
       setSaving(false);
     }
   }
 
   const breakEvenText =
-    live.breakEven !== null ? formatMoney(live.breakEven, view.currency) : null;
+    live.breakEven !== null
+      ? formatMoney(live.breakEven, view.currency, lang)
+      : null;
   const flagReason =
     missingAmounts.length > 0
-      ? `Falta: ${missingAmounts.map((c) => CATEGORY_LABELS_ES[c].toLowerCase()).join(", ")}.`
+      ? fmt(f.reasonMissing, { list: missingAmounts.map(inText).join(", ") })
       : view.marginReason
         ? view.marginReason
-        : "No hay margen para calcularlo.";
+        : f.reasonNoMargin;
 
   const saveButton = (
     <button
@@ -262,32 +263,28 @@ export function FixedCostsTab({
       disabled={saving || !dirty}
       className="inline-flex h-11 min-w-[9rem] items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      {saving ? "Guardando…" : "Guardar cambios"}
+      {saving ? f.saving : f.save}
     </button>
   );
 
   const breakEvenBlock = (compact: boolean) =>
     breakEvenText ? (
       <div data-testid="break-even">
-        <p className="text-sm font-medium text-[#6b7385]">
-          Punto de equilibrio
-        </p>
+        <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
         <p className="text-base font-semibold text-[#151c2c]">
-          Necesitas vender{" "}
+          {f.needSellBefore}{" "}
           <span className="text-[#1B40C8]" data-testid="break-even-value">
             {breakEvenText}
           </span>{" "}
-          al día
+          {f.needSellAfter}
         </p>
       </div>
     ) : (
       <div data-testid="break-even">
-        <p className="text-sm font-medium text-[#6b7385]">
-          Punto de equilibrio
-        </p>
+        <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
         <p className="text-base font-semibold text-[#151c2c]">
-          <span aria-hidden="true">{FLAG}</span> Falta
-          <span className="sr-only"> el dato para calcularlo</span>
+          <span aria-hidden="true">{FLAG}</span> {f.missing}
+          <span className="sr-only">{f.missingDataSr}</span>
         </p>
         {!compact ? (
           <p className="mt-1 text-sm text-[#6b7385]">{flagReason}</p>
@@ -301,27 +298,27 @@ export function FixedCostsTab({
   return (
     <section
       className="space-y-4 pb-28 lg:pb-0"
-      aria-label="Costos fijos"
+      aria-label={f.sectionAria}
       data-testid="fixed-costs-tab"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-[#151c2c]">
-            {isGroup
-              ? "Costos compartidos del grupo"
-              : (locationName ?? "Restaurante")}
+            {isGroup ? f.groupTitle : (locationName ?? f.restaurant)}
           </h2>
           <p className="text-sm text-[#6b7385]">
-            {isGroup
-              ? "Se reparten entre tus restaurantes. Elige un restaurante para cargar los suyos."
-              : "Lo que pagas cada mes, sin importar cuánto vendas."}
+            {isGroup ? f.groupHint : f.locationHint}
           </p>
         </div>
-        <div className="flex items-center gap-2" role="group" aria-label="Mes">
+        <div
+          className="flex items-center gap-2"
+          role="group"
+          aria-label={f.monthGroup}
+        >
           <button
             type="button"
             onClick={() => goMonth(prevMonth)}
-            aria-label="Mes anterior"
+            aria-label={f.prevMonth}
             className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
           >
             ‹
@@ -330,13 +327,13 @@ export function FixedCostsTab({
             className="min-w-[8.5rem] text-center text-sm font-semibold capitalize text-[#151c2c]"
             data-testid="fixed-costs-month"
           >
-            {monthLabelEs(view.month)}
+            {monthLabelEs(view.month, lang)}
           </span>
           <button
             type="button"
             onClick={() => goMonth(nextMonth)}
             disabled={view.month >= currentMonth}
-            aria-label="Mes siguiente"
+            aria-label={f.nextMonth}
             className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:cursor-not-allowed disabled:opacity-40"
           >
             ›
@@ -367,15 +364,15 @@ export function FixedCostsTab({
                       htmlFor={id}
                       className="text-sm font-semibold text-[#151c2c]"
                     >
-                      {CATEGORY_LABELS_ES[category]}
+                      {categoryLabel(category, lang)}
                     </label>
                     {isTax ? (
-                      <p className="text-sm text-[#6b7385]">
-                        Si tus precios incluyen IVA, escribe tu tasa
-                      </p>
+                      <p className="text-sm text-[#6b7385]">{f.taxHint}</p>
                     ) : share !== null ? (
                       <p className="text-sm text-[#6b7385]">
-                        Más {formatMoney(share, view.currency)} del grupo
+                        {fmt(f.groupShare, {
+                          amount: formatMoney(share, view.currency, lang),
+                        })}
                       </p>
                     ) : null}
                   </div>
@@ -384,7 +381,7 @@ export function FixedCostsTab({
                       className="rounded-full bg-[#FDE68A] px-2 py-0.5 text-sm font-semibold text-[#0F172A]"
                       data-testid={`falta-${category}`}
                     >
-                      <span aria-hidden="true">{FLAG}</span> Falta
+                      <span aria-hidden="true">{FLAG}</span> {f.missing}
                     </span>
                   ) : null}
                   <div className="flex items-center gap-1">
@@ -407,7 +404,7 @@ export function FixedCostsTab({
                       onChange={(e) =>
                         setValues((v) => ({ ...v, [category]: e.target.value }))
                       }
-                      placeholder={isTax ? "0" : "Sin dato"}
+                      placeholder={isTax ? "0" : f.noData}
                       className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
                     />
                     {isTax ? (
@@ -430,8 +427,7 @@ export function FixedCostsTab({
               data-testid="falta-cta"
             >
               <p className="text-sm font-medium text-[#151c2c]">
-                <span aria-hidden="true">{FLAG}</span> Falta cargar costos fijos
-                de este mes.
+                <span aria-hidden="true">{FLAG}</span> {f.missingCta}
               </p>
               <button
                 type="button"
@@ -441,7 +437,7 @@ export function FixedCostsTab({
                 }}
                 className="inline-flex h-11 items-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
               >
-                Sube tus costos fijos
+                {f.uploadFixed}
               </button>
             </div>
           ) : null}
@@ -455,28 +451,25 @@ export function FixedCostsTab({
                 onChange={(e) => setRepeats(e.target.checked)}
                 className="h-5 w-5 accent-[#1B40C8]"
               />
-              Repetir cada mes
+              {f.repeatMonthly}
             </label>
             {isGroup ? (
               <label className="flex items-center gap-2 text-sm font-medium text-[#151c2c]">
-                Repartir
+                {f.split}
                 <select
                   value={splitRule}
                   onChange={(e) => setSplitRule(e.target.value as SplitRule)}
                   className="h-11 rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm"
                 >
-                  <option value="sales">según las ventas</option>
-                  <option value="equal">en partes iguales</option>
+                  <option value="sales">{f.splitSales}</option>
+                  <option value="equal">{f.splitEqual}</option>
                 </select>
               </label>
             ) : null}
             {isGroup && splitPreview.kind !== "single" ? (
               <div className="basis-full text-xs text-[#6b7385]">
                 {splitPreview.kind === "empty" ? (
-                  <p data-testid="split-preview">
-                    Escribe los montos para ver cuánto le toca a cada
-                    restaurante
-                  </p>
+                  <p data-testid="split-preview">{f.splitEmpty}</p>
                 ) : (
                   <>
                     <p
@@ -486,12 +479,12 @@ export function FixedCostsTab({
                       {splitPreview.shares
                         .map(
                           (sh) =>
-                            `${nameOf.get(sh.location_id) ?? "Restaurante"} ${formatMoney(sh.amount, view.currency)}`
+                            `${nameOf.get(sh.location_id) ?? f.restaurant} ${formatMoney(sh.amount, view.currency, lang)}`
                         )
                         .join(" · ")}
                     </p>
                     {splitPreview.fellBackToEqual ? (
-                      <p>Sin ventas este mes: se reparte en partes iguales</p>
+                      <p>{f.splitNoSales}</p>
                     ) : null}
                   </>
                 )}
@@ -514,9 +507,11 @@ export function FixedCostsTab({
           ) : null}
 
           <div className="rounded-xl border border-[#dfe3ea] bg-white p-4">
-            <h3 className="text-sm font-semibold text-[#151c2c]">Historial</h3>
+            <h3 className="text-sm font-semibold text-[#151c2c]">
+              {f.history}
+            </h3>
             {history.length === 0 ? (
-              <p className="mt-2 text-sm text-[#6b7385]">Aún no hay cambios.</p>
+              <p className="mt-2 text-sm text-[#6b7385]">{f.historyEmpty}</p>
             ) : (
               <ul
                 className="mt-2 divide-y divide-[#dfe3ea]"
@@ -525,15 +520,18 @@ export function FixedCostsTab({
                 {history.map((h) => (
                   <li key={h.id} className="py-2 text-sm text-[#151c2c]">
                     <span className="font-medium">
-                      {ACTION_ES[h.action] ?? h.action}{" "}
-                      {CATEGORY_LABELS_ES[h.category]?.toLowerCase()}
+                      {actionText[h.action]
+                        ? fmt(actionText[h.action], {
+                            category: inText(h.category),
+                          })
+                        : h.action}
                     </span>{" "}
                     <span className="text-[#6b7385]">
-                      · {monthLabelEs(h.month.slice(0, 10))} ·{" "}
-                      {describeValue(h.old_value, view.currency)} →{" "}
-                      {describeValue(h.new_value, view.currency)} ·{" "}
-                      {SOURCE_ES[h.source] ?? h.source} ·{" "}
-                      {new Date(h.created_at).toLocaleDateString("es")}
+                      · {monthLabelEs(h.month.slice(0, 10), lang)} ·{" "}
+                      {describeValue(h.old_value, view.currency, lang)} →{" "}
+                      {describeValue(h.new_value, view.currency, lang)} ·{" "}
+                      {sourceText[h.source] ?? h.source} ·{" "}
+                      {new Date(h.created_at).toLocaleDateString(locale)}
                     </span>
                   </li>
                 ))}
@@ -548,10 +546,12 @@ export function FixedCostsTab({
             {breakEvenBlock(false)}
             {live.breakEven !== null && view.margin ? (
               <p className="text-sm text-[#6b7385]">
-                Con {view.openDays} días abiertos al mes
-                {live.costs.impuestosPct === null
-                  ? " y sin tasa de impuestos (se calcula con 0%)."
-                  : "."}
+                {fmt(
+                  live.costs.impuestosPct === null
+                    ? f.openDaysNoTax
+                    : f.openDays,
+                  { days: view.openDays }
+                )}
               </p>
             ) : null}
             {saveButton}

@@ -59,7 +59,12 @@ export function CockpitTabs({
       <div className="sticky top-0 z-20 -mx-6 lg:-mx-10 px-6 lg:px-10 mb-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
         <nav
           className="flex gap-1 overflow-x-auto"
-          aria-label={t(lang, "Cockpit sections", "Secciones del cockpit")}
+          aria-label={t(
+            lang,
+            "Cockpit sections",
+            "Secciones del cockpit",
+            "Cockpit-Bereiche"
+          )}
           role="tablist"
         >
           {tabs.map((t) => {

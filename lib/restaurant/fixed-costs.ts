@@ -6,6 +6,9 @@
 // flag) and the break-even. A missing value is `null`, never 0; a typed 0 is a
 // real value.
 
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
+
 export const AMOUNT_CATEGORIES = [
   "planilla",
   "alquiler",
@@ -27,6 +30,14 @@ export const CATEGORY_LABELS_ES: Record<FixedCostCategory, string> = {
   otros: "Otros",
   impuestos: "Impuestos",
 };
+
+/** The category's name in the person's language (lib/i18n «rentabilidad.categories»). */
+export function categoryLabel(
+  category: FixedCostCategory,
+  lang: PreferredLanguage = "es"
+): string {
+  return getDictionary(lang).rentabilidad.categories[category];
+}
 
 export type FixedCostSource = "manual" | "repeat" | "estimate" | "upload";
 export type FixedCostStatus = "draft" | "confirmed";
@@ -133,27 +144,29 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `value` null/""/undefined is NOT valid here: an empty field is no row (the
  * caller deletes it), never a stored 0.
  */
-export function validateLine(input: LineInput): LineValidation {
+export function validateLine(
+  input: LineInput,
+  lang: PreferredLanguage = "es"
+): LineValidation {
+  const e = getDictionary(lang).costs.fixedErrors;
   if (!isFixedCostCategory(input.category))
-    return { ok: false, error: "Categoría no válida." };
+    return { ok: false, error: e.category };
   const month =
     typeof input.month === "string" ? monthStartOf(input.month) : null;
-  if (!month) return { ok: false, error: "Mes no válido." };
+  if (!month) return { ok: false, error: e.month };
   let location_id: string | null = null;
   if (input.location_id !== null && input.location_id !== undefined) {
     if (typeof input.location_id !== "string" || !UUID.test(input.location_id))
-      return { ok: false, error: "Restaurante no válido." };
+      return { ok: false, error: e.restaurant };
     location_id = input.location_id;
   }
   const raw = input.value;
   if (raw === null || raw === undefined || raw === "")
-    return { ok: false, error: "Falta el valor." };
+    return { ok: false, error: e.missingValue };
   const n = typeof raw === "number" ? raw : Number(raw);
-  if (!Number.isFinite(n) || n < 0)
-    return { ok: false, error: "El valor debe ser 0 o más." };
+  if (!Number.isFinite(n) || n < 0) return { ok: false, error: e.negative };
   const isTax = input.category === "impuestos";
-  if (isTax && n > 100)
-    return { ok: false, error: "El porcentaje va de 0 a 100." };
+  if (isTax && n > 100) return { ok: false, error: e.pct };
   const split =
     input.split_rule === "sales" || input.split_rule === "equal"
       ? input.split_rule

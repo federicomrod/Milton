@@ -23,6 +23,7 @@ import {
 import type { GroupMemberType } from "@/lib/restaurant/groups/item-groups";
 import { useRememberedSet, type useItemGroups } from "./use-item-groups";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 export interface SuggestedCluster extends Cluster {
   /** Set when the suggestion is stored (an ai_suggested / suggested group). */
@@ -51,6 +52,8 @@ export function useMiltonSuggestions({
   /** Todos los restaurantes: suggest inside each restaurant, never mixing them. */
   perRestaurant?: boolean;
 }) {
+  const { d } = useT();
+  const msg = d.menu.groups.suggestHook;
   const memberType: GroupMemberType =
     scope === "product" ? "pos_product" : scope;
   const hierarchy = useMemo(() => ({ scope }), [scope]);
@@ -184,16 +187,11 @@ export function useMiltonSuggestions({
           error?: string;
         };
         if (!res.ok) {
-          grouping.notify(
-            userErrorMessage(json, "Milton no pudo sugerir grupos ahora."),
-            true
-          );
+          grouping.notify(userErrorMessage(json, msg.failed), true);
           return;
         }
         if (json.unavailable) {
-          grouping.notify(
-            "La IA no está configurada en este ambiente: solo hay sugerencias por nombre y categoría."
-          );
+          grouping.notify(msg.aiUnavailable);
           return;
         }
         for (const c of json.clusters ?? []) {
@@ -201,7 +199,7 @@ export function useMiltonSuggestions({
         }
       }
       if (found.length === 0) {
-        grouping.notify("Milton no encontró más grupos claros.");
+        grouping.notify(msg.noMore);
         return;
       }
       await grouping.run((s) =>
@@ -213,7 +211,7 @@ export function useMiltonSuggestions({
         })
       );
     } catch {
-      grouping.notify("Milton no pudo sugerir grupos ahora.", true);
+      grouping.notify(msg.failed, true);
     } finally {
       setAiBusy(false);
     }
@@ -227,6 +225,7 @@ export function useMiltonSuggestions({
     memberType,
     grouping.run,
     grouping.notify,
+    msg,
   ]);
 
   const previewRefs = useMemo(

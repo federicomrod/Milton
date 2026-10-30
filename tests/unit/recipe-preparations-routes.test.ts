@@ -46,14 +46,15 @@ describe("Preparaciones routes and screen", () => {
   });
 
   it("screen copy is Spanish with tú and orders by impact", () => {
-    const ui = read(
-      "components/restaurant/recipes-costing/PreparacionesScreen.tsx"
-    );
+    const ui =
+      read("components/restaurant/recipes-costing/PreparacionesScreen.tsx") +
+      read("lib/i18n/es/menu-workspace.ts");
     expect(ui).toContain("Preparaciones de tu cocina");
     expect(ui).toContain("Empieza por las que desbloquean más ventas");
     expect(ui).toContain("Confirmar rendimiento");
     // C7/B9: one primary "Aprobar"; who approves lives in its tooltip.
-    expect(ui).toMatch(/>\s*Aprobar\s*</);
+    expect(ui).toMatch(/>\s*\{w\.approve\}\s*</);
+    expect(ui).toMatch(/approve"?: "Aprobar"/);
     expect(ui).toContain("Aprueba el dueño o un admin");
     expect(ui).not.toMatch(/\busted\b/i);
     const server = read("lib/restaurant/recipe-costing/preparations-server.ts");

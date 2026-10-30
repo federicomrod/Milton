@@ -14,6 +14,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useToast } from "@/components/ui/use-toast";
+import { useT } from "@/lib/i18n/client";
 import {
   MAX_RANGE_DAYS,
   parseInclusiveDateRange,
@@ -57,6 +58,14 @@ export function OdooSyncPanel({
 }: OdooSyncPanelProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const { d, lang, fmt } = useT();
+  const o = d.admin.odoo;
+  const presetLabels: Record<SyncDatePreset, string> = {
+    yesterday: o.presetYesterday,
+    last_7_days: o.presetLast7Days,
+    this_month: o.presetThisMonth,
+    last_month: o.presetLastMonth,
+  };
   const defaultRange = rangeForPreset(DEFAULT_SYNC_PRESET);
   const [preset, setPreset] = useState<SyncDatePreset | "custom">(
     DEFAULT_SYNC_PRESET
@@ -100,7 +109,7 @@ export function OdooSyncPanel({
     const result = await guardRef.current.run(async () => {
       const parsed = parseInclusiveDateRange(startDate, endDate);
       if (!parsed.ok) {
-        setError(localizedRangeParseError("es", parsed.error));
+        setError(localizedRangeParseError(lang, parsed.error));
         return;
       }
 
@@ -126,22 +135,22 @@ export function OdooSyncPanel({
 
         if (!response.ok) {
           setSummary(null);
-          setError(safeSyncErrorMessageForLang("es", response.status, body));
+          setError(safeSyncErrorMessageForLang(lang, response.status, body));
           return;
         }
 
-        const view = summarizeOdooSync(body as OdooSyncSuccessBody);
+        const view = summarizeOdooSync(body as OdooSyncSuccessBody, lang);
         setSummary(view);
         setStoredLastSync(compactLastSync(body as OdooSyncSuccessBody));
         toast({
-          title: "Ventas actualizadas",
-          description: syncSummaryCopy(view).headline,
+          title: o.toastTitle,
+          description: syncSummaryCopy(view, lang).headline,
         });
         window.dispatchEvent(new CustomEvent("milton:pos-data-updated"));
         router.refresh();
       } catch {
         setSummary(null);
-        setError(safeSyncErrorMessageForLang("es", 0, {}));
+        setError(safeSyncErrorMessageForLang(lang, 0, {}));
       } finally {
         setSyncing(false);
       }
@@ -150,7 +159,7 @@ export function OdooSyncPanel({
     if (!result.started) return;
   };
 
-  const copy = summary ? syncSummaryCopy(summary) : null;
+  const copy = summary ? syncSummaryCopy(summary, lang) : null;
   const lastSyncLine = formatWorkspaceLastSyncLine(
     storedLastSync,
     selectedCompanyName,
@@ -160,12 +169,11 @@ export function OdooSyncPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Sincronizar ventas desde Odoo</CardTitle>
+        <CardTitle>{o.title}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Trae los pedidos completados del POS a Milton. Puedes sincronizar
-          hasta {MAX_RANGE_DAYS} días a la vez.
+          {fmt(o.intro, { days: MAX_RANGE_DAYS })}
         </p>
         <p className="text-sm font-medium" data-testid="odoo-sync-target">
           {workspaceCopy.targetLine}
@@ -177,7 +185,7 @@ export function OdooSyncPanel({
         )}
 
         <div>
-          <Label className="mb-2 block">Rango rápido</Label>
+          <Label className="mb-2 block">{o.quickRange}</Label>
           <div className="flex flex-wrap gap-2">
             {SYNC_DATE_PRESETS.map((item) => (
               <Button
@@ -188,7 +196,7 @@ export function OdooSyncPanel({
                 onClick={() => applyPreset(item.id)}
                 disabled={syncing}
               >
-                {item.label}
+                {presetLabels[item.id]}
               </Button>
             ))}
           </div>
@@ -196,7 +204,7 @@ export function OdooSyncPanel({
 
         <div className="grid max-w-xl gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="odoo-sync-start">Fecha de inicio</Label>
+            <Label htmlFor="odoo-sync-start">{o.startDate}</Label>
             <Input
               id="odoo-sync-start"
               type="date"
@@ -206,7 +214,7 @@ export function OdooSyncPanel({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="odoo-sync-end">Fecha de fin</Label>
+            <Label htmlFor="odoo-sync-end">{o.endDate}</Label>
             <Input
               id="odoo-sync-end"
               type="date"
@@ -228,12 +236,10 @@ export function OdooSyncPanel({
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            {syncing ? "Sincronizando…" : "Sincronizar ahora"}
+            {syncing ? o.syncing : o.syncNow}
           </Button>
           {syncing && (
-            <p className="text-sm text-muted-foreground">
-              Sincronizando ventas… un mes completo puede tardar un minuto.
-            </p>
+            <p className="text-sm text-muted-foreground">{o.syncingLong}</p>
           )}
         </div>
 
@@ -263,6 +269,7 @@ function OdooSyncSummaryCard({
   view: OdooSyncSummaryView;
   copy: ReturnType<typeof syncSummaryCopy>;
 }) {
+  const o = useT().d.admin.odoo;
   return (
     <div className="space-y-3 rounded-md border p-4 text-sm">
       <p className="font-medium">{copy.headline}</p>
@@ -281,7 +288,7 @@ function OdooSyncSummaryCard({
                 size="sm"
                 className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD] hover:text-[#1533A3]"
               >
-                Ver motivos
+                {o.viewReasons}
               </Button>
             </CollapsibleTrigger>
           )}
@@ -310,7 +317,7 @@ function OdooSyncSummaryCard({
                 size="sm"
                 className="border-[#1B40C8] text-[#1B40C8] hover:bg-[#E7EDFD] hover:text-[#1533A3]"
               >
-                Ver lista
+                {o.viewList}
               </Button>
             </CollapsibleTrigger>
           )}
@@ -344,7 +351,7 @@ function OdooSyncSummaryCard({
 
       {view.warnings.length > 0 && (
         <div>
-          <p className="font-medium">Avisos</p>
+          <p className="font-medium">{o.warnings}</p>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">
             {view.warnings.map((note) => (
               <li key={note}>{note}</li>

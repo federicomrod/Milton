@@ -154,7 +154,7 @@ export function weekStartMonday(dateKey: string): string {
 export function formatCompactDateRange(
   from: string,
   to: string,
-  locale: string = "en-GB"
+  locale: string = "en-US"
 ): string {
   const parse = (iso: string): Date | null => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;

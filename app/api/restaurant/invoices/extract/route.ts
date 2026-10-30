@@ -22,6 +22,8 @@
 // (rendering PDF → image server-side requires pdf.js or pdf2pic plus a
 // runtime image library; deferring per the brief).
 
+import { fmt as f } from "@/lib/i18n";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
@@ -53,30 +55,25 @@ export async function POST(req: NextRequest) {
   });
   const denied = requireCapability(actor, "prices.edit");
   if (denied) return denied;
+  const a = (await apiDictionary()).costs.api;
 
   // ---- Form parsing ----
   let formData: FormData;
   try {
     formData = await req.formData();
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser multipart/form-data." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.bodyMultipart }, { status: 400 });
   }
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: "Sube un archivo." }, { status: 400 });
+    return NextResponse.json({ error: a.uploadAFile }, { status: 400 });
   }
   if (file.size === 0) {
-    return NextResponse.json(
-      { error: "El archivo está vacío." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: a.fileEmpty }, { status: 400 });
   }
   if (file.size > MAX_FILE_BYTES) {
     return NextResponse.json(
-      { error: `El archivo pesa más de ${MAX_FILE_BYTES / 1024 / 1024} MB.` },
+      { error: f(a.fileTooBig, { mb: MAX_FILE_BYTES / 1024 / 1024 }) },
       { status: 400 }
     );
   }
@@ -86,7 +83,7 @@ export async function POST(req: NextRequest) {
   if (PDF_MIME_TYPES.has(mime)) {
     return NextResponse.json(
       {
-        error: "Todavía no leo PDF; sube una foto PNG o JPG.",
+        error: a.noPdfYet,
       },
       { status: 415 }
     );
@@ -94,7 +91,7 @@ export async function POST(req: NextRequest) {
   if (!IMAGE_MIME_TYPES.has(mime)) {
     return NextResponse.json(
       {
-        error: "Ese tipo de archivo no sirve. Usa PNG, JPG o WEBP.",
+        error: a.fileTypeBad,
       },
       { status: 415 }
     );

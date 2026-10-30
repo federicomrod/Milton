@@ -25,7 +25,7 @@ export function KitchenHighlights({
       className="mt-3 pt-3 border-t border-border"
     >
       <h3 className="text-sm font-semibold text-[#0D1117] mb-2">
-        {t(lang, "So you know", "Para que sepas")}
+        {t(lang, "So you know", "Para que sepas", "Zur Information")}
       </h3>
       <ul className="space-y-2">
         {highlights.map((item) => (

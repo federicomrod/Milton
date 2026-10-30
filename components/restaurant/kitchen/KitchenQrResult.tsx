@@ -8,6 +8,8 @@
 // Milton admin page.
 
 import { useState } from "react";
+import { useT } from "@/lib/i18n/client";
+import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -30,8 +32,10 @@ export function kitchenQrFilename(locationName: string): string {
 
 export async function shareOrDownloadQr(
   qr: KitchenQrPayload,
-  locationName: string
+  locationName: string,
+  lang: PreferredLanguage = "es"
 ) {
+  const shareTitle = t(lang, "Kitchen QR", "QR de cocina", "Küchen-QR-Code");
   const base = kitchenQrFilename(locationName);
   const filename = `${base}.png`;
   try {
@@ -44,13 +48,13 @@ export async function shareOrDownloadQr(
     if (typeof navigator.share === "function" && canFiles) {
       await navigator.share({
         files: [file],
-        title: "QR de cocina",
+        title: shareTitle,
       });
       return;
     }
     if (typeof navigator.share === "function") {
       await navigator.share({
-        title: "QR de cocina",
+        title: shareTitle,
         url: qr.deep_link,
       });
       return;
@@ -70,6 +74,13 @@ export function KitchenQrResult({
   locationName: string;
   variant?: "full" | "print";
 }) {
+  const { lang } = useT();
+  const qrAlt = t(
+    lang,
+    `Kitchen QR code of ${locationName}`,
+    `QR de cocina para ${locationName}`,
+    `Küchen-QR-Code für ${locationName}`
+  );
   const [copied, setCopied] = useState(false);
   const base = kitchenQrFilename(locationName);
   const sizeClass = variant === "print" ? "h-[180px] w-[180px]" : "h-48 w-48";
@@ -97,7 +108,7 @@ export function KitchenQrResult({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={qr.qr_png_data_url}
-          alt={`QR de cocina para ${locationName}`}
+          alt={qrAlt}
           data-testid="kitchen-qr"
           className={`${sizeClass} mx-auto`}
         />
@@ -106,7 +117,12 @@ export function KitchenQrResult({
           className="w-full bg-[#1B40C8] text-white hover:bg-[#1533A3]"
           onClick={() => downloadQrFile(qr.qr_png_data_url, `${base}.png`)}
         >
-          Descargar QR para imprimir
+          {t(
+            lang,
+            "Download QR to print",
+            "Descargar QR para imprimir",
+            "QR-Code zum Drucken herunterladen"
+          )}
         </Button>
       </div>
     );
@@ -114,11 +130,18 @@ export function KitchenQrResult({
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
-      <div className="font-medium">QR de {locationName}</div>
+      <div className="font-medium">
+        {t(
+          lang,
+          `QR of ${locationName}`,
+          `QR de ${locationName}`,
+          `QR-Code von ${locationName}`
+        )}
+      </div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={qr.qr_png_data_url}
-        alt={`QR de cocina para ${locationName}`}
+        alt={qrAlt}
         data-testid="kitchen-qr"
         className={sizeClass}
       />
@@ -128,18 +151,25 @@ export function KitchenQrResult({
           variant="outline"
           onClick={() => downloadQrFile(qr.qr_png_data_url, `${base}.png`)}
         >
-          Descargar PNG
+          {t(lang, "Download PNG", "Descargar PNG", "PNG herunterladen")}
         </Button>
         <Button size="sm" variant="outline" onClick={downloadSvg}>
-          Descargar SVG
+          {t(lang, "Download SVG", "Descargar SVG", "SVG herunterladen")}
         </Button>
         <Button size="sm" variant="outline" onClick={copy}>
-          {copied ? "Copiado" : "Copiar enlace"}
+          {copied
+            ? t(lang, "Copied", "Copiado", "Kopiert")
+            : t(lang, "Copy link", "Copiar enlace", "Link kopieren")}
         </Button>
       </div>
       <Alert>
         <AlertDescription>
-          No podemos volver a mostrar este QR. Si se pierde la hoja, rótalo.
+          {t(
+            lang,
+            "We cannot show this QR again. If the sheet is lost, rotate it.",
+            "No podemos volver a mostrar este QR. Si se pierde la hoja, rótalo.",
+            "Dieser QR-Code kann nicht erneut angezeigt werden. Geht das Blatt verloren, erneuern Sie ihn."
+          )}
         </AlertDescription>
       </Alert>
     </div>

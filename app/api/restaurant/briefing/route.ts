@@ -26,6 +26,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { generateBriefing } from "@/lib/restaurant/briefing-generate";
@@ -107,7 +108,10 @@ export async function GET(req: NextRequest) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[briefing] context build failed:", msg);
     return NextResponse.json(
-      { error: "Could not build briefing context", details: msg },
+      {
+        error: (await apiDictionary()).comms.api.briefingContextFailed,
+        details: msg,
+      },
       { status: 500 }
     );
   }

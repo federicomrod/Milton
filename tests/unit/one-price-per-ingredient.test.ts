@@ -3,6 +3,7 @@
 // (Sin precio + «legacy_line_price»), never silently used. Synthetic names/prices.
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "fs";
+import { es } from "@/lib/i18n/es";
 import { join } from "path";
 import {
   calculateMenuItemCost,
@@ -227,8 +228,12 @@ describe("the dish line offers the old price", () => {
     const src = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(src).toContain("en tu Excel:");
-    expect(src).toContain("Usar como precio del ingrediente");
+    expect(src).toContain("d.lines.inYourExcel");
+    expect(src).toContain("d.lines.adoptLegacy");
+    expect(es.menu.editor.lines.inYourExcel).toContain("en tu Excel:");
+    expect(es.menu.editor.lines.adoptLegacy).toBe(
+      "Usar como precio del ingrediente"
+    );
     expect(src).toContain("adopt_legacy: true");
     expect(src).toContain("line.legacy_price");
   });

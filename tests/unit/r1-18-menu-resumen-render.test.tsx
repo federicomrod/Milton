@@ -1,4 +1,5 @@
 // R1-18: Menú › Resumen drawn (server-rendered) and where the setup went. Synthetic.
+import { costs as esCosts } from "@/lib/i18n/es/costs";
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -249,11 +250,14 @@ describe("the setup moved to Costos, same components", () => {
     ])
       expect(section).toContain(c);
     expect(section).toContain("/api/restaurant/costs/batches/${batchId}/undo");
-    expect(section).toContain("Configura tus costos");
-    expect(section).toContain("Último archivo");
+    expect(esCosts.setup.configureShort).toBe("Configura tus costos");
+    expect(esCosts.setup.lastFile).toBe("Último archivo");
+    expect(section).toContain("st.configure");
+    expect(section).toContain("st.lastFile");
     // The menu reader moved to the Resumen card; Costos only links to it.
     expect(section).not.toContain("Leer tu menú web (opcional)");
-    expect(section).toContain("Costos configurados");
+    expect(esCosts.setup.costsConfigured).toBe("Costos configurados");
+    expect(section).toContain("st.costsConfigured");
     expect(
       read("lib/restaurant/recipe-costing/prepare-from-upload.ts")
     ).toContain("/api/restaurant/recipes/suggestions");

@@ -2,6 +2,11 @@
 // this dish (R1-09b, C7: "Aprobar"; the list on the left replaces
 // "siguiente" and "saltar"). Pure, so the rule lives outside React.
 
+import { getDictionary } from "@/lib/i18n";
+import {
+  RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { liveApproval, type ApprovalBlocker } from "./approval-live";
 import type { EditorLine } from "./editor";
 import type { RecipeCostingWorkspace, RecipeEditorView } from "./workspace";
@@ -22,7 +27,8 @@ export function primaryAction(
   editor: RecipeEditorView,
   hasRecipe: boolean,
   /** The editor's live lines; null while the editor has not reported yet. */
-  live: LiveDish | null = null
+  live: LiveDish | null = null,
+  lang: PreferredLanguage = RESTAURANT_COCKPIT_DEFAULT_LANGUAGE
 ): {
   label: string;
   enabled: boolean;
@@ -31,34 +37,36 @@ export function primaryAction(
   /** The first rule that blocks Aprobar, with its fix (shown as text). */
   blocker: ApprovalBlocker | null;
 } | null {
+  const p = getDictionary(lang).menu.workspace.plato;
+  const whoTip = p.whoApprovesTip;
   if (!actor.can_submit) return null;
   const linked = editor.link_state === "confirmado";
   if (editor.recipe_status === "aprobada") {
     return linked
       ? null
       : {
-          label: "Aprobar",
+          label: p.approve,
           enabled: hasRecipe,
-          hint: "La receta ya está aprobada; confirma que es este producto del POS.",
+          hint: p.approvedConfirmLink,
           blocker: null,
         };
   }
   if (actor.can_approve) {
     // The LIVE lines, never the stored evidence of import time.
-    const approval = live ? liveApproval(live) : null;
+    const approval = live ? liveApproval(live, lang) : null;
     const blocker = approval?.first ?? null;
     return {
-      label: "Aprobar",
+      label: p.approve,
       enabled: hasRecipe && approval !== null && approval.ready,
-      hint: blocker ? blocker.text : WHO_APPROVES_TIP,
+      hint: blocker ? blocker.text : whoTip,
       blocker,
     };
   }
   if (editor.recipe_status === "por_aprobar") return null;
   return {
-    label: "Enviar a aprobación",
+    label: p.submit,
     enabled: hasRecipe,
-    hint: WHO_APPROVES_TIP,
+    hint: whoTip,
     blocker: null,
   };
 }

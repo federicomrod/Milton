@@ -29,44 +29,18 @@ import {
 } from "@/components/restaurant/groups/GroupedItemList";
 import { useItemGroups } from "@/components/restaurant/groups/use-item-groups";
 import { userErrorMessage } from "@/lib/restaurant/user-error";
+import { useT } from "@/lib/i18n/client";
 
 const UNITS = ["oz", "lb", "g", "kg", "ml", "l", "gal", "unit", "portion"];
-const UNIT_LABEL: Record<string, string> = {
-  oz: "onzas",
-  lb: "libras",
-  g: "gramos",
-  kg: "kilos",
-  ml: "ml",
-  l: "litros",
-  gal: "galones",
-  unit: "unidades",
-  portion: "porciones",
-};
-
-const UNIT_SINGULAR: Record<string, string> = {
-  oz: "onza",
-  lb: "libra",
-  g: "gramo",
-  kg: "kilo",
-  ml: "ml",
-  l: "litro",
-  gal: "galón",
-  unit: "unidad",
-  portion: "porción",
-};
-
 function money(value: number): string {
   const text = value >= 1 ? value.toFixed(2) : value.toPrecision(3);
   return `$${Number(text)}`;
 }
 
-const STATUS: Record<
-  PreparationRow["status"],
-  { label: string; tone: "warn" | "ok" | "grey" }
-> = {
-  borrador: { label: "Por aprobar", tone: "warn" },
-  aprobada: { label: "Aprobada", tone: "ok" },
-  sin_receta: { label: "Sin receta", tone: "grey" },
+const STATUS_TONE: Record<PreparationRow["status"], "warn" | "ok" | "grey"> = {
+  borrador: "warn",
+  aprobada: "ok",
+  sin_receta: "grey",
 };
 
 type PrepItem = PreparationRow & { id: string };
@@ -75,18 +49,6 @@ const STATUS_RANK: Record<PreparationRow["status"], number> = {
   borrador: 1,
   aprobada: 2,
 };
-const PREPARATION_SORT: SortColumn<PrepItem>[] = [
-  { key: "name", label: "Nombre", value: (r) => r.name },
-  {
-    key: "impact",
-    label: "Ventas que desbloquea",
-    value: (r) => r.impact.net_sales,
-    agg: "sum",
-  },
-  { key: "dishes", label: "Platos", value: (r) => r.impact.dishes, agg: "sum" },
-  { key: "status", label: "Estado", value: (r) => STATUS_RANK[r.status] },
-];
-
 export function PreparacionesScreen({
   data,
   selectedId,
@@ -101,6 +63,33 @@ export function PreparacionesScreen({
   onBackToDish?: () => void;
   locationId?: string | null;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.preparaciones;
+  const STATUS_LABEL: Record<PreparationRow["status"], string> = {
+    borrador: w.status.borrador,
+    aprobada: w.status.aprobada,
+    sin_receta: w.status.sinReceta,
+  };
+  const PREPARATION_SORT: SortColumn<PrepItem>[] = [
+    { key: "name", label: w.sort.name, value: (r) => r.name },
+    {
+      key: "impact",
+      label: w.sort.impact,
+      value: (r) => r.impact.net_sales,
+      agg: "sum",
+    },
+    {
+      key: "dishes",
+      label: w.sort.dishes,
+      value: (r) => r.impact.dishes,
+      agg: "sum",
+    },
+    {
+      key: "status",
+      label: w.sort.status,
+      value: (r) => STATUS_RANK[r.status],
+    },
+  ];
   // R1-13: the list rides in the tab's payload (no second request on open);
   // it is only read again after edits, in the background.
   const [overview, setOverview] = useState<PreparationsOverview | null>(
@@ -126,12 +115,9 @@ export function PreparacionesScreen({
       .catch(() => ({}))) as PreparationsOverview & {
       error?: string;
     };
-    if (!res.ok)
-      throw new Error(
-        userErrorMessage(json, "No pude cargar las preparaciones.")
-      );
+    if (!res.ok) throw new Error(userErrorMessage(json, w.loadFailed));
     return json;
-  }, [locationId]);
+  }, [locationId, w.loadFailed]);
 
   useEffect(() => {
     // Opened with the list already in hand: nothing to read until an edit.
@@ -145,7 +131,7 @@ export function PreparacionesScreen({
         setError(null);
       } catch (err) {
         if (!cancelled && !overviewRef.current) {
-          setError(err instanceof Error ? err.message : "No pude cargar.");
+          setError(err instanceof Error ? err.message : w.loadFailedShort);
         }
       }
     })();
@@ -240,12 +226,12 @@ export function PreparacionesScreen({
     storageKey: "milton:preparaciones:abiertos",
     sortId: "preparaciones",
     sortColumns: PREPARATION_SORT,
-    searchPlaceholder: "Buscar preparación o grupo…",
-    emptyText: "No hay preparaciones con ese filtro.",
+    searchPlaceholder: w.searchPlaceholder,
+    emptyText: w.emptyFilter,
     filters: overview ? (
       <div className="flex gap-2 text-[12px]">
-        <Chip tone="warn">{overview.drafts} por aprobar</Chip>
-        <Chip tone="ok">{overview.approved} aprobadas</Chip>
+        <Chip tone="warn">{fmt(w.chipDrafts, { n: overview.drafts })}</Chip>
+        <Chip tone="ok">{fmt(w.chipApproved, { n: overview.approved })}</Chip>
       </div>
     ) : null,
     renderRow: (row) => (
@@ -262,11 +248,11 @@ export function PreparacionesScreen({
       >
         <div className="flex items-start gap-2">
           <b className="line-clamp-2 min-w-0 flex-1 break-words">{row.name}</b>
-          <Chip tone={STATUS[row.status].tone}>{STATUS[row.status].label}</Chip>
+          <Chip tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Chip>
         </div>
         <div className="text-[12px] text-[#5b6476]">
           {row.impact_label}
-          {row.yield_to_confirm ? " · rendimiento por confirmar" : ""}
+          {row.yield_to_confirm ? w.yieldToConfirmSuffix : ""}
         </div>
       </button>
     ),
@@ -290,14 +276,11 @@ export function PreparacionesScreen({
               onClick={onBackToDish}
               className="mb-2 text-[12px] font-semibold text-[#3557c9]"
             >
-              ← Volver al plato
+              {w.backToDish}
             </button>
           ) : null}
-          <h2
-            className="mb-2 text-[15px] font-semibold"
-            title="Un plato que usa una preparación queda pendiente hasta que la apruebes. Empieza por las que desbloquean más ventas."
-          >
-            Preparaciones de tu cocina
+          <h2 className="mb-2 text-[15px] font-semibold" title={w.titleHint}>
+            {w.title}
           </h2>
           <div className="mb-2">
             <UploadRecipesLink
@@ -313,17 +296,16 @@ export function PreparacionesScreen({
           {error ? (
             <p className="text-xs text-[#c03535]">{error}</p>
           ) : !overview ? (
-            <p className="text-xs text-[#5b6476]">Cargando…</p>
+            <p className="text-xs text-[#5b6476]">{w.loading}</p>
           ) : overview.rows.length === 0 ? (
             <p className="text-xs text-[#5b6476]">
-              Todavía no hay preparaciones. Se crean al subir tu Excel de
-              costos, o desde un plato con «Crear preparación».{" "}
+              {w.emptyList}{" "}
               <EmptyActionLink
                 href={costsTabHref("precios", {}, COSTS_FILE_ANCHOR)}
                 opensCostsPicker
                 className="font-semibold text-[#1B40C8] hover:underline"
               >
-                Subir archivo de costos
+                {w.uploadCosts}
               </EmptyActionLink>
             </p>
           ) : (
@@ -356,9 +338,7 @@ export function PreparacionesScreen({
             }}
           />
         ) : (
-          <Card className="p-4 text-sm text-[#5b6476]">
-            Elige una preparación.
-          </Card>
+          <Card className="p-4 text-sm text-[#5b6476]">{w.pickOne}</Card>
         )}
       </div>
     </div>
@@ -382,6 +362,10 @@ function PreparationDetail({
   onApproveStart: (componentId: string) => void;
   onApproveFailed: (componentId: string, message: string) => void;
 }) {
+  const { d, fmt } = useT();
+  const w = d.menu.workspace.preparaciones;
+  const unitPlural = w.unitPlural as Record<string, string>;
+  const unitSingular = w.unitSingular as Record<string, string>;
   const [state, setState] = useState<EditorState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -411,12 +395,12 @@ function PreparationDetail({
         body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(userErrorMessage(json, "No pude guardar."));
+      if (!res.ok) throw new Error(userErrorMessage(json, w.saveFailed));
       // Yield changed the version: reload this editor once.
       setLocalReload((k) => k + 1);
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No pude guardar.");
+      setError(err instanceof Error ? err.message : w.saveFailed);
     } finally {
       setBusy(false);
     }
@@ -441,7 +425,7 @@ function PreparationDetail({
       const json = (await res.json().catch(() => ({}))) as EditorState & {
         error?: string;
       };
-      if (!res.ok) throw new Error(userErrorMessage(json, "No pude aprobar."));
+      if (!res.ok) throw new Error(userErrorMessage(json, w.approveFailed));
       // The server's locked copy is what this preparation shows from now on;
       // dishes that use it, and the other Menú tabs, have new numbers.
       clearEditors();
@@ -451,8 +435,8 @@ function PreparationDetail({
       onChanged();
     } catch (err) {
       setApprovedNow(false);
-      const message = `${name ?? "La preparación"}: ${
-        err instanceof Error ? err.message : "no se pudo aprobar."
+      const message = `${name ?? w.thePreparation}: ${
+        err instanceof Error ? err.message : w.approveFailedShort
       }`;
       setError(message);
       onApproveFailed(componentId, message);
@@ -477,17 +461,17 @@ function PreparationDetail({
         <Card className="space-y-2 p-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-[13px] font-semibold">
-              Cuánto rinde {prep.name}
+              {fmt(w.yieldTitle, { name: prep.name })}
             </h3>
             {prep.yield?.confirmed ? (
-              <Chip tone="ok">Confirmado</Chip>
+              <Chip tone="ok">{w.confirmed}</Chip>
             ) : (
-              <Chip tone="warn">Sugerido, por confirmar</Chip>
+              <Chip tone="warn">{w.suggestedToConfirm}</Chip>
             )}
           </div>
           {state?.editable && !approvedNow ? (
             <div className="flex flex-wrap items-center gap-2">
-              Esta receta rinde
+              {w.recipeYields}
               <input
                 value={qty}
                 onChange={(event) => setQty(event.target.value)}
@@ -500,7 +484,7 @@ function PreparationDetail({
               >
                 {(UNITS.includes(unit) ? UNITS : [unit, ...UNITS]).map((u) => (
                   <option key={u} value={u}>
-                    {UNIT_LABEL[u] ?? u}
+                    {unitPlural[u] ?? u}
                   </option>
                 ))}
               </select>
@@ -515,19 +499,25 @@ function PreparationDetail({
                   })
                 }
               >
-                Confirmar rendimiento
+                {w.confirmYield}
               </GhostBtn>
             </div>
           ) : (
             <p>
-              Rinde {prep.yield?.value}{" "}
-              {UNIT_LABEL[prep.yield?.unit ?? ""] ?? prep.yield?.unit}
+              {fmt(w.yields, {
+                value: prep.yield?.value ?? "",
+                unit:
+                  unitPlural[prep.yield?.unit ?? ""] ?? prep.yield?.unit ?? "",
+              })}
             </p>
           )}
           <div className="text-[#5b6476]">
             {prep.cost_per_output_unit !== null && prep.yield
-              ? `Costo: ${money(prep.cost_per_output_unit)} por ${UNIT_SINGULAR[prep.yield.unit] ?? prep.yield.unit}`
-              : "El costo aparece cuando todas las líneas tienen precio."}
+              ? fmt(w.costPerUnit, {
+                  cost: money(prep.cost_per_output_unit),
+                  unit: unitSingular[prep.yield.unit] ?? prep.yield.unit,
+                })
+              : w.costWhenPriced}
           </div>
 
           {error ? (
@@ -543,9 +533,8 @@ function PreparationDetail({
               <span
                 title={
                   actor.can_approve
-                    ? prep.checklist.blockers.join(" · ") ||
-                      "Aprueba el dueño o un admin."
-                    : "Aprueba el dueño o un admin. Déjala lista y avísales."
+                    ? prep.checklist.blockers.join(" · ") || w.whoApproves
+                    : w.whoApprovesReady
                 }
               >
                 <button
@@ -558,28 +547,28 @@ function PreparationDetail({
                   }
                   className="rounded-lg bg-[#1B40C8] px-3.5 py-[7px] text-[13px] font-semibold text-white hover:bg-[#1535a6] disabled:cursor-not-allowed disabled:border-[#b9c7f0] disabled:bg-[#b9c7f0] disabled:opacity-100"
                 >
-                  Aprobar
+                  {w.approve}
                 </button>
               </span>
               {!prep.checklist.ready && prep.checklist.blockers[0] ? (
                 <span className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]">
                   {prep.checklist.blockers.length === 1
                     ? prep.checklist.blockers[0]
-                    : `${prep.checklist.blockers.length} pendientes`}
+                    : fmt(w.pendingCount, {
+                        n: prep.checklist.blockers.length,
+                      })}
                 </span>
               ) : null}
             </div>
           ) : (
-            <p className="text-[#1f7a45]">
-              Aprobada: ya cuenta en los platos que la usan.
-            </p>
+            <p className="text-[#1f7a45]">{w.approvedNote}</p>
           )}
         </Card>
       ) : null}
 
       <ConfirmHowDialog
         open={howOpen}
-        title="Aprobar en nombre del cliente"
+        title={w.approveForClient}
         onCancel={() => setHowOpen(false)}
         onConfirm={(how) => {
           setHowOpen(false);

@@ -6,6 +6,8 @@
 //   GET:  list the invites (never a secret or hash), ?locationId= to filter.
 // Supabase access token as bearer; the list is read through RLS.
 
+import { getDictionary } from "@/lib/i18n";
+import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
 import { authAndCompanyFromBearer } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -20,6 +22,7 @@ export const runtime = "nodejs";
 const LIST_LIMIT = 100;
 
 export async function POST(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authAndCompanyFromBearer(request);
   if (!auth.ok) return auth.response;
   const { supabase, companyId, userId } = auth;
@@ -35,12 +38,12 @@ export async function POST(request: NextRequest) {
     try {
       body = await request.json();
     } catch {
-      return mobileJson({ error: "El mensaje no es válido." }, 400);
+      return mobileJson({ error: d.kitchen.api.messageInvalid }, 400);
     }
     const locationId =
       typeof body.locationId === "string" ? body.locationId : "";
     if (!UUID_RE.test(locationId)) {
-      return mobileJson({ error: "El restaurante no es válido." }, 400);
+      return mobileJson({ error: d.kitchen.api.restaurantInvalid }, 400);
     }
 
     const created = await createKitchenInvite(createAdminClient(), {
@@ -52,8 +55,8 @@ export async function POST(request: NextRequest) {
     });
     if (!created.ok) {
       return created.reason === "location"
-        ? mobileJson({ error: "No encontré ese restaurante." }, 404)
-        : mobileJson({ error: "No pude crear la invitación." }, 500);
+        ? mobileJson({ error: d.kitchen.api.restaurantNotFound }, 404)
+        : mobileJson({ error: d.kitchen.api.inviteCreateFailed }, 500);
     }
 
     const origin = new URL(request.url).origin;
@@ -70,11 +73,12 @@ export async function POST(request: NextRequest) {
       "[mobile-invites] create failed:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return mobileJson({ error: "No pude crear la invitación." }, 500);
+    return mobileJson({ error: d.kitchen.api.inviteCreateFailed }, 500);
   }
 }
 
 export async function GET(request: NextRequest) {
+  const d = getDictionary(mobileLanguage(request));
   const auth = await authAndCompanyFromBearer(request);
   if (!auth.ok) return auth.response;
   const { supabase, companyId, userId } = auth;
@@ -88,7 +92,7 @@ export async function GET(request: NextRequest) {
 
     const locationId = new URL(request.url).searchParams.get("locationId");
     if (locationId && !UUID_RE.test(locationId)) {
-      return mobileJson({ error: "El restaurante no es válido." }, 400);
+      return mobileJson({ error: d.kitchen.api.restaurantInvalid }, 400);
     }
 
     let query = supabase
@@ -102,7 +106,7 @@ export async function GET(request: NextRequest) {
     if (locationId) query = query.eq("location_id", locationId);
     const { data, error } = await query;
     if (error) {
-      return mobileJson({ error: "No pude cargar las invitaciones." }, 500);
+      return mobileJson({ error: d.kitchen.api.invitesLoadFailed }, 500);
     }
     const now = new Date();
     return mobileJson({
@@ -115,6 +119,6 @@ export async function GET(request: NextRequest) {
       "[mobile-invites] list failed:",
       err instanceof Error ? err.name : "Unknown error"
     );
-    return mobileJson({ error: "No pude cargar las invitaciones." }, 500);
+    return mobileJson({ error: d.kitchen.api.invitesLoadFailed }, 500);
   }
 }

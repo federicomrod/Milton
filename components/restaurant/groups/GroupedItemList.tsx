@@ -42,6 +42,7 @@ import {
   useRememberedSet,
   type useItemGroups,
 } from "./use-item-groups";
+import { useT } from "@/lib/i18n/client";
 import { SortChips } from "@/components/restaurant/sort/SortTh";
 import { useTableSort } from "@/components/restaurant/sort/use-table-sort";
 import { MiltonMark, MiltonSuggestions } from "./MiltonSuggestions";
@@ -105,12 +106,14 @@ export function useGroupedItemList<T extends GroupableItem>({
   emptyText,
   sortId,
   sortColumns,
-  searchPlaceholder = "Buscar…",
+  searchPlaceholder,
   searchText,
   categoryOf,
   filters,
   onMergeSelected,
 }: GroupedItemListProps<T>) {
+  const { d, fmt, locale } = useT();
+  const gd = d.menu.groups;
   const memberType: GroupMemberType = scope;
   const hierarchy = { scope } as const;
   const [filter, setFilter] = useState<GroupingFilterValue>("todos");
@@ -174,8 +177,8 @@ export function useGroupedItemList<T extends GroupableItem>({
           name: g.name,
           path: groupPath(grouping.state, g.id),
         }))
-        .sort((a, b) => a.path.localeCompare(b.path, "es")),
-    [groups, grouping.state]
+        .sort((a, b) => a.path.localeCompare(b.path, locale)),
+    [groups, grouping.state, locale]
   );
 
   const suggestions = useMemo(() => {
@@ -224,10 +227,10 @@ export function useGroupedItemList<T extends GroupableItem>({
     for (const list of m.values())
       list.sort(
         (a, b) =>
-          a.sort_order - b.sort_order || a.name.localeCompare(b.name, "es")
+          a.sort_order - b.sort_order || a.name.localeCompare(b.name, locale)
       );
     return m;
-  }, [groups, groupIds]);
+  }, [groups, groupIds, locale]);
   const itemsIn = useMemo(() => {
     const m = new Map<string, T[]>();
     for (const item of items) {
@@ -354,7 +357,7 @@ export function useGroupedItemList<T extends GroupableItem>({
         >
           <button
             type="button"
-            aria-label={isOpen ? "Cerrar grupo" : "Abrir grupo"}
+            aria-label={isOpen ? gd.list.closeGroup : gd.list.openGroup}
             onClick={() => open.toggle(g.id)}
             className="text-[#1b40c8]"
           >
@@ -364,7 +367,7 @@ export function useGroupedItemList<T extends GroupableItem>({
             <input
               autoFocus
               defaultValue={g.name}
-              aria-label="Nombre del grupo"
+              aria-label={gd.groupAs.nameAria}
               className="min-w-0 flex-1 rounded border border-[#1b40c8] px-1.5 py-0.5"
               onBlur={() => setRenaming(null)}
               onKeyDown={(e) => {
@@ -382,8 +385,8 @@ export function useGroupedItemList<T extends GroupableItem>({
               {canEdit ? (
                 <button
                   type="button"
-                  aria-label={`Renombrar ${g.name}`}
-                  title="Renombrar"
+                  aria-label={fmt(gd.list.renameAria, { name: g.name })}
+                  title={gd.list.renameTitle}
                   onClick={() => setRenaming(g.id)}
                   className="ml-1.5 rounded p-0.5 align-middle text-[#6b7a9e] opacity-0 hover:text-[#1b40c8] focus:opacity-100 group-hover/row:opacity-100 [@media(hover:none)]:opacity-100"
                 >
@@ -440,7 +443,7 @@ export function useGroupedItemList<T extends GroupableItem>({
       <SearchBox
         value={query}
         onChange={setQuery}
-        placeholder={searchPlaceholder}
+        placeholder={searchPlaceholder ?? gd.list.searchPlaceholder}
         className="max-w-md"
       />
       {canEdit && grouping.available ? (
@@ -458,7 +461,11 @@ export function useGroupedItemList<T extends GroupableItem>({
           onAskAi={() => void milton.askAi()}
           aiBusy={milton.aiBusy}
           canAskAi={milton.canAskAi}
-          itemWord={scope === "ingredient" ? "ingredientes" : "preparaciones"}
+          itemWord={
+            scope === "ingredient"
+              ? gd.suggestions.itemIngredients
+              : gd.suggestions.itemPreparations
+          }
         />
       ) : null}
       <GroupingToolbar
@@ -516,9 +523,7 @@ export function useGroupedItemList<T extends GroupableItem>({
       {picker ? (
         <GroupPicker
           title={
-            picker.kind === "combine"
-              ? "Combinar con…"
-              : "Mover el grupo dentro de…"
+            picker.kind === "combine" ? gd.list.combineTitle : gd.list.moveTitle
           }
           allowTop={picker.kind === "move"}
           options={options.filter((o) => o.id !== picker.groupId)}
@@ -557,7 +562,7 @@ export function useGroupedItemList<T extends GroupableItem>({
           : null}
         {nothingShown ? (
           <p className="px-2 py-3 text-xs text-[#5b6476]">
-            {q ? `Nada coincide con «${query.trim()}».` : emptyText}
+            {q ? fmt(gd.list.noMatch, { query: query.trim() }) : emptyText}
           </p>
         ) : null}
       </div>

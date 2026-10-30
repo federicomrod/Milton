@@ -6,7 +6,8 @@
 "use client";
 
 import { CalendarRange } from "lucide-react";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
+import { getDictionary } from "@/lib/i18n";
 import {
   formatPageDateRangeLabel,
   type PageDateRange,
@@ -25,13 +26,9 @@ export function DateRangeControl({
   range: PageDateRange | null;
 }) {
   if (!range) return null;
-  const locale = lang === "es" ? "es" : "en-US";
-  const label = formatPageDateRangeLabel(range, locale);
-  const hint = t(
-    lang,
-    "Date filtering arrives in the next version",
-    "El filtro por fechas llega con la siguiente versión"
-  );
+  const d = getDictionary(lang).shell.dateRange;
+  const label = formatPageDateRangeLabel(range, localeFor(lang));
+  const hint = d.hint;
 
   return (
     <Tooltip>
@@ -41,7 +38,7 @@ export function DateRangeControl({
           data-readonly="true"
           tabIndex={0}
           className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border bg-muted/40 text-sm font-medium text-muted-foreground cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-          aria-label={`${t(lang, "Period shown", "Periodo mostrado")}: ${label}. ${hint}`}
+          aria-label={`${d.periodShown}: ${label}. ${hint}`}
         >
           <CalendarRange className="h-3.5 w-3.5 shrink-0" />
           <span className="whitespace-nowrap">{label}</span>

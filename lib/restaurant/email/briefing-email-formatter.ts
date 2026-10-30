@@ -39,7 +39,11 @@
 
 import type { BriefingContext } from "@/lib/restaurant/briefing-context";
 import type { BriefingOutput } from "@/lib/restaurant/briefing-prompt";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { formatUnitPricePair } from "@/lib/restaurant/price-trends";
 import {
   formatDeltaPct,
@@ -75,7 +79,7 @@ function fmtCurrency(amount: number, currency: string): string {
 }
 
 function fmtNumber(n: number, lang: PreferredLanguage): string {
-  return n.toLocaleString(lang === "es" ? "es-MX" : "en-US");
+  return n.toLocaleString(localeFor(lang));
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +162,8 @@ export function priceReviewLine(
   return t(
     lang,
     `${name}: the price changed from ${previous} to ${latest} per ${unit}. Is that right?`,
-    `${name}: el precio cambió de ${previous} a ${latest} por ${unit}. ¿Es correcto?`
+    `${name}: el precio cambió de ${previous} a ${latest} por ${unit}. ¿Es correcto?`,
+    `${name}: Der Preis hat sich von ${previous} auf ${latest} pro ${unit} geändert. Ist das korrekt?`
   );
 }
 
@@ -175,7 +180,8 @@ export function syncWarningText(
   return t(
     lang,
     "We couldn't update the Odoo sales before this email; the figures may be incomplete.",
-    "No pudimos actualizar las ventas de Odoo antes de este correo; las cifras pueden estar incompletas."
+    "No pudimos actualizar las ventas de Odoo antes de este correo; las cifras pueden estar incompletas.",
+    "Wir konnten die Odoo-Umsätze vor dieser E-Mail nicht aktualisieren; die Zahlen können unvollständig sein."
   );
 }
 
@@ -184,7 +190,8 @@ export function telegramNote(lang: PreferredLanguage): string {
   return t(
     lang,
     "From Telegram, your team can send recipes, invoices and price updates for you to review in Milton.",
-    "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton."
+    "Desde Telegram, tu equipo puede mandar recetas, facturas y cambios de precio para que los revises en Milton.",
+    "Über Telegram kann Ihr Team Rezepte, Rechnungen und Preisänderungen senden, die Sie in Milton prüfen."
   );
 }
 
@@ -205,13 +212,15 @@ export function renderBriefingEmail(
   const subject = t(
     lang,
     `Your Milton briefing — ${ctx.restaurant_name}`,
-    `Tu briefing de Milton — ${ctx.restaurant_name}`
+    `Tu briefing de Milton — ${ctx.restaurant_name}`,
+    `Ihr Milton-Briefing — ${ctx.restaurant_name}`
   );
 
   const heading = t(
     lang,
     "Here's your latest Milton briefing",
-    "Aquí tienes tu último briefing de Milton"
+    "Aquí tienes tu último briefing de Milton",
+    "Hier ist Ihr aktuelles Milton-Briefing"
   );
 
   // ---- KPI cards ----
@@ -245,35 +254,39 @@ export function renderBriefingEmail(
     cards.push(
       y.current.orders !== null
         ? kpiCard(
-            `${t(lang, "Orders", "Órdenes")} · ${y.current.label}`,
+            `${t(lang, "Orders", "Órdenes", "Bestellungen")} · ${y.current.label}`,
             fmtNumber(y.current.orders, lang)
           )
-        : kpiCard(`${t(lang, "Orders", "Órdenes")} · ${y.current.label}`, "—")
+        : kpiCard(
+            `${t(lang, "Orders", "Órdenes", "Bestellungen")} · ${y.current.label}`,
+            "—"
+          )
     );
     cards.push(
       y.current.avg_ticket !== null
         ? kpiCard(
-            `${t(lang, "Avg ticket", "Ticket promedio")} · ${y.current.label}`,
+            `${t(lang, "Avg ticket", "Ticket promedio", "Ø Bon")} · ${y.current.label}`,
             fmtCurrency(y.current.avg_ticket, c)
           )
         : kpiCard(
-            `${t(lang, "Avg ticket", "Ticket promedio")} · ${y.current.label}`,
+            `${t(lang, "Avg ticket", "Ticket promedio", "Ø Bon")} · ${y.current.label}`,
             "—"
           )
     );
     cards.push(
       k.estimated_gross_margin_pct !== null
         ? kpiCard(
-            t(lang, "Gross margin", "Margen bruto"),
+            t(lang, "Gross margin", "Margen bruto", "Bruttomarge"),
             `${k.estimated_gross_margin_pct}%`,
             t(
               lang,
               `${k.food_cost_pct !== null ? `Food cost ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · based on ${k.cost_coverage_pct}% of sales with cost`,
-              `${k.food_cost_pct !== null ? `Costo de alimentos ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · basado en ${k.cost_coverage_pct}% de las ventas con costo`
+              `${k.food_cost_pct !== null ? `Costo de alimentos ${k.food_cost_pct}% · ` : ""}${ctx.period_label} · basado en ${k.cost_coverage_pct}% de las ventas con costo`,
+              `${k.food_cost_pct !== null ? `Wareneinsatz ${k.food_cost_pct} % · ` : ""}${ctx.period_label} · basierend auf ${k.cost_coverage_pct} % des Umsatzes mit Kosten`
             )
           )
         : kpiCard(
-            t(lang, "Gross margin", "Margen bruto"),
+            t(lang, "Gross margin", "Margen bruto", "Bruttomarge"),
             "—",
             k.estimated_gross_margin_pct_reason
           )
@@ -282,7 +295,7 @@ export function renderBriefingEmail(
     // The dated periods could not be built: say so. Never fall back to the
     // all-time totals, they are not yesterday's or last week's sales.
     cards.push(
-      kpiCard(t(lang, "Sales", "Ventas"), "—", noComparisonText(lang))
+      kpiCard(t(lang, "Sales", "Ventas", "Umsatz"), "—", noComparisonText(lang))
     );
   }
 
@@ -300,7 +313,10 @@ export function renderBriefingEmail(
   }
   const visualSection =
     visualParts.length > 0
-      ? section(t(lang, "Performance", "Desempeño"), visualParts.join(""))
+      ? section(
+          t(lang, "Performance", "Desempeño", "Leistung"),
+          visualParts.join("")
+        )
       : "";
 
   // ---- Price changes to check: neutral, no percentage, no red arrow ----
@@ -308,7 +324,7 @@ export function renderBriefingEmail(
   const reviewSection =
     reviewItems.length > 0
       ? section(
-          t(lang, "Check price", "Revisar precio"),
+          t(lang, "Check price", "Revisar precio", "Preis prüfen"),
           reviewItems
             .map((item) => {
               const p = formatUnitPricePair(
@@ -326,9 +342,9 @@ export function renderBriefingEmail(
   const teamSection =
     k.cost_coverage_pct > 0
       ? section(
-          t(lang, "For your team", "Para tu equipo"),
+          t(lang, "For your team", "Para tu equipo", "Für Ihr Team"),
           `<div style="font-size:13px;color:${COLORS.text};margin-bottom:6px;">
-            ${esc(t(lang, "Cost coverage", "Cobertura de costo"))}: <strong>${k.cost_coverage_pct}%</strong>
+            ${esc(t(lang, "Cost coverage", "Cobertura de costo", "Kostenabdeckung"))}: <strong>${k.cost_coverage_pct}%</strong>
           </div>
           ${gaugeBar(k.cost_coverage_pct, k.cost_coverage_pct < 90 ? COLORS.warn : COLORS.good)}`
         )
@@ -338,7 +354,7 @@ export function renderBriefingEmail(
   const watchSection =
     briefing.top_risks.length > 0
       ? section(
-          t(lang, "Watch", "Atención"),
+          t(lang, "Watch", "Atención", "Beobachten"),
           `<ul style="margin:0;padding-left:18px;color:${COLORS.text};font-size:14px;line-height:1.6;">${briefing.top_risks
             .slice(0, 3)
             .map((r) => `<li>${esc(r)}</li>`)
@@ -350,7 +366,7 @@ export function renderBriefingEmail(
   const actionsSection =
     briefing.recommended_actions.length > 0
       ? section(
-          t(lang, "Milton recommends", "Milton recomienda"),
+          t(lang, "Milton recommends", "Milton recomienda", "Milton empfiehlt"),
           `<ol style="margin:0;padding-left:18px;color:${COLORS.text};font-size:14px;line-height:1.6;">${briefing.recommended_actions
             .slice(0, 3)
             .map((a) => `<li>${esc(a)}</li>`)
@@ -361,7 +377,12 @@ export function renderBriefingEmail(
   const salesSection =
     sp && sp.facts.length > 0
       ? section(
-          t(lang, "Sales by period", "Ventas por periodo"),
+          t(
+            lang,
+            "Sales by period",
+            "Ventas por periodo",
+            "Umsatz nach Zeitraum"
+          ),
           `<ul style="margin:0;padding-left:18px;color:${COLORS.text};font-size:13px;line-height:1.6;">${sp.facts
             .map((f) => `<li>${esc(f)}</li>`)
             .join("")}</ul>`
@@ -392,7 +413,7 @@ export function renderBriefingEmail(
     periodLabel: headerPeriod,
     heading,
     bodyHtml,
-    ctaLabel: t(lang, "Open Milton", "Abrir Milton"),
+    ctaLabel: t(lang, "Open Milton", "Abrir Milton", "Milton öffnen"),
     ctaUrl: dashboardUrl,
     ctaNote: ctx.telegram_connected ? telegramNote(lang) : undefined,
   });
@@ -407,12 +428,15 @@ export function renderBriefingEmail(
       ? [
           ...sp.facts,
           ...(syncWarning ? [syncWarning] : []),
-          `${t(lang, "Gross margin", "Margen bruto")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, `based on ${k.cost_coverage_pct}% of sales with cost`, `basado en ${k.cost_coverage_pct}% de las ventas con costo`)})`,
+          `${t(lang, "Gross margin", "Margen bruto", "Bruttomarge")}: ${k.estimated_gross_margin_pct !== null ? `${k.estimated_gross_margin_pct}%` : "—"} (${ctx.period_label}; ${t(lang, `based on ${k.cost_coverage_pct}% of sales with cost`, `basado en ${k.cost_coverage_pct}% de las ventas con costo`, `basierend auf ${k.cost_coverage_pct} % des Umsatzes mit Kosten`)})`,
         ]
-      : [`${t(lang, "Sales", "Ventas")}: ${noComparisonText(lang)}`]),
+      : [`${t(lang, "Sales", "Ventas", "Umsatz")}: ${noComparisonText(lang)}`]),
   ];
   if (reviewItems.length > 0) {
-    textLines.push("", t(lang, "CHECK PRICE", "REVISAR PRECIO"));
+    textLines.push(
+      "",
+      t(lang, "CHECK PRICE", "REVISAR PRECIO", "PREIS PRÜFEN")
+    );
     for (const item of reviewItems) {
       const p = formatUnitPricePair(item.previous_cost, item.latest_cost, c);
       textLines.push(
@@ -423,23 +447,26 @@ export function renderBriefingEmail(
   if (k.cost_coverage_pct > 0) {
     textLines.push(
       "",
-      t(lang, "FOR YOUR TEAM", "PARA TU EQUIPO"),
-      `${t(lang, "Cost coverage", "Cobertura de costo")}: ${k.cost_coverage_pct}%`
+      t(lang, "FOR YOUR TEAM", "PARA TU EQUIPO", "FÜR IHR TEAM"),
+      `${t(lang, "Cost coverage", "Cobertura de costo", "Kostenabdeckung")}: ${k.cost_coverage_pct}%`
     );
   }
   if (briefing.top_risks.length > 0) {
-    textLines.push("", t(lang, "WATCH", "ATENCIÓN"));
+    textLines.push("", t(lang, "WATCH", "ATENCIÓN", "BEOBACHTEN"));
     for (const r of briefing.top_risks.slice(0, 3)) textLines.push(`- ${r}`);
   }
   if (briefing.recommended_actions.length > 0) {
-    textLines.push("", t(lang, "MILTON RECOMMENDS", "MILTON RECOMIENDA"));
+    textLines.push(
+      "",
+      t(lang, "MILTON RECOMMENDS", "MILTON RECOMIENDA", "MILTON EMPFIEHLT")
+    );
     briefing.recommended_actions
       .slice(0, 3)
       .forEach((a, i) => textLines.push(`${i + 1}. ${a}`));
   }
   textLines.push(
     "",
-    `${t(lang, "Open Milton", "Abrir Milton")}: ${dashboardUrl}`
+    `${t(lang, "Open Milton", "Abrir Milton", "Milton öffnen")}: ${dashboardUrl}`
   );
   if (ctx.telegram_connected) textLines.push(telegramNote(lang));
 

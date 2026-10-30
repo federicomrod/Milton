@@ -48,7 +48,8 @@ describe("One Ventas page", () => {
     const sales = read("app/dashboard/restaurant/sales/page.tsx");
     const detalle = read("app/dashboard/restaurant/sales/detalle/page.tsx");
     expect(sales).toContain("SalesDetailV2");
-    expect(sales).toContain('title="Ventas"');
+    expect(sales).toContain("getDictionary(lang).sales.page.title");
+    expect(read("lib/i18n/es/sales.ts")).toContain('title: "Ventas"');
     expect(sales).not.toContain("loadCockpitPageModel");
     expect(sales).not.toContain("explorerRows");
     expect(detalle).toContain("redirect(");
@@ -100,9 +101,7 @@ describe("Spanish completeness for Ventas", () => {
         join(process.cwd(), "components/restaurant/sales/detail/Highlights.tsx")
       )
     ).toBe(false);
-    expect(
-      read("components/restaurant/sales/detail/SalesDetailV2.tsx")
-    ).toContain("Lo que más pesa:");
+    expect(read("lib/i18n/es/sales.ts")).toContain("Lo que más pesa:");
   });
 
   it("does not put English chrome in t() Spanish slots", () => {

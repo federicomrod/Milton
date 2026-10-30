@@ -22,7 +22,11 @@ import {
 import type { CockpitFactRow } from "@/lib/restaurant/cockpit-aggregates";
 import { formatCompactDateRange } from "@/lib/restaurant/cockpit-aggregates";
 import { localeForCurrency } from "@/lib/restaurant/currency";
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
+import {
+  localeFor,
+  t,
+  type PreferredLanguage,
+} from "@/lib/restaurant/language";
 import { salesChannelLabel } from "@/lib/restaurant/sales-channel-labels";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import { localWeekdayAndHour } from "@/lib/restaurant/pos-local-time";
@@ -226,10 +230,11 @@ export function localSaleDateKey(
 export function formatCockpitMoney(
   amount: number,
   currency: string,
-  fractionDigits = 0
+  fractionDigits = 0,
+  lang?: PreferredLanguage
 ): string {
   const code = /^[A-Z]{3}$/.test(currency) ? currency : "USD";
-  const locale = localeForCurrency(code);
+  const locale = lang === "de" ? localeFor(lang) : localeForCurrency(code);
   try {
     return new Intl.NumberFormat(locale, {
       style: "currency",
@@ -251,7 +256,7 @@ export function cockpitComparisonPhrases(
   period: CockpitPeriod,
   lang: PreferredLanguage
 ): CockpitComparisonPhrases {
-  const dateLocale = lang === "es" ? "es" : "en-GB";
+  const dateLocale = localeFor(lang);
   const currentRange = formatCompactDateRange(
     period.current.from,
     period.current.to,
@@ -264,26 +269,48 @@ export function cockpitComparisonPhrases(
   );
   if (period.preset === "last_7") {
     return polishPhrases(lang, {
-      currentPhrase: t(lang, "the last 7 days", "los últimos 7 días"),
-      previousPhrase: t(lang, "the 7 days before", "los 7 días anteriores"),
-      deCurrent: t(lang, "for the last 7 days", "de los últimos 7 días"),
+      currentPhrase: t(
+        lang,
+        "the last 7 days",
+        "los últimos 7 días",
+        "die letzten 7 Tage"
+      ),
+      previousPhrase: t(
+        lang,
+        "the 7 days before",
+        "los 7 días anteriores",
+        "die 7 Tage davor"
+      ),
+      deCurrent: t(
+        lang,
+        "for the last 7 days",
+        "de los últimos 7 días",
+        "für die letzten 7 Tage"
+      ),
       frenteAPrevious: t(
         lang,
         "versus the 7 days before",
-        "frente a los 7 días anteriores"
+        "frente a los 7 días anteriores",
+        "gegenüber den 7 Tagen davor"
       ),
       chipLabel: currentRange,
     });
   }
   if (period.month_complete) {
     return polishPhrases(lang, {
-      currentPhrase: t(lang, "this month", "este mes"),
-      previousPhrase: t(lang, "the previous month", "el mes anterior"),
-      deCurrent: t(lang, "for this month", "de este mes"),
+      currentPhrase: t(lang, "this month", "este mes", "diesen Monat"),
+      previousPhrase: t(
+        lang,
+        "the previous month",
+        "el mes anterior",
+        "den Vormonat"
+      ),
+      deCurrent: t(lang, "for this month", "de este mes", "für diesen Monat"),
       frenteAPrevious: t(
         lang,
         "versus the previous month",
-        "frente al mes anterior"
+        "frente al mes anterior",
+        "gegenüber dem Vormonat"
       ),
       chipLabel: `${currentRange} vs ${previousRange}`,
     });
@@ -292,27 +319,32 @@ export function cockpitComparisonPhrases(
     currentPhrase: t(
       lang,
       `this month to date (${currentRange})`,
-      `el mes en curso (${currentRange})`
+      `el mes en curso (${currentRange})`,
+      `diesen Monat bis heute (${currentRange})`
     ),
     previousPhrase: t(
       lang,
       `the same days of the previous month (${previousRange})`,
-      `el mismo tramo del mes anterior (${previousRange})`
+      `el mismo tramo del mes anterior (${previousRange})`,
+      `die gleichen Tage des Vormonats (${previousRange})`
     ),
     deCurrent: t(
       lang,
       `for this month to date (${currentRange})`,
-      `del mes en curso (${currentRange})`
+      `del mes en curso (${currentRange})`,
+      `für diesen Monat bis heute (${currentRange})`
     ),
     frenteAPrevious: t(
       lang,
       `versus the same days of the previous month (${previousRange})`,
-      `frente al mismo tramo del mes anterior (${previousRange})`
+      `frente al mismo tramo del mes anterior (${previousRange})`,
+      `gegenüber den gleichen Tagen des Vormonats (${previousRange})`
     ),
     chipLabel: t(
       lang,
       `Month to date vs same days last month · ${currentRange} vs ${previousRange}`,
-      `Mes en curso vs mismo tramo del mes anterior · ${currentRange} vs ${previousRange}`
+      `Mes en curso vs mismo tramo del mes anterior · ${currentRange} vs ${previousRange}`,
+      `Monat bis heute vs. gleiche Tage im Vormonat · ${currentRange} vs. ${previousRange}`
     ),
   });
 }
@@ -493,7 +525,7 @@ export function unavailableCostKpi(lang: PreferredLanguage): UnavailableKpi {
     available: false,
     reason: pendingRecipesLabel(lang),
     href: `${COSTS_HREF}/upload`,
-    link_label: t(lang, "Add costs", "Agregar costos"),
+    link_label: t(lang, "Add costs", "Agregar costos", "Kosten hinzufügen"),
   };
 }
 
@@ -506,7 +538,7 @@ export function buildCockpitKpiStripModel(
     deltaPct: number | null;
   }
 ): CockpitKpiStripModel {
-  const dateLocale = lang === "es" ? "es" : "en-GB";
+  const dateLocale = localeFor(lang);
   const withDelta = (current: number, previous: number): AvailableKpi => ({
     available: true,
     value: current,
@@ -562,7 +594,8 @@ export function buildCockpitKpiStripModel(
           reason: t(
             lang,
             "This week is not available yet.",
-            "Aún no disponible"
+            "Aún no disponible",
+            "Diese Woche ist noch nicht verfügbar."
           ),
         },
     gross_margin_pct: costKpi(
@@ -587,7 +620,12 @@ export function buildCockpitHeadline(
   snapshot: CockpitPeriodSnapshot,
   lang: PreferredLanguage
 ): string {
-  const net = formatCockpitMoney(snapshot.current.net_sales, snapshot.currency);
+  const net = formatCockpitMoney(
+    snapshot.current.net_sales,
+    snapshot.currency,
+    0,
+    lang
+  );
   const delta = deltaPct(
     snapshot.current.net_sales,
     snapshot.previous.net_sales
@@ -600,7 +638,8 @@ export function buildCockpitHeadline(
       t(
         lang,
         `Net sales ${phrases.deCurrent}: ${net}. There is no previous period to compare yet.`,
-        `Ventas netas ${phrases.deCurrent}: ${net}. Aún no hay un periodo anterior para comparar.`
+        `Ventas netas ${phrases.deCurrent}: ${net}. Aún no hay un periodo anterior para comparar.`,
+        `Nettoumsatz ${phrases.deCurrent}: ${net}. Es gibt noch keine Vorperiode zum Vergleich.`
       )
     );
   }
@@ -610,7 +649,8 @@ export function buildCockpitHeadline(
       t(
         lang,
         `Net sales ${phrases.deCurrent}: ${net}, in line with ${phrases.previousPhrase}.`,
-        `Ventas netas ${phrases.deCurrent}: ${net}, en línea con ${phrases.previousPhrase}.`
+        `Ventas netas ${phrases.deCurrent}: ${net}, en línea con ${phrases.previousPhrase}.`,
+        `Nettoumsatz ${phrases.deCurrent}: ${net}, unverändert ${phrases.frenteAPrevious}.`
       )
     );
   }
@@ -621,7 +661,8 @@ export function buildCockpitHeadline(
       t(
         lang,
         `Net sales ${phrases.deCurrent}: ${net}. Up ${abs} ${phrases.frenteAPrevious}.`,
-        `Ventas netas ${phrases.deCurrent}: ${net}. Subió ${abs} ${phrases.frenteAPrevious}.`
+        `Ventas netas ${phrases.deCurrent}: ${net}. Subió ${abs} ${phrases.frenteAPrevious}.`,
+        `Nettoumsatz ${phrases.deCurrent}: ${net}. Plus ${abs} ${phrases.frenteAPrevious}.`
       )
     );
   }
@@ -630,7 +671,8 @@ export function buildCockpitHeadline(
     t(
       lang,
       `Net sales ${phrases.deCurrent}: ${net}. Down ${abs} ${phrases.frenteAPrevious}.`,
-      `Ventas netas ${phrases.deCurrent}: ${net}. Bajó ${abs} ${phrases.frenteAPrevious}.`
+      `Ventas netas ${phrases.deCurrent}: ${net}. Bajó ${abs} ${phrases.frenteAPrevious}.`,
+      `Nettoumsatz ${phrases.deCurrent}: ${net}. Minus ${abs} ${phrases.frenteAPrevious}.`
     )
   );
 }

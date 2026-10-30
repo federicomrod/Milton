@@ -2,6 +2,7 @@
 // Any read that fails makes the whole answer unknown (ok: false): callers
 // then say so instead of claiming "nobody uses this ingredient".
 
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
 import {
@@ -39,7 +40,8 @@ function group<T extends Record<string, unknown>>(
 
 export async function loadIngredientUses(
   supabase: SupabaseClient,
-  companyId: string
+  companyId: string,
+  lang: PreferredLanguage = "es"
 ): Promise<IngredientUsesLoad> {
   try {
     const [
@@ -223,6 +225,7 @@ export async function loadIngredientUses(
         for (const id of m.loser_ids ?? []) mergedInto.set(id, m.survivor_id);
 
     const usesByIngredient = computeIngredientUses({
+      lang,
       dishes,
       dishVersions: versions.menuRecipeVersionsByMenuItemId,
       dishInputsByVersionId: versions.menuRecipeVersionInputsByVersionId,

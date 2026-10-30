@@ -19,6 +19,8 @@ import {
   NO_TEXT_MESSAGE,
   type UploadKind,
 } from "./chunks";
+import { uploadMsg } from "./messages";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   createOpenAiUploadReader,
   extractRecipesFromChunks,
@@ -31,23 +33,21 @@ export type { UploadAi } from "./extract";
 
 export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
-export const FILE_TOO_BIG_MESSAGE =
-  "Este archivo pesa más de 4 MB. Divídelo en partes o sube las páginas como fotos.";
-export const UNKNOWN_TYPE_MESSAGE =
-  "Este tipo de archivo no lo leo todavía. Usa Excel, Word, PDF, CSV o una foto.";
-export const OLD_DOC_MESSAGE =
-  "Guarda el archivo como .docx y vuelve a subirlo.";
-export const NO_RECIPES_MESSAGE = "No encontré recetas en este archivo.";
-export const READ_FAILED_MESSAGE =
-  "No pude leer las recetas de este archivo. Vuelve a intentarlo.";
-export const AI_UNAVAILABLE_UPLOAD_MESSAGE =
-  "Milton no puede leer archivos con IA ahora mismo. Inténtalo más tarde.";
+export const FILE_TOO_BIG_MESSAGE = uploadMsg("es", "fileTooBig");
+export const UNKNOWN_TYPE_MESSAGE = uploadMsg("es", "unknownType");
+export const OLD_DOC_MESSAGE = uploadMsg("es", "oldDoc");
+export const NO_RECIPES_MESSAGE = uploadMsg("es", "noRecipes");
+export const READ_FAILED_MESSAGE = uploadMsg("es", "readFailed");
+export const AI_UNAVAILABLE_UPLOAD_MESSAGE = uploadMsg("es", "aiUnavailable");
 
 /** Some parts of a file were skipped: say how many, never drop them silently. */
-export function skippedChunksMessage(count: number): string {
+export function skippedChunksMessage(
+  count: number,
+  lang: PreferredLanguage = "es"
+): string {
   return count === 1
-    ? "No pude leer 1 parte del archivo; sus recetas no se cargaron. Vuelve a subirlo."
-    : `No pude leer ${count} partes del archivo; sus recetas no se cargaron. Vuelve a subirlo.`;
+    ? uploadMsg(lang, "skippedOne")
+    : uploadMsg(lang, "skippedOther", { count });
 }
 
 const EXTENSION_KIND: Record<string, UploadKind> = {
@@ -78,19 +78,20 @@ const MIME_KIND: Record<string, UploadKind> = {
 
 export function detectUploadKind(
   fileName: string,
-  mime: string
+  mime: string,
+  lang: PreferredLanguage = "es"
 ): { ok: true; kind: UploadKind } | { ok: false; error: string } {
   const ext = (fileName.split(".").pop() ?? "").toLowerCase();
   const type = (mime || "").toLowerCase().split(";")[0].trim();
   if (ext === "doc" || type === "application/msword") {
-    return { ok: false, error: OLD_DOC_MESSAGE };
+    return { ok: false, error: uploadMsg(lang, "oldDoc") };
   }
   const byExt = fileName.includes(".") ? EXTENSION_KIND[ext] : undefined;
   if (byExt) return { ok: true, kind: byExt };
   // No usable extension: trust the MIME type.
   const byMime = MIME_KIND[type];
   if (byMime && !fileName.includes(".")) return { ok: true, kind: byMime };
-  return { ok: false, error: UNKNOWN_TYPE_MESSAGE };
+  return { ok: false, error: uploadMsg(lang, "unknownType") };
 }
 
 export interface UploadResult {
@@ -125,14 +126,17 @@ export async function processRecipeFile(input: {
   mime: string;
   buffer: Buffer;
   ai?: UploadAi;
+  /** Language of the errors the person reads (default Spanish). */
+  lang?: PreferredLanguage;
 }): Promise<UploadResult> {
+  const lang = input.lang ?? "es";
   const file = input.fileName;
   const started = Date.now();
   try {
-    const detected = detectUploadKind(input.fileName, input.mime);
+    const detected = detectUploadKind(input.fileName, input.mime, lang);
     if (!detected.ok) return failure(file, detected.error);
     if (input.buffer.length > MAX_UPLOAD_BYTES) {
-      return failure(file, FILE_TOO_BIG_MESSAGE);
+      return failure(file, uploadMsg(lang, "fileTooBig"));
     }
 
     let chunked;
@@ -142,26 +146,35 @@ export async function processRecipeFile(input: {
         buffer: input.buffer,
         fileName: input.fileName,
         mime: input.mime,
+        lang,
       });
     } catch (err) {
       return failure(
         file,
-        err instanceof UploadFileError ? err.message : FILE_UNREADABLE_MESSAGE
+        err instanceof UploadFileError
+          ? err.message
+          : uploadMsg(lang, "fileUnreadable")
       );
     }
-    if (chunked.chunks.length === 0) return failure(file, NO_TEXT_MESSAGE);
+    if (chunked.chunks.length === 0)
+      return failure(file, uploadMsg(lang, "noText"));
 
     const ai = input.ai ?? createOpenAiUploadReader(input.companyId);
-    const extraction = await extractRecipesFromChunks(chunked.chunks, ai);
+    const extraction = await extractRecipesFromChunks(
+      chunked.chunks,
+      ai,
+      undefined,
+      lang
+    );
 
     const errors = [...chunked.notices];
     if (extraction.recipes.length === 0) {
       errors.push(
         extraction.ai_unavailable === "quota"
-          ? AI_UNAVAILABLE_UPLOAD_MESSAGE
+          ? uploadMsg(lang, "aiUnavailable")
           : extraction.failed_chunks > 0
-            ? READ_FAILED_MESSAGE
-            : NO_RECIPES_MESSAGE
+            ? uploadMsg(lang, "readFailed")
+            : uploadMsg(lang, "noRecipes")
       );
       return {
         ...failure(file, ...errors),
@@ -169,7 +182,7 @@ export async function processRecipeFile(input: {
       };
     }
     if (extraction.failed_chunks > 0) {
-      errors.push(skippedChunksMessage(extraction.failed_chunks));
+      errors.push(skippedChunksMessage(extraction.failed_chunks, lang));
     }
 
     const saved = await persistRecipes({
@@ -177,6 +190,7 @@ export async function processRecipeFile(input: {
       companyId: input.companyId,
       locationId: input.locationId,
       recipes: extraction.recipes,
+      lang,
     });
 
     console.log(
@@ -195,6 +209,6 @@ export async function processRecipeFile(input: {
     };
   } catch {
     console.error("[recipe-upload] processing failed");
-    return failure(file, FILE_UNREADABLE_MESSAGE);
+    return failure(file, uploadMsg(lang, "fileUnreadable"));
   }
 }

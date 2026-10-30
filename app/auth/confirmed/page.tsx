@@ -4,6 +4,8 @@
 // device or browser): the email IS confirmed, they just need to log in.
 
 import Link from "next/link";
+import { getDictionary } from "@/lib/i18n";
+import { requestLanguage } from "@/lib/restaurant/request-lang";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,19 +15,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function EmailConfirmedPage() {
+export default async function EmailConfirmedPage() {
+  const a = getDictionary(await requestLanguage()).auth.confirmedPage;
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Correo confirmado</CardTitle>
-          <CardDescription>
-            Correo confirmado, ya puedes entrar.
-          </CardDescription>
+          <CardTitle>{a.title}</CardTitle>
+          <CardDescription>{a.description}</CardDescription>
         </CardHeader>
         <CardContent>
           <Button asChild className="w-full">
-            <Link href="/auth/login">Iniciar sesión</Link>
+            <Link href="/auth/login">{a.login}</Link>
           </Button>
         </CardContent>
       </Card>

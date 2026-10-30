@@ -1,47 +1,39 @@
 // lib/restaurant/sales-channel-labels.ts
 //
 // Shared POS channel labels (Eat In / To Go / …). Used by the Sales
-// heatmap mix chart and the Cockpit channel breakdown.
+// heatmap mix chart and the Cockpit channel breakdown. The words live in
+// lib/i18n/*/sales.ts › labels.
 
-import { t, type PreferredLanguage } from "@/lib/restaurant/language";
-
-const CHANNEL_LABELS: Record<string, { en: string; es: string }> = {
-  in_store: { en: "Eat In", es: "En salón" },
-  takeaway: { en: "To Go", es: "Para llevar" },
-  delivery: { en: "Delivery", es: "Domicilio" },
-  online: { en: "Online", es: "En línea" },
-  unknown: { en: "Unknown channel", es: "Canal desconocido" },
-};
-
-const PAYMENT_LABELS: Record<string, { en: string; es: string }> = {
-  card: { en: "Card", es: "Tarjeta" },
-  cash: { en: "Cash", es: "Efectivo" },
-  digital: { en: "Digital", es: "Digital" },
-  unknown: { en: "Unknown payment", es: "Pago desconocido" },
-};
+import { getDictionary } from "@/lib/i18n";
+import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export function salesChannelLabel(
   key: string,
   lang: PreferredLanguage
 ): string {
-  const known = CHANNEL_LABELS[key];
-  if (known) return lang === "es" ? known.es : known.en;
-  if (key === "unknown") {
-    return t(lang, "Unknown", "Desconocido");
-  }
-  return key;
+  const c = getDictionary(lang).sales.labels.channels;
+  const known: Record<string, string> = {
+    in_store: c.inStore,
+    takeaway: c.takeaway,
+    delivery: c.delivery,
+    online: c.online,
+    unknown: c.unknown,
+  };
+  return known[key] ?? key;
 }
 
 export function salesPaymentLabel(
   key: string,
   lang: PreferredLanguage
 ): string {
-  const known = PAYMENT_LABELS[key];
-  if (known) return lang === "es" ? known.es : known.en;
-  if (key === "unknown") {
-    return t(lang, "Unknown payment", "Pago desconocido");
-  }
-  return key;
+  const p = getDictionary(lang).sales.labels.payments;
+  const known: Record<string, string> = {
+    card: p.card,
+    cash: p.cash,
+    digital: p.digital,
+    unknown: p.unknown,
+  };
+  return known[key] ?? key;
 }
 
 export function salesCategoryLabel(
@@ -49,7 +41,7 @@ export function salesCategoryLabel(
   lang: PreferredLanguage
 ): string {
   if (category == null || category.trim() === "") {
-    return t(lang, "Uncategorized", "Sin categoría");
+    return getDictionary(lang).sales.labels.uncategorized;
   }
   return category;
 }

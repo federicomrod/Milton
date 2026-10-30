@@ -6,6 +6,7 @@
 // Owners, admins, managers and Milton staff can edit (enforced server-side),
 // and only drafts of their own company (404 otherwise).
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -36,6 +37,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const d = await apiDictionary();
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -59,7 +61,7 @@ export async function PATCH(
     body = (await req.json()) as PatchBody;
   } catch {
     return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
+      { error: d.kitchen.api.bodyMustBeJson },
       { status: 400 }
     );
   }
@@ -73,14 +75,14 @@ export async function PATCH(
 
   if (!draft || draft.company_id !== auth.companyId) {
     return NextResponse.json(
-      { error: "No encontré el borrador." },
+      { error: d.kitchen.api.draftNotFound },
       { status: 404 }
     );
   }
 
   if (draft.status !== "draft" && draft.status !== "awaiting_portions") {
     return NextResponse.json(
-      { error: "Solo se pueden editar borradores pendientes." },
+      { error: d.kitchen.api.onlyPendingEditable },
       { status: 400 }
     );
   }
@@ -93,7 +95,7 @@ export async function PATCH(
       !Number.isInteger(body.portions)
     ) {
       return NextResponse.json(
-        { error: "Las porciones tienen que ser un número entero mayor que 0." },
+        { error: d.kitchen.api.portionsInvalid },
         { status: 400 }
       );
     }
@@ -101,7 +103,7 @@ export async function PATCH(
 
   if (body.dish_name !== undefined && typeof body.dish_name !== "string") {
     return NextResponse.json(
-      { error: "Falta el nombre del plato." },
+      { error: d.kitchen.api.dishNameMissing },
       { status: 400 }
     );
   }
@@ -116,7 +118,7 @@ export async function PATCH(
 
     if (!menuItem) {
       return NextResponse.json(
-        { error: "No encontré ese plato." },
+        { error: d.kitchen.api.dishNotFound },
         { status: 400 }
       );
     }
@@ -125,7 +127,7 @@ export async function PATCH(
   if (body.lines !== undefined) {
     if (!Array.isArray(body.lines)) {
       return NextResponse.json(
-        { error: "Las líneas no tienen el formato esperado." },
+        { error: d.kitchen.api.linesFormatInvalid },
         { status: 400 }
       );
     }
@@ -133,7 +135,7 @@ export async function PATCH(
     for (const line of body.lines) {
       if (!line || typeof line.raw_name !== "string") {
         return NextResponse.json(
-          { error: "Cada línea necesita un nombre." },
+          { error: d.kitchen.api.lineNameMissing },
           { status: 400 }
         );
       }
@@ -143,7 +145,7 @@ export async function PATCH(
         (typeof line.total_quantity !== "number" || line.total_quantity <= 0)
       ) {
         return NextResponse.json(
-          { error: "Las cantidades tienen que ser mayores que 0." },
+          { error: d.kitchen.api.quantitiesInvalid },
           { status: 400 }
         );
       }
@@ -216,14 +218,14 @@ export async function PATCH(
   if (updateError) {
     console.error("[recipe-drafts PATCH] update failed");
     return NextResponse.json(
-      { error: "No se pudo guardar el borrador." },
+      { error: d.kitchen.api.draftSaveFailed },
       { status: 500 }
     );
   }
 
   if (!updatedRows || updatedRows.length !== 1) {
     return NextResponse.json(
-      { error: "Ese borrador ya no se puede editar." },
+      { error: d.kitchen.api.draftNotEditable },
       { status: 409 }
     );
   }
@@ -239,7 +241,7 @@ export async function PATCH(
     if (existingError) {
       console.error("[recipe-drafts PATCH] load lines failed");
       return NextResponse.json(
-        { error: "No pude cargar las líneas." },
+        { error: d.kitchen.api.linesLoadFailed },
         { status: 500 }
       );
     }
@@ -271,7 +273,7 @@ export async function PATCH(
       if (deleteError) {
         console.error("[recipe-drafts PATCH] delete lines failed");
         return NextResponse.json(
-          { error: "No se pudieron guardar las líneas." },
+          { error: d.kitchen.api.linesSaveFailedPlural },
           { status: 500 }
         );
       }
@@ -293,7 +295,7 @@ export async function PATCH(
       if (bumpError) {
         console.error("[recipe-drafts PATCH] bump line_number failed");
         return NextResponse.json(
-          { error: "No se pudieron guardar las líneas." },
+          { error: d.kitchen.api.linesSaveFailedPlural },
           { status: 500 }
         );
       }
@@ -319,7 +321,7 @@ export async function PATCH(
       if (lineUpdateError) {
         console.error("[recipe-drafts PATCH] update line failed");
         return NextResponse.json(
-          { error: "No se pudieron guardar las líneas." },
+          { error: d.kitchen.api.linesSaveFailedPlural },
           { status: 500 }
         );
       }
@@ -348,7 +350,7 @@ export async function PATCH(
       if (insertError) {
         console.error("[recipe-drafts PATCH] insert lines failed");
         return NextResponse.json(
-          { error: "No pude guardar las líneas." },
+          { error: d.kitchen.api.linesSaveFailed },
           { status: 500 }
         );
       }
@@ -364,7 +366,7 @@ export async function PATCH(
   if (reloadError) {
     console.error("[recipe-drafts PATCH] reload lines failed");
     return NextResponse.json(
-      { error: "No pude cargar las líneas guardadas." },
+      { error: d.kitchen.api.savedLinesLoadFailed },
       { status: 500 }
     );
   }

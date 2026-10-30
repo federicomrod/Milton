@@ -21,10 +21,20 @@ export const DISH_NOT_FOUND = "Ese plato no existe en tu menú.";
 export const DISH_OTHER_RESTAURANT =
   "Ese plato es solo de un restaurante y esta variante no se vende ahí.";
 
+/** Which sentence of the dictionary (menu.screens.api) says this error. */
+export type MenuDishErrorKey =
+  | "migration045"
+  | "dishNotFound"
+  | "dishOtherRestaurant"
+  | "dishNameRequired"
+  | "dishExcluded"
+  | "saveGeneric";
+
 export class MenuDishError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    readonly key?: MenuDishErrorKey
   ) {
     super(message);
   }
@@ -41,8 +51,13 @@ function isMissing045(error: { message?: string; code?: string } | null) {
 }
 
 function fail(error: { message?: string; code?: string } | null): never {
-  if (isMissing045(error)) throw new MenuDishError(MIGRATION_045_MISSING, 409);
-  throw new MenuDishError(error?.message ?? "No pude guardar.", 500);
+  if (isMissing045(error))
+    throw new MenuDishError(MIGRATION_045_MISSING, 409, "migration045");
+  throw new MenuDishError(
+    error?.message ?? "No pude guardar.",
+    500,
+    error?.message ? undefined : "saveGeneric"
+  );
 }
 
 /** ilike matches a literal name (no % or _ wildcards). */
@@ -71,7 +86,7 @@ export async function ownedDish(
     .limit(1);
   if (res.error) fail(res.error);
   const hit = res.data?.[0] as OwnedDish | undefined;
-  if (!hit) throw new MenuDishError(DISH_NOT_FOUND, 404);
+  if (!hit) throw new MenuDishError(DISH_NOT_FOUND, 404, "dishNotFound");
   return hit;
 }
 
@@ -85,7 +100,12 @@ async function dishByName(
   input: { name: string; status: "suggested" | "confirmed" }
 ): Promise<OwnedDish> {
   const name = input.name.trim();
-  if (!name) throw new MenuDishError("Escribe el nombre del plato.", 400);
+  if (!name)
+    throw new MenuDishError(
+      "Escribe el nombre del plato.",
+      400,
+      "dishNameRequired"
+    );
   const found = await supabase
     .from("menu_dishes")
     .select("id, name, restaurant_id, status")
@@ -169,7 +189,7 @@ async function assignProducts(
   const covered = new Set(usable.map((l) => l.odoo_product_id));
   const missing = products.filter((p) => !covered.has(p.odoo_product_id));
   if (dish.restaurant_id && missing.length > 0) {
-    throw new MenuDishError(DISH_OTHER_RESTAURANT, 400);
+    throw new MenuDishError(DISH_OTHER_RESTAURANT, 400, "dishOtherRestaurant");
   }
   const now = new Date().toISOString();
   if (usable.length > 0) {
@@ -367,7 +387,8 @@ export async function moveVariant(
   if (dish.status === "excluded") {
     throw new MenuDishError(
       "Ese plato está excluido. Vuelve a incluirlo antes de moverle variantes.",
-      400
+      400,
+      "dishExcluded"
     );
   }
   await assignProducts(

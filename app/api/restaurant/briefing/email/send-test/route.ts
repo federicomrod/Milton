@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { generateBriefing } from "@/lib/restaurant/briefing-generate";
 import { renderBriefingEmail } from "@/lib/restaurant/email/briefing-email-formatter";
 import { sendBriefingEmail } from "@/lib/restaurant/email/send";
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
       companyError.message
     );
     return NextResponse.json(
-      { error: "Could not look up the briefing recipient" },
+      { error: (await apiDictionary()).comms.api.recipientLookupFailed },
       { status: 500 }
     );
   }
@@ -62,9 +63,8 @@ export async function POST(req: NextRequest) {
   if (!recipient) {
     return NextResponse.json(
       {
-        error: "No briefing recipient email configured",
-        message:
-          "Save a recipient email in Briefing delivery settings before sending a test.",
+        error: (await apiDictionary()).comms.api.recipientMissing,
+        message: (await apiDictionary()).comms.api.recipientMissingHelp,
       },
       { status: 404 }
     );
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       err instanceof Error ? err.message : "Unknown error"
     );
     return NextResponse.json(
-      { error: "Could not generate the briefing" },
+      { error: (await apiDictionary()).comms.api.briefingGenerateFailed },
       { status: 500 }
     );
   }

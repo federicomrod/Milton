@@ -5,6 +5,7 @@
 //   invoice's event timeline, and the ingredient catalog for the company so
 //   the review UI can show a match dropdown without an extra round-trip.
 
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import {
@@ -34,6 +35,7 @@ export async function GET(
   const { id } = await params;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const a = (await apiDictionary()).costs.api;
   const { supabase, companyId } = auth;
 
   const [invRes, lineRes, evtRes, ingRes] = await Promise.all([
@@ -73,19 +75,16 @@ export async function GET(
 
   if (invRes.error) {
     return NextResponse.json(
-      { error: "No pude cargar la factura.", details: invRes.error.message },
+      { error: a.invoiceLoadFailed, details: invRes.error.message },
       { status: 500 }
     );
   }
   if (!invRes.data) {
-    return NextResponse.json(
-      { error: "No encontré la factura." },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: a.invoiceNotFound }, { status: 404 });
   }
   if (lineRes.error) {
     return NextResponse.json(
-      { error: "No pude cargar las líneas.", details: lineRes.error.message },
+      { error: a.linesLoadFailed, details: lineRes.error.message },
       { status: 500 }
     );
   }

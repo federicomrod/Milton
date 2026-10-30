@@ -24,12 +24,14 @@
 
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
+import { fmt } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCompanyIdForUser } from "@/lib/restaurant/supabase-sales";
 import {
-  requireCapability,
+  requireCapabilityLocalized,
   resolveActor,
-  unauthorizedResponse,
+  unauthorizedResponseLocalized,
 } from "@/lib/auth/permissions";
 import {
   getRestaurantKpiTargets,
@@ -68,7 +70,7 @@ async function authAndCompany(): Promise<
   if (!user) {
     return {
       ok: false,
-      response: unauthorizedResponse(),
+      response: await unauthorizedResponseLocalized(),
     };
   }
   const companyId = await resolveCompanyIdForUser(supabase, user.id);
@@ -124,6 +126,7 @@ async function saveForm(
   },
   body: FormBody
 ) {
+  const d = (await apiDictionary()).admin;
   const location =
     typeof body.location_id === "string" && UUID.test(body.location_id)
       ? body.location_id
@@ -132,7 +135,7 @@ async function saveForm(
         : undefined;
   if (location === undefined) {
     return NextResponse.json(
-      { error: "Restaurante no válido." },
+      { error: d.api.restaurantInvalid },
       { status: 400 }
     );
   }
@@ -159,7 +162,7 @@ async function saveForm(
     }
     if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > max) {
       return NextResponse.json(
-        { error: `Valor no válido para ${metric}.` },
+        { error: fmt(d.api.valueInvalid, { metric }) },
         { status: 400 }
       );
     }
@@ -175,17 +178,14 @@ async function saveForm(
     if (bad) return bad;
   }
   if (rows.length === 0 && body.default_comparison === undefined) {
-    return NextResponse.json(
-      { error: "No hay nada que guardar." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: d.api.nothingToSave }, { status: 400 });
   }
   if (
     body.default_comparison !== undefined &&
     !COMPARISONS.includes(body.default_comparison as never)
   ) {
     return NextResponse.json(
-      { error: "Comparación no válida." },
+      { error: d.api.comparisonInvalid },
       { status: 400 }
     );
   }
@@ -194,14 +194,14 @@ async function saveForm(
     const w = body.weekday_weights.map(Number);
     if (w.length !== 7 || w.some((x) => !Number.isFinite(x) || x < 0)) {
       return NextResponse.json(
-        { error: "El reparto por día no es válido." },
+        { error: d.api.dailySplitInvalid },
         { status: 400 }
       );
     }
     const total = w.reduce((a, b) => a + b, 0);
     if (!(total > 0)) {
       return NextResponse.json(
-        { error: "El reparto por día no es válido." },
+        { error: d.api.dailySplitInvalid },
         { status: 400 }
       );
     }
@@ -227,7 +227,7 @@ async function saveForm(
       f <= today;
     if (!(ok || f === "1900-01-01")) {
       return NextResponse.json(
-        { error: "La fecha «Vigente desde» no es válida." },
+        { error: d.api.effectiveFromInvalid },
         { status: 400 }
       );
     }
@@ -253,14 +253,14 @@ async function saveForm(
       return NextResponse.json(
         {
           unavailable: true,
-          error: "Falta aplicar la migración 052 en este ambiente.",
+          error: d.api.targetsMigrationMissing,
         },
         { status: 409 }
       );
     }
     if (code === "42501") {
       return NextResponse.json(
-        { error: "Tu rol no puede cambiar los objetivos." },
+        { error: d.capabilities.targetsEdit },
         { status: 403 }
       );
     }
@@ -269,7 +269,7 @@ async function saveForm(
     }
     console.error("[targets POST] save failed:", error.message);
     return NextResponse.json(
-      { error: "No pude guardar los objetivos." },
+      { error: d.api.targetsSaveFailed },
       { status: 500 }
     );
   }
@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
   const actor = await resolveActor(auth.supabase, auth.userId, {
     companyId: auth.companyId,
   });
-  const denied = requireCapability(actor, "targets.edit");
+  const denied = await requireCapabilityLocalized(actor, "targets.edit");
   if (denied) return denied;
 
   let body: BatchBody & FormBody;

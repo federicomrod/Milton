@@ -7,6 +7,7 @@
 // RLS, the unique index and the triggers of 048 re-check everything.
 
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { parseGroupOps } from "@/lib/restaurant/groups/parse-ops";
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const api = (await apiDictionary()).menu.screens.api;
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
 
@@ -23,10 +25,7 @@ export async function POST(req: NextRequest) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: api.bodyJson }, { status: 400 });
   }
   const parsed = parseGroupOps(body.ops);
   if (!parsed.ok) {
@@ -36,7 +35,7 @@ export async function POST(req: NextRequest) {
     companyId: auth.companyId,
   });
   const denied = requireCapability(actor, "groups.manage", {
-    message: "Tu rol no puede cambiar las agrupaciones.",
+    message: api.roleGroups,
   });
   if (denied) return denied;
 
@@ -50,30 +49,19 @@ export async function POST(req: NextRequest) {
     if (code === "PGRST202" || code === "42883" || code === "42P01") {
       return NextResponse.json(
         {
-          error:
-            "Las agrupaciones todavía no están activas en este ambiente (falta aplicar las migraciones 048 y 049).",
+          error: api.groupsInactive,
           unavailable: true,
         },
         { status: 409 }
       );
     }
     if (code === "23505") {
-      return NextResponse.json(
-        { error: "Ya hay un grupo con ese nombre en ese lugar." },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: api.groupDuplicate }, { status: 409 });
     }
     if (code === "23514" || code === "23503") {
-      return NextResponse.json(
-        { error: "Ese cambio no es válido para esta agrupación." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: api.groupInvalid }, { status: 400 });
     }
-    const failure = actionableError(
-      error,
-      "No pude guardar la agrupación.",
-      "item-groups"
-    );
+    const failure = actionableError(error, api.saveGrouping, "item-groups");
     return NextResponse.json(
       { error: failure.message, ref: failure.ref },
       { status: failure.status }

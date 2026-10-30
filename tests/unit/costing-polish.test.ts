@@ -140,15 +140,21 @@ describe("source guards", () => {
     const editor = read(
       "components/restaurant/recipes-costing/RecipeLinesEditor.tsx"
     );
-    expect(editor).toContain("no tiene costo todavía: falta precio en");
-    expect(editor).toContain("Abrir {line.name}");
+    const words = read("lib/i18n/es/menu-editor.ts");
+    expect(words).toContain("no tiene costo todavía: falta precio en");
+    expect(editor).toContain("d.lines.prepNoCostMissing");
+    expect(words).toContain("Abrir {name}");
+    expect(editor).toContain("d.lines.openPrep");
     // Do-not-remove #6: inline price edit on the line (one click opens the field).
-    expect(editor).toContain('title="Clic para cambiar el precio"');
+    expect(words).toContain("Clic para cambiar el precio");
+    expect(editor).toContain("title={d.lines.clickToChangePrice}");
     expect(editor).toContain("onClick={() => setEditingPrice(true)}");
     const prep = read(
       "components/restaurant/recipes-costing/PreparacionesScreen.tsx"
     );
-    expect(prep).toContain("← Volver al plato");
+    expect(read("lib/i18n/es/menu-workspace.ts")).toContain(
+      "← Volver al plato"
+    );
   });
 
   it("each save is timed in the logs", () => {

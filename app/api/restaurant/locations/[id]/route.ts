@@ -11,6 +11,7 @@
 
 import { revalidateSales } from "@/lib/restaurant/cache-tags";
 import { NextRequest, NextResponse } from "next/server";
+import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { requireCapability, resolveActor } from "@/lib/auth/permissions";
 import { validateRestaurantName } from "@/lib/restaurant/restaurant-name";
@@ -26,10 +27,11 @@ export async function PATCH(
 ) {
   const auth = await authAndCompany();
   if (!auth.ok) return auth.response;
+  const d = (await apiDictionary()).admin;
   const { id } = await ctx.params;
   if (!UUID.test(id))
     return NextResponse.json(
-      { error: "Restaurante no encontrado." },
+      { error: d.api.locationNotFound },
       { status: 404 }
     );
 
@@ -37,10 +39,7 @@ export async function PATCH(
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "El cuerpo tiene que ser JSON." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: d.api.bodyMustBeJson }, { status: 400 });
   }
 
   // The restaurants of the caller's company (RLS scopes this read as well).
@@ -50,14 +49,14 @@ export async function PATCH(
     .eq("company_id", auth.companyId);
   if (readError) {
     return NextResponse.json(
-      { error: "No pude leer tus restaurantes." },
+      { error: d.api.locationsReadFailed },
       { status: 500 }
     );
   }
   const all = (rows ?? []) as Array<{ id: string; name: string }>;
   if (!all.some((r) => r.id === id)) {
     return NextResponse.json(
-      { error: "Restaurante no encontrado." },
+      { error: d.api.locationNotFound },
       { status: 404 }
     );
   }
@@ -69,7 +68,7 @@ export async function PATCH(
       companyId: auth.companyId,
     });
     const denied = requireCapability(actor, "locations.archive", {
-      message: "Tu rol no puede archivar restaurantes.",
+      message: d.capabilities.locationsArchive,
     });
     if (denied) return denied;
     const { error } = await auth.supabase.rpc("restaurant_set_archived", {
@@ -81,7 +80,7 @@ export async function PATCH(
       const code = (error as { code?: string }).code;
       if (code === "42501")
         return NextResponse.json(
-          { error: "Tu rol no puede archivar restaurantes." },
+          { error: d.capabilities.locationsArchive },
           { status: 403 }
         );
       if (code === "22023")
@@ -93,17 +92,13 @@ export async function PATCH(
       ) {
         return NextResponse.json(
           {
-            error:
-              "Falta aplicar la migración 055 en este ambiente: todavía no se puede archivar.",
+            error: d.api.archiveMigrationMissing,
           },
           { status: 409 }
         );
       }
       console.error("[locations] archive failed:", error.message);
-      return NextResponse.json(
-        { error: "No pude archivar el restaurante." },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: d.api.archiveFailed }, { status: 500 });
     }
     revalidateSales(auth.companyId);
     return NextResponse.json({ archived: body.archived });
@@ -122,10 +117,7 @@ export async function PATCH(
     .eq("company_id", auth.companyId);
   if (error) {
     console.error("[locations] rename failed:", error.message);
-    return NextResponse.json(
-      { error: "No pude guardar el nombre." },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: d.api.nameSaveFailed }, { status: 500 });
   }
   revalidateSales(auth.companyId);
   return NextResponse.json({ id, name: check.name });

@@ -159,7 +159,11 @@ export function buildSyntheticKitchenUnitsWorkbook(): Buffer {
 
   XLSX.utils.book_append_sheet(
     wb,
-    XLSX.utils.aoa_to_sheet([["INDICE"], ["Restaurante de prueba — costos abril"], [""]]),
+    XLSX.utils.aoa_to_sheet([
+      ["INDICE"],
+      ["Restaurante de prueba — costos abril"],
+      [""],
+    ]),
     "INDICE"
   );
 
@@ -1036,8 +1040,22 @@ export function buildLeadingEmptyOrdenCommaWorkbook(): Buffer {
     [e, "COSTO RESTAURANTE"],
     [e, "CORTE DE LA CASA"],
     overlap("CORTE DE LA CASA"),
-    filled("CORTE DE LA CASA", "CORTE DE LA CASA", "ONZA", 8, "$ 0,51250", "$ 4,10000"),
-    filled("CORTE DE LA CASA", "GUARNICION 1", "ORDEN", 2, "$ 0,25000", "$ 0,50000"),
+    filled(
+      "CORTE DE LA CASA",
+      "CORTE DE LA CASA",
+      "ONZA",
+      8,
+      "$ 0,51250",
+      "$ 4,10000"
+    ),
+    filled(
+      "CORTE DE LA CASA",
+      "GUARNICION 1",
+      "ORDEN",
+      2,
+      "$ 0,25000",
+      "$ 0,50000"
+    ),
     [e, "CORTE DE LA CASA", "COSTO TOTAL", "", "", "", "$ 4,60"],
     [e, "CORTE DE LA CASA", "PRECIO DE VENTA SIN IVA", "", "", "", "$ 13,27"],
     [],

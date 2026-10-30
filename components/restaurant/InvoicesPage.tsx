@@ -15,7 +15,10 @@
 
 "use client";
 
-import { parseMissing } from "@/lib/restaurant/invoice-missing";
+import {
+  lineIsIncomplete,
+  parseMissing,
+} from "@/lib/restaurant/invoice-missing";
 import { useT } from "@/lib/i18n/client";
 import { getDictionary, type Dictionary } from "@/lib/i18n";
 import { localeFor, type PreferredLanguage } from "@/lib/restaurant/language";
@@ -1822,6 +1825,8 @@ function LineRow({
   const iv = d.costs.invoices;
   // Fields the kitchen could not read («Falta»), until the manager fills them.
   const missingFields = parseMissing(line.notes);
+  // «Sin precio» or «Falta»: it cannot be approved until it is completed.
+  const incomplete = lineIsIncomplete(line);
   const ingredientName = line.ingredient_id
     ? (ingredients.find((i) => i.id === line.ingredient_id)?.name ?? null)
     : null;
@@ -2050,9 +2055,9 @@ function LineRow({
               size="icon"
               variant="secondary"
               onClick={() => onChange({ review_status: "approved" })}
-              disabled={disabled}
-              title={iv.approveLine}
-              aria-label={iv.approveLine}
+              disabled={disabled || incomplete}
+              title={incomplete ? iv.completeHint : iv.approveLine}
+              aria-label={incomplete ? iv.completeHint : iv.approveLine}
             >
               <CheckCircle2 className="h-3 w-3" />
             </Button>

@@ -45,3 +45,30 @@ export function clearMissing(
   const out = [rest, marker].filter(Boolean).join(" ");
   return out === "" ? null : out;
 }
+
+/**
+ * A line the kitchen left incomplete must not be approved or posted: it has no
+ * price (no unit cost and a total of 0) or still carries a «[falta:…]» marker.
+ * Placeholders are never real numbers.
+ */
+export function lineIsIncomplete(line: {
+  unit_cost?: unknown;
+  line_total?: unknown;
+  notes?: unknown;
+}): boolean {
+  if (parseMissing(line.notes).length > 0) return true;
+  const cost = Number(line.unit_cost);
+  const hasCost =
+    line.unit_cost !== null &&
+    line.unit_cost !== undefined &&
+    Number.isFinite(cost);
+  const total = Number(line.line_total);
+  return !hasCost && !(Number.isFinite(total) && total > 0);
+}
+
+/** The line note without the «[falta:…]» marker (for copies into cost entries). */
+export function stripMissing(notes: string | null | undefined): string | null {
+  if (typeof notes !== "string") return null;
+  const out = notes.replace(/\s*\[falta:[a-z,]+\]\s*/g, " ").trim();
+  return out === "" ? null : out;
+}

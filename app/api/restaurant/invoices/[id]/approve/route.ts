@@ -22,6 +22,10 @@
 //   - one `approved` event when the header transitions
 //   - one `posted` event after cost entries are written
 
+import {
+  lineIsIncomplete,
+  stripMissing,
+} from "@/lib/restaurant/invoice-missing";
 import { fmt as f } from "@/lib/i18n";
 import { apiDictionary } from "@/lib/restaurant/api-lang";
 import { NextResponse } from "next/server";
@@ -148,6 +152,16 @@ export async function POST(
       });
       continue;
     }
+    // Placeholders from the kitchen (no price, or a quantity/unit still
+    // «Falta») are never posted: no $0 cost entry, no invented quantity.
+    if (lineIsIncomplete(line)) {
+      skipped.push({
+        line_id: line.id,
+        description: line.description,
+        reason: a.lineIncomplete,
+      });
+      continue;
+    }
     postable.push(line);
   }
 
@@ -235,7 +249,7 @@ export async function POST(
       normalized_unit_cost: converted.value,
       currency: invoice.currency,
       notes:
-        line.notes ??
+        stripMissing(line.notes) ??
         (invoice.invoice_number
           ? `From invoice ${invoice.invoice_number}`
           : null),

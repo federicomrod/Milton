@@ -175,6 +175,7 @@ export const costs: Dictionary["costs"] = {
     priceUpdate: "Preisaktualisierung",
     incomplete: "Unvollständig",
     noPrice: "Kein Preis",
+    completeHint: "Preis / Menge ergänzen",
     missingField: "Fehlt",
     noQuantity: "Keine Menge",
     statusDraft: "Entwurf",
@@ -423,6 +424,8 @@ export const costs: Dictionary["costs"] = {
     lineNotMatched: "Die Position ist keiner Zutat zugeordnet.",
     noLinesToPost:
       "Keine freigegebenen und zugeordneten Positionen zum Verbuchen. Geben Sie zuerst mindestens eine Position frei und ordnen Sie sie zu.",
+    lineIncomplete:
+      "Preis oder Menge fehlt: in der Prüfung ergänzen, bevor Sie freigeben.",
     unitCostUnderivable:
       "unit_cost konnte nicht abgeleitet werden (Menge null oder Summe fehlt).",
     noLinesLeft: "Es blieben keine Positionen zum Verbuchen übrig.",

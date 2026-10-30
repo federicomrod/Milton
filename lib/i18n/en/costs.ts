@@ -169,6 +169,7 @@ export const costs: Dictionary["costs"] = {
     priceUpdate: "Price update",
     incomplete: "Incomplete",
     noPrice: "No price",
+    completeHint: "Complete price / quantity",
     missingField: "Missing",
     noQuantity: "No quantity",
     statusDraft: "Draft",
@@ -398,6 +399,8 @@ export const costs: Dictionary["costs"] = {
     lineNotMatched: "The line is not matched to an ingredient.",
     noLinesToPost:
       "No approved and matched lines to post. Approve and match at least one line first.",
+    lineIncomplete:
+      "The price or quantity is missing: complete them in Review before approving.",
     unitCostUnderivable:
       "Could not derive unit_cost (zero quantity or missing total).",
     noLinesLeft: "No lines were left ready to post.",

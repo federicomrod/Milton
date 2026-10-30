@@ -17,6 +17,15 @@ export interface KitchenMe {
 
 export type ItemKind = "photo" | "voice" | "document" | "text";
 
+/** Why Milton could not read a message: a code the app words itself. */
+export type UnclearReason =
+  | "unreadable"
+  | "ai_unavailable"
+  | "price_unclear"
+  | "currency_mismatch"
+  | "save_failed"
+  | "other";
+
 /** What Milton did with a message (serializeAppResult on the server): no amounts. */
 export interface AppResult {
   state: "processing" | "done" | "failed";
@@ -25,7 +34,7 @@ export interface AppResult {
   /** A price / purchase waits for a manager in Compras. */
   draft: boolean;
   asks: { kind: "unit" | "amount"; text: string | null } | null;
-  unclear: string | null;
+  unclear: UnclearReason | null;
   recipe: boolean;
   /** Product names Milton understood. */
   understood: string[];

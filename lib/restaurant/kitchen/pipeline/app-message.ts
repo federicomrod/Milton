@@ -20,6 +20,11 @@ import { aiUnavailableFor, runTranscription } from "@/lib/ai/call";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolvePreferredLanguage } from "@/lib/restaurant/language";
 import { withKitchenLanguage } from "@/lib/restaurant/telegram/kitchen-language";
+import {
+  KITCHEN_COPY,
+  renderKitchenCopy,
+} from "@/lib/restaurant/telegram/kitchen-copy";
+import { joinProducts } from "@/lib/restaurant/telegram/price-flow";
 import type { KitchenLink } from "@/lib/restaurant/telegram/kitchen-links";
 import { tryPendingAnswer } from "@/lib/restaurant/telegram/kitchen-pending-answer";
 import { runMessagePipeline } from "@/lib/restaurant/kitchen/pipeline/message-pipeline";
@@ -29,7 +34,9 @@ import {
   runWithReplySink,
   type PipelineEvent,
   type ReplySink,
+  type UnclearReason,
 } from "@/lib/restaurant/kitchen/pipeline/reply-sink";
+import { unclearReasonOf } from "@/lib/restaurant/kitchen/pipeline/unclear-reason";
 import { KITCHEN_MEDIA_BUCKET } from "@/lib/restaurant/kitchen/media-storage";
 
 export interface AppResult {
@@ -40,9 +47,10 @@ export interface AppResult {
   /** A price / purchase went to Compras as a draft «Por revisar». */
   draft: boolean;
   /** Milton needs one more answer from the cook. */
+  /** A unit question is rebuilt from the copy; an amount question has no text. */
   asks: { kind: "unit" | "amount"; text: string | null } | null;
-  /** Milton could not read it (the cook is told in the company's language). */
-  unclear: string | null;
+  /** Why Milton could not read it: a CODE the app words itself (es/en/de), never a reply. */
+  unclear: UnclearReason | null;
   /** It read like a recipe (recipe drafts from the app come later). */
   recipe: boolean;
   /** What Milton understood: product names only. */
@@ -59,7 +67,13 @@ const EMPTY: Omit<AppResult, "state"> = {
   understood: [],
 };
 
-/** Boils the captured replies and events down to what the card shows. */
+/**
+ * Boils what the pipeline DID down to what the card shows. The captured replies
+ * are never copied onto the result: they quote prices (an example price, or the
+ * price just saved). The unit question is rebuilt from the copy with only the
+ * product names, and «could not read it» is a reason code. Call it in the
+ * company's kitchen language.
+ */
 export function summarizeSink(
   sink: Pick<ReplySink, "messages" | "events">,
   outcome: "handled" | "recipe"
@@ -75,8 +89,19 @@ export function summarizeSink(
       )
     ),
   ].filter(Boolean);
-  const last = sink.messages[sink.messages.length - 1] ?? null;
   const nothing = !question && !draft && !noted;
+
+  let unclear: UnclearReason | null = null;
+  if (nothing && outcome === "handled") {
+    const reported = events.find((e) => e.kind === "unclear");
+    unclear =
+      reported?.kind === "unclear"
+        ? reported.reason
+        : sink.messages.length > 0
+          ? unclearReasonOf(sink.messages)
+          : null;
+  }
+
   return {
     ...EMPTY,
     state: "done",
@@ -85,11 +110,15 @@ export function summarizeSink(
     asks: question
       ? {
           kind: question.ask,
-          // An amount question repeats prices: the app words it itself.
-          text: question.ask === "unit" ? last : null,
+          text:
+            question.ask === "unit" && question.products.length > 0
+              ? renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
+                  producto: joinProducts(question.products),
+                })
+              : null,
         }
       : null,
-    unclear: nothing && outcome === "handled" ? last : null,
+    unclear,
     recipe: outcome === "recipe" && nothing,
     understood,
   };
@@ -248,14 +277,11 @@ export async function processAppReport(input: {
               )
             : ({ ok: false, quota: false } as const);
           if (!heard.ok) {
-            // Say so, like the Telegram copy; the voice note itself is kept.
-            const { KITCHEN_COPY } =
-              await import("@/lib/restaurant/telegram/kitchen-copy");
-            sink.messages.push(
-              heard.quota
-                ? KITCHEN_COPY.VOICE_AI_UNAVAILABLE
-                : KITCHEN_COPY.VOICE_UNREADABLE
-            );
+            // A code, not Telegram's sentence; the voice note itself is kept.
+            sink.events.push({
+              kind: "unclear",
+              reason: heard.quota ? "ai_unavailable" : "unreadable",
+            });
             await saveResult(
               admin,
               input.reportId,

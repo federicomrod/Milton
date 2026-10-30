@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { AppResult } from "../api/types";
 import { de, en, es } from "../i18n/strings";
 import { dayGroup, formatClock, initialsOf } from "./format";
-import { awaitsResult, describeResult, offlineText } from "./result";
+import {
+  awaitsResult,
+  describeResult,
+  offlineText,
+  unclearText,
+} from "./result";
 
 const done = (over: Partial<AppResult> = {}): AppResult => ({
   state: "done",
@@ -70,16 +75,45 @@ describe("describeResult", () => {
     expect(amount.question).toBe(es.status.amountAsk);
   });
 
-  it("unclear and recipe are grey, in the device language", () => {
-    expect(describeResult(done({ unclear: "No entendí." }), es).unclear).toBe(
-      "No entendí."
+  it("«could not read it» is the app's own words for a reason code, in every language", () => {
+    const codes = [
+      "unreadable",
+      "ai_unavailable",
+      "price_unclear",
+      "currency_mismatch",
+      "save_failed",
+      "other",
+    ] as const;
+    for (const s of [es, en, de]) {
+      const seen = new Set<string>();
+      for (const code of codes) {
+        const v = describeResult(done({ unclear: code }), s);
+        expect(v.unclear).toBe(unclearText(code, s));
+        expect(v.unclear).not.toMatch(/[\d$€£]/);
+        expect(v.chips.map((c) => c.tone)).toEqual(["grey"]);
+        seen.add(v.unclear as string);
+      }
+      expect(seen.size).toBe(codes.length); // one distinct sentence per code
+    }
+    // Anything the server might send that is not a known code reads as «other».
+    expect(unclearText("No entendí. «aguacate $1.50»", es)).toBe(
+      es.status.unclear.other
     );
-    expect(labels(done({ unclear: "x" }), de)).toEqual([
-      `grey:${de.status.couldNotRead}`,
-    ]);
+    expect(describeResult(done({ unclear: "price_unclear" }), de).unclear).toBe(
+      de.status.unclear.priceUnclear
+    );
+  });
+
+  it("a recipe is grey; a unit question without text uses the app's own words", () => {
     expect(labels(done({ recipe: true }), en)).toEqual([
       `grey:${en.status.recipeSeen}`,
     ]);
+    expect(
+      describeResult(done({ asks: { kind: "unit", text: null } }), es).question
+    ).toBe(es.status.unitAsk);
+    expect(
+      describeResult(done({ asks: { kind: "unit", text: null } }), de).question
+    ).toBe(de.status.unitAsk);
   });
 
   it("never renders an amount or a currency symbol, whatever the server sends", () => {

@@ -13,10 +13,29 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
+/**
+ * Why Milton could not read a message. The app stores and shows ONLY this code
+ * (mapped to its own es/en/de text), never the raw reply: replies quote example
+ * prices and the prices of what was just saved.
+ */
+export const UNCLEAR_REASONS = [
+  "unreadable",
+  "ai_unavailable",
+  "price_unclear",
+  "currency_mismatch",
+  "save_failed",
+  "other",
+] as const;
+export type UnclearReason = (typeof UNCLEAR_REASONS)[number];
+
 export type PipelineEvent =
   | { kind: "price_draft"; products: string[] }
   | { kind: "stock"; reportType: string; products: string[] }
-  | { kind: "question"; ask: "amount" | "unit" };
+  // A unit question carries the product names (so the card can rebuild the
+  // question from the copy); an amount question carries nothing.
+  | { kind: "question"; ask: "amount" }
+  | { kind: "question"; ask: "unit"; products: string[] }
+  | { kind: "unclear"; reason: UnclearReason };
 
 export interface ReplySink {
   /** Only messages to this chat are captured; any other still goes to Telegram. */

@@ -106,6 +106,16 @@ export const es = {
     priceNote: "Los precios los ve tu encargado.",
     amountAsk: "Dime el precio otra vez, con la unidad (por kilo, por libra…).",
     answerHint: "Contéstale con un mensaje nuevo.",
+    unitAsk: "Dime si el precio es por kilo, por libra o por unidad.",
+    unclear: {
+      unreadable: "No pude escuchar el audio. Mándalo otra vez o escríbelo.",
+      aiUnavailable: "Milton no puede leerlo ahora. Inténtalo más tarde.",
+      priceUnclear: "No entendí el precio. Dilo con el producto y la unidad.",
+      currencyMismatch:
+        "La moneda que dijiste no es la de tu empresa. Dilo otra vez.",
+      saveFailed: "No pude guardarlo. Vuelve a mandarlo en un momento.",
+      other: "No pude entender el mensaje. Cuéntamelo de otra forma.",
+    },
   },
   kinds: {
     photo: "Foto",
@@ -238,6 +248,17 @@ export const en: Strings = {
     priceNote: "Prices are for your manager to see.",
     amountAsk: "Tell me the price again, with the unit (per kilo, per pound…).",
     answerHint: "Answer with a new message.",
+    unitAsk: "Tell me if the price is per kilo, per pound or per unit.",
+    unclear: {
+      unreadable: "I couldn't hear the audio. Send it again or write it.",
+      aiUnavailable: "Milton can't read it right now. Try again later.",
+      priceUnclear:
+        "I didn't understand the price. Say it with the product and the unit.",
+      currencyMismatch:
+        "The currency you said is not your company's. Say it again.",
+      saveFailed: "I couldn't save it. Send it again in a moment.",
+      other: "I couldn't understand the message. Tell me another way.",
+    },
   },
   kinds: {
     photo: "Photo",
@@ -375,6 +396,19 @@ export const de: Strings = {
     amountAsk:
       "Sag mir den Preis noch einmal, mit der Einheit (pro Kilo, pro Pfund…).",
     answerHint: "Antworte mit einer neuen Nachricht.",
+    unitAsk: "Sag mir, ob der Preis pro Kilo, pro Pfund oder pro Stück gilt.",
+    unclear: {
+      unreadable:
+        "Ich konnte das Audio nicht hören. Sende es noch einmal oder schreibe es.",
+      aiUnavailable:
+        "Milton kann es gerade nicht lesen. Versuche es später noch einmal.",
+      priceUnclear:
+        "Den Preis habe ich nicht verstanden. Sag ihn mit Produkt und Einheit.",
+      currencyMismatch:
+        "Die Währung, die du genannt hast, ist nicht die deines Unternehmens. Sag es noch einmal.",
+      saveFailed: "Ich konnte es nicht speichern. Sende es gleich noch einmal.",
+      other: "Ich habe die Nachricht nicht verstanden. Sag es mir anders.",
+    },
   },
   kinds: {
     photo: "Foto",

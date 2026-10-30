@@ -2,7 +2,7 @@
 // chips, the question when Milton needs one more answer, and what was
 // understood. Never an amount: the cook does not see prices.
 
-import type { AppResult, ItemKind } from "../api/types";
+import type { AppResult, ItemKind, UnclearReason } from "../api/types";
 import { fmt, type Strings } from "../i18n/strings";
 
 export type ChipTone = "mint" | "amarillo" | "grey" | "lavender";
@@ -22,6 +22,25 @@ export interface ResultView {
   priceNote: string | null;
   /** Milton could not read it. */
   unclear: string | null;
+}
+
+/** The app's own words for a reason code (an unknown code reads as «other»). */
+export function unclearText(code: UnclearReason | string, s: Strings): string {
+  const u = s.status.unclear;
+  switch (code) {
+    case "unreadable":
+      return u.unreadable;
+    case "ai_unavailable":
+      return u.aiUnavailable;
+    case "price_unclear":
+      return u.priceUnclear;
+    case "currency_mismatch":
+      return u.currencyMismatch;
+    case "save_failed":
+      return u.saveFailed;
+    default:
+      return u.other;
+  }
 }
 
 export function describeResult(
@@ -53,17 +72,19 @@ export function describeResult(
 
   return {
     chips,
+    // A unit question comes from the server's copy (product names, no amounts);
+    // when it has none, and for an amount question, the app uses its own words.
     question: result.asks
       ? result.asks.kind === "amount"
         ? s.status.amountAsk
-        : result.asks.text
+        : (result.asks.text ?? s.status.unitAsk)
       : null,
     understood:
       understood.length > 0 && (result.draft || result.noted)
         ? understood.join(", ")
         : null,
     priceNote: result.draft ? s.status.priceNote : null,
-    unclear: result.unclear,
+    unclear: result.unclear ? unclearText(result.unclear, s) : null,
   };
 }
 

@@ -501,7 +501,11 @@ async function handleActions(
       });
       if (opened.ok) {
         maybeCleanupPending();
-        recordPipelineEvent({ kind: "question", ask: "unit" });
+        recordPipelineEvent({
+          kind: "question",
+          ask: "unit",
+          products: needUnit.map((i) => i.name),
+        });
         asked = true;
         if (opened.created) {
           lines.push(

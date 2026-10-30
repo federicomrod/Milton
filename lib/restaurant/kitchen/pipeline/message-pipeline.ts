@@ -202,7 +202,11 @@ export async function applyPriceResult(
       };
     } else {
       maybeCleanupPending();
-      recordPipelineEvent({ kind: "question", ask: "unit" });
+      recordPipelineEvent({
+        kind: "question",
+        ask: "unit",
+        products: r.needUnit.map((i) => i.name),
+      });
       if (opened.created) {
         askLine = renderKitchenCopy(KITCHEN_COPY.PRICE_UNIT_ASK, {
           producto: joinProducts(r.needUnit.map((i) => i.name)),

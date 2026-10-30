@@ -42,8 +42,7 @@ const FREE_TEXT_KEYS = new Set([
   "note",
   "notes",
   "description",
-  // What Milton understood from a message (product names, a sentence).
-  "unclear",
+  // What Milton understood from a message (product names).
   "understood",
 ]);
 
@@ -96,6 +95,11 @@ export function assertNoMoneyFields(value: unknown): void {
   };
   walk(value, null, 0);
 }
+
+import {
+  UNCLEAR_REASONS,
+  type UnclearReason,
+} from "@/lib/restaurant/kitchen/pipeline/reply-sink";
 
 type Row = Record<string, unknown>;
 
@@ -202,7 +206,9 @@ export function serializeAppResult(raw: unknown) {
     r.asks && typeof r.asks === "object"
       ? {
           kind: (r.asks as Row).kind === "amount" ? "amount" : "unit",
-          text: strOrNull((r.asks as Row).text),
+          // Defence in depth: a question that carries any digit or currency is
+          // dropped (the app words it itself), whatever an older row stored.
+          text: noAmount(strOrNull((r.asks as Row).text)),
         }
       : null;
   return {
@@ -210,14 +216,37 @@ export function serializeAppResult(raw: unknown) {
     noted: r.noted === true,
     draft: r.draft === true,
     asks,
-    unclear: strOrNull(r.unclear),
+    // Only a known reason code passes. Anything else (for example the raw reply
+    // an older version stored) becomes "other"; its text is never returned.
+    unclear: unclearCode(r.unclear),
     recipe: r.recipe === true,
     understood: Array.isArray(r.understood)
       ? r.understood
-          .filter((x): x is string => typeof x === "string")
+          .filter(
+            (x): x is string => typeof x === "string" && !looksLikePrice(x)
+          )
           .slice(0, 10)
       : [],
   };
+}
+
+/** A product name that is really a price («pan $2.00», «2,50 €»). */
+function looksLikePrice(value: string): boolean {
+  return /[$€£]|\d[\d.,]*\s?(?:usd|eur|mxn|cop|ars|clp|pen|brl)\b|\d+[.,]\d{2}\b/i.test(
+    value
+  );
+}
+
+/** The text, or null when it carries a digit or a currency symbol. */
+function noAmount(value: string | null): string | null {
+  return value !== null && !/[\d$€£]/.test(value) ? value : null;
+}
+
+function unclearCode(value: unknown): UnclearReason | null {
+  if (typeof value !== "string" || value === "") return null;
+  return (UNCLEAR_REASONS as readonly string[]).includes(value)
+    ? (value as UnclearReason)
+    : "other";
 }
 
 export function serializeKitchenUpload(input: {

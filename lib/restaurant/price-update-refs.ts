@@ -12,6 +12,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  APP_PRICE_UPDATE_NOTE_PREFIX,
   LEGACY_PRICE_UPDATE_NOTE_PREFIX,
   PRICE_UPDATE_NOTE_PREFIX,
 } from "@/lib/restaurant/price-update-note";
@@ -49,6 +50,7 @@ export async function loadPriceUpdateRefs(
     for (const prefix of [
       PRICE_UPDATE_NOTE_PREFIX,
       LEGACY_PRICE_UPDATE_NOTE_PREFIX,
+      APP_PRICE_UPDATE_NOTE_PREFIX,
     ]) {
       for (let from = 0; ; from += PAGE) {
         const { data, error } = await supabase

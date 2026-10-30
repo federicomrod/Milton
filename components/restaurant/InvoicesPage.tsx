@@ -45,6 +45,7 @@ import { CAPABILITY_MESSAGES } from "@/lib/auth/capabilities";
 import {
   isPriceUpdateNote,
   isPurchaseInvoice,
+  isAppInvoice,
   isTelegramInvoice,
 } from "@/lib/restaurant/price-update-note";
 import {
@@ -189,6 +190,17 @@ function TelegramLabel() {
   );
 }
 
+function AppLabel() {
+  return (
+    <span
+      data-testid="app-label"
+      className="inline-flex items-center rounded-full bg-[#f3f4f6] px-2 py-0.5 text-xs font-semibold text-[#6b7280]"
+    >
+      App
+    </span>
+  );
+}
+
 function MissingBadge({ children }: { children: React.ReactNode }) {
   return (
     <span
@@ -316,8 +328,9 @@ const sourceLabelMap = (iv: IV): Record<string, string> => ({
 });
 /** One mapping of where an invoice came from: «Origen» (panel) and the list's
  *  small source text both derive from it. */
-type SourceKind = "telegram" | "photo" | "csv" | "manual" | "other";
+type SourceKind = "telegram" | "app" | "photo" | "csv" | "manual" | "other";
 function sourceKind(inv: InvoiceListItem): SourceKind {
+  if (isAppInvoice(inv)) return "app";
   if (isTelegramInvoice(inv)) return "telegram";
   switch (inv.source_type) {
     case "image":
@@ -336,6 +349,7 @@ function originLabel(inv: InvoiceListItem, iv: IV): string {
   const k = sourceKind(inv);
   const origin: Record<SourceKind, string> = {
     telegram: "Telegram",
+    app: iv.sourceApp,
     photo: iv.sourcePhoto,
     csv: "CSV / Excel",
     manual: iv.sourceManual,
@@ -359,6 +373,8 @@ function sourceText(inv: InvoiceListItem, iv: IV): string {
   switch (sourceKind(inv)) {
     case "telegram":
       return iv.byTelegram;
+    case "app":
+      return iv.byApp;
     case "photo":
       return iv.byPhoto;
     case "csv":
@@ -1499,6 +1515,7 @@ function ReviewDetail({
               {statusLabel(inv.status, iv)}{" "}
             </span>
             {isTelegramInvoice(inv) && <TelegramLabel />}
+            {isAppInvoice(inv) && <AppLabel />}
             {isPriceUpdateNote(inv.notes) && <PriceUpdateLabel />}
           </CardTitle>
           <div className="flex items-center gap-2">

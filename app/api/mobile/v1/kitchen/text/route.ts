@@ -14,6 +14,7 @@ import {
   findOrCreateAppReport,
 } from "@/lib/restaurant/kitchen/app-reports";
 import { serializeKitchenUpload } from "@/lib/restaurant/kitchen/kitchen-serializer";
+import { scheduleAppProcessing } from "@/lib/restaurant/kitchen/pipeline/app-message";
 import { kitchenJson } from "@/lib/restaurant/kitchen/mobile-response";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
   if (!report.ok) {
     return kitchenJson({ error: d.kitchen.api.messageSaveFailed }, 500);
   }
+  // Run it through the same pipeline Telegram messages use, after answering.
+  // Once per report (the processor claims it), so a retry does nothing.
+  scheduleAppProcessing({ staffId: staff.id, reportId: report.reportId });
   return kitchenJson(
     serializeKitchenUpload({
       reportId: report.reportId,

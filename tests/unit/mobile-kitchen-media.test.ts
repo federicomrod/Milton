@@ -10,10 +10,14 @@ const STAFF = "44444444-4444-4444-8444-444444444441";
 const TOKEN = "device-token-for-cook-one-0000000000000000000";
 
 const h = vi.hoisted(() => ({
+  schedule: vi.fn(),
   state: { db: null as any },
   ingest: vi.fn(),
 }));
 
+vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", () => ({
+  scheduleAppProcessing: (...a: unknown[]) => h.schedule(...a),
+}));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => h.state.db.client,
 }));
@@ -340,6 +344,25 @@ describe("POST /api/mobile/v1/kitchen/text", () => {
       telegram_chat_id: null,
     });
     expect(h.ingest).not.toHaveBeenCalled();
+  });
+
+  it("schedules the message for the shared pipeline (once per request)", async () => {
+    h.schedule.mockClear();
+    const res = await send({
+      text: "se nos acaba el queso fresco",
+      clientRef: "client-ref-text9",
+    });
+    const body = await res.json();
+    expect(h.schedule).toHaveBeenCalledTimes(1);
+    expect(h.schedule).toHaveBeenCalledWith({
+      staffId: STAFF,
+      reportId: body.reportId,
+    });
+    h.schedule.mockClear();
+    expect(
+      (await send({ text: " ", clientRef: "client-ref-text10" })).status
+    ).toBe(400);
+    expect(h.schedule).not.toHaveBeenCalled();
   });
 
   it("caps the text at 2000 characters and needs text, clientRef and a live device", async () => {

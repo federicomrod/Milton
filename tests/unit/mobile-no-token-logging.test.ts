@@ -9,6 +9,7 @@ const MANAGER_JWT = "owner-token";
 const BEARER_JWT_SECRET = "eyJhbGciOiJIUzI1NiJ9.super-secret-supabase-jwt";
 
 const h = vi.hoisted(() => ({
+  schedule: vi.fn(),
   state: {
     db: null as any,
     explode: null as null | string,
@@ -41,6 +42,9 @@ function adminClient() {
   };
 }
 
+vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", () => ({
+  scheduleAppProcessing: (...a: unknown[]) => h.schedule(...a),
+}));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => adminClient(),
 }));

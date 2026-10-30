@@ -42,8 +42,14 @@ const MONEY_VALUES = [
   "6673.29",
 ];
 
-const h = vi.hoisted(() => ({ state: { db: null as any } }));
+const h = vi.hoisted(() => ({
+  schedule: vi.fn(),
+  state: { db: null as any },
+}));
 
+vi.mock("@/lib/restaurant/kitchen/pipeline/app-message", () => ({
+  scheduleAppProcessing: (...a: unknown[]) => h.schedule(...a),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => {
     const rls = Object.create(h.state.db.client);
@@ -474,6 +480,7 @@ describe("no money in any kitchen route", () => {
       "createdAt",
       "id",
       "kind",
+      "result",
       "status",
       "text",
     ]);
@@ -549,6 +556,7 @@ describe("kitchen serializer", () => {
       "createdAt",
       "id",
       "kind",
+      "result",
       "status",
       "text",
     ]);

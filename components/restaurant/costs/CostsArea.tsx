@@ -37,19 +37,23 @@ export function CostsKpiCard({
   /** Makes the whole card a link (e.g. «con facturas pendientes» → Compras). */
   href?: string;
 }) {
-  const toneClass =
-    deltaTone === "bad"
-      ? "text-[#c2410c]"
-      : deltaTone === "good"
-        ? "text-[#15803d]"
-        : "text-[#6b7385]";
+  // Brand colours only: «needs a look» is Ink on an amarillo chip and «good»
+  // is plain Ink.
+  const alert = deltaTone === "bad";
+  const toneClass = alert
+    ? "inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 font-semibold text-[#0F172A]"
+    : deltaTone === "good"
+      ? "text-[#0F172A]"
+      : "text-[#6b7385]";
   const body = (
     <>
       <p className="text-[12px] font-medium text-[#6b7385]">{label}</p>
       <p className="mt-1 text-[28px] font-extrabold leading-tight tabular-nums text-[#151c2c]">
         {value}
       </p>
-      <p className={`mt-0.5 text-[12px] ${toneClass}`}>{delta}</p>
+      <p className="mt-0.5">
+        <span className={`text-[12px] ${toneClass}`}>{delta}</span>
+      </p>
     </>
   );
   const box = "rounded-[14px] border border-[#dfe3ea] bg-white px-4 py-3.5";

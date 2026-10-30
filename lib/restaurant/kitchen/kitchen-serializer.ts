@@ -42,6 +42,9 @@ const FREE_TEXT_KEYS = new Set([
   "note",
   "notes",
   "description",
+  // What Milton understood from a message (product names, a sentence).
+  "unclear",
+  "understood",
 ]);
 
 // A string that IS an amount: «$12.50», «€ 3», «12,50 €», «3 USD». Anchored on
@@ -162,6 +165,7 @@ export function serializeKitchenHistoryItem(row: Row) {
     "text",
     "transcript",
     "processed_at",
+    "app_result",
     "created_at",
   ]);
   // kitchen_reports.media_kind only allows photo | voice, so a PDF shows up as
@@ -177,7 +181,42 @@ export function serializeKitchenHistoryItem(row: Row) {
     kind,
     text: strOrNull(p.transcript) ?? strOrNull(p.text),
     status: p.processed_at ? "processed" : "received",
+    result: serializeAppResult(p.app_result),
     createdAt: str(p.created_at),
+  };
+}
+
+/**
+ * What Milton did with a message sent from the app, for the card's chips. Only
+ * these fields pass: what happened and product names, never an amount.
+ */
+export function serializeAppResult(raw: unknown) {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Row;
+  const state =
+    r.state === "processing" || r.state === "done" || r.state === "failed"
+      ? r.state
+      : null;
+  if (!state) return null;
+  const asks =
+    r.asks && typeof r.asks === "object"
+      ? {
+          kind: (r.asks as Row).kind === "amount" ? "amount" : "unit",
+          text: strOrNull((r.asks as Row).text),
+        }
+      : null;
+  return {
+    state,
+    noted: r.noted === true,
+    draft: r.draft === true,
+    asks,
+    unclear: strOrNull(r.unclear),
+    recipe: r.recipe === true,
+    understood: Array.isArray(r.understood)
+      ? r.understood
+          .filter((x): x is string => typeof x === "string")
+          .slice(0, 10)
+      : [],
   };
 }
 

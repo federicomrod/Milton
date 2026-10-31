@@ -199,6 +199,15 @@ export async function removeMember(
       .eq("id", membershipId)
       .eq("company_id", companyId);
     if (error) return { ok: false, error: "error" };
+    // If that person had this company active (support), clear it so the app
+    // never keeps showing a company they no longer belong to.
+    for (const column of ["id", "user_id"] as const) {
+      await admin
+        .from("profiles")
+        .update({ company_id: null })
+        .eq(column, String(target.user_id))
+        .eq("company_id", companyId);
+    }
     return { ok: true };
   } catch (err) {
     logFailure("remove", err);

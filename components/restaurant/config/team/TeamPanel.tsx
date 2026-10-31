@@ -285,7 +285,9 @@ export function TeamPanel({
         ) : (
           <ul className="divide-y divide-[#E5E7EB]">
             {visibleMembers.map((m) => {
-              const label = m.name || m.email || tm.noName;
+              const label = m.isSupport
+                ? d.support.team.label
+                : m.name || m.email || tm.noName;
               return (
                 <li
                   key={m.id}
@@ -300,7 +302,12 @@ export function TeamPanel({
                         </span>
                       ) : null}
                     </div>
-                    {m.name && m.email ? (
+                    {m.isSupport ? (
+                      <div className="text-[13px] text-[#64748B]">
+                        {d.support.team.note}
+                      </div>
+                    ) : null}
+                    {!m.isSupport && m.name && m.email ? (
                       <div className="break-all text-[13px] text-[#64748B]">
                         {m.email}
                       </div>

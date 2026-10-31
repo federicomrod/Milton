@@ -8,10 +8,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { redeemMessage } from "../api/client";
 import { useStrings } from "../i18n";
 import { extractInviteSecret } from "../lib/invite";
+import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
 import { useSession } from "../session/SessionProvider";
 import { colors, space } from "../theme";
@@ -19,6 +20,8 @@ import { Button, Field, Muted, text } from "../components/ui";
 
 export default function Join() {
   const s = useStrings();
+  const g = useG();
+  const router = useRouter();
   const params = useLocalSearchParams<{ secret?: string }>();
   const { api, signIn } = useSession();
   const manager = useManager();
@@ -96,6 +99,13 @@ export default function Join() {
           />
           {error ? <Muted>{error}</Muted> : null}
           <Button label={s.join.enter} onPress={enter} busy={busy} />
+          {manager.status === "signedOut" ? (
+            <Button
+              label={g.welcome.managerLink}
+              variant="secondary"
+              onPress={() => router.push("/login")}
+            />
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

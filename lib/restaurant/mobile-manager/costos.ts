@@ -50,6 +50,8 @@ export interface PendingInvoice {
   /** At least one line has a price. */
   priced: boolean;
   lineCount: number;
+  /** Lines (all of them, not only the listed ones) with no price: «Sin precio». */
+  noPriceCount: number;
   lines: PendingInvoiceLine[];
 }
 
@@ -154,6 +156,10 @@ export async function loadPendingInvoices(
       total: amounts.total,
       priced: amounts.priced,
       lineCount: own.length,
+      noPriceCount: own.filter((l) => {
+        const c = num(l.unit_cost);
+        return c === null || c <= 0;
+      }).length,
       lines: own.slice(0, MAX_LINES_PER_INVOICE).map((l) => {
         const cost = num(l.unit_cost);
         const total = num(l.line_total);

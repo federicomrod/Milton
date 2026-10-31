@@ -1,235 +1,128 @@
-// Costos: the pending Compras invoices with their lines visible, and Aprobar /
-// Rechazar. A person taps; nothing is automatic. A line without a price says
-// «Sin precio» and one without a quantity «Falta» (never $0). Below: the
-// month's cost KPIs, read only.
+// Costos: costo de ventas and the month's cost KPIs first, then «Facturas por
+// revisar» as compact rows (supplier, date, total, how many lines have no
+// price). A row opens the invoice (app/factura.tsx) with its lines and
+// Aprobar / Rechazar. A missing price says «Sin precio», never $0.
 
 import React from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Button, Card, Chip, Muted, Screen } from "../../components/ui";
-import { ApiError } from "../../api/client";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Icon, Muted, Screen } from "../../components/ui";
 import { useLanguage } from "../../i18n";
 import { fmt } from "../../i18n/strings";
 import {
   formatDay,
   formatFraction,
   formatMoney,
-  formatNumber,
   monthLabel,
 } from "../../gestion/format";
 import { useG, useLoad } from "../../gestion/hooks";
 import { useManager } from "../../gestion/ManagerProvider";
-import type { InvoiceLine, PendingInvoice } from "../../gestion/types";
-import { Async, GestionHeader, SectionTitle, gst } from "../../gestion/ui";
-import { showToast } from "../../lib/toast";
-import { colors, fonts, space } from "../../theme";
+import { invoiceTotalText } from "../../gestion/invoice";
+import { Async, GestionHeader, Panel, gst } from "../../gestion/ui";
+import { colors, fonts } from "../../theme";
 
 export default function Costos() {
   const g = useG();
   const lang = useLanguage();
+  const router = useRouter();
   const { api, locationId, locations } = useManager();
   const location =
     locationId ?? (locations.length === 1 ? locations[0].id : null);
   const state = useLoad(`costos:${location ?? "all"}`, () =>
     api.costos(location)
   );
-  const [busy, setBusy] = React.useState<string | null>(null);
-
-  function confirm(message: string, onYes: () => void) {
-    Alert.alert(message, undefined, [
-      { text: g.costs.cancel, style: "cancel" },
-      { text: g.costs.approve, onPress: onYes },
-    ]);
-  }
-
-  async function approve(inv: PendingInvoice) {
-    setBusy(inv.id);
-    try {
-      const res = await api.approveInvoice(inv.id);
-      const skipped = res.skipped_lines?.length ?? 0;
-      showToast(
-        skipped > 0
-          ? fmt(g.costs.approvedWithSkips, { n: skipped })
-          : g.costs.approved,
-        5000
-      );
-    } catch (err) {
-      showToast(
-        err instanceof ApiError && err.kind === "client"
-          ? g.costs.cannotPost
-          : g.errors.generic,
-        5000
-      );
-    } finally {
-      setBusy(null);
-      state.reload();
-    }
-  }
-
-  async function reject(inv: PendingInvoice) {
-    setBusy(inv.id);
-    try {
-      await api.rejectInvoice(inv.id);
-      showToast(g.costs.rejected);
-    } catch {
-      showToast(g.errors.generic);
-    } finally {
-      setBusy(null);
-      state.reload();
-    }
-  }
 
   return (
     <Screen>
       <GestionHeader title={g.costs.title} />
       <Async state={state}>
         {(c) => {
-          const money = (n: number | null) =>
-            formatMoney(n, c.currency, lang, 2);
           const money0 = (n: number | null) => formatMoney(n, c.currency, lang);
-          const lineTotal = (l: InvoiceLine) =>
-            l.missing.includes("quantity") && l.unitCost !== null
-              ? g.costs.missing
-              : l.lineTotal !== null
-                ? money(l.lineTotal)
-                : g.costs.noPrice;
-          // «Falta» once when both the quantity and the unit are missing.
-          const lineDetail = (l: InvoiceLine) => {
-            const noQty = l.missing.includes("quantity");
-            const noUnit = l.missing.includes("unit");
-            const qtyUnit =
-              noQty && noUnit
-                ? g.costs.missing
-                : [
-                    noQty ? g.costs.missing : formatNumber(l.quantity, lang, 2),
-                    noUnit ? g.costs.missing : (l.unit ?? ""),
-                  ]
-                    .join(" ")
-                    .trim();
-            return `${qtyUnit} · ${l.unitCost !== null ? money(l.unitCost) : g.costs.noPrice}`;
-          };
-          const invoiceTotal = (i: PendingInvoice) =>
-            i.total !== null
-              ? money(i.total)
-              : i.priced
-                ? g.costs.missing
-                : g.costs.noPrice;
           return (
             <ScrollView contentContainerStyle={gst.content}>
-              <SectionTitle>{g.costs.pending}</SectionTitle>
-              {c.invoices.length === 0 ? (
-                <Muted>{g.costs.none}</Muted>
-              ) : (
-                c.invoices.map((inv) => {
-                  const ready = inv.lines.some(
-                    (l) => !l.incomplete && l.matched
-                  );
-                  return (
-                    <Card key={inv.id} style={gst.card}>
-                      <View style={gst.row}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={gst.bold} numberOfLines={2}>
-                            {inv.supplier ?? g.costs.noSupplier}
-                          </Text>
-                          <Muted>
-                            {`${formatDay(inv.date, lang)} · ${g.costs.sources[inv.source as keyof typeof g.costs.sources] ?? inv.source}`}
-                          </Muted>
-                        </View>
-                        <Text style={gst.bold}>{invoiceTotal(inv)}</Text>
-                      </View>
-                      {inv.lines.map((l) => (
-                        <View key={l.id} style={[gst.row, st.line]}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={gst.body} numberOfLines={2}>
-                              {l.name}
-                            </Text>
-                            <Muted>{lineDetail(l)}</Muted>
-                          </View>
-                          <Text style={st.lineTotal}>{lineTotal(l)}</Text>
-                        </View>
-                      ))}
-                      {inv.lineCount > inv.lines.length ? (
-                        <Muted>
-                          {fmt(g.costs.moreLines, {
-                            n: inv.lineCount - inv.lines.length,
-                          })}
-                        </Muted>
-                      ) : null}
-                      {c.canApprove ? (
-                        <View style={st.actions}>
-                          {!ready ? (
-                            <Chip
-                              tone="amarillo"
-                              label={g.costs.completeInWeb}
-                            />
-                          ) : null}
-                          <Button
-                            label={
-                              busy === inv.id
-                                ? g.costs.working
-                                : g.costs.approve
-                            }
-                            disabled={!ready || busy !== null}
-                            busy={busy === inv.id}
-                            onPress={() =>
-                              confirm(
-                                g.costs.confirmApprove,
-                                () => void approve(inv)
-                              )
-                            }
-                          />
-                          <Button
-                            label={g.costs.reject}
-                            variant="secondary"
-                            disabled={busy !== null}
-                            onPress={() =>
-                              Alert.alert(g.costs.confirmReject, undefined, [
-                                { text: g.costs.cancel, style: "cancel" },
-                                {
-                                  text: g.costs.reject,
-                                  onPress: () => void reject(inv),
-                                },
-                              ])
-                            }
-                          />
-                        </View>
-                      ) : (
-                        <Muted>{g.costs.readOnly}</Muted>
-                      )}
-                    </Card>
-                  );
-                })
-              )}
-
-              <SectionTitle>{g.costs.kpis}</SectionTitle>
               {c.kpis === null ? (
                 <Muted>{g.costs.kpisNeedRestaurant}</Muted>
               ) : !c.kpis.hasData ? (
                 <Muted>{g.costs.kpisNoData}</Muted>
               ) : (
-                <Card style={gst.card}>
-                  <View style={gst.row}>
-                    <Muted>{monthLabel(c.kpis.month, lang)}</Muted>
-                    {c.kpis.basis === "estimada" ? (
-                      <Chip tone="amarillo" label={g.costs.estimated} />
-                    ) : null}
+                <>
+                  <View style={st.kpis}>
+                    <View style={[st.kpi, st.kpiBlue]}>
+                      <Text style={st.kpiLabelOnBlue}>
+                        {g.costs.costOfSales}
+                      </Text>
+                      <Text style={st.kpiBig}>
+                        {c.kpis.foodCostPct === null
+                          ? "—"
+                          : formatFraction(c.kpis.foodCostPct / 100, lang)}
+                      </Text>
+                      {c.kpis.basis === "estimada" ? (
+                        <View style={st.amarillo}>
+                          <Text style={st.chipText}>{g.costs.estimated}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={[st.kpi, st.kpiLine]}>
+                      <Text style={st.kpiLabel}>{g.costs.fixedMonth}</Text>
+                      <Text style={[st.kpiBig, st.ink]}>
+                        {money0(c.kpis.fixedTotal)}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={gst.row}>
-                    <Text style={gst.body}>{g.costs.sales}</Text>
-                    <Text style={gst.bold}>{money0(c.kpis.sales)}</Text>
+                  <Muted>
+                    {`${fmt(g.costs.salesOf, { month: monthLabel(c.kpis.month, lang) })} · ${money0(c.kpis.sales)}`}
+                  </Muted>
+                </>
+              )}
+
+              <View style={[gst.row, st.sectionRow]}>
+                <Text style={st.section}>{g.costs.pending}</Text>
+                {c.pendingCount > 0 ? (
+                  <View style={st.count}>
+                    <Text style={st.chipText}>{c.pendingCount}</Text>
                   </View>
-                  <View style={gst.row}>
-                    <Text style={gst.body}>{g.costs.foodCost}</Text>
-                    <Text style={gst.bold}>
-                      {c.kpis.foodCostPct === null
-                        ? "—"
-                        : formatFraction(c.kpis.foodCostPct / 100, lang)}
-                    </Text>
-                  </View>
-                  <View style={gst.row}>
-                    <Text style={gst.body}>{g.costs.fixed}</Text>
-                    <Text style={gst.bold}>{money0(c.kpis.fixedTotal)}</Text>
-                  </View>
-                </Card>
+                ) : null}
+              </View>
+              {c.invoices.length === 0 ? (
+                <Muted>{g.costs.none}</Muted>
+              ) : (
+                <Panel style={st.list}>
+                  {c.invoices.map((inv, i) => (
+                    <Pressable
+                      key={inv.id}
+                      accessibilityRole="button"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/factura",
+                          params: { id: inv.id },
+                        })
+                      }
+                      style={[st.row, i > 0 && st.rowBorder]}
+                    >
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={st.supplier} numberOfLines={1}>
+                          {inv.supplier ?? g.costs.noSupplier}
+                        </Text>
+                        <Text style={st.sub} numberOfLines={1}>
+                          {`${formatDay(inv.date, lang)} · ${g.costs.sources[inv.source as keyof typeof g.costs.sources] ?? inv.source}`}
+                        </Text>
+                        {inv.noPriceCount > 0 ? (
+                          <View style={st.amarillo}>
+                            <Text style={st.chipText}>
+                              {fmt(g.costs.noPriceCount, {
+                                n: inv.noPriceCount,
+                              })}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={st.total}>
+                        {invoiceTotalText(inv, g, c.currency, lang)}
+                      </Text>
+                      <Icon name="chevron-forward" size={18} />
+                    </Pressable>
+                  ))}
+                </Panel>
               )}
             </ScrollView>
           );
@@ -239,12 +132,63 @@ export default function Costos() {
   );
 }
 
+const chip = {
+  alignSelf: "flex-start" as const,
+  borderRadius: 999,
+  paddingHorizontal: 9,
+  paddingVertical: 4,
+};
+
 const st = StyleSheet.create({
-  line: {
-    paddingVertical: 4,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  kpis: { flexDirection: "row", gap: 10 },
+  kpi: { flex: 1, borderRadius: 20, padding: 14, gap: 6, minHeight: 104 },
+  kpiBlue: { backgroundColor: colors.blue },
+  kpiLine: { borderWidth: 1, borderColor: colors.border },
+  kpiLabelOnBlue: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.white,
+    opacity: 0.85,
   },
-  lineTotal: { fontSize: 15, fontFamily: fonts.semibold, color: colors.ink },
-  actions: { gap: space.s, marginTop: space.s },
+  kpiLabel: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  kpiBig: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontFamily: fonts.extrabold,
+    color: colors.white,
+    letterSpacing: -0.6,
+  },
+  ink: { color: colors.ink },
+  amarillo: { ...chip, backgroundColor: colors.amarillo },
+  count: { ...chip, backgroundColor: colors.amarillo },
+  chipText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.ink },
+  sectionRow: { marginTop: 8 },
+  section: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    letterSpacing: -0.3,
+  },
+  list: { paddingVertical: 4, paddingHorizontal: 14 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 12,
+    minHeight: 64,
+  },
+  rowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  supplier: { fontSize: 16, fontFamily: fonts.bold, color: colors.ink },
+  sub: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  total: { fontSize: 16, fontFamily: fonts.bold, color: colors.ink },
 });

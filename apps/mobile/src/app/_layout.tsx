@@ -122,6 +122,10 @@ function Routes() {
         <Stack.Protected guard={showManager}>
           <Stack.Screen name="(gestion)" options={{ headerShown: false }} />
         </Stack.Protected>
+        <Stack.Protected guard={showManager}>
+          <Stack.Screen name="platos" options={{ headerShown: false }} />
+          <Stack.Screen name="factura" options={{ headerShown: false }} />
+        </Stack.Protected>
         <Stack.Protected guard={managerIn}>
           <Stack.Screen
             name="perfil"

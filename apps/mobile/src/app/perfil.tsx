@@ -13,13 +13,15 @@ import {
 } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useRouter } from "expo-router";
-import { Button, Card, Icon, Muted, Segments } from "../components/ui";
+import { Button, Card, Icon, Muted } from "../components/ui";
 import { ApiError } from "../api/client";
 import { canInviteTeam } from "../gestion/session-core";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
 import { useSession } from "../session/SessionProvider";
-import { colors, fonts, radius, space } from "../theme";
+import { fmt } from "../i18n/strings";
+import { initials } from "../gestion/format";
+import { colors, fonts, space, tint } from "../theme";
 
 // Expo Go floats its own gear over the top-right corner: the close button sits
 // just below it there; a real build has no gear and no extra gap.
@@ -73,10 +75,38 @@ export default function Perfil() {
     }
   }
 
+  const first = m.user?.name?.trim() || m.user?.email || "";
+  const role = m.company?.role ?? "";
+  const roleLabel =
+    g.profile.roles[role as keyof typeof g.profile.roles] ?? role;
+  const count = m.locations.length;
+  const sub = [
+    roleLabel,
+    count === 1
+      ? g.profile.restaurantsOne
+      : count > 1
+        ? fmt(g.profile.restaurantsCount, { n: count })
+        : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const kitchenOn = m.mode === "kitchen" && hasKitchen;
+
   return (
     <ScrollView contentContainerStyle={st.content}>
+      <View style={st.handle} />
       <View style={st.top}>
-        <Text style={st.title}>{g.profile.title}</Text>
+        <View style={st.who}>
+          <View style={st.avatar}>
+            <Text style={st.avatarText}>{initials(first)}</Text>
+          </View>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={st.name} numberOfLines={1}>
+              {m.user?.name?.trim() || m.user?.email || ""}
+            </Text>
+            {sub ? <Muted>{sub}</Muted> : null}
+          </View>
+        </View>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={g.profile.close}
@@ -86,32 +116,37 @@ export default function Perfil() {
           <Icon name="close" />
         </Pressable>
       </View>
-      <Muted>{m.user?.email ?? ""}</Muted>
 
-      <Text style={st.section}>{g.profile.mode}</Text>
-      <Segments<"manager" | "kitchen">
-        value={m.mode === "kitchen" && hasKitchen ? "kitchen" : "manager"}
-        onChange={chooseMode}
-        options={[
-          { value: "manager", label: g.profile.management },
-          { value: "kitchen", label: g.profile.kitchen },
-        ]}
+      <Text style={st.label}>{g.profile.mode}</Text>
+      <ModeCard
+        icon="stats-chart-outline"
+        title={g.profile.management}
+        hint={g.profile.modeManagementHint}
+        selected={!kitchenOn}
+        onPress={() => chooseMode("manager")}
       />
-      {!hasKitchen ? <Muted>{g.profile.kitchenJoin}</Muted> : null}
+      <ModeCard
+        icon="mic-outline"
+        title={g.profile.kitchen}
+        hint={hasKitchen ? g.profile.modeKitchenHint : g.profile.kitchenJoin}
+        selected={kitchenOn}
+        onPress={() => chooseMode("kitchen")}
+      />
 
-      <Text style={st.section}>{g.profile.restaurant}</Text>
-      <Card style={st.rows}>
+      <Text style={st.label}>{g.profile.restaurant}</Text>
+      <View style={st.rows}>
         {[
           { id: null as string | null, name: g.profile.all },
           ...m.locations,
-        ].map((l) => (
+        ].map((l, i) => (
           <Pressable
             key={l.id ?? "all"}
             accessibilityRole="button"
             accessibilityState={{ selected: l.id === m.locationId }}
             onPress={() => m.setLocationId(l.id)}
-            style={st.row}
+            style={[st.row, i > 0 && st.rowBorder]}
           >
+            <Icon name="restaurant-outline" size={20} />
             <Text
               style={[
                 st.rowText,
@@ -125,45 +160,39 @@ export default function Perfil() {
             ) : null}
           </Pressable>
         ))}
-      </Card>
-
-      <Text style={st.section}>{g.profile.notifications}</Text>
-      <Card style={st.rows}>
-        <View style={st.row}>
-          <Icon name="mail-outline" />
-          <View style={{ flex: 1 }}>
-            <Text style={st.rowText}>{g.profile.dailySummary}</Text>
-            <Muted>{g.profile.dailySummaryHint}</Muted>
-          </View>
+        <View style={[st.row, st.rowBorder]}>
+          <Icon name="notifications-outline" size={20} />
+          <Text style={st.rowText}>{g.profile.notifications}</Text>
+          <Text style={st.value}>{g.profile.dailySummary}</Text>
         </View>
-      </Card>
+        {canInviteTeam(m.company) ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={createInvite}
+            disabled={busy}
+            style={[st.row, st.rowBorder]}
+          >
+            <Icon name="qr-code-outline" size={20} />
+            <Text style={st.rowText}>{g.profile.inviteTeam}</Text>
+            <Icon name="chevron-forward" size={18} />
+          </Pressable>
+        ) : null}
+      </View>
+      <Muted>{g.profile.dailySummaryHint}</Muted>
 
-      {canInviteTeam(m.company) ? (
-        <>
-          <Text style={st.section}>{g.profile.inviteTeam}</Text>
-          <Muted>{g.profile.inviteHint}</Muted>
-          {invite ? (
-            <Card style={st.rows}>
-              <Muted>{g.profile.inviteReady}</Muted>
-              <Text selectable style={st.code}>
-                {invite.url}
-              </Text>
-              <Button
-                label={g.profile.inviteShare}
-                onPress={() => void Share.share({ message: invite.url })}
-              />
-            </Card>
-          ) : (
-            <Button
-              label={g.profile.inviteCreate}
-              onPress={createInvite}
-              busy={busy}
-              variant="secondary"
-            />
-          )}
-          {inviteError ? <Muted>{inviteError}</Muted> : null}
-        </>
+      {invite ? (
+        <Card style={st.inviteCard}>
+          <Muted>{g.profile.inviteReady}</Muted>
+          <Text selectable style={st.code}>
+            {invite.url}
+          </Text>
+          <Button
+            label={g.profile.inviteShare}
+            onPress={() => void Share.share({ message: invite.url })}
+          />
+        </Card>
       ) : null}
+      {inviteError ? <Muted>{inviteError}</Muted> : null}
 
       <Button
         label={g.profile.signOut}
@@ -178,48 +207,146 @@ export default function Perfil() {
   );
 }
 
+function ModeCard({
+  icon,
+  title,
+  hint,
+  selected,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Icon>["name"];
+  title: string;
+  hint: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[st.mode, selected && st.modeOn]}
+    >
+      <View style={st.modeIcon}>
+        <Icon
+          name={icon}
+          size={22}
+          color={selected ? colors.blue : colors.ink}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={st.modeTitle}>{title}</Text>
+        <Muted>{hint}</Muted>
+      </View>
+      <View style={[st.radio, selected && st.radioOn]}>
+        {selected ? (
+          <Icon name="checkmark" size={16} color={colors.white} />
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
 const st = StyleSheet.create({
   content: {
     padding: space.l,
-    gap: space.m,
+    paddingTop: 10,
+    gap: 12,
     paddingBottom: space.xl,
     backgroundColor: colors.white,
     flexGrow: 1,
+  },
+  handle: {
+    alignSelf: "center",
+    width: 40,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.border,
   },
   top: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
   },
-  title: { fontSize: 28, fontFamily: fonts.extrabold, color: colors.ink },
+  who: { flexDirection: "row", alignItems: "center", gap: 14, flexShrink: 1 },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: tint.blue14,
+  },
+  avatarText: { fontSize: 18, fontFamily: fonts.bold, color: colors.blue },
+  name: { fontSize: 20, fontFamily: fonts.bold, color: colors.ink },
   close: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-  section: {
-    fontSize: 18,
-    fontFamily: fonts.bold,
+  label: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
     color: colors.ink,
-    marginTop: space.s,
+    opacity: 0.62,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginTop: 8,
   },
-  rows: { padding: 4, gap: 2 },
+  mode: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 14,
+    minHeight: 76,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+  },
+  modeOn: { borderColor: colors.blue, backgroundColor: tint.blue08 },
+  modeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.white,
+  },
+  modeTitle: { fontSize: 17, fontFamily: fonts.bold, color: colors.ink },
+  radio: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  radioOn: { backgroundColor: colors.blue, borderColor: colors.blue },
+  rows: {},
   row: {
-    minHeight: 48,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.s,
-    justifyContent: "space-between",
+    paddingVertical: 8,
   },
+  rowBorder: { borderTopWidth: 1, borderTopColor: colors.border },
   rowText: {
-    flexShrink: 1,
-    fontSize: 16,
+    flex: 1,
+    fontSize: 17,
     fontFamily: fonts.regular,
     color: colors.ink,
   },
+  value: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  inviteCard: { gap: 8 },
   code: { fontSize: 14, fontFamily: fonts.regular, color: colors.ink },
 });

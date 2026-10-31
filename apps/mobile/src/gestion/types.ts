@@ -47,6 +47,8 @@ export interface HomeData {
     delta: number | null;
     compareLabel: string;
     tickets: number | null;
+    /** Net sales of the last days, oldest first. */
+    trend: number[];
   } | null;
   month: {
     month: string;
@@ -58,8 +60,17 @@ export interface HomeData {
     isCurrentMonth: boolean;
   } | null;
   needsRestaurant: boolean;
-  highlights: { id: string; text: string; link: "rentabilidad" }[];
-  pending: { count: number; firstInvoiceId: string | null };
+  highlights: {
+    id: string;
+    text: string;
+    kind: string;
+    link: "rentabilidad";
+  }[];
+  pending: {
+    count: number;
+    firstInvoiceId: string | null;
+    suppliers: string[];
+  };
 }
 
 export type VentasPeriod = "day" | "week" | "month" | "year";
@@ -93,6 +104,7 @@ export interface RentabilidadData {
   profitPct: number | null;
   breakEven: {
     perDay: number | null;
+    monthSales: number | null;
     avgSalesPerDay: number | null;
     day: number | null;
     daysInMonth: number;
@@ -103,6 +115,7 @@ export interface RentabilidadData {
   fixedTotal: number | null;
   foodCostPct: number | null;
   findings: string[];
+  findingKinds: string[];
 }
 
 export interface InvoiceLine {
@@ -127,6 +140,7 @@ export interface PendingInvoice {
   total: number | null;
   priced: boolean;
   lineCount: number;
+  noPriceCount: number;
   lines: InvoiceLine[];
 }
 

@@ -30,6 +30,8 @@ export interface RentabilidadPayload {
   profitPct: number | null;
   breakEven: {
     perDay: number | null;
+    /** Sales the month needs to cover its costs: the web's per-day figure × its open days. */
+    monthSales: number | null;
     avgSalesPerDay: number | null;
     day: number | null;
     daysInMonth: number;
@@ -41,6 +43,8 @@ export interface RentabilidadPayload {
   foodCostPct: number | null;
   /** Sentences from the web copy, in the app's language. */
   findings: string[];
+  /** Parallel to `findings`: which finding it is (for the icon). */
+  findingKinds: string[];
 }
 
 export function parseMonth(raw: string | null): string | null | "invalid" {
@@ -68,6 +72,10 @@ export function shapeRentabilidad(
     profitPct: m.profitPct,
     breakEven: {
       perDay: m.breakEvenPerDay,
+      monthSales:
+        m.breakEvenPerDay === null
+          ? null
+          : Math.round(m.breakEvenPerDay * m.openDays),
       avgSalesPerDay: m.avgSalesPerDay,
       day: m.breakEvenDay ? m.breakEvenDay.day : null,
       daysInMonth: m.daysInMonth,
@@ -81,6 +89,7 @@ export function shapeRentabilidad(
     // The web's own «De cada $100» share for food; no ratio is computed here.
     foodCostPct: m.cada100?.find((p) => p.key === "comida")?.pct ?? null,
     findings: data.findings.map((f) => findingText(f, m, money, lang)),
+    findingKinds: data.findings.map((f) => f.kind),
   };
 }
 

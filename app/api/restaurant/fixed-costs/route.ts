@@ -27,6 +27,7 @@ import {
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import {
   isFixedCostCategory,
+  isRlsDenied,
   monthStartOf,
 } from "@/lib/restaurant/fixed-costs";
 
@@ -38,7 +39,9 @@ export async function GET(req: NextRequest) {
   const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
-  const denied = requireCapability(auth.actor, "costs.fixed");
+  const denied = requireCapability(auth.actor, "costs.fixed", {
+    message: getDictionary(lang).costs.fixed.roleDenied,
+  });
   if (denied) return denied;
   const month = monthStartOf(req.nextUrl.searchParams.get("month") ?? "");
   if (!month) return NextResponse.json({ error: fe.month }, { status: 400 });
@@ -81,7 +84,9 @@ export async function PUT(req: NextRequest) {
   const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
-  const denied = requireCapability(auth.actor, "costs.fixed");
+  const denied = requireCapability(auth.actor, "costs.fixed", {
+    message: getDictionary(lang).costs.fixed.roleDenied,
+  });
   if (denied) return denied;
   let body: Record<string, unknown>;
   try {
@@ -136,9 +141,17 @@ export async function PUT(req: NextRequest) {
       { month, locationId, entries, lang }
     );
     if (!saved.ok)
-      return NextResponse.json({ error: saved.error }, { status: 400 });
+      return NextResponse.json(
+        { error: saved.error },
+        { status: saved.forbidden ? 403 : 400 }
+      );
     return NextResponse.json({ lines: saved.lines });
   } catch (err) {
+    if (isRlsDenied(err))
+      return NextResponse.json(
+        { error: getDictionary(lang).costs.fixed.roleDenied },
+        { status: 403 }
+      );
     console.error("[fixed-costs] PUT failed:", err);
     return NextResponse.json({ error: fe.saveFailed }, { status: 500 });
   }

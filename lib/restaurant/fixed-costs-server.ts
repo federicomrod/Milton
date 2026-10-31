@@ -21,6 +21,7 @@ import {
   effectiveFixedCosts,
   fixedCostCompleteness,
   isFixedCostCategory,
+  isRlsDenied,
   lineKey,
   monthStartOf,
   nextMonthStart,
@@ -143,6 +144,21 @@ export interface SaveEntry {
   split_rule?: SplitRule | null;
 }
 
+/** A failed write: a role the database refuses is a 403 with the usual message, never raw text. */
+function writeFailure(
+  error: { code?: string; message: string },
+  lang: PreferredLanguage | undefined
+): { ok: false; error: string; forbidden?: true } {
+  if (isRlsDenied(error)) {
+    return {
+      ok: false,
+      error: getDictionary(lang ?? "es").costs.fixed.roleDenied,
+      forbidden: true,
+    };
+  }
+  return { ok: false, error: error.message };
+}
+
 /**
  * Saves the form of one month and scope. A value (a typed 0 included) is
  * stored; an empty field deletes the row — it is never stored as 0. Every
@@ -158,7 +174,8 @@ export async function saveFixedCosts(
     lang?: PreferredLanguage;
   }
 ): Promise<
-  { ok: true; lines: FixedCostLine[] } | { ok: false; error: string }
+  | { ok: true; lines: FixedCostLine[] }
+  | { ok: false; error: string; forbidden?: true }
 > {
   const month = monthStartOf(args.month);
   if (!month)
@@ -186,7 +203,7 @@ export async function saveFixedCosts(
         .delete()
         .eq("company_id", ctx.companyId)
         .eq("id", prev.id);
-      if (error) return { ok: false, error: error.message };
+      if (error) return writeFailure(error, args.lang);
       await writeLog(ctx, [
         {
           fixed_cost_id: prev.id,
@@ -252,7 +269,7 @@ export async function saveFixedCosts(
           .insert({ ...row, created_by: ctx.userId })
           .select("id")
           .single();
-    if (result.error) return { ok: false, error: result.error.message };
+    if (result.error) return writeFailure(result.error, args.lang);
     await writeLog(ctx, [
       {
         fixed_cost_id: (result.data as { id: string }).id,

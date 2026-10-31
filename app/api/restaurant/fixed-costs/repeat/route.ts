@@ -9,7 +9,7 @@ import { apiLanguage } from "@/lib/restaurant/api-lang";
 import { getDictionary } from "@/lib/i18n";
 import { NextRequest, NextResponse } from "next/server";
 import { repeatFixedCosts } from "@/lib/restaurant/fixed-costs-server";
-import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+import { isRlsDenied, monthStartOf } from "@/lib/restaurant/fixed-costs";
 import { requireCapability } from "@/lib/auth/permissions";
 import { authorizeFixedCosts } from "@/lib/restaurant/fixed-costs-auth";
 
@@ -21,7 +21,9 @@ export async function POST(req: NextRequest) {
   const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
-  const denied = requireCapability(auth.actor, "costs.fixed");
+  const denied = requireCapability(auth.actor, "costs.fixed", {
+    message: getDictionary(lang).costs.fixed.roleDenied,
+  });
   if (denied) return denied;
   const body = (await req.json().catch(() => ({}))) as { month?: unknown };
   const month =
@@ -38,6 +40,11 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ created: created.length });
   } catch (err) {
+    if (isRlsDenied(err))
+      return NextResponse.json(
+        { error: getDictionary(lang).costs.fixed.roleDenied },
+        { status: 403 }
+      );
     console.error("[fixed-costs] repeat failed:", err);
     return NextResponse.json({ error: fe.repeatFailed }, { status: 500 });
   }

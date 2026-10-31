@@ -2,9 +2,10 @@
 
 SQL checks that run against a database built from `supabase/migrations`.
 
-| File               | Expected result                                                                                                                                                         |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `secdef_guard.sql` | **0 rows.** Lists SECURITY DEFINER non-trigger functions that `PUBLIC`, `anon` or `authenticated` can execute, minus an explicit allowlist (one-line reason per entry). |
+| File                  | Expected result                                                                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secdef_guard.sql`    | **0 rows.** Lists SECURITY DEFINER non-trigger functions that `PUBLIC`, `anon` or `authenticated` can execute, minus an explicit allowlist (one-line reason per entry).                                                                                 |
+| `fixed_costs_rls.sql` | **Every line `ok`** (`NOTICE: ok  <role>`), no `FAIL`. Checks migration 073 on a real database in a transaction that rolls back: a member reads but cannot insert, update or delete fixed costs; owner, admin and manager can; a stranger sees nothing. |
 
 `secdef_guard.sql` is a read-only catalog query. It is a required step of the
 baseline validation plan: after building an empty database from the baseline

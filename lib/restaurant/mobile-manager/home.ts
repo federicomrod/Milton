@@ -27,6 +27,8 @@ export interface HomePayload {
     delta: number | null;
     compareLabel: string;
     tickets: number | null;
+    /** Net sales of the last days, oldest first (the sparkline). */
+    trend: number[];
   } | null;
   /** null when no single restaurant is in view («Elige un restaurante»). */
   month: Pick<
@@ -34,8 +36,18 @@ export interface HomePayload {
     "month" | "hasData" | "basis" | "profit" | "profitPct" | "isCurrentMonth"
   > | null;
   needsRestaurant: boolean;
-  highlights: Array<{ id: string; text: string; link: "rentabilidad" }>;
-  pending: { count: number; firstInvoiceId: string | null };
+  highlights: Array<{
+    id: string;
+    text: string;
+    kind: string;
+    link: "rentabilidad";
+  }>;
+  pending: {
+    count: number;
+    firstInvoiceId: string | null;
+    /** Up to two supplier names, for the one-line summary. */
+    suppliers: string[];
+  };
 }
 
 export async function buildHome(args: {
@@ -50,6 +62,7 @@ export async function buildHome(args: {
   const { supabase, companyId, locationId, singleLocationId, lang } = args;
   const sales = await loadSalesDetailCached(supabase, companyId, locationId);
   const view = viewFor(sales, "day", lang);
+  const weekView = viewFor(sales, "week", lang);
 
   let rent: RentabilidadPayload | null = null;
   if (singleLocationId) {
@@ -84,6 +97,7 @@ export async function buildHome(args: {
             delta: view.kpis.net.delta,
             compareLabel: view.compare.label,
             tickets: view.kpis.tickets.value,
+            trend: (weekView?.daily ?? []).map((d) => d.net),
           }
         : null,
     month: rent
@@ -100,11 +114,19 @@ export async function buildHome(args: {
     highlights: (rent?.findings ?? []).map((text, i) => ({
       id: `finding-${i}`,
       text,
+      kind: rent?.findingKinds[i] ?? "",
       link: "rentabilidad" as const,
     })),
     pending: {
       count: pending?.pendingCount ?? 0,
       firstInvoiceId: pending?.invoices[0]?.id ?? null,
+      suppliers: [
+        ...new Set(
+          (pending?.invoices ?? [])
+            .map((i) => i.supplier)
+            .filter((n): n is string => !!n)
+        ),
+      ].slice(0, 2),
     },
   };
 }

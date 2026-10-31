@@ -16,10 +16,10 @@ export default function GestionTabs() {
           backgroundColor: colors.white,
           borderTopWidth: 1,
           borderTopColor: colors.border,
-          height: 84,
+          height: 86,
           paddingTop: 8,
         },
-        tabBarLabelStyle: { fontSize: 12, fontFamily: fonts.semibold },
+        tabBarLabelStyle: { fontSize: 10.5, fontFamily: fonts.semibold },
       }}
     >
       <Tabs.Screen
@@ -27,7 +27,7 @@ export default function GestionTabs() {
         options={{
           title: g.tabs.home,
           tabBarIcon: ({ color }) => (
-            <Ionicons name="home-outline" size={26} color={color as string} />
+            <Ionicons name="home-outline" size={24} color={color as string} />
           ),
         }}
       />
@@ -38,7 +38,7 @@ export default function GestionTabs() {
           tabBarIcon: ({ color }) => (
             <Ionicons
               name="bar-chart-outline"
-              size={26}
+              size={24}
               color={color as string}
             />
           ),
@@ -51,7 +51,7 @@ export default function GestionTabs() {
           tabBarIcon: ({ color }) => (
             <Ionicons
               name="trending-up-outline"
-              size={26}
+              size={24}
               color={color as string}
             />
           ),
@@ -64,7 +64,7 @@ export default function GestionTabs() {
           tabBarIcon: ({ color }) => (
             <Ionicons
               name="receipt-outline"
-              size={26}
+              size={24}
               color={color as string}
             />
           ),

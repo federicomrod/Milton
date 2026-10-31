@@ -211,6 +211,7 @@ function monthOf(over: Record<string, unknown> = {}) {
     month: "2026-10-01",
     actualDays: 20,
     daysInMonth: 31,
+    openDays: 26,
     isCurrentMonth: true,
     hasData: true,
     basis: "real",
@@ -611,6 +612,9 @@ describe("Rentabilidad = the web's loadRentabilidadPage", () => {
       "ganancia",
     ]);
     expect(body.foodCostPct).toBe(30);
+    // The month's break-even sales: the web's per-day figure × its open days.
+    expect(body.breakEven.monthSales).toBe(310 * 26);
+    expect(body.findingKinds).toEqual(["coverage"]);
     expect(body.findings).toEqual([
       findingText(
         page.findings[0],
@@ -704,6 +708,12 @@ describe("Inicio", () => {
     });
     expect(body.highlights).toHaveLength(1);
     expect(body.highlights[0].link).toBe("rentabilidad");
+    expect(body.highlights[0].kind).toBe("coverage");
+    expect(body.yesterday.trend.length).toBeGreaterThan(0);
+    expect(
+      body.yesterday.trend.every((n: unknown) => typeof n === "number")
+    ).toBe(true);
+    expect(Array.isArray(body.pending.suppliers)).toBe(true);
     expect(body.pending.count).toBe(2);
     expect(body.locations).toEqual([
       { id: LOC1, name: "Centro" },
@@ -736,6 +746,7 @@ describe("Costos: pending invoices, «Sin precio», approve and reject", () => {
     );
     const ok = body.invoices.find((i: any) => i.id === INV_OK);
     expect(ok.total).toBe(6);
+    expect(ok.noPriceCount).toBe(0);
     expect(ok.lines[0]).toMatchObject({
       name: "harina",
       quantity: 3,
@@ -746,6 +757,7 @@ describe("Costos: pending invoices, «Sin precio», approve and reject", () => {
     const bad = body.invoices.find((i: any) => i.id === INV_BAD);
     expect(bad.total).toBeNull();
     expect(bad.priced).toBe(false);
+    expect(bad.noPriceCount).toBe(bad.lineCount);
     expect(bad.lines[0]).toMatchObject({
       unitCost: null,
       lineTotal: null,

@@ -117,6 +117,18 @@ export function formatDay(iso: string, lang: Language): string {
   }).format(new Date(Date.UTC(y, m - 1, d)));
 }
 
+/** «martes 27 de octubre» from YYYY-MM-DD. */
+export function formatDateLong(iso: string, lang: Language): string {
+  const { y, m, d } = parts(iso);
+  if (!y || !m || !d) return iso;
+  return new Intl.DateTimeFormat(localeOf(lang), {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, d)));
+}
+
 export function formatWeekday(iso: string, lang: Language): string {
   const { y, m, d } = parts(iso);
   if (!y || !m || !d) return iso;

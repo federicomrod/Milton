@@ -8,11 +8,13 @@ import {
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, Card, Chip, Icon, Muted } from "../components/ui";
+import { Button, Card, Icon, Muted, type IconName } from "../components/ui";
 import { useLanguage } from "../i18n";
 import { fmt } from "../i18n/strings";
 import { colors, fonts, radius, space, tint } from "../theme";
@@ -23,44 +25,127 @@ import { useManager } from "./ManagerProvider";
 const inExpoGo =
   Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 
-/** White header: restaurant picker on the left, the profile avatar on the right. */
-export function GestionHeader({ title }: { title?: string }) {
+/** One option of a picker pill. */
+export interface PickOption {
+  id: string | null;
+  label: string;
+}
+
+/** A grey pill (restaurant, month) that opens a small menu under it. */
+export function PickerPill({
+  icon,
+  label,
+  options,
+  selected,
+  onSelect,
+  align = "left",
+}: {
+  icon?: IconName;
+  label: string;
+  options: PickOption[];
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  align?: "left" | "right";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={st.pickerWrap}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={st.pill}
+      >
+        {icon ? <Icon name={icon} size={15} /> : null}
+        <Text style={st.pillText} numberOfLines={1}>
+          {label}
+        </Text>
+        <Icon name={open ? "chevron-up" : "chevron-down"} size={14} />
+      </Pressable>
+      {open ? (
+        <Card style={[st.menu, align === "right" ? { right: 0 } : { left: 0 }]}>
+          {options.map((o) => (
+            <Pressable
+              key={o.id ?? "all"}
+              accessibilityRole="button"
+              accessibilityState={{ selected: o.id === selected }}
+              onPress={() => {
+                onSelect(o.id);
+                setOpen(false);
+              }}
+              style={st.menuRow}
+            >
+              <Text
+                style={[
+                  st.menuText,
+                  o.id === selected && { fontFamily: fonts.bold },
+                ]}
+              >
+                {o.label}
+              </Text>
+              {o.id === selected ? (
+                <Icon name="checkmark" size={18} color={colors.blue} />
+              ) : null}
+            </Pressable>
+          ))}
+        </Card>
+      ) : null}
+    </View>
+  );
+}
+
+/** The restaurant picker pill, driven by the manager session. */
+export function LocationPill({ align }: { align?: "left" | "right" }) {
+  const g = useG();
+  const { locations, locationId, setLocationId } = useManager();
+  if (locations.length === 0) return null;
+  const current = locations.find((l) => l.id === locationId);
+  return (
+    <PickerPill
+      icon="restaurant-outline"
+      label={current?.name ?? g.header.all}
+      options={[
+        { id: null, label: g.header.all },
+        ...locations.map((l) => ({ id: l.id, label: l.name })),
+      ]}
+      selected={locationId}
+      onSelect={setLocationId}
+      align={align}
+    />
+  );
+}
+
+/** Screen header: a big title on the left, a picker pill (or anything) on the right. */
+export function GestionHeader({
+  title,
+  right,
+}: {
+  title: string;
+  right?: React.ReactNode;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[st.header, { paddingTop: insets.top + 12 }]}>
+      <View style={st.headerRow}>
+        <Text style={st.title} accessibilityRole="header" numberOfLines={1}>
+          {title}
+        </Text>
+        {right === undefined ? <LocationPill align="right" /> : right}
+      </View>
+    </View>
+  );
+}
+
+/** Inicio header: restaurant pill on the left, the profile avatar on the right. */
+export function HomeHeader() {
   const g = useG();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, locations, locationId, setLocationId } = useManager();
-  const [open, setOpen] = useState(false);
-  const current = locations.find((l) => l.id === locationId);
-  const name = user?.name?.trim().split(/\s+/)[0];
-
+  const { user } = useManager();
   return (
-    <View style={[st.header, { paddingTop: insets.top + 14 }]}>
+    <View style={[st.header, { paddingTop: insets.top + 8 }]}>
       <View style={st.headerRow}>
-        <View style={st.headerLeft}>
-          {title ? (
-            <Text style={st.title} accessibilityRole="header">
-              {title}
-            </Text>
-          ) : (
-            <Text style={st.title} accessibilityRole="header">
-              {name ? fmt(g.header.hello, { name }) : g.header.helloPlain}
-            </Text>
-          )}
-          {locations.length > 0 ? (
-            <Pressable
-              onPress={() => setOpen((v) => !v)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: open }}
-              style={st.picker}
-            >
-              <Icon name="restaurant-outline" size={15} />
-              <Text style={st.pickerText} numberOfLines={1}>
-                {current?.name ?? g.header.all}
-              </Text>
-              <Icon name={open ? "chevron-up" : "chevron-down"} size={14} />
-            </Pressable>
-          ) : null}
-        </View>
+        <LocationPill />
         <Pressable
           onPress={() => router.push("/perfil")}
           accessibilityRole="button"
@@ -72,48 +157,141 @@ export function GestionHeader({ title }: { title?: string }) {
           </Text>
         </Pressable>
       </View>
-      {open ? (
-        <Card style={st.menu}>
-          {[{ id: null, name: g.header.all }, ...locations].map((l) => (
-            <Pressable
-              key={l.id ?? "all"}
-              accessibilityRole="button"
-              accessibilityState={{ selected: l.id === locationId }}
-              onPress={() => {
-                setLocationId(l.id);
-                setOpen(false);
-              }}
-              style={st.menuRow}
-            >
-              <Text
-                style={[
-                  st.menuText,
-                  l.id === locationId && { fontFamily: fonts.bold },
-                ]}
-              >
-                {l.name}
-              </Text>
-              {l.id === locationId ? (
-                <Icon name="checkmark" size={18} color={colors.blue} />
-              ) : null}
-            </Pressable>
-          ))}
-        </Card>
-      ) : null}
     </View>
   );
 }
 
-/** A «+12 %» chip: mint up, rosa down, grey flat. Nothing when there is no comparison. */
-export function DeltaChip({ value }: { value: number | null | undefined }) {
+/** A «+12 % vs. last week» chip: mint up, rosa down, grey flat. Nothing when there is no comparison. */
+export function DeltaChip({
+  value,
+  suffix,
+}: {
+  value: number | null | undefined;
+  suffix?: string | null;
+}) {
   const lang = useLanguage();
+  const g = useG();
   const d: Delta = deltaOf(value, lang);
   if (d.text === null) return null;
+  const tone = d.tone === "up" ? "mint" : d.tone === "down" ? "rosa" : "grey";
   return (
-    <Chip
-      label={d.text}
-      tone={d.tone === "up" ? "mint" : d.tone === "down" ? "rosa" : "grey"}
-    />
+    <View
+      style={[
+        st.deltaChip,
+        {
+          backgroundColor:
+            tone === "mint"
+              ? colors.mint
+              : tone === "rosa"
+                ? colors.rosa
+                : colors.border,
+        },
+      ]}
+    >
+      {d.tone !== "flat" ? (
+        <Icon
+          name={d.tone === "up" ? "trending-up" : "trending-down"}
+          size={13}
+        />
+      ) : null}
+      <Text style={st.deltaText} numberOfLines={1}>
+        {suffix
+          ? fmt(g.home.vsLabel, { delta: d.text, label: suffix })
+          : d.text}
+      </Text>
+    </View>
+  );
+}
+
+/** The 4-way period switch: grey track, white thumb on the active one. */
+export function PeriodSwitch<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <View style={st.switchTrack}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(o.value)}
+            style={[st.switchItem, active && st.switchActive]}
+          >
+            <Text style={st.switchText}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** A rounded card, 20 px corners (the Gestión look). */
+export function Panel({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return <View style={[st.panel, style]}>{children}</View>;
+}
+
+/** One horizontal bar made of several parts (channels, «De cada $100»). */
+export function StackBar({
+  parts,
+  height = 12,
+}: {
+  parts: { key: string; weight: number; color: string }[];
+  height?: number;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        height,
+        borderRadius: height / 2,
+        overflow: "hidden",
+        gap: 2,
+      }}
+    >
+      {parts
+        .filter((p) => p.weight > 0)
+        .map((p) => (
+          <View
+            key={p.key}
+            style={{ flex: p.weight, backgroundColor: p.color }}
+          />
+        ))}
+    </View>
+  );
+}
+
+/** Small bars of the last days (real daily sales), for the Inicio card. */
+export function Sparkbars({ values }: { values: number[] }) {
+  const max = Math.max(1, ...values);
+  return (
+    <View style={st.spark} accessibilityElementsHidden>
+      {values.map((v, i) => (
+        <View
+          key={i}
+          style={{
+            width: 5,
+            height: Math.max(3, Math.round((Math.max(0, v) / max) * 26)),
+            borderRadius: 2,
+            backgroundColor:
+              i === values.length - 1 ? colors.white : tint.white70,
+          }}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -281,43 +459,106 @@ const st = StyleSheet.create({
   header: {
     backgroundColor: colors.white,
     paddingHorizontal: space.l,
-    paddingBottom: 12,
-    gap: 10,
+    paddingBottom: 10,
+    zIndex: 20,
   },
   headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
   },
-  headerLeft: { flex: 1, gap: 4 },
-  title: { fontSize: 28, fontFamily: fonts.extrabold, color: colors.ink },
-  picker: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 32 },
-  pickerText: {
+  title: {
+    flexShrink: 1,
+    fontSize: 28,
+    lineHeight: 34,
+    fontFamily: fonts.extrabold,
+    color: colors.ink,
+    letterSpacing: -0.5,
+  },
+  pickerWrap: { position: "relative", zIndex: 30 },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    backgroundColor: tint.ink06,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxWidth: 240,
+  },
+  pillText: {
     flexShrink: 1,
     fontSize: 14,
     fontFamily: fonts.semibold,
     color: colors.ink,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: tint.blue14,
   },
-  avatarText: { fontSize: 16, fontFamily: fonts.bold, color: colors.blue },
-  menu: { padding: 4 },
+  avatarText: { fontSize: 14, fontFamily: fonts.bold, color: colors.blue },
+  menu: {
+    position: "absolute",
+    top: 42,
+    minWidth: 220,
+    padding: 4,
+    zIndex: 50,
+  },
   menuRow: {
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 12,
     borderRadius: radius.s,
   },
-  menuText: { fontSize: 16, fontFamily: fonts.regular, color: colors.ink },
+  menuText: { fontSize: 15, fontFamily: fonts.regular, color: colors.ink },
+  deltaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+  },
+  deltaText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.ink },
+  switchTrack: {
+    flexDirection: "row",
+    backgroundColor: tint.ink06,
+    borderRadius: radius.m,
+    padding: 3,
+  },
+  switchItem: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 9,
+  },
+  switchActive: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  switchText: { fontSize: 13, fontFamily: fonts.semibold, color: colors.ink },
+  panel: {
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 20,
+    padding: 16,
+  },
+  spark: { flexDirection: "row", alignItems: "flex-end", gap: 3, height: 28 },
   section: {
     fontSize: 20,
     fontFamily: fonts.bold,
@@ -370,6 +611,79 @@ const st = StyleSheet.create({
   vbar: { flex: 1, borderRadius: 3, maxWidth: 14 },
   barCaption: {
     fontSize: 11,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+});
+
+/** A ranked dish: name, amount, units sold and a bar against the best seller. */
+export function DishRow({
+  rank,
+  name,
+  amount,
+  sold,
+  ratio,
+}: {
+  rank?: number;
+  name: string;
+  amount: string;
+  sold: string;
+  ratio: number;
+}) {
+  return (
+    <View style={dst.row}>
+      {rank !== undefined ? <Text style={dst.rank}>{rank}</Text> : null}
+      <View style={{ flex: 1, gap: 6 }}>
+        <View style={dst.line}>
+          <Text style={dst.name} numberOfLines={2}>
+            {name}
+          </Text>
+          <Text style={dst.amount}>{amount}</Text>
+        </View>
+        <View style={dst.line}>
+          <View style={dst.track}>
+            <View
+              style={[
+                dst.fill,
+                { width: `${Math.round(barRatio(ratio, 1) * 100)}%` },
+              ]}
+            />
+          </View>
+          <Text style={dst.sold}>{sold}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const dst = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  rank: {
+    width: 14,
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  line: { flexDirection: "row", alignItems: "center", gap: 10 },
+  name: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.ink,
+  },
+  amount: { fontSize: 16, fontFamily: fonts.bold, color: colors.ink },
+  track: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: tint.ink06,
+    overflow: "hidden",
+  },
+  fill: { height: 8, borderRadius: 4, backgroundColor: colors.blue },
+  sold: {
+    fontSize: 13,
     fontFamily: fonts.regular,
     color: colors.ink,
     opacity: 0.62,

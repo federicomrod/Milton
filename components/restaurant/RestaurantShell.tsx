@@ -57,6 +57,11 @@ import {
   useRestaurantShellChrome,
   type RestaurantShellChromeValue,
 } from "@/components/restaurant/shell/shell-chrome-context";
+import {
+  CompanyList,
+  CompanyMenuItems,
+} from "@/components/restaurant/shell/CompanySwitcher";
+import { SupportBanner } from "@/components/restaurant/shell/SupportBanner";
 import { AskMiltonDrawer } from "@/components/restaurant/shell/AskMiltonDrawer";
 import {
   AskMiltonControllerProvider,
@@ -92,6 +97,9 @@ export function RestaurantShell({
   isAdmin = false,
   lastSyncedAt = null,
   userName = null,
+  companies,
+  activeCompanyId = null,
+  supportCompanyName = null,
   capabilities,
   slim = false,
 }: {
@@ -101,6 +109,9 @@ export function RestaurantShell({
   isAdmin?: boolean;
   lastSyncedAt?: string | null;
   userName?: string | null;
+  companies?: RestaurantShellChromeValue["companies"];
+  activeCompanyId?: string | null;
+  supportCompanyName?: string | null;
   /** The server's capabilityFlags for this person (see shell-chrome-context). */
   capabilities?: RestaurantShellChromeValue["capabilities"];
   /**
@@ -115,6 +126,9 @@ export function RestaurantShell({
     isAdmin,
     lastSyncedAt,
     userName,
+    companies,
+    activeCompanyId,
+    supportCompanyName,
     capabilities,
   };
   return (
@@ -273,6 +287,7 @@ function RestaurantShellChrome({
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
+        <SupportBanner />
         <div className="lg:hidden flex items-center justify-between px-4 h-12 border-b border-border bg-background">
           <Link
             href={
@@ -311,6 +326,7 @@ function RestaurantShellChrome({
             id="mobile-restaurant-nav"
             className="lg:hidden border-b border-border bg-background px-3 py-3"
           >
+            <CompanyList />
             <SidebarNav
               pathname={pathname}
               shellParams={shellParams}
@@ -446,6 +462,7 @@ function SidebarBrand({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-56">
+          <CompanyMenuItems />
           <DropdownMenuItem asChild>
             <Link href={hrefFor(null)}>
               <span className="flex-1">{sidebarDict.allRestaurants}</span>

@@ -11,6 +11,8 @@ export interface TeamMember {
   email: string | null;
   role: TeamRoleKind;
   isSelf: boolean;
+  /** Milton support membership (migration 072): shown as «Soporte Milton». */
+  isSupport?: boolean;
 }
 
 export interface TeamInvite {

@@ -187,4 +187,23 @@ export const rentabilidad = {
     legendProjection: "Proyección",
     legendFixed: "Costos fijos del mes",
   },
+  whatIf: {
+    title: "¿Y si…?",
+    aria: "Simulador ¿Y si…?",
+    simulation: "Simulación",
+    reset: "Restablecer",
+    intro:
+      "Cambia un número y mira qué pasa con tu equilibrio y tu ganancia. No se guarda nada.",
+    sales: "Ventas del mes",
+    food: "Comida y bebida (% de ventas)",
+    taxes: "Impuestos",
+    taxUndefined: "Sin definir",
+    fixed: "Costos fijos",
+    missing: "⚑ Falta",
+    invalid: "Número no válido",
+    breakEven: "Equilibrio por día",
+    profit: "Ganancia del mes",
+    realValue: "Real: {value}",
+    footnote: "Valores simulados: no cambian tus cifras reales ni se guardan.",
+  },
 } as const;

@@ -190,4 +190,24 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
     legendProjection: "Prognose",
     legendFixed: "Fixkosten des Monats",
   },
+  whatIf: {
+    title: "Was wäre, wenn…?",
+    aria: "Was-wäre-wenn-Simulator",
+    simulation: "Simulation",
+    reset: "Zurücksetzen",
+    intro:
+      "Ändern Sie eine Zahl und sehen Sie, was mit Ihrem Break-even und Ihrem Gewinn passiert. Es wird nichts gespeichert.",
+    sales: "Umsatz des Monats",
+    food: "Speisen und Getränke (% vom Umsatz)",
+    taxes: "Steuern",
+    taxUndefined: "Nicht festgelegt",
+    fixed: "Fixkosten",
+    missing: "⚑ Fehlt",
+    invalid: "Keine gültige Zahl",
+    breakEven: "Break-even pro Tag",
+    profit: "Gewinn des Monats",
+    realValue: "Tatsächlich: {value}",
+    footnote:
+      "Simulierte Werte: Sie ändern Ihre tatsächlichen Zahlen nicht und werden nicht gespeichert.",
+  },
 };

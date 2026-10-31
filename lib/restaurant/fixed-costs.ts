@@ -23,6 +23,17 @@ export const FIXED_COST_CATEGORIES = [
 ] as const;
 export type FixedCostCategory = (typeof FIXED_COST_CATEGORIES)[number];
 
+/**
+ * The database refused a write because of row-level security: the person's
+ * role may not change fixed costs (migration 073). Never show its raw text.
+ */
+export function isRlsDenied(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  return (
+    e?.code === "42501" || /row-level security/i.test(String(e?.message ?? ""))
+  );
+}
+
 export const CATEGORY_LABELS_ES: Record<FixedCostCategory, string> = {
   planilla: "Planilla",
   alquiler: "Alquiler",

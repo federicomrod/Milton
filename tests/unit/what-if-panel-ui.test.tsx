@@ -102,6 +102,20 @@ describe("WhatIfPanel", () => {
     expect(sims()[1]).not.toBe("—");
   });
 
+  it("clearing Ventas shows ⚑ Falta on the field and the results, never $0", () => {
+    mount();
+    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
+      target: { value: "" },
+    });
+    expect(sims()).toEqual(["—", "—"]);
+    expect(screen.getAllByText(/⚑ Falta/).length).toBeGreaterThanOrEqual(3);
+    expect(document.body.textContent).not.toContain("$0");
+    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
+      target: { value: "70000" },
+    });
+    expect(sims()[1]).not.toBe("—");
+  });
+
   it("rejects text that is not a number instead of guessing", () => {
     mount();
     const start = sims();

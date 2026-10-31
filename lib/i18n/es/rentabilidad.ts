@@ -4,8 +4,7 @@ export const rentabilidad = {
   title: "Rentabilidad",
   signIn: "Inicia sesión para ver tu rentabilidad.",
   roleDenied: "Tu rol no puede ver la rentabilidad.",
-  pickRestaurant:
-    "Elige un restaurante arriba para ver su rentabilidad. La vista de todo el grupo llega más adelante.",
+  pickRestaurant: "Elige un restaurante arriba para ver su rentabilidad.",
   loadFailedBefore:
     "No se pudo calcular tu rentabilidad ahora. Si es la primera vez, falta aplicar la migración 064 en este ambiente (costos fijos); también puede ser que los costos de tus platos no se hayan podido leer. Prueba otra vez en unos minutos o revisa",
   loadFailedLink: "Costos",
@@ -205,5 +204,35 @@ export const rentabilidad = {
     profit: "Ganancia del mes",
     realValue: "Real: {value}",
     footnote: "Valores simulados: no cambian tus cifras reales ni se guardan.",
+  },
+  group: {
+    title: "Todos los restaurantes",
+    aria: "Rentabilidad de todos los restaurantes",
+    intro:
+      "Un mes, cada restaurante. Todos es la suma exacta de las líneas, al centavo.",
+    total: "Todos",
+    sales: "Ventas",
+    margin: "Margen",
+    marginPctOf: "{pct} de las ventas",
+    fixed: "Costos fijos",
+    fixedShare: "incluye su parte de los costos del grupo",
+    profit: "Ganancia",
+    profitEstimated: "Ganancia estimada",
+    breakEven: "Día de equilibrio",
+    breakEvenDay: "día {day}",
+    breakEvenProjected: "día {day} (proyección)",
+    notYet: "Aún no cubre",
+    missing: "⚑ Falta",
+    noSales: "Sin ventas aún",
+    estimateTag: "Estimado por Milton",
+    coverageFlag: "⚑ Falta el costo de ingredientes del {pct}",
+    currencyTitle: "No hay total",
+    currencyBody:
+      "Tus restaurantes reportan en monedas distintas ({currencies}), y sumarlas daría una cifra sin sentido. Cada restaurante muestra la suya.",
+    missingFixedNote:
+      "Falta algún costo fijo en {names}: sin él no se calcula la ganancia de Todos.",
+    noSalesNote:
+      "Sin ventas en {names}: no se calcula su ganancia ni la de Todos.",
+    open: "Ver este restaurante",
   },
 } as const;

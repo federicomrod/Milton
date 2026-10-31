@@ -4,8 +4,7 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
   title: "Profitability",
   signIn: "Sign in to see your profitability.",
   roleDenied: "Your role cannot see profitability.",
-  pickRestaurant:
-    "Pick a restaurant above to see its profitability. The view for the whole group is coming later.",
+  pickRestaurant: "Pick a restaurant above to see its profitability.",
   loadFailedBefore:
     "We could not calculate your profitability right now. If this is the first time, migration 064 (fixed costs) still needs to be applied in this environment; it may also be that your dishes' costs could not be read. Try again in a few minutes or check",
   loadFailedLink: "Costs",
@@ -205,5 +204,35 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
     realValue: "Actual: {value}",
     footnote:
       "Simulated values: they do not change your actual figures and are not saved.",
+  },
+  group: {
+    title: "All restaurants",
+    aria: "Profitability of all restaurants",
+    intro:
+      "One month, every restaurant. All is the exact sum of the lines, to the cent.",
+    total: "All",
+    sales: "Sales",
+    margin: "Margin",
+    marginPctOf: "{pct} of sales",
+    fixed: "Fixed costs",
+    fixedShare: "includes its share of the group costs",
+    profit: "Profit",
+    profitEstimated: "Estimated profit",
+    breakEven: "Break-even day",
+    breakEvenDay: "day {day}",
+    breakEvenProjected: "day {day} (projection)",
+    notYet: "Not covered yet",
+    missing: "⚑ Missing",
+    noSales: "No sales yet",
+    estimateTag: "Estimated by Milton",
+    coverageFlag: "⚑ Missing the ingredient cost of {pct}",
+    currencyTitle: "No total",
+    currencyBody:
+      "Your restaurants report in different currencies ({currencies}), and adding them would give a meaningless number. Each restaurant shows its own.",
+    missingFixedNote:
+      "A fixed cost is missing in {names}: without it the profit of All cannot be calculated.",
+    noSalesNote:
+      "No sales in {names}: their profit and the profit of All are not calculated.",
+    open: "View this restaurant",
   },
 };

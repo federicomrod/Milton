@@ -13,9 +13,15 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { ToastHost } from "../components/ToastHost";
+import { Button, Muted } from "../components/ui";
+import { ManagerProvider, useManager } from "../gestion/ManagerProvider";
+import { useG } from "../gestion/hooks";
 import { I18nProvider, useStrings } from "../i18n";
 import { SessionProvider, useSession } from "../session/SessionProvider";
 import { colors, fonts } from "../theme";
+
+// When nobody is signed in the app opens on the entry screen (cook or manager).
+export const unstable_settings = { anchor: "entrada" };
 
 function Splash() {
   return (
@@ -48,10 +54,42 @@ function BackButton({ label }: { label: string }) {
 }
 
 function Routes() {
-  const { status } = useSession();
+  const { status: kitchen } = useSession();
+  const manager = useManager();
   const s = useStrings();
-  if (status === "loading") return <Splash />;
-  const signedIn = status === "signedIn";
+  const g = useG();
+  if (kitchen === "loading" || manager.status === "loading") return <Splash />;
+  if (manager.status === "error") {
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          padding: 24,
+          backgroundColor: colors.white,
+        }}
+      >
+        <Muted>{g.errors.offline}</Muted>
+        <Button label={g.errors.retry} onPress={manager.retry} />
+        <Button
+          label={g.noAccess.signOut}
+          variant="secondary"
+          onPress={() => void manager.signOut()}
+        />
+      </View>
+    );
+  }
+  const kitchenIn = kitchen === "signedIn";
+  const managerIn = manager.status === "signedIn";
+  const noAccess = manager.status === "noAccess";
+  // A phone can hold both sessions; the profile sheet picks the mode.
+  const mode =
+    managerIn && kitchenIn ? manager.mode : managerIn ? "manager" : "kitchen";
+  const showKitchen = kitchenIn && mode === "kitchen";
+  const showManager = managerIn && mode === "manager";
+  const signedOut = !kitchenIn && !managerIn && !noAccess;
   return (
     <Stack
       screenOptions={{
@@ -62,7 +100,16 @@ function Routes() {
         contentStyle: { backgroundColor: colors.white },
       }}
     >
-      <Stack.Protected guard={signedIn}>
+      <Stack.Protected guard={showManager}>
+        <Stack.Screen name="(gestion)" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={managerIn}>
+        <Stack.Screen
+          name="perfil"
+          options={{ headerShown: false, presentation: "modal" }}
+        />
+      </Stack.Protected>
+      <Stack.Protected guard={showKitchen}>
         {/* The title is what iOS writes on the back button of «Cuenta». */}
         <Stack.Screen
           name="(tabs)"
@@ -77,7 +124,14 @@ function Routes() {
           }}
         />
       </Stack.Protected>
-      <Stack.Protected guard={!signedIn}>
+      <Stack.Protected guard={noAccess}>
+        <Stack.Screen name="sin-acceso" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={signedOut}>
+        <Stack.Screen name="entrada" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+      </Stack.Protected>
+      <Stack.Protected guard={!kitchenIn && !noAccess}>
         <Stack.Screen name="join" options={{ headerShown: false }} />
       </Stack.Protected>
     </Stack>
@@ -97,9 +151,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <I18nProvider>
         <SessionProvider>
-          <StatusBar style="dark" />
-          {loaded || failed ? <Routes /> : <Splash />}
-          <ToastHost />
+          <ManagerProvider>
+            <StatusBar style="dark" />
+            {loaded || failed ? <Routes /> : <Splash />}
+            <ToastHost />
+          </ManagerProvider>
         </SessionProvider>
       </I18nProvider>
     </SafeAreaProvider>

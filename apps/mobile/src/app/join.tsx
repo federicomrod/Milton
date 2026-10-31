@@ -12,6 +12,7 @@ import { useLocalSearchParams } from "expo-router";
 import { redeemMessage } from "../api/client";
 import { useStrings } from "../i18n";
 import { extractInviteSecret } from "../lib/invite";
+import { useManager } from "../gestion/ManagerProvider";
 import { useSession } from "../session/SessionProvider";
 import { colors, space } from "../theme";
 import { Button, Field, Muted, text } from "../components/ui";
@@ -20,6 +21,7 @@ export default function Join() {
   const s = useStrings();
   const params = useLocalSearchParams<{ secret?: string }>();
   const { api, signIn } = useSession();
+  const manager = useManager();
   const [code, setCode] = useState(
     typeof params.secret === "string" ? params.secret : ""
   );
@@ -48,6 +50,8 @@ export default function Join() {
         deviceLabel:
           Platform.OS === "ios" ? "iPhone · Expo Go" : "Android · Expo Go",
       });
+      // A manager adding Cocina to this phone lands in Cocina.
+      manager.setMode("kitchen");
       await signIn(res.deviceToken, {
         name: res.staff.name,
         location: res.location.name,

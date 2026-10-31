@@ -63,7 +63,11 @@ export interface ClientDeps {
 
 export const REQUEST_TIMEOUT_MS = 15_000;
 
-export function createApiClient(deps: ClientDeps) {
+/**
+ * The request core shared by the kitchen and the manager clients: timeout,
+ * Accept-Language, bearer header, 401 -> onUnauthorized, JSON-or-unreachable.
+ */
+export function createRequester(deps: ClientDeps) {
   const doFetch = deps.fetchImpl ?? fetch;
   const base = deps.baseUrl.replace(/\/+$/, "");
 
@@ -133,6 +137,12 @@ export function createApiClient(deps: ClientDeps) {
       .map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`);
     return parts.length ? `?${parts.join("&")}` : "";
   };
+
+  return { request, qs };
+}
+
+export function createApiClient(deps: ClientDeps) {
+  const { request, qs } = createRequester(deps);
 
   return {
     redeem: (input: {

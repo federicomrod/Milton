@@ -7,6 +7,7 @@
 import { getDictionary } from "@/lib/i18n";
 import { mobileLanguage } from "@/lib/restaurant/kitchen/mobile-response";
 import { NextRequest } from "next/server";
+import { resolveRestaurantCockpitLanguage } from "@/lib/restaurant/language";
 import { authUserFromBearer } from "@/lib/restaurant/api-auth";
 import { mobileJson } from "@/lib/restaurant/kitchen/mobile-response";
 import {
@@ -36,10 +37,28 @@ export async function GET(request: NextRequest) {
     const rows = (memberships ?? []) as { company_id: string; role: string }[];
     const ids = rows.map((m) => m.company_id);
     const { data: companies } = ids.length
-      ? await supabase.from("companies").select("id, name").in("id", ids)
-      : { data: [] as { id: string; name: string }[] };
+      ? await supabase
+          .from("companies")
+          .select("id, name, preferred_language")
+          .in("id", ids)
+      : {
+          data: [] as {
+            id: string;
+            name: string;
+            preferred_language?: unknown;
+          }[],
+        };
     const names = new Map(
       (companies ?? []).map((c) => [c.id as string, c.name as string])
+    );
+    // The app speaks the company language, like the web (fallback es).
+    const languages = new Map(
+      (companies ?? []).map((c) => [
+        c.id as string,
+        resolveRestaurantCockpitLanguage(
+          (c as { preferred_language?: unknown }).preferred_language
+        ),
+      ])
     );
 
     const result = await Promise.all(
@@ -53,6 +72,7 @@ export async function GET(request: NextRequest) {
         return {
           id: m.company_id,
           name: names.get(m.company_id) ?? "",
+          language: languages.get(m.company_id) ?? "es",
           role: normalizeRole(m.role),
           capabilities,
         };

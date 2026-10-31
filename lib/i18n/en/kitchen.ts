@@ -4,6 +4,16 @@ export const kitchen: Dictionary["kitchen"] = {
   qrIntro:
     "Your team scans this code with Telegram and can then send you reports and recipes by voice note.",
   api: {
+    managerNoAccess: "Your role has no access to Management. Ask the owner.",
+    managerLoginInvalid: "Wrong email or password.",
+    managerLoginFailed: "I could not sign you in right now. Try again.",
+    managerLoadFailed: "I could not load this data right now.",
+    managerPeriodInvalid: "The period is not valid.",
+    managerMonthInvalid: "The month is not valid.",
+    managerPickRestaurant: "Pick a restaurant.",
+    managerInvoiceNotFound: "I could not find that invoice.",
+    managerInvoiceNotPending: "That invoice is no longer pending.",
+    managerInvoiceActionFailed: "I could not save the change to the invoice.",
     signInAgain: "Sign in again with your invitation.",
     sessionCheckFailed: "I could not check your session.",
     draftNotFoundThat: "I did not find that draft.",

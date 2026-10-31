@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 const CHECKS =
   // recipes/editor starts resolveActor early and asks can() on that promise
   // (a parallel guard, for speed): the same helper, so it counts.
-  /requireCapability(?:Localized)?\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|resolveActor\([\s\S]*\bcan\(/;
+  // authManager() (mobile manager routes) reads the bearer's membership and
+  // asks can() for the capability it is given, so it counts too.
+  /requireCapability(?:Localized)?\(|requireMiltonStaff\(|loadRecipeActor\(|kitchenManagerGuard\(|authManager\(|resolveActor\([\s\S]*\bcan\(/;
 const WRITE =
   /export\s+(?:async\s+function|const)\s+(?:POST|PUT|PATCH|DELETE)\b/;
 
@@ -37,6 +39,10 @@ export const ALLOW: Record<string, string> = {
   // Kitchen app (mobile P0b): cooks are not company members and have no role.
   // Their device token, revocable at once, is the authority, and each route
   // only ever touches that cook's own company, location and rows.
+  "mobile/v1/auth/login/route.ts":
+    "a manager signs in with their web email and password; the credentials are the authority",
+  "mobile/v1/auth/refresh/route.ts":
+    "a manager renews their own session with its refresh token",
   "mobile/v1/kitchen/redeem/route.ts":
     "a cook redeems a single-use invite; the invite secret is the authority",
   "mobile/v1/kitchen/media/route.ts":

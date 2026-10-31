@@ -36,6 +36,7 @@ import {
   weekdayShort,
 } from "@/lib/restaurant/rentabilidad-copy";
 import { RaceChart } from "@/components/restaurant/rentabilidad/RaceChart";
+import { WhatIfPanel } from "@/components/restaurant/rentabilidad/WhatIfPanel";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { StatCard } from "@/components/restaurant/ui/StatCard";
 
@@ -309,6 +310,8 @@ export function RentabilidadPage({
               />
             </section>
           ) : null}
+
+          <WhatIfPanel key={m.month} month={m} money={money} />
 
           <div
             role="tablist"

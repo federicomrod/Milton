@@ -89,7 +89,7 @@ describe("RentabilidadPage", () => {
     expect(html).not.toMatch(/platillo/i);
   });
 
-  it("partial coverage: the red flag comes before the profit numbers, with real buttons", () => {
+  it("partial coverage: a plain table after the profit card, with real buttons", () => {
     const html = render(
       data([
         dish(1, 20000),
@@ -109,19 +109,22 @@ describe("RentabilidadPage", () => {
     );
     const flag = html.indexOf("Falta el costo de ingredientes del");
     expect(flag).toBeGreaterThan(-1);
-    expect(flag).toBeLessThan(html.indexOf("Ganancia real hasta ayer"));
+    // Mockup order: the hero card (profit) first, then the recipes table.
+    expect(flag).toBeGreaterThan(html.indexOf("Ganancia real hasta ayer"));
+    expect(html).toContain("Plato sin receta aprobada");
     expect(html).toContain("aprueba estas recetas");
     expect(html).toContain("Crear receta"); // plato 2 has no recipe
     expect(html).toContain("Aprobar"); // plato 3 has a draft
     expect(html.indexOf("Plato 2")).toBeLessThan(html.indexOf("Plato 3")); // by share of sales
     expect(html).toContain("Tus platos con receta dejan");
-    expect(html).toContain("#FDE68A");
+    // No full yellow box: amarillo only for the small ⚑ Falta tag.
+    expect(html).not.toContain("bg-[#FDE68A]/40");
+    expect(html).not.toContain("rounded-lg bg-[#FDE68A]");
   });
 
-  it("Ganancia / Pérdida chips use mint and rosa with Ink text", () => {
+  it("a loss is a plain Ink chip on gris: no mint, rosa, green or red", () => {
     const html = render(data([dish(1, 62000)]));
-    expect(html).toContain("bg-[#A7F3D0] text-[#0F172A]");
-    expect(html).toContain("Ganancia</span>");
+    expect(html).not.toMatch(/#A7F3D0|#FBCFE8|#1F9D55|#C53A3A/i);
     const loss = render(
       data([dish(1, 62000)], {
         planilla: 90000,
@@ -131,7 +134,8 @@ describe("RentabilidadPage", () => {
       })
     );
     expect(loss).toContain("Pérdida</span>");
-    expect(loss).toContain("bg-[#FBCFE8] text-[#0F172A]");
+    expect(loss).toContain("bg-[#F1F3F7] text-[#0F172A]");
+    expect(loss).not.toMatch(/#A7F3D0|#FBCFE8/i);
   });
 
   it("an estimate: «Ganancia estimada» with the lavender chip", () => {
@@ -151,8 +155,15 @@ describe("RentabilidadPage", () => {
         otros: 9800,
       })
     );
-    expect(html).toContain("⚑ Falta Alquiler");
-    expect(html).toContain("Sube tus costos fijos");
+    expect(html).toContain("Te falta 1 dato para ver tu ganancia real.");
+    expect(html).toContain("Sin Alquiler");
+    expect(html).toContain("⚑ Falta");
+    expect(html).toContain(">Escribir<");
+    expect(html).toContain(">Subir archivo<");
+    // One «Sube tus costos fijos» button, no yellow box.
+    expect(html.match(/Sube tus costos fijos/g)).toHaveLength(1);
+    expect(html).toContain("Mientras tanto: margen bruto de octubre");
+    expect(html).not.toContain("bg-[#FDE68A]/40");
     // Costos fijos is the default tab of Costos, so the link carries no ?tab=
     expect(html).toContain(
       "/dashboard/restaurant/costs?location=loc-1&amp;month=2026-10-01"
@@ -169,11 +180,34 @@ describe("RentabilidadPage", () => {
   });
 });
 
-describe("RentabilidadPage chart header", () => {
-  it("states the break-even day in the section header, not in the plot", () => {
+describe("RentabilidadPage hero card", () => {
+  it("opens with a sentence headline, then the profit numbers and the chart", () => {
     const html = render(data([dish(1, 62000)]));
-    expect(html).toContain("¿Ya cubriste tus costos fijos?");
-    expect(html).toMatch(/Equilibrio: [a-záéíóú]+ \d+/);
+    expect(html).toMatch(
+      /data-testid="hero-headline"[^>]*>(Ayer, [a-záéíóú]+ \d+, cubriste octubre\.|El [a-záéíóú]+ \d+ cubriste octubre\.|Vas a cubrir octubre el [a-záéíóú]+ \d+\.|Todavía no cubres octubre\.)/
+    );
+    const order = [
+      "hero-headline",
+      "Ganancia real hasta ayer",
+      "Proyección al cierre",
+      "Estado de resultados",
+    ].map((k) => html.indexOf(k));
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+  it("page order: hero, 4 tiles, ¿A dónde va cada $100?, Milton, ¿Y si…?, Estado de resultados", () => {
+    const html = render(data([dish(1, 62000)]));
+    const at = (k: string) => html.indexOf(k);
+    const order = [
+      'data-testid="hero-card"',
+      "Punto de equilibrio por día",
+      "¿A dónde va cada",
+      "Resumen de Milton",
+      'data-testid="whatif-panel"',
+      'role="tablist"',
+    ].map(at);
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 });
 
@@ -194,7 +228,6 @@ describe("Lean pass", () => {
       "Todos tus días venden por encima",
     ])
       expect(html).not.toContain(gone);
-    expect(html).toContain("Ya descuenta los costos fijos de todo el mes");
   });
 
   it("Resumen de Milton has data-driven lines", () => {
@@ -247,8 +280,7 @@ describe("Lean pass", () => {
         otros: 9800,
       })
     );
-    expect(out).toContain("⚑ Faltan costos fijos para calcular tu ganancia");
-    expect(out).toContain("⚑ Faltan costos fijos<");
+    expect(out).toContain("Te falta 1 dato para ver tu ganancia real.");
     expect(out).not.toContain("Falta cargar tus costos fijos");
   });
 });

@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-// «¿Y si…?» panel: typing recomputes in the browser, Restablecer returns to the
-// real figures, nothing is sent anywhere, and the layout is one column at 390 px.
+// «¿Y si…?» compact panel: three sliders and a result box, in the browser only.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@/lib/i18n/client";
@@ -55,99 +54,66 @@ function mount(lang: PreferredLanguage = "es", m = month()) {
     </I18nProvider>
   );
 }
-const sims = () =>
-  screen.getAllByTestId("whatif-sim-value").map((e) => e.textContent);
+const profit = () => screen.getByTestId("whatif-profit").textContent;
+const setRange = (re: RegExp, value: string) =>
+  fireEvent.change(screen.getByLabelText(re), { target: { value } });
 
 describe("WhatIfPanel", () => {
-  it("starts on the real figures, labelled as a simulation", () => {
-    const fetchSpy = vi.fn();
-    vi.stubGlobal("fetch", fetchSpy);
+  it("shows three sliders and the real figures at first", () => {
     mount();
-    const m = month();
-    expect(sims()[0]).toBe(money(m.breakEvenPerDay!));
+    expect(screen.getByLabelText("Subir precios")).toBeTruthy();
+    expect(screen.getByLabelText("Más clientes")).toBeTruthy();
+    expect(screen.getByLabelText("Costos fijos")).toBeTruthy();
+    expect(profit()).toBe(money(month().profit as number));
     expect(screen.getAllByText("Simulación").length).toBeGreaterThan(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("recomputes on typing and Restablecer returns exactly", () => {
+  it("moving a slider shows real → simulated; Restablecer returns exactly; nothing is sent", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     mount();
-    const start = sims();
+    const start = profit();
     const reset = screen.getByRole("button", { name: "Restablecer" });
     expect((reset as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
-      target: { value: "90000" },
-    });
-    expect(sims()).not.toEqual(start);
-    fireEvent.change(screen.getByLabelText(/Impuestos/), {
-      target: { value: "0" },
-    });
+    setRange(/Subir precios/, "3");
+    expect(screen.getByText("+3%")).toBeTruthy();
+    expect(profit()).toContain("→");
+    expect(profit()).not.toBe(start);
+    setRange(/Costos fijos/, "900");
     fireEvent.click(reset);
-    expect(sims()).toEqual(start);
+    expect(profit()).toBe(start);
     expect(
-      (screen.getByLabelText(/Ventas del mes/) as HTMLInputElement).value
-    ).toBe(String(Math.round(month().monthTotals.sales * 100) / 100));
+      (screen.getByLabelText("Subir precios") as HTMLInputElement).value
+    ).toBe("0");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("a missing fixed cost stays «⚑ Falta» and the result is a dash, never $0", () => {
+  it("a missing fixed cost: the Costos fijos slider is ⚑ Falta and a change gives —, never $0", () => {
     mount("es", month(null));
-    expect(sims()).toEqual(["—", "—"]);
-    expect(screen.getAllByText(/⚑ Falta/).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Costos fijos")).toBeNull();
+    expect(screen.getAllByText("⚑ Falta").length).toBeGreaterThan(0);
+    setRange(/Subir precios/, "5");
+    expect(profit()).toContain("—");
     expect(document.body.textContent).not.toContain("$0");
-    fireEvent.change(screen.getByLabelText(/Otros/i), {
-      target: { value: "9800" },
-    });
-    expect(sims()[1]).not.toBe("—");
   });
 
-  it("clearing Ventas shows ⚑ Falta on the field and the results, never $0", () => {
-    mount();
-    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
-      target: { value: "" },
-    });
-    expect(sims()).toEqual(["—", "—"]);
-    expect(screen.getAllByText(/⚑ Falta/).length).toBeGreaterThanOrEqual(3);
-    expect(document.body.textContent).not.toContain("$0");
-    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
-      target: { value: "70000" },
-    });
-    expect(sims()[1]).not.toBe("—");
-  });
-
-  it("rejects text that is not a number instead of guessing", () => {
-    mount();
-    const start = sims();
-    fireEvent.change(screen.getByLabelText(/Ventas del mes/), {
-      target: { value: "12abc" },
-    });
-    expect(screen.getByText("Número no válido")).toBeTruthy();
-    expect(sims()).toEqual(start);
-  });
-
-  it("reads German numbers (1.234,5) and speaks German", () => {
+  it("speaks German", () => {
     mount("de");
     expect(screen.getByRole("button", { name: "Zurücksetzen" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText(/Umsatz des Monats/), {
-      target: { value: "70.000,5" },
-    });
-    expect(screen.queryByText("Keine gültige Zahl")).toBeNull();
+    expect(screen.getByLabelText("Preise erhöhen")).toBeTruthy();
+    expect(screen.getByLabelText("Mehr Gäste")).toBeTruthy();
   });
 
-  it("one column at 390 px: no fixed widths, no horizontal scroll, no tabs, no red/green/orange", () => {
+  it("390 px: one column, no fixed widths, no tabs, no red/green/orange", () => {
     const { container } = mount();
     const html = container.innerHTML;
     expect(html).not.toMatch(
       /\bw-\[\d+px\]|\bmin-w-\[|overflow-x|whitespace-nowrap/
     );
     expect(html).not.toMatch(/role="tab"|<details|aria-expanded/);
-    // Mobile first: every grid starts as one column.
-    for (const el of container.querySelectorAll('[class*="grid "]')) {
-      expect(el.className).toMatch(/\bgrid-cols-1\b/);
-    }
+    expect(html).toMatch(/grid-cols-1 gap-5/);
     expect(html).not.toMatch(
-      /(?:text|bg|border)-(?:red|green|orange|rose|amber|emerald)|#(?:DC2626|16A34A|F97316|FBCFE8|A7F3D0|FDE68A)/i
+      /(?:text|bg|border)-(?:red|green|orange|rose|amber|emerald)|#(?:DC2626|16A34A|F97316|FBCFE8|A7F3D0|C53A3A|1F9D55)/i
     );
   });
 });

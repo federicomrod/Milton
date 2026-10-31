@@ -4,11 +4,11 @@ import {
   foodCostFromDishes,
 } from "@/lib/restaurant/rentabilidad";
 import {
+  ZERO_SLIDERS,
+  fixedRange,
+  isZero,
   realResult,
-  sameValues,
   simulate,
-  whatIfBase,
-  whatIfContext,
 } from "@/lib/restaurant/what-if";
 
 const dailySales = Object.fromEntries(
@@ -30,11 +30,12 @@ const dishes = [
     status: "aprobado",
   },
 ];
+const FULL = { planilla: 21400, alquiler: 6500, servicios: 3900, otros: 9800 };
 function month(
   amounts: Record<
     "planilla" | "alquiler" | "servicios" | "otros",
     number | null
-  >,
+  > = FULL,
   impuestosPct: number | null = 13
 ) {
   return computeRentabilidad({
@@ -47,137 +48,115 @@ function month(
     openDays: 31,
   });
 }
-const FULL = { planilla: 21400, alquiler: 6500, servicios: 3900, otros: 9800 };
 
 describe("what-if: reset", () => {
-  it("the starting values reproduce the server figures exactly", () => {
-    const m = month(FULL);
-    const base = whatIfBase(m);
-    const r = simulate(base, whatIfContext(m), { month: m });
-    expect(r.profit).toBe(m.profit);
-    expect(r.breakEvenPerDay).toBe(m.breakEvenPerDay);
-    expect(r).toEqual(realResult(m));
-  });
-  it("without the shortcut, the formulas land on the same figures (to the cent)", () => {
-    const m = month(FULL);
-    const r = simulate(whatIfBase(m), whatIfContext(m));
-    expect(r.profit).toBe(m.profit);
-    expect(r.breakEvenPerDay).toBe(m.breakEvenPerDay);
-  });
-  it("after changes, going back to the base values is the real result again", () => {
-    const m = month(FULL);
-    const base = whatIfBase(m);
-    const moved = { ...base, sales: base.sales * 1.2 };
-    expect(sameValues(moved, base)).toBe(false);
-    expect(simulate(moved, whatIfContext(m), { month: m }).profit).not.toBe(
-      m.profit
+  it("all sliders at zero return the server figures exactly", () => {
+    const m = month();
+    expect(isZero(ZERO_SLIDERS)).toBe(true);
+    expect(simulate(m, ZERO_SLIDERS)).toEqual(realResult(m));
+    expect(simulate(m, ZERO_SLIDERS).profit).toBe(m.profit);
+    expect(simulate(m, ZERO_SLIDERS).breakEven?.date).toBe(
+      m.breakEvenDay?.date
     );
-    expect(simulate(base, whatIfContext(m), { month: m }).profit).toBe(
-      m.profit
+  });
+  it("the daily formulas land on the same ganancia as the server (to the cent)", () => {
+    const m = month();
+    // A no-op that is not «zero»: +0% via a tiny float must not drift.
+    const r = simulate(m, { pricePct: 0, customersPct: 0, fixedDelta: 1e-9 });
+    expect(Math.abs((r.profit as number) - (m.profit as number))).toBeLessThan(
+      0.02
     );
   });
   it("does not mutate the real month", () => {
-    const m = month(FULL);
+    const m = month();
     const before = JSON.stringify(m);
-    const base = whatIfBase(m);
-    base.amounts.alquiler = 1;
-    simulate({ ...base, sales: 1 }, whatIfContext(m), { month: m });
+    simulate(m, { pricePct: 5, customersPct: 10, fixedDelta: 900 });
     expect(JSON.stringify(m)).toBe(before);
   });
 });
 
-describe("what-if: Impuestos", () => {
-  const m = month(FULL, 0);
-  const ctx = whatIfContext(m);
-  const base = whatIfBase(m);
-  it("lower the contribution margin, never the fixed costs", () => {
-    const a = simulate(base, ctx);
-    const b = simulate({ ...base, impuestosPct: 13 }, ctx);
-    expect(b.fixedTotal).toBe(a.fixedTotal);
-    expect(b.marginPct!).toBeLessThan(a.marginPct!);
-    // Ventas × tasa ÷ (1 + tasa) comes out of the margin once.
-    const tax = (base.sales * 0.13) / 1.13;
-    expect(b.impuestos).toBeCloseTo(tax, 6);
-    expect(b.profit!).toBeCloseTo(a.profit! - tax, 1);
+describe("what-if: the three sliders", () => {
+  const m = month();
+  const real = m.profit as number;
+  it("subir precios raises ganancia and does not move the food cost", () => {
+    const r = simulate(m, { ...ZERO_SLIDERS, pricePct: 3 });
+    expect(r.profit as number).toBeGreaterThan(real);
+    // +3% on the month's sales, less the tax inside that extra: food stays.
+    const extraSales = m.monthTotals.sales * 0.03;
+    const extraTax = (extraSales * 0.13) / 1.13;
+    expect(r.profit as number).toBeCloseTo(real + extraSales - extraTax, 1);
   });
-  it("raise the break-even per day", () => {
-    const a = simulate(base, ctx);
-    const b = simulate({ ...base, impuestosPct: 13 }, ctx);
-    expect(b.breakEvenPerDay!).toBeGreaterThan(a.breakEvenPerDay!);
+  it("más clientes moves sales and food cost together", () => {
+    const r = simulate(m, { ...ZERO_SLIDERS, customersPct: 10 });
+    const extra =
+      m.monthTotals.sales * 0.1 -
+      (m.monthTotals.sales * 0.1 * 0.13) / 1.13 -
+      m.monthTotals.food * 0.1;
+    expect(r.profit as number).toBeCloseTo(real + extra, 1);
+  });
+  it("costos fijos moves ganancia by exactly the amount", () => {
+    const r = simulate(m, { ...ZERO_SLIDERS, fixedDelta: 900 });
+    expect(r.profit as number).toBeCloseTo(real - 900, 2);
+    const down = simulate(m, { ...ZERO_SLIDERS, fixedDelta: -900 });
+    expect(down.profit as number).toBeCloseTo(real + 900, 2);
+  });
+  it("more fixed costs push the break-even day later or out of the month", () => {
+    const base = realResult(m).breakEven;
+    const r = simulate(m, { ...ZERO_SLIDERS, fixedDelta: 5000 });
+    if (base && r.breakEven)
+      expect(r.breakEven.day).toBeGreaterThanOrEqual(base.day);
+    else expect(r.breakEven).toBeNull();
+  });
+  it("better sales bring the break-even day earlier", () => {
+    const base = realResult(m).breakEven!;
+    const r = simulate(m, { ...ZERO_SLIDERS, pricePct: 10 });
+    expect(r.breakEven!.day).toBeLessThanOrEqual(base.day);
   });
 });
 
-describe("what-if: break-even and ganancia", () => {
-  const m = month(FULL);
-  const ctx = whatIfContext(m);
-  const base = whatIfBase(m);
-  it("break-even = fixed ÷ (margin % × open days)", () => {
-    const r = simulate(
-      { ...base, amounts: { ...base.amounts, alquiler: 8500 } },
-      ctx
+describe("what-if: Impuestos change the margin, never the fixed costs", () => {
+  it("the same slider with a higher tax rate gives a lower ganancia; fixed stays", () => {
+    const a = month(FULL, 0);
+    const b = month(FULL, 13);
+    const s = { ...ZERO_SLIDERS, pricePct: 5 };
+    expect(simulate(b, s).profit as number).toBeLessThan(
+      simulate(a, s).profit as number
     );
-    const fixed = 21400 + 8500 + 3900 + 9800;
-    expect(r.fixedTotal).toBe(fixed);
-    expect(r.breakEvenPerDay).toBeCloseTo(fixed / (r.marginPct! * 31), 2);
-  });
-  it("more sales or a lower food cost % raise ganancia", () => {
-    const real = simulate(base, ctx).profit!;
-    expect(
-      simulate({ ...base, sales: base.sales + 5000 }, ctx).profit!
-    ).toBeGreaterThan(real);
-    expect(
-      simulate({ ...base, foodPct: base.foodPct! - 5 }, ctx).profit!
-    ).toBeGreaterThan(real);
-  });
-  it("a loss stays a negative number", () => {
-    const r = simulate({ ...base, sales: 1000 }, ctx);
-    expect(r.profit!).toBeLessThan(0);
+    expect(a.fixed.total).toBe(b.fixed.total);
+    // The fixed-costs slider is unaffected by the tax rate.
+    const f = { ...ZERO_SLIDERS, fixedDelta: 500 };
+    const da = (simulate(a, f).profit as number) - (a.profit as number);
+    const db = (simulate(b, f).profit as number) - (b.profit as number);
+    expect(da).toBeCloseTo(-500, 2);
+    expect(db).toBeCloseTo(-500, 2);
   });
 });
 
 describe("what-if: missing is never $0", () => {
-  it("a missing fixed cost gives null, not a number", () => {
+  it("a missing fixed cost gives no result", () => {
     const m = month({ ...FULL, otros: null });
-    const r = simulate(whatIfBase(m), whatIfContext(m), { month: m });
-    expect(r.fixedTotal).toBeNull();
+    const r = simulate(m, { ...ZERO_SLIDERS, pricePct: 3 });
     expect(r.profit).toBeNull();
-    expect(r.breakEvenPerDay).toBeNull();
-  });
-  it("typing the missing cost fills it in", () => {
-    const m = month({ ...FULL, otros: null });
-    const base = whatIfBase(m);
-    const r = simulate(
-      { ...base, amounts: { ...base.amounts, otros: 9800 } },
-      whatIfContext(m)
-    );
-    expect(r.profit).not.toBeNull();
-  });
-  it("no sales gives no food cost % and no result", () => {
-    const m = computeRentabilidad({
-      month: "2026-09-01",
-      today: "2026-10-27",
-      dailySales: {},
-      food: { ...foodCostFromDishes([]), periodSales: 0 },
-      fixed: { amounts: FULL, impuestosPct: 13 },
-      openWeekdays: null,
-      openDays: 30,
-    });
-    const base = whatIfBase(m);
-    expect(base.foodPct).toBeNull();
-    const r = simulate(base, whatIfContext(m), { month: m });
-    expect(r.profit).toBeNull();
-    expect(r.breakEvenPerDay).toBeNull();
+    expect(r.breakEven).toBeNull();
+    expect(fixedRange(m.fixed.total).max).toBe(500);
   });
 });
 
-describe("what-if: speed", () => {
-  it("1,000 recalculations take far less than 100 ms in total", () => {
-    const m = month(FULL);
-    const base = whatIfBase(m);
-    const ctx = whatIfContext(m);
+describe("what-if: range and speed", () => {
+  it("the fixed-cost slider spans ±25% in steps of 50 or 100", () => {
+    const r = fixedRange(41600);
+    expect(r).toEqual({ min: -10400, max: 10400, step: 100 });
+    expect(fixedRange(1000)).toEqual({ min: -500, max: 500, step: 50 });
+  });
+  it("1,000 recalculations take far less than 100 ms", () => {
+    const m = month();
     const t0 = performance.now();
     for (let i = 0; i < 1000; i++)
-      simulate({ ...base, sales: base.sales + i }, ctx, { month: m });
+      simulate(m, {
+        pricePct: i % 15,
+        customersPct: (i % 40) - 20,
+        fixedDelta: i,
+      });
     expect(performance.now() - t0).toBeLessThan(100);
   });
 });

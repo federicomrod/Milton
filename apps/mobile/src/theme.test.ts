@@ -57,14 +57,42 @@ describe("brand palette", () => {
     }
   });
 
-  it("never renders a currency symbol or amount", () => {
+  // The COOK side never shows money. Gestión (managers and owners) does, and
+  // lives in its own folders; the next test keeps the two apart.
+  const GESTION = ["gestion", "(gestion)"];
+  const inGestion = (f: string) =>
+    f.split(/[\\/]/).some((part) => GESTION.includes(part));
+
+  it("never renders a currency symbol or amount (cook side)", () => {
     const root = join(__dirname, "..");
     for (const file of files(join(root, "src")).filter(
-      (f) => !f.endsWith(".test.ts")
+      (f) => !f.endsWith(".test.ts") && !inGestion(f)
     )) {
       const src = readFileSync(file, "utf8");
       expect(src, file).not.toMatch(
         /[€£]|\$\{?\s?\d|toLocaleString\([^)]*currency|style:\s*["']currency/i
+      );
+    }
+  });
+
+  it("cook-side code never imports Gestión code (only the router shell, the join screen and the profile may)", () => {
+    const root = join(__dirname, "..");
+    const ALLOWED = new Set([
+      join("src", "app", "_layout.tsx"),
+      join("src", "app", "join.tsx"),
+      join("src", "app", "perfil.tsx"),
+      join("src", "app", "entrada.tsx"),
+      join("src", "app", "login.tsx"),
+      join("src", "app", "sin-acceso.tsx"),
+    ]);
+    for (const file of files(join(root, "src")).filter(
+      (f) =>
+        !f.endsWith(".test.ts") && !f.endsWith(".test.tsx") && !inGestion(f)
+    )) {
+      const rel = file.slice(root.length + 1);
+      if (ALLOWED.has(rel)) continue;
+      expect(readFileSync(file, "utf8"), rel).not.toMatch(
+        /from\s+["'][./]*\/?gestion\//
       );
     }
   });

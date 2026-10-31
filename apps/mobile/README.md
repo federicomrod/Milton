@@ -70,7 +70,30 @@ npx expo-doctor
 - Colours live in `src/theme.ts` (brand palette only; a test fails on any other
   hex value).
 
+## Gestión (managers and owners)
+
+The same app also has the manager side, for owner / admin / manager roles:
+
+- **Entry** (`src/app/entrada.tsx`): «Iniciar sesión» (manager) or «Soy de cocina
+  (invitación)» (cook). A phone can hold both sessions; the **Perfil** sheet
+  switches between **Gestión** and **Cocina**.
+- **Login** (`src/app/login.tsx`): the same email and password as the web. The
+  app calls `POST /api/mobile/v1/auth/login`, so the phone carries **no Supabase
+  URL or key**; the access and refresh tokens go to the secure store only
+  (`src/gestion/storage.ts`) and are renewed automatically. No sign-up, no SMS.
+- **Tabs** (`src/app/(gestion)`): Inicio, Ventas, Rentabilidad, Costos. Every
+  number comes from `/api/mobile/v1/{home,ventas,rentabilidad,costos}`, computed
+  on the server by the web's own libraries; the app only draws it.
+- **Costos** lists the pending Compras invoices with their lines; a person taps
+  **Aprobar** or **Rechazar**. A missing price is «Sin precio», a missing
+  quantity «Falta», never $0.
+- Code lives in `src/gestion/` (own strings in `strings.ts`, es / en / de). The
+  cook side never imports it and never shows money (`src/theme.test.ts` checks).
+
+Try it with the staging owner's email and password; the language is the
+company's setting, like the web.
+
 ## Not here yet
 
-Push notifications, universal links,
-Gestión mode, store builds (EAS / TestFlight / Play).
+Gestión part 2 (Preguntar a Milton, push notifications, a Notificaciones
+settings screen), universal links, store builds (EAS / TestFlight / Play).

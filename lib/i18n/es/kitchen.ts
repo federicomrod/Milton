@@ -2,6 +2,16 @@ export const kitchen = {
   qrIntro:
     "Tu equipo escanea este código con Telegram y ya puede mandarte reportes y recetas por nota de voz.",
   api: {
+    managerNoAccess: "Tu rol no tiene acceso a Gestión. Pídeselo al dueño.",
+    managerLoginInvalid: "Correo o contraseña incorrectos.",
+    managerLoginFailed: "No pude iniciar sesión ahora. Inténtalo de nuevo.",
+    managerLoadFailed: "No pude cargar estos datos ahora.",
+    managerPeriodInvalid: "El período no es válido.",
+    managerMonthInvalid: "El mes no es válido.",
+    managerPickRestaurant: "Elige un restaurante.",
+    managerInvoiceNotFound: "No encontré esa factura.",
+    managerInvoiceNotPending: "Esa factura ya no está pendiente.",
+    managerInvoiceActionFailed: "No pude guardar el cambio en la factura.",
     signInAgain: "Vuelve a entrar con tu invitación.",
     sessionCheckFailed: "No pude revisar tu sesión.",
     draftNotFoundThat: "No encontré ese borrador.",

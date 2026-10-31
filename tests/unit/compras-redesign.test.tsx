@@ -121,7 +121,7 @@ describe("Compras source rules", () => {
   });
   it("the invoice endpoints write the price only through ingredient_cost_entries", () => {
     const approve = readFileSync(
-      join(process.cwd(), "app/api/restaurant/invoices/[id]/approve/route.ts"),
+      join(process.cwd(), "lib/restaurant/invoices/approve-invoice.ts"),
       "utf8"
     );
     expect(approve).toContain('.from("ingredient_cost_entries")');

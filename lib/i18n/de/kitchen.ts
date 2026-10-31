@@ -4,6 +4,19 @@ export const kitchen: Dictionary["kitchen"] = {
   qrIntro:
     "Ihr Team scannt diesen Code mit Telegram und kann Ihnen dann Meldungen und Rezepte per Sprachnachricht senden.",
   api: {
+    managerNoAccess:
+      "Ihre Rolle hat keinen Zugriff auf die Verwaltung. Fragen Sie den Inhaber.",
+    managerLoginInvalid: "E-Mail oder Passwort ist falsch.",
+    managerLoginFailed:
+      "Die Anmeldung ist gerade nicht möglich. Versuchen Sie es erneut.",
+    managerLoadFailed: "Diese Daten konnten gerade nicht geladen werden.",
+    managerPeriodInvalid: "Der Zeitraum ist ungültig.",
+    managerMonthInvalid: "Der Monat ist ungültig.",
+    managerPickRestaurant: "Wählen Sie ein Restaurant.",
+    managerInvoiceNotFound: "Diese Rechnung wurde nicht gefunden.",
+    managerInvoiceNotPending: "Diese Rechnung ist nicht mehr offen.",
+    managerInvoiceActionFailed:
+      "Die Änderung an der Rechnung konnte nicht gespeichert werden.",
     signInAgain: "Melden Sie sich erneut mit Ihrer Einladung an.",
     sessionCheckFailed: "Ich konnte Ihre Sitzung nicht prüfen.",
     draftNotFoundThat: "Ich habe diesen Entwurf nicht gefunden.",

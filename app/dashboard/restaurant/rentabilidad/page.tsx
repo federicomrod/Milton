@@ -4,6 +4,7 @@
 // restaurant and one calendar month, computed by lib/restaurant/rentabilidad.ts.
 // Visible only with the `costs.fixed` capability (owner, admin, manager).
 
+import { RentabilidadGroupPage } from "@/components/restaurant/rentabilidad/RentabilidadGroupPage";
 import { RentabilidadPage } from "@/components/restaurant/rentabilidad/RentabilidadPage";
 import { capabilityFlags } from "@/lib/auth/permissions";
 import {
@@ -14,7 +15,9 @@ import {
 import { monthStartOf, previousMonthStart } from "@/lib/restaurant/fixed-costs";
 import { COSTS_HREF } from "@/lib/restaurant/navigation";
 import {
+  loadRentabilidadGroup,
   loadRentabilidadPage,
+  type RentabilidadGroupData,
   type RentabilidadPageData,
 } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -68,14 +71,46 @@ export default async function RentabilidadRoute({
   const selected =
     context.selected?.locationId ??
     (context.locations.length === 1 ? context.locations[0].id : null);
-  if (!selected) return <Note title={d.title}>{d.pickRestaurant}</Note>;
-
   const currentMonth = monthStartOf(new Date()) as string;
   const requested = first(params.month)
     ? monthStartOf(first(params.month)!)
     : null;
   const month =
     requested && requested <= currentMonth ? requested : currentMonth;
+  if (!selected) {
+    // «Todos los restaurantes»: one line per restaurant plus the total.
+    if (context.locations.length < 2)
+      return <Note title={d.title}>{d.pickRestaurant}</Note>;
+    let group: RentabilidadGroupData;
+    try {
+      group = await loadRentabilidadGroup({
+        supabase,
+        companyId,
+        locations: context.locations.map((l) => ({ id: l.id, name: l.name })),
+        month,
+      });
+    } catch (err) {
+      console.error("[rentabilidad] group load failed:", err);
+      return (
+        <Note title={d.title}>
+          {d.loadFailedBefore}{" "}
+          <a className="underline" href={COSTS_HREF}>
+            {d.loadFailedLink}
+          </a>
+          .
+        </Note>
+      );
+    }
+    const gPrev = previousMonthStart(currentMonth);
+    return (
+      <RentabilidadGroupPage
+        key={month}
+        data={group}
+        months={[previousMonthStart(gPrev), gPrev, currentMonth]}
+        currentMonth={currentMonth}
+      />
+    );
+  }
   let data: RentabilidadPageData;
   try {
     data = await loadRentabilidadPage({

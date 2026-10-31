@@ -51,9 +51,9 @@ const BTN =
   "inline-flex items-center justify-center rounded-md bg-[#1B40C8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2";
 const ALERT_PILL =
   "inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]";
-const SEGMENT_GROUP =
+export const SEGMENT_GROUP =
   "inline-flex flex-wrap rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold";
-const segmentBtn = (active: boolean) =>
+export const segmentBtn = (active: boolean) =>
   "rounded-[9px] px-3.5 py-1.5 " +
   (active
     ? "bg-[#1b40c8] text-white shadow-sm"

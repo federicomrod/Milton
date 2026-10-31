@@ -5,7 +5,7 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
   signIn: "Melden Sie sich an, um Ihre Rentabilität zu sehen.",
   roleDenied: "Ihre Rolle darf die Rentabilität nicht ansehen.",
   pickRestaurant:
-    "Wählen Sie oben ein Restaurant, um dessen Rentabilität zu sehen. Die Ansicht für die ganze Gruppe folgt später.",
+    "Wählen Sie oben ein Restaurant, um dessen Rentabilität zu sehen.",
   loadFailedBefore:
     "Ihre Rentabilität konnte gerade nicht berechnet werden. Falls dies das erste Mal ist, muss in dieser Umgebung noch die Migration 064 (Fixkosten) angewendet werden; möglicherweise konnten auch die Kosten Ihrer Gerichte nicht gelesen werden. Versuchen Sie es in einigen Minuten erneut oder prüfen Sie",
   loadFailedLink: "Kosten",
@@ -209,5 +209,35 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
     realValue: "Tatsächlich: {value}",
     footnote:
       "Simulierte Werte: Sie ändern Ihre tatsächlichen Zahlen nicht und werden nicht gespeichert.",
+  },
+  group: {
+    title: "Alle Restaurants",
+    aria: "Rentabilität aller Restaurants",
+    intro:
+      "Ein Monat, jedes Restaurant. Alle ist die exakte Summe der Zeilen, auf den Cent genau.",
+    total: "Alle",
+    sales: "Umsatz",
+    margin: "Marge",
+    marginPctOf: "{pct} vom Umsatz",
+    fixed: "Fixkosten",
+    fixedShare: "enthält den Anteil an den Gruppenkosten",
+    profit: "Gewinn",
+    profitEstimated: "Geschätzter Gewinn",
+    breakEven: "Break-even-Tag",
+    breakEvenDay: "Tag {day}",
+    breakEvenProjected: "Tag {day} (Prognose)",
+    notYet: "Noch nicht gedeckt",
+    missing: "⚑ Fehlt",
+    noSales: "Noch kein Umsatz",
+    estimateTag: "Von Milton geschätzt",
+    coverageFlag: "⚑ Es fehlen die Zutatenkosten für {pct}",
+    currencyTitle: "Keine Summe",
+    currencyBody:
+      "Ihre Restaurants rechnen in verschiedenen Währungen ({currencies}); sie zu addieren ergäbe eine sinnlose Zahl. Jedes Restaurant zeigt seine eigene.",
+    missingFixedNote:
+      "Bei {names} fehlt eine Fixkostenposition: ohne sie lässt sich der Gewinn von Alle nicht berechnen.",
+    noSalesNote:
+      "Kein Umsatz bei {names}: Ihr Gewinn und der Gewinn von Alle werden nicht berechnet.",
+    open: "Dieses Restaurant ansehen",
   },
 };

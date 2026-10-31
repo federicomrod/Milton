@@ -103,9 +103,11 @@ export function WhatIfPanel({
     setErrors({});
   }
 
+  const salesCleared = text.sales.trim() === "" && !errors.sales;
   const input = (key: FieldKey, label: string, suffix?: string) => {
     const missing =
       (key === "foodPct" && values.foodPct === null) ||
+      (key === "sales" && salesCleared) ||
       ((AMOUNT_CATEGORIES as readonly string[]).includes(key) &&
         text[key] === "");
     return (
@@ -226,13 +228,13 @@ export function WhatIfPanel({
           w.breakEven,
           real.breakEvenPerDay !== null ? money(real.breakEvenPerDay) : dash,
           sim.breakEvenPerDay !== null ? money(sim.breakEvenPerDay) : dash,
-          sim.fixedTotal === null
+          sim.fixedTotal === null || salesCleared
         )}
         {result(
           w.profit,
           real.profit !== null ? signed(real.profit, money) : dash,
           sim.profit !== null ? signed(sim.profit, money) : dash,
-          sim.fixedTotal === null
+          sim.fixedTotal === null || salesCleared
         )}
       </div>
       <p className="text-[12px] text-[#6b7385]">{w.footnote}</p>

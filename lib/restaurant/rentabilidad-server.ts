@@ -47,6 +47,10 @@ import {
   previousMonthStart,
 } from "@/lib/restaurant/fixed-costs";
 import {
+  buildGroupView,
+  type GroupView,
+} from "@/lib/restaurant/rentabilidad-group";
+import {
   addDays,
   businessToday,
   comparisonChips,
@@ -315,4 +319,53 @@ export async function loadMonthMargin(args: {
     console.error("[rentabilidad] margin load failed:", err);
     return { ok: false, reason: reasons.readFailed };
   }
+}
+
+export interface RentabilidadGroupData {
+  today: string;
+  month: string;
+  isCurrentMonth: boolean;
+  view: GroupView;
+}
+
+/**
+ * «Todos los restaurantes»: the selected month of EVERY restaurant, each one
+ * through the same `loadRentabilidad` as the single-restaurant page (so a line
+ * here is exactly what its own page shows), then summed by the pure builder.
+ * The company has one currency (restaurant_locations has no currency column),
+ * so every line carries it; the builder still refuses a mixed total.
+ */
+export async function loadRentabilidadGroup(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locations: Array<{ id: string; name: string }>;
+  month: string;
+}): Promise<RentabilidadGroupData> {
+  const restaurantIds = args.locations.map((l) => l.id);
+  const loads = await Promise.all(
+    args.locations.map((l) =>
+      loadRentabilidad({
+        supabase: args.supabase,
+        companyId: args.companyId,
+        locationId: l.id,
+        restaurantIds,
+        months: [args.month],
+      })
+    )
+  );
+  const view = buildGroupView(
+    loads.map((load, i) => ({
+      locationId: args.locations[i].id,
+      name: args.locations[i].name,
+      currency: load.currency,
+      month: load.months[args.month],
+    }))
+  );
+  const first = loads[0];
+  return {
+    today: first.today,
+    month: args.month,
+    isCurrentMonth: first.months[args.month].isCurrentMonth,
+    view,
+  };
 }

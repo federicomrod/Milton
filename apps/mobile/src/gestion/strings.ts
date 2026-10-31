@@ -11,6 +11,7 @@ const es = {
     subtitle: "¿Cómo quieres entrar?",
     kitchen: "Soy de cocina (invitación)",
     manager: "Iniciar sesión",
+    managerLink: "Soy gerente · Iniciar sesión",
   },
   login: {
     title: "Iniciar sesión",
@@ -186,6 +187,7 @@ const en: typeof es = {
     subtitle: "How do you want to sign in?",
     kitchen: "I work in the kitchen (invite)",
     manager: "Sign in",
+    managerLink: "I'm a manager · Sign in",
   },
   login: {
     title: "Sign in",
@@ -362,6 +364,7 @@ const de: typeof es = {
     subtitle: "Wie möchten Sie sich anmelden?",
     kitchen: "Ich arbeite in der Küche (Einladung)",
     manager: "Anmelden",
+    managerLink: "Ich bin Manager · Anmelden",
   },
   login: {
     title: "Anmelden",

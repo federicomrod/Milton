@@ -1,7 +1,13 @@
 import React from "react";
 import { ActivityIndicator, Pressable, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
+import {
+  Redirect,
+  Stack,
+  useGlobalSearchParams,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import {
@@ -16,12 +22,24 @@ import { ToastHost } from "../components/ToastHost";
 import { Button, Muted } from "../components/ui";
 import { ManagerProvider, useManager } from "../gestion/ManagerProvider";
 import { useG } from "../gestion/hooks";
+import { signedOutLanding } from "../lib/landing";
 import { I18nProvider, useStrings } from "../i18n";
 import { SessionProvider, useSession } from "../session/SessionProvider";
 import { colors, fonts } from "../theme";
 
 // When nobody is signed in the app opens on the entry screen (cook or manager).
 export const unstable_settings = { anchor: "entrada" };
+
+/** Signed out: send the first screen to /entrada (see lib/landing.ts). Mounted
+ *  once per signed-out period, so it decides on the screen it opened on only. */
+function SignedOutLanding() {
+  const pathname = usePathname();
+  const { secret } = useGlobalSearchParams<{ secret?: string }>();
+  const [target] = React.useState(() =>
+    signedOutLanding(pathname, typeof secret === "string" && secret !== "")
+  );
+  return target ? <Redirect href={target} /> : null;
+}
 
 function Splash() {
   return (
@@ -91,50 +109,53 @@ function Routes() {
   const showManager = managerIn && mode === "manager";
   const signedOut = !kitchenIn && !managerIn && !noAccess;
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: { backgroundColor: colors.white },
-        headerTintColor: colors.ink,
-        headerTitleStyle: { fontFamily: fonts.bold },
-        headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.white },
-      }}
-    >
-      <Stack.Protected guard={showManager}>
-        <Stack.Screen name="(gestion)" options={{ headerShown: false }} />
-      </Stack.Protected>
-      <Stack.Protected guard={managerIn}>
-        <Stack.Screen
-          name="perfil"
-          options={{ headerShown: false, presentation: "modal" }}
-        />
-      </Stack.Protected>
-      <Stack.Protected guard={showKitchen}>
-        {/* The title is what iOS writes on the back button of «Cuenta». */}
-        <Stack.Screen
-          name="(tabs)"
-          options={{ headerShown: false, title: s.appName }}
-        />
-        <Stack.Screen
-          name="cuenta"
-          options={{
-            title: s.account.title,
-            headerBackVisible: false,
-            headerLeft: () => <BackButton label={s.account.back} />,
-          }}
-        />
-      </Stack.Protected>
-      <Stack.Protected guard={noAccess}>
-        <Stack.Screen name="sin-acceso" options={{ headerShown: false }} />
-      </Stack.Protected>
-      <Stack.Protected guard={signedOut}>
-        <Stack.Screen name="entrada" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ headerShown: false }} />
-      </Stack.Protected>
-      <Stack.Protected guard={!kitchenIn && !noAccess}>
-        <Stack.Screen name="join" options={{ headerShown: false }} />
-      </Stack.Protected>
-    </Stack>
+    <>
+      <Stack
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.white },
+          headerTintColor: colors.ink,
+          headerTitleStyle: { fontFamily: fonts.bold },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: colors.white },
+        }}
+      >
+        <Stack.Protected guard={showManager}>
+          <Stack.Screen name="(gestion)" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={managerIn}>
+          <Stack.Screen
+            name="perfil"
+            options={{ headerShown: false, presentation: "modal" }}
+          />
+        </Stack.Protected>
+        <Stack.Protected guard={showKitchen}>
+          {/* The title is what iOS writes on the back button of «Cuenta». */}
+          <Stack.Screen
+            name="(tabs)"
+            options={{ headerShown: false, title: s.appName }}
+          />
+          <Stack.Screen
+            name="cuenta"
+            options={{
+              title: s.account.title,
+              headerBackVisible: false,
+              headerLeft: () => <BackButton label={s.account.back} />,
+            }}
+          />
+        </Stack.Protected>
+        <Stack.Protected guard={noAccess}>
+          <Stack.Screen name="sin-acceso" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={signedOut}>
+          <Stack.Screen name="entrada" options={{ headerShown: false }} />
+          <Stack.Screen name="login" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard={!kitchenIn && !noAccess}>
+          <Stack.Screen name="join" options={{ headerShown: false }} />
+        </Stack.Protected>
+      </Stack>
+      {signedOut ? <SignedOutLanding /> : null}
+    </>
   );
 }
 

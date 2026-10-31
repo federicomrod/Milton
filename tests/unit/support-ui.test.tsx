@@ -52,7 +52,7 @@ describe("the support banner", () => {
 
 describe("the company switcher", () => {
   const companies = [
-    { id: "a", name: "Los Ranchos", isSupport: false },
+    { id: "a", name: "Restaurante Demo", isSupport: false },
     { id: "b", name: "Demo Resto", isSupport: true },
   ];
   it("lists every company when there are two or more, marking support", () => {
@@ -61,7 +61,7 @@ describe("the company switcher", () => {
       { companies, activeCompanyId: "b" },
       createElement(CompanyList)
     );
-    expect(html).toContain("Los Ranchos");
+    expect(html).toContain("Restaurante Demo");
     expect(html).toContain("Demo Resto");
     expect(html).toContain("Soporte");
   });
@@ -83,7 +83,7 @@ describe("Administración › Clientes", () => {
       {},
       createElement(ClientsList, {
         companies: [
-          { id: "a", name: "Los Ranchos" },
+          { id: "a", name: "Restaurante Demo" },
           { id: "b", name: "Demo Resto" },
         ],
         loadFailed: false,

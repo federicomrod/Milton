@@ -82,19 +82,24 @@ export async function EquipoSection() {
   const members: TeamMember[] = await Promise.all(
     ((membersRes.data ?? []) as unknown as Array<Record<string, unknown>>).map(
       async (row) => {
+        const isSupport = row.is_support === true;
         let name: string | null = null;
         let email: string | null = null;
-        try {
-          const { data } = await admin.auth.admin.getUserById(
-            String(row.user_id)
-          );
-          const u = data?.user;
-          email = cleanText(u?.email);
-          name =
-            cleanText(u?.user_metadata?.full_name) ??
-            cleanText(u?.user_metadata?.name);
-        } catch {
-          // Show the row without a name rather than failing the card.
+        // Milton staff: never look the person up, so their name and email
+        // cannot reach the client payload (the UI shows «Soporte Milton»).
+        if (!isSupport) {
+          try {
+            const { data } = await admin.auth.admin.getUserById(
+              String(row.user_id)
+            );
+            const u = data?.user;
+            email = cleanText(u?.email);
+            name =
+              cleanText(u?.user_metadata?.full_name) ??
+              cleanText(u?.user_metadata?.name);
+          } catch {
+            // Show the row without a name rather than failing the card.
+          }
         }
         return {
           id: String(row.id),
@@ -102,7 +107,7 @@ export async function EquipoSection() {
           email,
           role: roleKind(row.role as string | null),
           isSelf: row.user_id === user.id,
-          isSupport: row.is_support === true,
+          isSupport,
         };
       }
     )

@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   db = createFakeDb({
     companies: [
-      { id: HOME, name: "Los Ranchos" },
+      { id: HOME, name: "Restaurante Demo" },
       { id: DEMO, name: "Demo Resto" },
       { id: OTHER, name: "Otra Casa" },
     ],
@@ -108,7 +108,7 @@ describe("the switcher", () => {
     await open(DEMO);
     const list = await listUserCompanies(db.client, ADMIN);
     expect(list).toEqual([
-      { id: HOME, name: "Los Ranchos", isSupport: false },
+      { id: HOME, name: "Restaurante Demo", isSupport: false },
       { id: DEMO, name: "Demo Resto", isSupport: true },
     ]);
   });

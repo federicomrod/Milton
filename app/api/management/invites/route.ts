@@ -16,6 +16,7 @@ import {
   requireMiltonStaff,
   unauthorizedResponse,
 } from "@/lib/auth/permissions";
+import { isInviteRole, normalizeRole } from "@/lib/auth/capabilities";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -64,11 +65,7 @@ export async function POST(req: NextRequest) {
     if (!EMAIL_RE.test(email) || email.length > 254) {
       return NextResponse.json({ error: "Invalid email" }, { status: 400 });
     }
-    if (
-      body.role !== undefined &&
-      body.role !== "owner" &&
-      body.role !== "member"
-    ) {
+    if (body.role !== undefined && !isInviteRole(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
@@ -82,7 +79,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
 
-    let role = body.role as InviteRole | undefined;
+    let role = isInviteRole(body.role)
+      ? (normalizeRole(body.role) as InviteRole)
+      : undefined;
     if (!role) {
       const { count } = await admin
         .from("company_memberships")

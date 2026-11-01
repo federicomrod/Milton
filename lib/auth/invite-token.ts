@@ -7,7 +7,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
 export const INVITE_TTL_DAYS = 7;
-export type InviteRole = "owner" | "member";
+import type { Role } from "@/lib/auth/capabilities";
+
+/** Any company role; «member» is the old default and keeps working. */
+export type InviteRole = Role;
 export type InviteStatus = "pending" | "accepted" | "expired" | "revoked";
 
 /** 32 random bytes, base64url. Returns the raw token and its hash. */

@@ -11,7 +11,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { can } from "@/lib/auth/permissions";
-import { isOwnerRole } from "@/lib/auth/capabilities";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { getDictionary } from "@/lib/i18n";
 import { TeamPanel } from "../team/TeamPanel";
@@ -116,7 +115,7 @@ export async function EquipoSection() {
   const invites: TeamInvite[] = (invitesRes.data ?? []).map((row) => ({
     id: String(row.id),
     email: String(row.email),
-    role: isOwnerRole(row.role) ? "owner" : "member",
+    role: roleKind(row.role as string | null),
     expiresAt: String(row.expires_at),
   }));
 
@@ -135,8 +134,10 @@ export async function EquipoSection() {
         invites={invites}
         cooks={cooks}
         canManage={canManage}
+        actorRole={actor.role}
+        actorIsStaff={actor.isMiltonStaff}
       />
-      {canManage ? (
+      {can(actor, "kitchen.qr") ? (
         <div className="space-y-4">
           <KitchenAppInviteCard locations={chrome.locations} />
           <KitchenQrCard canManage />

@@ -246,6 +246,44 @@ export interface RentabilidadPageData {
   findings: MiltonFinding[];
 }
 
+function pageDataFor(
+  load: RentabilidadLoad,
+  month: string
+): RentabilidadPageData {
+  const prev = previousMonthStart(month);
+  const m = load.months[month];
+  const previous = load.months[prev] ?? null;
+  const usable = previous && previous.hasData ? previous : null;
+  return {
+    currency: load.currency,
+    today: load.today,
+    month: m,
+    previous: usable,
+    chips: comparisonChips(m, usable),
+    findings: miltonFindings(m, usable),
+  };
+}
+
+/**
+ * Every wanted month plus the one before it (for the comparison chips), in ONE
+ * load: the sales cube, the recipes context and the fixed-cost reads are shared
+ * by all the months, so the month picker can switch without another request.
+ */
+export async function loadRentabilidadPages(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locationId: string;
+  restaurantIds: string[];
+  months: string[];
+}): Promise<Record<string, RentabilidadPageData>> {
+  const wanted = [...new Set(args.months)];
+  const load = await loadRentabilidad({
+    ...args,
+    months: [...new Set(wanted.flatMap((m) => [m, previousMonthStart(m)]))],
+  });
+  return Object.fromEntries(wanted.map((m) => [m, pageDataFor(load, m)]));
+}
+
 /** The selected month plus the previous one (for the comparison chips). */
 export async function loadRentabilidadPage(args: {
   supabase: SupabaseClient;
@@ -254,27 +292,8 @@ export async function loadRentabilidadPage(args: {
   restaurantIds: string[];
   month: string;
 }): Promise<RentabilidadPageData> {
-  const prev = previousMonthStart(args.month);
-  const load = await loadRentabilidad({
-    ...args,
-    months: [args.month, prev],
-  });
-  const month = load.months[args.month];
-  const previous = load.months[prev] ?? null;
-  return {
-    currency: load.currency,
-    today: load.today,
-    month,
-    previous: previous && previous.hasData ? previous : null,
-    chips: comparisonChips(
-      month,
-      previous && previous.hasData ? previous : null
-    ),
-    findings: miltonFindings(
-      month,
-      previous && previous.hasData ? previous : null
-    ),
-  };
+  const { month, ...rest } = args;
+  return (await loadRentabilidadPages({ ...rest, months: [month] }))[month];
 }
 
 /**
@@ -329,19 +348,20 @@ export interface RentabilidadGroupData {
 }
 
 /**
- * «Todos los restaurantes»: the selected month of EVERY restaurant, each one
+ * «Todos los restaurantes»: the wanted months of EVERY restaurant, each one
  * through the same `loadRentabilidad` as the single-restaurant page (so a line
  * here is exactly what its own page shows), then summed by the pure builder.
  * The company has one currency (restaurant_locations has no currency column),
  * so every line carries it; the builder still refuses a mixed total.
  */
-export async function loadRentabilidadGroup(args: {
+export async function loadRentabilidadGroups(args: {
   supabase: SupabaseClient;
   companyId: string;
   locations: Array<{ id: string; name: string }>;
-  month: string;
-}): Promise<RentabilidadGroupData> {
+  months: string[];
+}): Promise<Record<string, RentabilidadGroupData>> {
   const restaurantIds = args.locations.map((l) => l.id);
+  const months = [...new Set(args.months)];
   const loads = await Promise.all(
     args.locations.map((l) =>
       loadRentabilidad({
@@ -349,23 +369,37 @@ export async function loadRentabilidadGroup(args: {
         companyId: args.companyId,
         locationId: l.id,
         restaurantIds,
-        months: [args.month],
+        months,
       })
     )
   );
-  const view = buildGroupView(
-    loads.map((load, i) => ({
-      locationId: args.locations[i].id,
-      name: args.locations[i].name,
-      currency: load.currency,
-      month: load.months[args.month],
-    }))
-  );
   const first = loads[0];
-  return {
-    today: first.today,
-    month: args.month,
-    isCurrentMonth: first.months[args.month].isCurrentMonth,
-    view,
-  };
+  return Object.fromEntries(
+    months.map((month) => [
+      month,
+      {
+        today: first.today,
+        month,
+        isCurrentMonth: first.months[month].isCurrentMonth,
+        view: buildGroupView(
+          loads.map((load, i) => ({
+            locationId: args.locations[i].id,
+            name: args.locations[i].name,
+            currency: load.currency,
+            month: load.months[month],
+          }))
+        ),
+      },
+    ])
+  );
+}
+
+export async function loadRentabilidadGroup(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locations: Array<{ id: string; name: string }>;
+  month: string;
+}): Promise<RentabilidadGroupData> {
+  const { month, ...rest } = args;
+  return (await loadRentabilidadGroups({ ...rest, months: [month] }))[month];
 }

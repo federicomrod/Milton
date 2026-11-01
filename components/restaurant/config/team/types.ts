@@ -2,7 +2,10 @@
 // No auth user ids: a member is addressed by its membership row id, which only
 // means something inside the caller's own company.
 
-export type TeamRoleKind = "owner" | "management" | "readOnly";
+import { KNOWN_ROLES, type Role } from "@/lib/auth/capabilities";
+
+/** The member's company role (the legacy «member» included). */
+export type TeamRoleKind = Role;
 
 export interface TeamMember {
   /** company_memberships.id (never the auth user id). */
@@ -18,7 +21,7 @@ export interface TeamMember {
 export interface TeamInvite {
   id: string;
   email: string;
-  role: "owner" | "member";
+  role: Role;
   expiresAt: string;
 }
 
@@ -29,9 +32,10 @@ export interface TeamCook {
   via: "telegram" | "app";
 }
 
+/** A stored role as the badge shows it; a role the app does not know reads as «member». */
 export function roleKind(role: string | null): TeamRoleKind {
   const r = (role ?? "").trim().toLowerCase();
-  if (r === "owner") return "owner";
-  if (r === "analyst" || r === "viewer") return "readOnly";
-  return "management";
+  return (KNOWN_ROLES as readonly string[]).includes(r)
+    ? (r as TeamRoleKind)
+    : "member";
 }

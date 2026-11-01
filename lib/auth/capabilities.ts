@@ -79,8 +79,9 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   "imports.run": OWNER_ADMIN_MANAGER,
   // The company's own data (name, restaurants, agents settings): owner and admin.
   "company.edit": OWNER_ADMIN,
-  // Invite, remove and revoke web members (Configuración › Equipo): owner only.
-  "team.manage": ["owner"],
+  // Invite, remove, revoke and change the role of web members (Configuración ›
+  // Equipo): owner and admin. WHICH roles each may touch: canGrantRole below.
+  "team.manage": OWNER_ADMIN,
 };
 
 /** Capabilities Milton staff do not get just by being staff. */
@@ -106,10 +107,72 @@ export function isOwnerRole(raw: unknown): boolean {
   return normalizeRole(raw) === "owner";
 }
 
-/** The two roles a workspace invite can carry. */
-export function isInviteRole(raw: unknown): raw is "owner" | "member" {
+/**
+ * The roles the team screen offers, highest first. «member» is the old
+ * workspace-invite role: still valid on existing rows, no longer offered.
+ */
+export const TEAM_ROLES = [
+  "owner",
+  "admin",
+  "manager",
+  "analyst",
+  "viewer",
+] as const satisfies readonly Role[];
+export type TeamRole = (typeof TEAM_ROLES)[number];
+
+/** What a new invite is set to when nobody picks (Gerente). */
+export const DEFAULT_TEAM_ROLE: TeamRole = "manager";
+
+/** Every role a workspace invite can carry (the five plus the legacy «member»). */
+export function isInviteRole(raw: unknown): raw is Role {
   const role = normalizeRole(raw);
-  return role === "owner" || role === "member";
+  return role !== null && (KNOWN_ROLES as readonly string[]).includes(role);
+}
+
+const ROLE_RANK: Record<Role, number> = {
+  owner: 5,
+  admin: 4,
+  manager: 3,
+  analyst: 2,
+  viewer: 1,
+  member: 1,
+};
+
+/** Milton staff act above every company role. */
+function rankOf(actor: Pick<Actor, "role" | "isMiltonStaff">): number {
+  if (actor.isMiltonStaff) return ROLE_RANK.owner;
+  const role = normalizeRole(actor.role);
+  return role && role in ROLE_RANK ? ROLE_RANK[role as Role] : 0;
+}
+
+/**
+ * May `actor` hand out `target` (invite with it, or set it on a member)?
+ * Only owner and admin manage the team; nobody grants a role higher than their
+ * own, so only an owner can make an owner. Unknown roles are never granted.
+ */
+export function canGrantRole(
+  actor: Pick<Actor, "role" | "isMiltonStaff">,
+  target: unknown
+): boolean {
+  if (!isInviteRole(target)) return false;
+  const rank = rankOf(actor);
+  if (rank < ROLE_RANK.admin) return false;
+  return ROLE_RANK[normalizeRole(target) as Role] <= rank;
+}
+
+/**
+ * May `actor` act on a member who currently has `current` (change their role
+ * or remove them)? Same ladder: an admin cannot touch an owner.
+ */
+export function canManageMemberRole(
+  actor: Pick<Actor, "role" | "isMiltonStaff">,
+  current: unknown
+): boolean {
+  const rank = rankOf(actor);
+  if (rank < ROLE_RANK.admin) return false;
+  const role = normalizeRole(current);
+  // A role the app does not know has nothing above the actor's.
+  return !role || !(role in ROLE_RANK) || ROLE_RANK[role as Role] <= rank;
 }
 
 const warnedRoles = new Set<string>();
@@ -163,7 +226,8 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "odoo.diagnostics": DEFAULT_FORBIDDEN_MESSAGE,
   "imports.run": "Tu rol no puede importar recetas.",
   "company.edit": "Tu rol no puede cambiar los datos de la empresa.",
-  "team.manage": "Solo el propietario puede gestionar el equipo.",
+  "team.manage":
+    "Solo el propietario o un administrador puede gestionar el equipo.",
 };
 
 /** Every capability as a plain object: what the server sends to the client. */

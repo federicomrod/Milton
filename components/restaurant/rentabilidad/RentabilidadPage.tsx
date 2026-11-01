@@ -13,7 +13,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
@@ -106,12 +106,15 @@ function ProfitBadges({
 }
 
 export function RentabilidadPage({
-  data,
+  data: initialData,
+  pages,
   locationId,
   months,
   currentMonth,
 }: {
   data: RentabilidadPageData;
+  /** Every month of the picker, loaded together: switching is a state change. */
+  pages?: Record<string, RentabilidadPageData>;
   locationId: string;
   locationName: string | null;
   /** The month picker: the current month and the 2 before it. */
@@ -123,6 +126,8 @@ export function RentabilidadPage({
   const r = d.rentabilidad;
   const [pending, startTransition] = useTransition();
   const [tab, setTab] = useState<"estado" | "por-dia">("estado");
+  const [shownMonth, setShownMonth] = useState(initialData.month.month);
+  const data = pages?.[shownMonth] ?? initialData;
   const m = data.month;
   const money = useMemo(
     () => (n: number) => formatMoney(n, data.currency),
@@ -132,14 +137,16 @@ export function RentabilidadPage({
   const hrefFor = (month: string) =>
     `${base}?${new URLSearchParams({ location: locationId, month }).toString()}`;
 
-  // Warm the three months of the picker so a click shows the page right away.
-  useEffect(() => {
-    for (const month of months) router.prefetch(hrefFor(month));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [months.join("|"), locationId]);
-
-  const goto = (month: string) =>
+  // A month already loaded is shown at once (no request, no spinner) and the
+  // address follows; any other month (the date input) loads from the server.
+  const goto = (month: string) => {
+    if (pages?.[month]) {
+      setShownMonth(month);
+      window.history.replaceState(null, "", hrefFor(month));
+      return;
+    }
     startTransition(() => router.push(hrefFor(month)));
+  };
 
   const fixedHref = costsTabHref("costos-fijos", {
     location: locationId,

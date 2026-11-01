@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import { useT } from "@/lib/i18n/client";
 import {
@@ -44,11 +44,14 @@ function Flag({ children }: { children: React.ReactNode }) {
 }
 
 export function RentabilidadGroupPage({
-  data,
+  data: initialData,
+  pages,
   months,
   currentMonth,
 }: {
   data: RentabilidadGroupData;
+  /** Every month of the picker, loaded together: switching is a state change. */
+  pages?: Record<string, RentabilidadGroupData>;
   months: string[];
   currentMonth: string;
 }) {
@@ -57,12 +60,18 @@ export function RentabilidadGroupPage({
   const g = d.rentabilidad.group;
   const r = d.rentabilidad;
   const [pending, startTransition] = useTransition();
-  const selected = data.month;
+  const [selected, setSelected] = useState(initialData.month);
+  const data = pages?.[selected] ?? initialData;
   const { view } = data;
-  const goto = (month: string) =>
-    startTransition(() =>
-      router.push(`${BASE}?${new URLSearchParams({ month }).toString()}`)
-    );
+  const goto = (month: string) => {
+    const href = `${BASE}?${new URLSearchParams({ month }).toString()}`;
+    if (pages?.[month]) {
+      setSelected(month);
+      window.history.replaceState(null, "", href);
+      return;
+    }
+    startTransition(() => router.push(href));
+  };
   const moneyFor = useMemo(
     () => (currency: string) => (n: number) => formatMoney(n, currency),
     []

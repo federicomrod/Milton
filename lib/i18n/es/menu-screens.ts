@@ -92,6 +92,19 @@ export const menuScreens = {
     unusedHint: "Ninguna receta activa lo usa: no necesita precio.",
     newPriceKeepsHistory:
       "Se guarda un precio nuevo con fecha; el anterior no se borra.",
+    yield: {
+      label: "Merma",
+      none: "Sin merma definida",
+      help: "Lo que se pierde al limpiar o porcionar. El costo se divide entre (1 − merma).",
+      change: "Cambiar",
+      define: "Definir",
+      pctLabel: "Merma, de 0 a menos de 100 %",
+      invalid: "Escribe un número de 0 a menos de 100.",
+      saveFailed: "No se pudo guardar. Inténtalo otra vez.",
+      roleDenied: "Tu rol no puede cambiar la merma de los ingredientes.",
+      readOnly:
+        "Solo el propietario, un administrador o un gerente puede cambiarla.",
+    },
     noCompany: "Conecta tu cuenta a una empresa para ver tus ingredientes.",
     noCategory: "Sin categoría",
     sortName: "Nombre",

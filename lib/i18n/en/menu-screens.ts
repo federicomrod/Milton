@@ -94,6 +94,18 @@ export const menuScreens: Dictionary["menu"]["screens"] = {
     unusedHint: "No active recipe uses it: it needs no price.",
     newPriceKeepsHistory:
       "A new dated price is saved; the previous one is not deleted.",
+    yield: {
+      label: "Yield loss",
+      none: "No yield loss set",
+      help: "What is lost when cleaning or portioning. The cost is divided by (1 − loss).",
+      change: "Change",
+      define: "Set",
+      pctLabel: "Yield loss, from 0 to under 100%",
+      invalid: "Enter a number from 0 to under 100.",
+      saveFailed: "Could not save. Please try again.",
+      roleDenied: "Your role cannot change ingredient yield loss.",
+      readOnly: "Only the owner, an admin or a manager can change it.",
+    },
     noCompany: "Connect your account to a company to see your ingredients.",
     noCategory: "No category",
     sortName: "Name",

@@ -1682,6 +1682,30 @@ function Row({
             {line.qty} {UNIT_LABEL[line.unit] ?? line.unit}
           </div>
         ) : null}
+        {line.amount !== null &&
+        line.effective &&
+        line.effective.effective !== null &&
+        line.effective.factor !== "none" ? (
+          <div
+            data-testid="effective-cost"
+            className="text-[12px] font-normal text-[#4a5a85]"
+          >
+            {d.lines.rawCost} {money(line.amount)} → {d.lines.effectiveCost}{" "}
+            <span className="font-semibold text-[#0F172A]">
+              {money(line.effective.effective)}
+            </span>{" "}
+            ·{" "}
+            {line.effective.factor === "own_yield"
+              ? fmt(d.lines.factorOwnYield, {
+                  pct: String(line.effective.pct),
+                })
+              : line.effective.factor === "measured_prep"
+                ? d.lines.factorMeasuredPrep
+                : fmt(d.lines.factorKitchenBuffer, {
+                    pct: String(line.effective.pct),
+                  })}
+          </div>
+        ) : null}
         {priceEditable && !unresolved && !editingPrice ? (
           <button
             type="button"

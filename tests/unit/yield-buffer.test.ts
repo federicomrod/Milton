@@ -51,10 +51,55 @@ describe("pickValueAt", () => {
     { effective_from: "2026-01-01" },
     { effective_from: "2026-06-01" },
   ];
-  it("takes the latest effective_from on or before the date", () => {
-    expect(pickValueAt(rows, "2026-02-15")?.effective_from).toBe("2026-01-01");
-    expect(pickValueAt(rows, "2026-06-01")?.effective_from).toBe("2026-06-01");
-    expect(pickValueAt(rows, "2026-12-31")?.effective_from).toBe("2026-06-01");
+  it("takes the most recently created row that already applies", () => {
+    const hist = [
+      {
+        id: "a",
+        effective_from: "2026-01-01",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "b",
+        effective_from: "2026-06-01",
+        created_at: "2026-06-01T00:00:00Z",
+      },
+    ];
+    expect(pickValueAt(hist, "2026-02-15")?.id).toBe("a");
+    expect(pickValueAt(hist, "2026-06-01")?.id).toBe("b");
+    expect(pickValueAt(hist, "2026-12-31")?.id).toBe("b");
+  });
+  it("a retroactive row written later beats an older row that starts later", () => {
+    const hist = [
+      {
+        id: "a",
+        effective_from: "2026-06-01",
+        created_at: "2026-06-01T00:00:00Z",
+      },
+      // written in November, effective since January: the newest row
+      {
+        id: "r",
+        effective_from: "2026-01-05",
+        created_at: "2026-11-10T00:00:00Z",
+      },
+    ];
+    expect(pickValueAt(hist, "2026-02-01")?.id).toBe("r");
+    expect(pickValueAt(hist, "2026-07-01")?.id).toBe("r");
+  });
+  it("two rows created at the same instant: the greater id wins", () => {
+    const t = [
+      {
+        id: "a",
+        effective_from: "2026-03-01",
+        created_at: "2026-03-01T08:00:00Z",
+      },
+      {
+        id: "b",
+        effective_from: "2026-03-01",
+        created_at: "2026-03-01T08:00:00Z",
+      },
+    ];
+    expect(pickValueAt(t, "2026-03-05")?.id).toBe("b");
+    expect(pickValueAt([...t].reverse(), "2026-03-05")?.id).toBe("b");
   });
   it("is null before the first row, with no rows, or with a bad date", () => {
     expect(pickValueAt(rows, "2025-12-31")).toBeNull();

@@ -51,6 +51,7 @@ import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { getDictionary } from "@/lib/i18n";
 import { KitchenBufferCard } from "@/components/restaurant/costs/KitchenBufferCard";
 import {
+  loadBufferHistory,
   loadBusinessToday,
   loadRestaurantBuffers,
 } from "@/lib/restaurant/kitchen-buffer-server";
@@ -457,9 +458,14 @@ async function KitchenBufferSection({
       shown.map((l) => ({ id: l.id, name: l.name })),
       today
     );
+    const histories = await Promise.all(
+      buffers.map((b) =>
+        loadBufferHistory(supabase, companyId, b.locationId).catch(() => [])
+      )
+    );
     return (
       <KitchenBufferCard
-        lines={buffers}
+        lines={buffers.map((b, i) => ({ ...b, history: histories[i] }))}
         canEdit={capabilityFlags(actor)["costs.buffer"]}
       />
     );

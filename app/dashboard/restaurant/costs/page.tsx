@@ -49,6 +49,11 @@ import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { getDictionary } from "@/lib/i18n";
+import { KitchenBufferCard } from "@/components/restaurant/costs/KitchenBufferCard";
+import {
+  loadBusinessToday,
+  loadRestaurantBuffers,
+} from "@/lib/restaurant/kitchen-buffer-server";
 import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
 import {
   listFixedCostHistory,
@@ -325,6 +330,10 @@ export default async function CostsAreaPage({
 
           <CostsMobileBannerHost locationId={location ?? null} />
 
+          <Suspense fallback={null}>
+            <KitchenBufferSection location={location} />
+          </Suspense>
+
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
           {tab === "costos-fijos" ? null : (
@@ -420,6 +429,44 @@ function SignInNote({ lang }: { lang: PreferredLanguage }) {
       )}
     </p>
   );
+}
+
+/** «Merma de cocina» per restaurant; read-only unless the role may change it. */
+async function KitchenBufferSection({
+  location,
+}: {
+  location: string | undefined;
+}) {
+  try {
+    const user = await getCachedAuthUser();
+    const companyId = user?.id ? await getCachedCompanyId(user.id) : null;
+    if (!user?.id || !companyId) return null;
+    const supabase = await createClient();
+    const [actor, context] = await Promise.all([
+      getCachedActor(user.id, companyId),
+      resolveRestaurantContext(supabase, companyId, location),
+    ]);
+    const shown = context.selected
+      ? context.locations.filter((l) => l.id === context.selected?.locationId)
+      : context.locations;
+    if (shown.length === 0) return null;
+    const today = await loadBusinessToday(supabase, companyId, shown[0].id);
+    const buffers = await loadRestaurantBuffers(
+      supabase,
+      companyId,
+      shown.map((l) => ({ id: l.id, name: l.name })),
+      today
+    );
+    return (
+      <KitchenBufferCard
+        lines={buffers}
+        canEdit={capabilityFlags(actor)["costs.buffer"]}
+      />
+    );
+  } catch (err) {
+    console.error("[costs page] kitchen buffer read failed:", err);
+    return null;
+  }
 }
 
 async function ComprasTab({ lang }: { lang: PreferredLanguage }) {

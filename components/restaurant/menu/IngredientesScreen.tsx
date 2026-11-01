@@ -17,6 +17,10 @@ import { moneyLocaleFor } from "@/lib/restaurant/menu-dishes/money";
 import { IngredientConversions } from "./IngredientConversions";
 import { invalidatePickerOptions } from "@/lib/restaurant/recipe-costing/picker-cache";
 import Link from "next/link";
+import { MermaField } from "@/components/restaurant/costs/MermaField";
+import { pctText } from "@/lib/restaurant/merma-format";
+import { MAX_YIELD_LOSS_PCT } from "@/lib/restaurant/yield-buffer";
+import type { HistoryLine } from "@/lib/restaurant/kitchen-buffer-server";
 import { CAPABILITY_MESSAGES, type Capability } from "@/lib/auth/capabilities";
 import {
   DuplicatesBanner,
@@ -84,6 +88,10 @@ export interface IngredienteItem {
   inUse: boolean;
   /** Soft-hidden (050). Never true for an ingredient in use. */
   archived: boolean;
+  /** Approved yield loss in force today, in %; null = no yield set (never 0). */
+  yieldPct?: number | null;
+  /** Merma history (rows, newest first): date, who, old → new, desde hoy / retroactivo. */
+  yieldHistory?: HistoryLine[];
 }
 
 const UNITS = ["kg", "g", "l", "ml", "unit", "portion", "oz", "lb"];
@@ -1026,6 +1034,42 @@ function IngredienteDetail({
         canEdit={canEditPrices}
       />
 
+      <div className="mt-6 min-w-0" data-testid="ingredient-yield">
+        <h3 className="text-[14px] font-bold text-[#151c2c]">
+          {t.yield.label}
+        </h3>
+        <MermaField
+          endpoint="/api/restaurant/ingredient-yield"
+          buildBody={(pct, scope) => ({
+            ingredientId: item.id,
+            lossPct: pct,
+            scope,
+          })}
+          currentPct={item.yieldPct ?? null}
+          max={MAX_YIELD_LOSS_PCT}
+          canEdit={canManage}
+          history={item.yieldHistory ?? []}
+          idPrefix={`yield-${item.id}`}
+          placeholder="—"
+          strings={{
+            change: item.yieldPct == null ? t.yield.define : t.yield.change,
+            pctLabel: t.yield.pctLabel,
+            invalid: t.yield.invalid,
+            saveFailed: t.yield.saveFailed,
+          }}
+          valueNode={
+            <span className="text-[14px] text-[#151c2c]">
+              {item.yieldPct == null
+                ? t.yield.none
+                : pctText(item.yieldPct, lang)}
+            </span>
+          }
+        />
+        <p className="mt-1 text-[12px] text-[#8a92a3]">
+          {t.yield.help}
+          {canManage ? "" : ` ${t.yield.readOnly}`}
+        </p>
+      </div>
       <h3 className="mt-6 text-[14px] font-bold text-[#151c2c]">{t.usedIn}</h3>
       <UsesList usedIn={item.usedIn} />
     </section>

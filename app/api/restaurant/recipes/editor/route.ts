@@ -7,6 +7,7 @@
 // user come from auth, never from the request. Editing needs the same role
 // that may prepare a recipe (owner, admin, manager, Milton staff).
 
+import { attachEffectiveCosts } from "@/lib/restaurant/effective-cost-server";
 import { NextRequest, NextResponse } from "next/server";
 import { authAndCompany } from "@/lib/restaurant/api-auth";
 import { apiLanguage } from "@/lib/restaurant/api-lang";
@@ -67,6 +68,13 @@ export async function GET(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
+    // Raw vs effective cost per line (display only).
+    await attachEffectiveCosts(
+      auth.supabase,
+      auth.companyId,
+      str(req.nextUrl.searchParams.get("location_id")),
+      result.state
+    );
     const ms = Date.now() - started;
     // One line per read, to measure it in the logs (no client data).
     console.info(`[recipes/editor] load ${ms}ms`);

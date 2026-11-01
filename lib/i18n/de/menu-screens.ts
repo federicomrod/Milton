@@ -100,6 +100,19 @@ export const menuScreens: Dictionary["menu"]["screens"] = {
     unusedHint: "Kein aktives Rezept verwendet sie: Ein Preis ist nicht nötig.",
     newPriceKeepsHistory:
       "Es wird ein neuer Preis mit Datum gespeichert; der vorherige bleibt erhalten.",
+    yield: {
+      label: "Ausbeuteverlust",
+      none: "Kein Ausbeuteverlust festgelegt",
+      help: "Was beim Putzen oder Portionieren verloren geht. Die Kosten werden durch (1 − Verlust) geteilt.",
+      change: "Ändern",
+      define: "Festlegen",
+      pctLabel: "Ausbeuteverlust, von 0 bis unter 100 %",
+      invalid: "Geben Sie eine Zahl von 0 bis unter 100 ein.",
+      saveFailed: "Speichern nicht möglich. Bitte versuchen Sie es erneut.",
+      roleDenied:
+        "Ihre Rolle kann den Ausbeuteverlust von Zutaten nicht ändern.",
+      readOnly: "Nur Inhaber, Admins oder Manager können ihn ändern.",
+    },
     noCompany:
       "Verbinden Sie Ihr Konto mit einem Unternehmen, um Ihre Zutaten zu sehen.",
     noCategory: "Keine Kategorie",

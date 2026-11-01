@@ -1,7 +1,8 @@
 // The default kitchen buffer (#405 follow-up): with no row in force, 5% for
 // dates on or after BUFFER_DEFAULT_FROM and 0% before; a saved row wins; the
-// default is never written as a row. «Solo desde hoy» leaves past months as
-// they were, «También meses anteriores» changes them.
+// default is never written as a row. History is append-only (#406): «Solo
+// desde hoy» leaves past months as they were, «Aplicar a semanas anteriores»
+// changes them with a NEW row, and nothing is ever deleted or updated.
 import { describe, expect, it } from "vitest";
 import {
   BUFFER_DEFAULT_FROM,
@@ -100,7 +101,7 @@ function fakeDb(initial: KitchenBufferRow[] = []) {
   const supabase = {
     from(table: string) {
       expect(table).toBe("kitchen_buffer_settings");
-      let op: "select" | "insert" | "delete" = "select";
+      let op: "select" | "insert" = "select";
       let payload: Record<string, unknown> = {};
       const filters: Array<(r: KitchenBufferRow) => boolean> = [];
       let limit = Infinity;
@@ -117,16 +118,10 @@ function fakeDb(initial: KitchenBufferRow[] = []) {
           return { data: r, error: null };
         }
         const hit = rows.filter((r) => filters.every((f) => f(r)));
-        if (op === "delete") {
-          for (const r of hit) rows.splice(rows.indexOf(r), 1);
-          return { data: null, error: null };
-        }
         return {
           data: [...hit]
             .sort((a, b) =>
-              a.effective_from === b.effective_from
-                ? (b.created_at ?? "").localeCompare(a.created_at ?? "")
-                : b.effective_from.localeCompare(a.effective_from)
+              (b.created_at ?? "").localeCompare(a.created_at ?? "")
             )
             .slice(0, limit),
           error: null,
@@ -141,9 +136,10 @@ function fakeDb(initial: KitchenBufferRow[] = []) {
           return chain;
         },
         delete: () => {
-          op = "delete";
-          calls.push("delete");
-          return chain;
+          throw new Error("history rows are never deleted");
+        },
+        update: () => {
+          throw new Error("history rows are never updated");
         },
         eq: (c: string, v: unknown) => {
           if (c === "location_id") filters.push((r) => r.location_id === v);
@@ -226,7 +222,7 @@ describe("saving", () => {
     expect(at(db.rows, "2026-11-10")).toBe(8);
   });
 
-  it("«También meses anteriores» changes the past, from the first data date", async () => {
+  it("«Aplicar a semanas anteriores» changes the past with a new row, deleting nothing", async () => {
     const db = fakeDb([row("old", CENTRO, 3, "2026-10-01")]);
     const res = await saveKitchenBuffer({
       ...base,
@@ -238,7 +234,60 @@ describe("saving", () => {
     expect(at(db.rows, "2026-09-20")).toBe(8);
     expect(at(db.rows, "2026-10-15")).toBe(8); // was 3
     expect(at(db.rows, "2026-11-10")).toBe(8);
-    expect(db.rows.map((r) => r.id)).not.toContain("old");
+    // The old row is still there; the new one is simply the newest.
+    expect(db.rows.map((r) => r.id)).toContain("old");
+    expect(db.rows).toHaveLength(2);
+    expect(db.calls).toEqual(["insert"]);
+  });
+
+  it("a retroactive row followed by a «desde hoy» row: the later row wins from its date", async () => {
+    const db = fakeDb();
+    await saveKitchenBuffer({
+      ...base,
+      supabase: db.supabase,
+      bufferPct: 8,
+      scope: "all",
+    });
+    await saveKitchenBuffer({
+      ...base,
+      today: "2026-11-20",
+      supabase: db.supabase,
+      bufferPct: 12,
+      scope: "today",
+    });
+    expect(at(db.rows, "2026-09-20")).toBe(8); // the retroactive row
+    expect(at(db.rows, "2026-11-19")).toBe(8);
+    expect(at(db.rows, "2026-11-20")).toBe(12); // desde hoy
+    expect(at(db.rows, "2026-12-31")).toBe(12);
+    expect(db.rows).toHaveLength(2);
+    expect(db.calls).toEqual(["insert", "insert"]);
+  });
+
+  it("a second retroactive row wins everywhere again; nothing is lost", async () => {
+    const db = fakeDb();
+    await saveKitchenBuffer({
+      ...base,
+      supabase: db.supabase,
+      bufferPct: 8,
+      scope: "all",
+    });
+    await saveKitchenBuffer({
+      ...base,
+      today: "2026-11-20",
+      supabase: db.supabase,
+      bufferPct: 12,
+      scope: "today",
+    });
+    await saveKitchenBuffer({
+      ...base,
+      today: "2026-11-25",
+      supabase: db.supabase,
+      bufferPct: 6,
+      scope: "all",
+    });
+    expect(at(db.rows, "2026-09-20")).toBe(6);
+    expect(at(db.rows, "2026-12-31")).toBe(6);
+    expect(db.rows).toHaveLength(3);
   });
 
   it("another restaurant's history is untouched", async () => {

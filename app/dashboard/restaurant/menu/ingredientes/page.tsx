@@ -22,6 +22,11 @@ import {
   loadDuplicateState,
   type DuplicateState,
 } from "@/lib/restaurant/ingredient-duplicates-server";
+import {
+  loadYieldHistories,
+  type HistoryLine,
+} from "@/lib/restaurant/kitchen-buffer-server";
+import { currentYield } from "@/lib/restaurant/ingredient-yield-view";
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
@@ -58,20 +63,31 @@ async function loadIngredientes(
   if (!companyId) return { kind: "no-company" };
   const supabase = await createClient();
 
-  const [ingredients, suppliersRes, currency, economics, usage, duplicates] =
-    await Promise.all([
-      fetchIngredientLatestCosts(supabase, companyId),
-      supabase
-        .from("suppliers")
-        .select("id, name")
-        .eq("company_id", companyId)
-        .eq("status", "active")
-        .order("name", { ascending: true }),
-      resolveCompanyCurrency(supabase, companyId),
-      loadDishEconomics(companyId, null, null, locationId),
-      loadIngredientUsage(supabase, companyId, lang),
-      loadDuplicateState(supabase, companyId),
-    ]);
+  const [
+    ingredients,
+    suppliersRes,
+    currency,
+    economics,
+    usage,
+    duplicates,
+    yieldHistories,
+  ] = await Promise.all([
+    fetchIngredientLatestCosts(supabase, companyId),
+    supabase
+      .from("suppliers")
+      .select("id, name")
+      .eq("company_id", companyId)
+      .eq("status", "active")
+      .order("name", { ascending: true }),
+    resolveCompanyCurrency(supabase, companyId),
+    loadDishEconomics(companyId, null, null, locationId),
+    loadIngredientUsage(supabase, companyId, lang),
+    loadDuplicateState(supabase, companyId),
+    // Merma history (approved rows); a failed read shows no history, not an error.
+    loadYieldHistories(supabase, companyId).catch(
+      () => new Map<string, HistoryLine[]>()
+    ),
+  ]);
   const capabilities = capabilityFlags(
     await getCachedActor(user.id, companyId)
   );
@@ -93,6 +109,7 @@ async function loadIngredientes(
     }
   }
 
+  const today = new Date().toISOString().slice(0, 10);
   const items: IngredienteItem[] = ingredients.map((ing) => {
     const usedIn = usage.ok ? (usage.usesByIngredient.get(ing.id) ?? []) : null;
     return {
@@ -116,6 +133,10 @@ async function loadIngredientes(
         : { inUse: true, archived: false }),
       sold_net_sales: soldNetSales.get(ing.id) ?? 0,
       usedIn,
+      // The yield in force today is the newest entry that already applies;
+      // none = no yield set (never shown as 0).
+      yieldPct: currentYield(yieldHistories.get(ing.id) ?? [], today),
+      yieldHistory: yieldHistories.get(ing.id) ?? [],
     };
   });
 

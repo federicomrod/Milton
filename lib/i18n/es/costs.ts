@@ -27,7 +27,7 @@ export const costs = {
     change: "Cambiar",
     pctLabel: "Merma de cocina, de 0 a 30 %",
     scopeToday: "Solo desde hoy",
-    scopeAll: "También meses anteriores",
+    scopeAll: "Aplicar a semanas anteriores",
     save: "Guardar",
     cancel: "Cancelar",
     saving: "Guardando…",
@@ -37,6 +37,14 @@ export const costs = {
     roleDenied: "Tu rol no puede cambiar la merma de cocina.",
     readOnly:
       "Solo el propietario, un administrador o un gerente puede cambiarla.",
+    confirmRetro: "Esto cambia el costo de los meses anteriores. ¿Continuar?",
+    confirmYes: "Continuar",
+    confirmBack: "Volver",
+    history: "Historial",
+    kindToday: "desde hoy",
+    kindRetro: "retroactivo",
+    milton: "Equipo Milton",
+    configLink: "Cambiar en Costos",
   },
   fixed: {
     sectionAria: "Costos fijos",

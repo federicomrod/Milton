@@ -55,6 +55,7 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "kitchen.qr": [true, false, false, false, false, false],
   "costs.reset": [true, true, false, false, false, false],
   "costs.fixed": [true, true, true, false, false, false],
+  "costs.buffer": [true, true, true, false, false, false],
   "odoo.sync": [false, false, false, false, false, false],
   "odoo.diagnostics": [true, true, false, false, false, false],
   "imports.run": [true, true, true, false, false, false],

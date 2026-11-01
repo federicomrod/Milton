@@ -10,9 +10,33 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** The column default of kitchen_buffer_settings.buffer_pct (a suggestion for writers, never a read fallback). */
+/** The column default of kitchen_buffer_settings.buffer_pct (what a new row suggests). */
 export const DEFAULT_BUFFER_PCT = 5;
 export const MAX_BUFFER_PCT = 30;
+
+/**
+ * The release date of the 5% default kitchen buffer. A restaurant with no
+ * kitchen_buffer_settings row in force on a date is read as 5% for dates on or
+ * after this one and 0% before it. Never a row: the default is resolved at
+ * read time. It is a single constant on purpose: Sofia's decision is that we
+ * move it to the real release date when we release (2026-11-02 for now).
+ */
+export const BUFFER_DEFAULT_FROM = "2026-11-02";
+
+/** The buffer % used for a date when no row is in force (read time, no rows). */
+export function defaultBufferPct(date: string): number {
+  return DATE_RE.test(date) && date >= BUFFER_DEFAULT_FROM
+    ? DEFAULT_BUFFER_PCT
+    : 0;
+}
+
+export interface ResolvedBuffer {
+  bufferPct: number;
+  /** The row's effective_from; null when the default applies. */
+  effectiveFrom: string | null;
+  /** True when no saved row is in force and the read-time default is used. */
+  isDefault: boolean;
+}
 
 export type YieldStatus = "draft" | "approved";
 
@@ -106,6 +130,30 @@ export function bufferAt(
 }
 
 /**
+ * The kitchen buffer of one restaurant at `date`, always a number: the saved
+ * row in force, else the read-time default (5% from BUFFER_DEFAULT_FROM, 0%
+ * before). A saved row always wins over the default.
+ */
+export function resolveBufferAt(
+  rows: readonly KitchenBufferRow[],
+  locationId: string,
+  date: string
+): ResolvedBuffer {
+  const hit = bufferAt(rows, locationId, date);
+  if (hit)
+    return {
+      bufferPct: hit.bufferPct,
+      effectiveFrom: hit.effectiveFrom,
+      isDefault: false,
+    };
+  return {
+    bufferPct: defaultBufferPct(date),
+    effectiveFrom: null,
+    isDefault: true,
+  };
+}
+
+/**
  * The approved yield loss of each ingredient at `date`, in ONE query. An
  * ingredient with no approved yield by then is absent from the map.
  */
@@ -156,4 +204,25 @@ export async function loadBufferAt(
     .limit(1);
   if (error) throw new Error(error.message);
   return bufferAt((data ?? []) as KitchenBufferRow[], locationId, date);
+}
+
+/** loadBufferAt + the read-time default: the buffer to cost with on `date`. Read-only. */
+export async function loadResolvedBufferAt(
+  supabase: SupabaseClient,
+  companyId: string,
+  locationId: string,
+  date: string
+): Promise<ResolvedBuffer> {
+  const hit = await loadBufferAt(supabase, companyId, locationId, date);
+  if (hit)
+    return {
+      bufferPct: hit.bufferPct,
+      effectiveFrom: hit.effectiveFrom,
+      isDefault: false,
+    };
+  return {
+    bufferPct: defaultBufferPct(date),
+    effectiveFrom: null,
+    isDefault: true,
+  };
 }

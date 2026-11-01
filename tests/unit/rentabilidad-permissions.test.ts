@@ -33,6 +33,56 @@ vi.mock("@/lib/restaurant/fixed-costs-server", () => ({
     loads.push("view");
     return { lines: [] };
   },
+  saveFixedCosts: async () => {
+    loads.push("save");
+    return { ok: true, lines: [] };
+  },
+}));
+// Mobile manager routes: a synthetic bearer sign-in, the role from `role`, and
+// the heavy builders replaced so only the gate is under test.
+vi.mock("@/lib/restaurant/api-auth", () => ({
+  authAndCompanyFromBearer: async () => ({
+    ok: true,
+    supabase: {},
+    companyId: "c1",
+    userId: "u1",
+    email: "demo@example.test",
+  }),
+}));
+vi.mock("@/lib/auth/permissions", async (orig) => ({
+  ...(await orig<typeof import("@/lib/auth/permissions")>()),
+  resolveActor: async () => ({
+    userId: "u1",
+    companyId: "c1",
+    role,
+    isMiltonStaff,
+  }),
+}));
+vi.mock("@/lib/restaurant/mobile-manager/home", () => ({
+  buildHome: async () => {
+    loads.push("home");
+    return {};
+  },
+}));
+vi.mock("@/lib/restaurant/mobile-manager/sales", () => ({
+  parseVentasPeriod: () => "week",
+  buildVentas: async () => {
+    loads.push("ventas");
+    return {};
+  },
+}));
+vi.mock("@/lib/restaurant/mobile-manager/rentabilidad", () => ({
+  parseMonth: () => null,
+  buildRentabilidad: async () => {
+    loads.push("rentabilidad");
+    return { month: "2026-10-01", hasData: false };
+  },
+}));
+vi.mock("@/lib/restaurant/mobile-manager/costos", () => ({
+  loadPendingInvoices: async () => {
+    loads.push("costos");
+    return { invoices: [] };
+  },
 }));
 vi.mock("@/lib/restaurant/rentabilidad-server", () => ({
   loadMonthMargin: async () => ({ ok: false, reason: "x" }),
@@ -65,7 +115,11 @@ vi.mock("@/components/restaurant/shell/OperatingPageHeader", () => ({
   OperatingPageHeader: () => null,
 }));
 
-import { GET } from "@/app/api/restaurant/fixed-costs/route";
+import { GET, PUT } from "@/app/api/restaurant/fixed-costs/route";
+import { GET as homeGET } from "@/app/api/mobile/v1/home/route";
+import { GET as ventasGET } from "@/app/api/mobile/v1/ventas/route";
+import { GET as rentabilidadGET } from "@/app/api/mobile/v1/rentabilidad/route";
+import { GET as costosGET } from "@/app/api/mobile/v1/costos/route";
 import RentabilidadRoute from "@/app/dashboard/restaurant/rentabilidad/page";
 
 const get = () =>
@@ -74,6 +128,21 @@ const get = () =>
       "http://localhost/api/restaurant/fixed-costs?month=2026-10&location=l1"
     )
   );
+const put = () =>
+  PUT(
+    new NextRequest("http://localhost/api/restaurant/fixed-costs", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        month: "2026-10-01",
+        entries: [{ category: "alquiler", value: 1200 }],
+      }),
+    })
+  );
+const mobile = (path: string) =>
+  new NextRequest(`http://localhost/api/mobile/v1/${path}`, {
+    headers: { authorization: "Bearer synthetic-test-token" },
+  });
 const actor = (r: string | null, staff = false): Actor => ({
   userId: "u",
   companyId: "c",
@@ -115,6 +184,49 @@ describe("GET /api/restaurant/fixed-costs", () => {
   it.each(["owner", "admin", "manager"])("%s -> 200", async (r) => {
     role = r;
     expect((await get()).status).toBe(200);
+  });
+});
+
+describe("PUT /api/restaurant/fixed-costs", () => {
+  it.each(["analyst", "viewer", "member", "intern", null])(
+    "%s -> 403 and nothing is written",
+    async (r) => {
+      role = r;
+      expect((await put()).status).toBe(403);
+      expect(loads).toEqual([]);
+    }
+  );
+  it.each(["owner", "admin", "manager"])("%s -> 200", async (r) => {
+    role = r;
+    expect((await put()).status).toBe(200);
+    expect(loads).toEqual(["save"]);
+  });
+});
+
+const MOBILE_ROUTES = [
+  ["home", "home", () => homeGET(mobile("home"))],
+  ["ventas", "ventas", () => ventasGET(mobile("ventas?period=week"))],
+  [
+    "rentabilidad",
+    "rentabilidad",
+    () => rentabilidadGET(mobile("rentabilidad?location=l1")),
+  ],
+  ["costos", "costos", () => costosGET(mobile("costos"))],
+] as const;
+
+describe.each(MOBILE_ROUTES)("GET /api/mobile/v1/%s", (_n, marker, call) => {
+  it.each(["analyst", "viewer", "member", "intern", null])(
+    "%s -> 403 and nothing is loaded",
+    async (r) => {
+      role = r;
+      expect((await call()).status).toBe(403);
+      expect(loads).not.toContain(marker);
+    }
+  );
+  it.each(["owner", "admin", "manager"])("%s -> 200", async (r) => {
+    role = r;
+    expect((await call()).status).toBe(200);
+    expect(loads).toContain(marker);
   });
 });
 

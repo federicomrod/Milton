@@ -2,6 +2,7 @@
 // and what approving it unlocks (dishes and share of net sales). Company
 // comes from auth, never from the request.
 
+import { isMeasuredOutput } from "@/lib/restaurant/prep-yield";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
@@ -74,6 +75,7 @@ export async function loadPreparationsOverview(
   // Preparation -> preparations its current version uses.
   const children = new Map<string, string[]>();
   const statusOf = new Map<string, string>();
+  const currentOutput = new Map<string, number>();
   for (const [
     componentId,
     rows,
@@ -81,6 +83,7 @@ export async function loadPreparationsOverview(
     const current = latest(rows);
     if (!current) continue;
     statusOf.set(componentId, current.status);
+    currentOutput.set(componentId, Number(current.output_quantity));
     const inputs =
       versions.componentRecipeVersionInputsByVersionId.get(current.id) ?? [];
     children.set(
@@ -119,7 +122,7 @@ export async function loadPreparationsOverview(
 
   const openByComponent = new Map<
     string,
-    { note: string; yieldOpen: boolean }
+    { note: string; yieldEvidence: { confirmed: boolean } | null }
   >();
   for (const item of items.rows) {
     const id = item.raw_values.component_id;
@@ -127,7 +130,9 @@ export async function loadPreparationsOverview(
     const y = item.raw_values.yield as Record<string, unknown> | undefined;
     openByComponent.set(id, {
       note: item.reason,
-      yieldOpen: Boolean(y && y.confirmed === false),
+      yieldEvidence: y
+        ? { confirmed: y.confirmed !== false && y.source !== "assumed" }
+        : null,
     });
   }
 
@@ -149,7 +154,13 @@ export async function loadPreparationsOverview(
             ? "borrador"
             : "sin_receta",
       open_note: open?.note ?? null,
-      yield_to_confirm: open?.yieldOpen ?? false,
+      // «Falta rendimiento»: the batch output is missing or only the default
+      // 1 unit (prep-yield.ts), the same rule the recipe editor flags.
+      yield_to_confirm: !isMeasuredOutput({
+        quantity: currentOutput.get(component.id) ?? null,
+        status,
+        evidence: open?.yieldEvidence ?? null,
+      }),
       impact: im,
       impact_label: impactLabel(im, input.lang),
     };

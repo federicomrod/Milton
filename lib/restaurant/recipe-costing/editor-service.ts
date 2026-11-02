@@ -12,6 +12,7 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import { isMeasuredOutput } from "@/lib/restaurant/prep-yield";
 import { fmt, getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { findSimilarIngredient } from "@/lib/restaurant/ingredient-similar";
@@ -528,12 +529,20 @@ async function build(
     const prepYield: PreparationYield | null =
       fromEvidence ??
       (version?.output_quantity
-        ? {
-            value: version.output_quantity,
-            unit: version.output_unit ?? "unit",
-            confirmed: true,
-            source: null,
-          }
+        ? (() => {
+            // The default 1 unit is not a measurement (prep-yield.ts).
+            const measured = isMeasuredOutput({
+              quantity: version.output_quantity,
+              status: version.status,
+              evidence: null,
+            });
+            return {
+              value: version.output_quantity,
+              unit: version.output_unit ?? "unit",
+              confirmed: measured,
+              source: measured ? null : "assumed",
+            };
+          })()
         : null);
     const checklist = preparationChecklist(lines, prepYield, ctx.lang);
     state.preparation = {

@@ -18,6 +18,7 @@ export type Capability =
   | "recipes.submit"
   | "recipes.approve"
   | "prices.edit"
+  | "prices.view"
   | "links.confirm"
   | "ingredients.manage"
   | "menu.manage"
@@ -60,6 +61,9 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   // approve only after recording the client's confirmation (approval.ts).
   "recipes.approve": OWNER_ADMIN,
   "prices.edit": OWNER_ADMIN_MANAGER,
+  // Prices and the merma values derived from them (Costo real, Impacto merma,
+  // costo efectivo): everyone but the kitchen roles (member = cook).
+  "prices.view": ["owner", "admin", "manager", "analyst", "viewer"],
   "links.confirm": OWNER_ADMIN_MANAGER,
   "ingredients.manage": OWNER_ADMIN_MANAGER,
   "menu.manage": OWNER_ADMIN_MANAGER,
@@ -214,6 +218,7 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "recipes.submit": "Tu rol no puede enviar recetas a aprobación.",
   "recipes.approve": "Tu rol no puede aprobar recetas.",
   "prices.edit": "Tu rol no puede cambiar precios.",
+  "prices.view": "Tu rol no puede ver precios ni costos.",
   "links.confirm": "Tu rol no puede vincular productos.",
   "ingredients.manage": "Tu rol no puede cambiar los ingredientes.",
   "menu.manage": "Tu rol no puede cambiar los platos del menú.",

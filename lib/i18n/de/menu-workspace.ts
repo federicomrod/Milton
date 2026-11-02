@@ -416,6 +416,7 @@ export const menuWorkspace: Dictionary["menu"]["workspace"] = {
     chipDrafts: "{n} zur Freigabe",
     chipApproved: "{n} freigegeben",
     yieldToConfirmSuffix: " · Ausbeute zu bestätigen",
+    filterMissingYield: "Ausbeute fehlt ({n})",
     backToDish: "← Zurück zum Gericht",
     title: "Zubereitungen Ihrer Küche",
     titleHint:

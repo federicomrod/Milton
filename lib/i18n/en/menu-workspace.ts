@@ -403,6 +403,7 @@ export const menuWorkspace: Dictionary["menu"]["workspace"] = {
     chipDrafts: "{n} to approve",
     chipApproved: "{n} approved",
     yieldToConfirmSuffix: " · yield to confirm",
+    filterMissingYield: "Yield missing ({n})",
     backToDish: "← Back to the dish",
     title: "Your kitchen's preparations",
     titleHint:

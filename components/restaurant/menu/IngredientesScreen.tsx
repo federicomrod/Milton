@@ -22,9 +22,14 @@ import { pctText } from "@/lib/restaurant/merma-format";
 import { MAX_YIELD_LOSS_PCT } from "@/lib/restaurant/yield-buffer";
 import type { HistoryLine } from "@/lib/restaurant/kitchen-buffer-server";
 import {
-  panelRealCost,
+  coveredMap,
   impactOfUse,
+  impactViaPreps,
+  panelRealCost,
+  sumImpacts,
   usablePrice,
+  type PrepDef,
+  type UseImpact,
 } from "@/lib/restaurant/merma-visibility";
 import { CAPABILITY_MESSAGES, type Capability } from "@/lib/auth/capabilities";
 import {
@@ -188,6 +193,7 @@ export function IngredientesScreen({
   duplicates = NO_DUPLICATE_STATE,
   capabilities,
   bufferPct = null,
+  prepDefs,
 }: {
   items: IngredienteItem[];
   suppliers: SupplierOption[];
@@ -203,6 +209,8 @@ export function IngredientesScreen({
   capabilities?: Partial<Record<Capability, boolean>>;
   /** The kitchen buffer in force today (%); null = could not be read. */
   bufferPct?: number | null;
+  /** Preparations' recipes, for the share of «Impacto merma» via a preparation. */
+  prepDefs?: Record<string, PrepDef>;
 }) {
   const { d, lang } = useT();
   const t = d.menu.screens.ingredientes;
@@ -511,10 +519,9 @@ export function IngredientesScreen({
             canEditPrices={allowed("prices.edit")}
             canManage={allowed("ingredients.manage")}
             // Cooks never see prices: merma in money only for roles that manage them.
-            showMermaCost={
-              allowed("prices.edit") || allowed("ingredients.manage")
-            }
+            showMermaCost={allowed("prices.view")}
             bufferPct={bufferPct}
+            prepDefs={prepDefs}
             archiving={archiving}
             onArchive={(archived) => void setArchived([selected.id], archived)}
           />
@@ -683,6 +690,7 @@ function IngredienteDetail({
   canManage,
   showMermaCost,
   bufferPct,
+  prepDefs,
   archiving,
   onArchive,
 }: {
@@ -695,6 +703,7 @@ function IngredienteDetail({
   canManage: boolean;
   showMermaCost: boolean;
   bufferPct: number | null;
+  prepDefs?: Record<string, PrepDef>;
   archiving: boolean;
   onArchive: (archived: boolean) => void;
 }) {
@@ -1110,6 +1119,8 @@ function IngredienteDetail({
                 ownLossPct: item.yieldPct ?? null,
                 bufferPct,
                 currency,
+                ingredientId: item.id,
+                prepDefs,
               }
             : undefined
         }
@@ -1119,19 +1130,63 @@ function IngredienteDetail({
 }
 
 /** "Se usa en": the one list the counters come from. */
+export interface ImpactContext {
+  price: number | null;
+  priceUnit: string | null;
+  ownLossPct: number | null;
+  bufferPct: number | null;
+  currency: string;
+  /** For the share of a preparation's impact reaching a plato (#407 follow-up). */
+  ingredientId?: string;
+  prepDefs?: Record<string, PrepDef>;
+}
+
+/** One line's impact: direct, or the share through the preparations it uses. */
+export function impactForUse(
+  u: IngredientUseEntry,
+  impact: ImpactContext
+): UseImpact {
+  const ctx = {
+    price: impact.price,
+    priceUnit: impact.priceUnit,
+    ownLossPct: impact.ownLossPct,
+    bufferPct: impact.bufferPct ?? 0,
+  };
+  // No buffer known and no own yield: nothing to show rather than a guess.
+  const noFactor = impact.ownLossPct === null && impact.bufferPct === null;
+  if (u.qty === null && u.viaPreps && u.viaPreps.length > 0) {
+    if (!impact.ingredientId || !impact.prepDefs)
+      return usablePrice(impact.price)
+        ? { kind: "unknown" }
+        : { kind: "missing" };
+    const defs = new Map(Object.entries(impact.prepDefs));
+    const r = impactViaPreps(
+      impact.ingredientId,
+      u.viaPreps,
+      defs,
+      ctx,
+      coveredMap(defs)
+    );
+    return noFactor && r.kind === "extra" ? { kind: "none" } : r;
+  }
+  const r = impactOfUse({
+    ...ctx,
+    line: {
+      qty: u.qty,
+      unit: u.unit,
+      insideMeasuredPrep: u.kind === "preparacion" && u.prepCovered === true,
+    },
+  });
+  return noFactor && r.kind === "extra" ? { kind: "none" } : r;
+}
+
 export function UsesList({
   usedIn,
   impact,
 }: {
   usedIn: IngredientUseEntry[] | null;
   /** «Impacto merma» column; left out for roles that must not see money. */
-  impact?: {
-    price: number | null;
-    priceUnit: string | null;
-    ownLossPct: number | null;
-    bufferPct: number | null;
-    currency: string;
-  };
+  impact?: ImpactContext;
 }) {
   const { d, locale, lang } = useT();
   const t = d.menu.screens.ingredientes;
@@ -1147,6 +1202,8 @@ export function UsesList({
         {t.usesNone}
       </p>
     );
+  const results = impact ? usedIn.map((u) => impactForUse(u, impact)) : null;
+  const totals = results ? sumImpacts(results) : null;
   return (
     <table className="mt-2 w-full table-fixed text-[13px] [&_td]:break-words [&_th]:break-words">
       <thead>
@@ -1165,7 +1222,7 @@ export function UsesList({
         </tr>
       </thead>
       <tbody>
-        {usedIn.map((u) => (
+        {usedIn.map((u, i) => (
           <tr key={u.key} className="border-b border-[#f3f4f7] last:border-0">
             <td className="py-2">
               <Link
@@ -1194,11 +1251,37 @@ export function UsesList({
                 data-testid="merma-impact"
                 className="py-2 pl-2 text-right tabular-nums text-[#151c2c]"
               >
-                <ImpactCell u={u} impact={impact} />
+                <ImpactCell
+                  u={u}
+                  result={results![i]}
+                  currency={impact.currency}
+                />
               </td>
             ) : null}
           </tr>
         ))}
+        {totals && totals.counted > 0 ? (
+          <tr
+            data-testid="merma-impact-total"
+            className="border-t border-[#eef0f4]"
+          >
+            <td
+              colSpan={3}
+              className="py-2 text-[12px] font-semibold text-[#6b7280]"
+            >
+              {t.impactTotal}
+              {totals.excluded > 0 ? (
+                <span className="font-normal">
+                  {" · "}
+                  {fmtTemplate(t.impactExcluded, { n: totals.excluded })}
+                </span>
+              ) : null}
+            </td>
+            <td className="py-2 pl-2 text-right font-bold tabular-nums text-[#1B40C8]">
+              {`+${formatMoney(totals.total, impact!.currency, lang)}`}
+            </td>
+          </tr>
+        ) : null}
       </tbody>
     </table>
   );
@@ -1251,44 +1334,32 @@ function RealCost({
   );
 }
 
-/** One «Impacto merma» cell: the extra cost, — or ⚑ Falta. */
+/** One «Impacto merma» cell: the extra cost, —, ⚑ Falta or ⚑ Falta conversión. */
 function ImpactCell({
   u,
-  impact,
+  result,
+  currency,
 }: {
   u: IngredientUseEntry;
-  impact: {
-    price: number | null;
-    priceUnit: string | null;
-    ownLossPct: number | null;
-    bufferPct: number | null;
-    currency: string;
-  };
+  result: UseImpact;
+  currency: string;
 }) {
   const { d, lang } = useT();
   const t = d.menu.screens.ingredientes;
-  const r = impactOfUse({
-    price: impact.price,
-    priceUnit: impact.priceUnit,
-    ownLossPct: impact.ownLossPct,
-    bufferPct: impact.bufferPct ?? 0,
-    line: {
-      qty: u.qty,
-      unit: u.unit,
-      insideMeasuredPrep: u.kind === "preparacion" && u.prepCovered === true,
-    },
-  });
-  if (r.kind === "missing")
-    return (
-      <span className="inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]">
-        {t.impactMissing}
-      </span>
-    );
-  // No buffer known and no own yield: nothing to show rather than a guess.
-  if (
-    r.kind === "none" ||
-    (impact.ownLossPct === null && impact.bufferPct === null)
-  )
-    return <>—</>;
-  return <>{`+${formatMoney(r.amount, impact.currency, lang)}`}</>;
+  const pill =
+    "inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]";
+  if (result.kind === "missing")
+    return <span className={pill}>{t.impactMissing}</span>;
+  if (result.kind === "noConversion")
+    return <span className={pill}>{t.noConversion}</span>;
+  if (result.kind === "extra")
+    return <>{`+${formatMoney(result.amount, currency, lang)}`}</>;
+  const viaPrep = result.kind === "unknown" || (u.viaPreps?.length ?? 0) > 0;
+  return viaPrep ? (
+    <span title={t.viaPrepTip} aria-label={t.viaPrepTip}>
+      —
+    </span>
+  ) : (
+    <>—</>
+  );
 }

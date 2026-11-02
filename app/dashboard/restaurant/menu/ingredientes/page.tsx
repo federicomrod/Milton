@@ -27,7 +27,14 @@ import {
   type HistoryLine,
 } from "@/lib/restaurant/kitchen-buffer-server";
 import { currentYield } from "@/lib/restaurant/ingredient-yield-view";
-import { loadPrepGraph } from "@/lib/restaurant/nested-yield-server";
+import {
+  loadPrepDefs,
+  loadPrepGraph,
+} from "@/lib/restaurant/nested-yield-server";
+import {
+  redactMermaInputs,
+  type PrepDef,
+} from "@/lib/restaurant/merma-visibility";
 import {
   coveredByMeasuredPrep,
   type PrepNode,
@@ -60,6 +67,8 @@ type LoadResult =
       capabilities: Record<Capability, boolean>;
       /** The kitchen buffer in force today for the selected restaurant, in %. */
       bufferPct: number | null;
+      /** Preparations' recipes for the share via a preparation; none for cooks. */
+      prepDefs: Record<string, PrepDef>;
     }
   | { kind: "no-company" };
 
@@ -144,7 +153,17 @@ async function loadIngredientes(
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const items: IngredienteItem[] = ingredients.map((ing) => {
+  // Cooks (kitchen roles) get no price and no merma input in the payload.
+  const canViewPrices = capabilities["prices.view"];
+  const prepDefs = canViewPrices
+    ? await loadPrepDefs(supabase, companyId, prepGraph).catch(
+        () => ({}) as Record<string, PrepDef>
+      )
+    : ({} as Record<string, PrepDef>);
+  const items: IngredienteItem[] = ingredients.map((ing) =>
+    redactMermaInputs(buildItem(ing), canViewPrices)
+  );
+  function buildItem(ing: (typeof ingredients)[number]): IngredienteItem {
     const usedIn = usage.ok ? (usage.usesByIngredient.get(ing.id) ?? []) : null;
     return {
       id: ing.id,
@@ -183,7 +202,7 @@ async function loadIngredientes(
       yieldPct: currentYield(yieldHistories.get(ing.id) ?? [], today),
       yieldHistory: yieldHistories.get(ing.id) ?? [],
     };
-  });
+  }
 
   const suppliers: SupplierOption[] = (
     (suppliersRes.data ?? []) as { id: string; name: string }[]
@@ -197,7 +216,8 @@ async function loadIngredientes(
     archiveAvailable: usage.archiveAvailable,
     duplicates,
     capabilities,
-    bufferPct,
+    bufferPct: canViewPrices ? bufferPct : null,
+    prepDefs,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -231,6 +251,7 @@ export default async function IngredientesRoute({
       duplicates={result.duplicates}
       capabilities={result.capabilities}
       bufferPct={result.bufferPct}
+      prepDefs={result.prepDefs}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

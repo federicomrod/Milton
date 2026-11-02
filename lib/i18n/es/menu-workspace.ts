@@ -398,6 +398,7 @@ export const menuWorkspace = {
     chipDrafts: "{n} por aprobar",
     chipApproved: "{n} aprobadas",
     yieldToConfirmSuffix: " · rendimiento por confirmar",
+    filterMissingYield: "Falta rendimiento ({n})",
     backToDish: "← Volver al plato",
     title: "Preparaciones de tu cocina",
     titleHint:

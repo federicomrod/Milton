@@ -68,13 +68,19 @@ export async function GET(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
-    // Raw vs effective cost per line (display only).
-    await attachEffectiveCosts(
-      auth.supabase,
-      auth.companyId,
-      str(req.nextUrl.searchParams.get("location_id")),
-      result.state
-    );
+    // Raw vs effective cost per line (display only). The merma values are
+    // money: kitchen roles (cooks) never get them, not even in the payload.
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    if (can(actor, "prices.view")) {
+      await attachEffectiveCosts(
+        auth.supabase,
+        auth.companyId,
+        str(req.nextUrl.searchParams.get("location_id")),
+        result.state
+      );
+    }
     const ms = Date.now() - started;
     // One line per read, to measure it in the logs (no client data).
     console.info(`[recipes/editor] load ${ms}ms`);

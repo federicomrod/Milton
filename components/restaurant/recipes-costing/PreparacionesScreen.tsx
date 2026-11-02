@@ -1,5 +1,6 @@
 "use client";
 
+import { filterMissingYield } from "@/lib/restaurant/prep-yield";
 import { UploadRecipesLink } from "@/components/restaurant/menu/UploadRecipesLink";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecipeCostingWorkspace } from "@/lib/restaurant/recipe-costing/workspace";
@@ -215,10 +216,18 @@ export function PreparacionesScreen({
 
   // The toolbar spans the full width above the list and the detail; the list
   // column keeps only the rows.
-  const rows = (overview?.rows ?? []).map((r) => ({
-    ...r,
-    id: r.component_id,
-  }));
+  // «Falta rendimiento»: the batch output is missing or only the default 1
+  // unit (prep-yield.ts). One tap above the list shows exactly those.
+  const [onlyMissingYield, setOnlyMissingYield] = useState(false);
+  const missingYieldCount = (overview?.rows ?? []).filter(
+    (r) => r.yield_to_confirm
+  ).length;
+  const rows = filterMissingYield(overview?.rows ?? [], onlyMissingYield).map(
+    (r) => ({
+      ...r,
+      id: r.component_id,
+    })
+  );
   const { toolbar, list } = useGroupedItemList({
     items: rows,
     scope: "preparation",
@@ -230,9 +239,25 @@ export function PreparacionesScreen({
     searchPlaceholder: w.searchPlaceholder,
     emptyText: w.emptyFilter,
     filters: overview ? (
-      <div className="flex gap-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
         <Chip tone="warn">{fmt(w.chipDrafts, { n: overview.drafts })}</Chip>
         <Chip tone="ok">{fmt(w.chipApproved, { n: overview.approved })}</Chip>
+        {missingYieldCount > 0 || onlyMissingYield ? (
+          <button
+            type="button"
+            data-testid="filter-missing-yield"
+            aria-pressed={onlyMissingYield}
+            onClick={() => setOnlyMissingYield((v) => !v)}
+            className={
+              "rounded-full px-2.5 py-1 text-[12px] font-semibold " +
+              (onlyMissingYield
+                ? "bg-[#1B40C8] text-white"
+                : "bg-[#FDE68A] text-[#0F172A]")
+            }
+          >
+            {fmt(w.filterMissingYield, { n: missingYieldCount })}
+          </button>
+        ) : null}
       </div>
     ) : null,
     renderRow: (row) => (
@@ -253,7 +278,17 @@ export function PreparacionesScreen({
         </div>
         <div className="text-[12px] text-[#5b6476]">
           {row.impact_label}
-          {row.yield_to_confirm ? w.yieldToConfirmSuffix : ""}
+          {row.yield_to_confirm ? (
+            <>
+              {" "}
+              <span
+                data-testid="row-yield-missing"
+                className="inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
+              >
+                {d.menu.editor.lines.yieldMissing}
+              </span>
+            </>
+          ) : null}
         </div>
       </button>
     ),

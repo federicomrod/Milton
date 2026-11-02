@@ -15,6 +15,7 @@
 //
 // Missing values are `null`, never 0.
 
+import type { WastePlanVsReported } from "@/lib/restaurant/unplanned-waste";
 import {
   AMOUNT_CATEGORIES,
   breakEvenPerDay,
@@ -198,8 +199,16 @@ export interface RentabilidadInput {
    */
   dailySales: Readonly<Record<string, number>>;
   food: FoodCostInput;
-  /** Unplanned waste over the actual days (0 until #408). */
+  /** Confirmed, valued unplanned waste over the actual days (#408). */
   unplannedWaste?: number;
+  /**
+   * What the waste read says: `available` false = the table is not there yet
+   * (no number is shown, «⚑ Falta»); `counted` confirmed lines; `missing` of
+   * them without a value (counted, «⚑ Falta», never $0).
+   */
+  waste?: { available: boolean; counted: number; missing: number };
+  /** «Hasta ayer… planeaste X%, reportaste Y%» (#408); null = not computable. */
+  wastePlan?: WastePlanVsReported | null;
   /** The restaurant's own and shared fixed costs (confirmed lines only). */
   fixed: EffectiveFixedCosts;
   /** An included fixed-cost line is a Milton estimate. */
@@ -274,8 +283,13 @@ export interface RentabilidadMonth {
   /** The tax rate is not set: the page says «se calcula con 0%». */
   impuestosUndefined: boolean;
   impuestosPct: number | null;
-  /** Merma no planeada is not valued yet: the line says «Disponible pronto». */
+  /** There is at least one confirmed waste line; otherwise the line says «⚑ Falta». */
   wasteAvailable: boolean;
+  /** Confirmed waste lines without a value: shown as «⚑ Falta», never $0. */
+  wasteMissing: number;
+  /** Month waste ÷ month sales, 0–1; null without sales or waste. */
+  wastePctOfSales: number | null;
+  wastePlan: WastePlanVsReported | null;
   fixed: {
     amounts: Record<AmountCategory, number | null>;
     /** null = a category is missing. */
@@ -518,7 +532,14 @@ export function computeRentabilidad(
     basis: input.fixedHasEstimate ? "estimada" : "real",
     impuestosUndefined: impuestosPct === null,
     impuestosPct,
-    wasteAvailable: false,
+    wasteAvailable:
+      (input.waste?.available ?? false) && (input.waste?.counted ?? 0) > 0,
+    wasteMissing: input.waste?.missing ?? 0,
+    wastePctOfSales:
+      monthTotals.sales > 0 && monthTotals.waste > 0
+        ? monthTotals.waste / monthTotals.sales
+        : null,
+    wastePlan: input.wastePlan ?? null,
     fixed: {
       amounts: input.fixed.amounts,
       total: fixedTotal === null ? null : round2(fixedTotal),

@@ -149,6 +149,27 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
     colShare: "% of your sales",
     colRecipe: "Recipe",
   },
+  waste: {
+    rowNote: "{pct} of your sales",
+    missingCount: "{n} without a value",
+    vsPlan:
+      "Up to yesterday, of what you bought: you planned {planned} waste, you reported {reported}: {diff} difference",
+    cocinaTitle: "Waste to confirm",
+    cocinaIntro:
+      "Milton read these reports. They only count in Profitability once you confirm them.",
+    aiTag: "Milton draft",
+    confirm: "Confirm",
+    discard: "Discard",
+    quantity: "Quantity",
+    unit: "Unit",
+    noQuantity: "No quantity",
+    pickIngredient: "Pick the ingredient",
+    noValueNote: "No price or no quantity: it is counted, without a value.",
+    saveFailed: "Could not save. Try again.",
+    invalid: "Check the quantity.",
+    roleDenied: "Your role cannot confirm waste.",
+    notFound: "That line no longer exists.",
+  },
   statement: {
     title: "Income statement",
     netSales: "Net sales",

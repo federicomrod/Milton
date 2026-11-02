@@ -12,6 +12,8 @@ import { KitchenPageLive } from "@/components/restaurant/kitchen/KitchenPageLive
 import { KitchenPageHeader } from "@/components/restaurant/kitchen/KitchenPageChrome";
 import { KitchenHighlights } from "@/components/restaurant/kitchen/KitchenHighlights";
 import { KitchenHighlightsUpgrade } from "@/components/restaurant/kitchen/KitchenHighlightsUpgrade";
+import { createClient } from "@/lib/supabase/server";
+import { KitchenWasteDrafts } from "@/components/restaurant/kitchen/KitchenWasteDrafts";
 import { NotAvailableYet } from "@/components/restaurant/shell/NotAvailableYet";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
@@ -89,6 +91,15 @@ export default async function KitchenPage({
           )}
         />
       )}
+      {model.canManageDrafts && model.companyId ? (
+        <Suspense fallback={null}>
+          <KitchenWasteDrafts
+            supabase={await createClient()}
+            companyId={model.companyId}
+            locationId={model.locationId}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

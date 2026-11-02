@@ -150,6 +150,27 @@ export const rentabilidad = {
     colShare: "% de tus ventas",
     colRecipe: "Receta",
   },
+  waste: {
+    rowNote: "{pct} de tus ventas",
+    missingCount: "{n} sin valor",
+    vsPlan:
+      "Hasta ayer, de lo que compraste: planeaste {planned} de merma, reportaste {reported}: {diff} de diferencia",
+    cocinaTitle: "Merma por confirmar",
+    cocinaIntro:
+      "Milton leyó estos reportes. Solo cuentan en Rentabilidad cuando los confirmas.",
+    aiTag: "Borrador de Milton",
+    confirm: "Confirmar",
+    discard: "Descartar",
+    quantity: "Cantidad",
+    unit: "Unidad",
+    noQuantity: "Sin cantidad",
+    pickIngredient: "Elige el ingrediente",
+    noValueNote: "Sin precio o sin cantidad: se cuenta, sin valor.",
+    saveFailed: "No se pudo guardar. Inténtalo otra vez.",
+    invalid: "Revisa la cantidad.",
+    roleDenied: "Tu rol no puede confirmar la merma.",
+    notFound: "Esa línea ya no existe.",
+  },
   statement: {
     title: "Estado de resultados",
     netSales: "Ventas netas",

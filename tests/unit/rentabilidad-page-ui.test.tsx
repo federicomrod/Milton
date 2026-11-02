@@ -172,10 +172,14 @@ describe("RentabilidadPage", () => {
     expect(html).not.toContain("Proyección al cierre");
   });
 
-  it("the Estado de resultados lists Merma as «Disponible pronto»", () => {
+  it("with no confirmed waste, Merma no planeada is «⚑ Falta», never $0 (#408)", () => {
     const html = render(data([dish(1, 62000)]));
     expect(html).toContain("Estado de resultados");
-    expect(html).toContain("Disponible pronto");
+    expect(html).toContain("Merma no planeada");
+    expect(html).not.toContain("Disponible pronto");
+    const table = html.slice(html.indexOf("Estado de resultados"));
+    const row = table.slice(table.indexOf("Merma no planeada"));
+    expect(row.slice(0, row.indexOf("</tr>"))).toContain("⚑ Falta");
     expect(html).toContain("Ver →");
   });
 });

@@ -154,6 +154,35 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
     colShare: "% Ihres Umsatzes",
     colRecipe: "Rezept",
   },
+  waste: {
+    rowNote: "{pct} deines Umsatzes",
+    vsPlan:
+      "Bis gestern, von dem, was du eingekauft hast: geplant {planned} Verlust, gemeldet {reported}: {diff} Differenz",
+    historyTitle: "Verlustverlauf",
+    noCost: "Ohne Kosten",
+    expired: "Abgelaufen",
+    valuedPct: "{pct} bewertet",
+    addPrices: "Fehlende Preise ergänzen",
+    calendarBasis:
+      "Hochrechnung mit Kalendertagen: keine Öffnungstage festgelegt",
+    vsPlanAll:
+      "Bis gestern, von dem, was du in allen deinen Restaurants eingekauft hast: geplant {planned} Verlust, gemeldet {reported}: {diff} Differenz",
+    cocinaTitle: "Verlust zu bestätigen",
+    cocinaIntro:
+      "Milton hat diese Meldungen gelesen. Sie zählen in der Rentabilität erst, wenn du sie bestätigst.",
+    aiTag: "Entwurf von Milton",
+    confirm: "Bestätigen",
+    discard: "Verwerfen",
+    quantity: "Menge",
+    unit: "Einheit",
+    noQuantity: "Keine Menge",
+    pickIngredient: "Zutat wählen",
+    noValueNote: "Kein Preis oder keine Menge: wird gezählt, ohne Wert.",
+    saveFailed: "Speichern fehlgeschlagen. Versuche es erneut.",
+    invalid: "Prüfe die Menge.",
+    roleDenied: "Deine Rolle kann Verlust nicht bestätigen.",
+    notFound: "Diese Zeile gibt es nicht mehr.",
+  },
   statement: {
     title: "Ergebnisrechnung",
     netSales: "Nettoumsatz",

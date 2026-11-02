@@ -154,6 +154,10 @@ export function RentabilidadPage({
   });
   const salesHref = withShellParams(SALES_HREF, { locationId });
   const platos = withShellParams(platosHref(), { locationId });
+  const ingredientes = withShellParams(
+    "/dashboard/restaurant/menu/ingredientes",
+    { locationId }
+  );
   const estimada = m.basis === "estimada";
   const fixedMissing = m.fixed.total === null;
   const showFlag =
@@ -604,7 +608,12 @@ export function RentabilidadPage({
             <StatementTable
               data={data}
               money={money}
-              links={{ sales: salesHref, platos, fixed: fixedHref }}
+              links={{
+                sales: salesHref,
+                platos,
+                fixed: fixedHref,
+                ingredientes,
+              }}
             />
           ) : (
             <DailyTable data={data} money={money} />
@@ -846,11 +855,17 @@ function StatementTable({
 }: {
   data: RentabilidadPageData;
   money: (n: number) => string;
-  links: { sales: string; platos: string; fixed: string };
+  links: {
+    sales: string;
+    platos: string;
+    fixed: string;
+    ingredientes: string;
+  };
 }) {
-  const { d, lang } = useT();
+  const { d, lang, fmt } = useT();
   const r = d.rentabilidad;
   const st = r.statement;
+  const ww = r.waste;
   const m = data.month;
   const twoCols = m.projection !== null;
   const a = m.actual;
@@ -867,6 +882,8 @@ function StatementTable({
     href?: string;
     strong?: boolean;
     soon?: boolean;
+    /** A small second line under the label. */
+    note?: string;
     values: [React.ReactNode, React.ReactNode];
   };
   const out = (n: number) => cell(-n === 0 ? 0 : -n);
@@ -886,11 +903,35 @@ function StatementTable({
       href: links.platos,
       values: [out(a.food), out(p.food)],
     },
-    {
-      label: st.waste,
-      soon: true,
-      values: [st.soon, st.soon],
-    },
+    m.wasteAvailable
+      ? {
+          label: st.waste,
+          note: [
+            m.wastePctOfSales !== null
+              ? fmt(ww.rowNote, { pct: pctText(m.wastePctOfSales, 1, lang) })
+              : null,
+            m.wasteBasis === "calendar" ? ww.calendarBasis : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          values: [
+            <span key="a" data-testid="waste-actual">
+              {out(a.waste)}
+              {m.wasteMissing > 0 ? (
+                <>
+                  {" "}
+                  <span className={ALERT_PILL}>{ww.noCost}</span>
+                </>
+              ) : null}
+            </span>,
+            out(p.waste),
+          ],
+        }
+      : {
+          // No confirmed line yet, or the table is not there: «⚑ Falta», never $0.
+          label: st.waste,
+          values: [cell(null), cell(null)],
+        },
     {
       label: st.grossMargin,
       strong: true,
@@ -966,6 +1007,11 @@ function StatementTable({
                   className="break-words px-3 py-2 text-left font-medium text-[#0f1b3d] sm:px-4"
                 >
                   {r.label}
+                  {r.note ? (
+                    <span className="block text-xs font-normal text-[#6b7385]">
+                      {r.note}
+                    </span>
+                  ) : null}
                 </th>
                 <td className="px-2 py-2 text-right tabular-nums">
                   {r.soon ? (
@@ -1008,6 +1054,33 @@ function StatementTable({
             <span className="rounded-full bg-[#E7EDFD] px-2 py-0.5 font-semibold text-[#1B40C8]">
               {st.allCovered}
             </span>
+          </p>
+        ) : null}
+        {m.wastePlan ? (
+          <p data-testid="waste-vs-plan">
+            {fmt(m.wastePlan.allRestaurants ? ww.vsPlanAll : ww.vsPlan, {
+              planned: pctText(m.wastePlan.plannedPct / 100, 1, lang),
+              reported: pctText(m.wastePlan.reportedPct / 100, 1, lang),
+              diff: signed(m.wastePlan.difference, money),
+            })}
+          </p>
+        ) : null}
+        {m.wasteValuedPct !== null ? (
+          <p data-testid="waste-valued">
+            <strong className="text-[#0f1b3d]">
+              {fmt(ww.valuedPct, { pct: `${m.wasteValuedPct}%` })}
+            </strong>
+            {m.wasteMissing > 0 ? (
+              <>
+                {" · "}
+                <Link
+                  href={links.ingredientes}
+                  className="font-semibold text-[#1B40C8] underline"
+                >
+                  {ww.addPrices}
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
         {m.coverage.coveredMarginPct !== null ? (

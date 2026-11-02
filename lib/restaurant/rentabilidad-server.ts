@@ -14,6 +14,10 @@
 //
 // A month is never read one day or one dish at a time.
 
+import {
+  loadPlanVsReported,
+  loadWasteSummary,
+} from "@/lib/restaurant/unplanned-waste-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
@@ -207,6 +211,44 @@ export async function loadRentabilidad(args: {
       let windowSales = 0;
       for (const [date, v] of Object.entries(dailySales))
         if (date >= month && date <= windowTo) windowSales += v;
+      // #408: confirmed waste through yesterday. A missing table or a failed
+      // read = not available («⚑ Falta»), never $0.
+      const wasteWindow = windowTo >= month;
+      const wasteRead = wasteWindow
+        ? await loadWasteSummary(
+            supabase,
+            companyId,
+            [locationId],
+            month,
+            windowTo
+          )
+        : ({ available: false } as const);
+      // Purchases are company-wide (ingredient_cost_entries has no location):
+      // with several restaurants the plan line compares them with the waste of
+      // ALL of them and says so.
+      const allRestaurants = restaurantIds.length > 1;
+      const reportedAll =
+        allRestaurants && wasteRead.available
+          ? await loadWasteSummary(
+              supabase,
+              companyId,
+              restaurantIds,
+              month,
+              windowTo
+            )
+          : wasteRead;
+      const wastePlan =
+        reportedAll.available && reportedAll.summary.counted > 0
+          ? await loadPlanVsReported(
+              supabase,
+              companyId,
+              locationId,
+              month,
+              windowTo,
+              reportedAll.summary.amount,
+              allRestaurants
+            )
+          : null;
       return [
         month,
         computeRentabilidad({
@@ -214,7 +256,15 @@ export async function loadRentabilidad(args: {
           today,
           dailySales,
           food: { ...food, periodSales: round2(windowSales) },
-          unplannedWaste: 0, // valuation arrives in #408
+          unplannedWaste: wasteRead.available ? wasteRead.summary.amount : 0,
+          waste: wasteRead.available
+            ? {
+                available: true,
+                counted: wasteRead.summary.counted,
+                missing: wasteRead.summary.missing,
+              }
+            : { available: false, counted: 0, missing: 0 },
+          wastePlan,
           fixed: fixed.costs,
           fixedHasEstimate: fixed.hasEstimate,
           openWeekdays: weekdays.length ? weekdays : null,

@@ -246,6 +246,8 @@ export interface EditorState {
     yield: PreparationYield | null;
     cost_per_output_unit: number | null;
     checklist: PreparationChecklist;
+    /** The batch output is missing or only assumed: ⚑ «falta rendimiento». */
+    yield_missing?: boolean;
   };
 }
 

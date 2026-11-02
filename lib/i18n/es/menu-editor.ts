@@ -46,6 +46,7 @@ export const menuEditor = {
     factorOwnYield: "merma propia {pct} %",
     factorMeasuredPrep: "preparación medida (sin colchón)",
     factorKitchenBuffer: "merma de cocina {pct} %",
+    yieldMissing: "⚑ falta rendimiento",
     noPriceLower: "sin precio",
     reasonUnitToConfirm: "Unidad por confirmar",
     reasonDifferentUnit: "Unidad distinta",

@@ -1155,6 +1155,17 @@ function Row({
               {line.kind === "component" ? (
                 <>
                   {d.lines.preparation}
+                  {line.yield_missing ? (
+                    <>
+                      {" · "}
+                      <span
+                        data-testid="yield-missing"
+                        className="inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
+                      >
+                        {d.lines.yieldMissing}
+                      </span>
+                    </>
+                  ) : null}
                   {onOpenPreparation && !waitingPrep ? (
                     <>
                       {" · "}

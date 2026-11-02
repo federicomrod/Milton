@@ -7,6 +7,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EditorState } from "@/lib/restaurant/recipe-costing/editor-service";
 import { effectiveLineCost } from "@/lib/restaurant/effective-cost";
+import {
+  coveredByMeasuredPrep,
+  missingYield,
+  type PrepNode,
+} from "@/lib/restaurant/nested-yield";
+import { loadPrepGraph } from "@/lib/restaurant/nested-yield-server";
 import { loadBusinessToday } from "@/lib/restaurant/kitchen-buffer-server";
 import { listAllCompanyRestaurants } from "@/lib/restaurant/restaurant-context-server";
 import {
@@ -35,7 +41,27 @@ export async function attachEffectiveCosts(
       loadResolvedBufferAt(supabase, companyId, where, today),
       loadYieldsAt(supabase, companyId, ingredientIds, today),
     ]);
-    const measured = state.preparation?.yield?.confirmed === true;
+    // The preparation graph decides «covered» at any depth and which
+    // preparation lines lack a measured batch output. If it cannot be read,
+    // fall back to the open preparation's own yield.
+    let graph = new Map<string, PrepNode>();
+    try {
+      graph = await loadPrepGraph(supabase, companyId);
+    } catch (err) {
+      console.error("[recipes/editor] preparation graph failed:", err);
+    }
+    const self = state.preparation;
+    const measuredSelf = self?.yield?.confirmed === true;
+    if (self)
+      graph.set(self.component_id, {
+        id: self.component_id,
+        measured: measuredSelf,
+        children: graph.get(self.component_id)?.children ?? [],
+      });
+    const measured = self
+      ? coveredByMeasuredPrep(self.component_id, graph)
+      : false;
+    if (self) self.yield_missing = !measuredSelf;
     for (const line of state.lines) {
       const r = effectiveLineCost({
         amount: line.amount,
@@ -48,6 +74,10 @@ export async function attachEffectiveCosts(
         bufferPct: buffer.bufferPct,
       });
       line.effective = r;
+      if (line.kind === "component" && line.component_id) {
+        const node = graph.get(line.component_id);
+        line.yield_missing = node ? missingYield(node) : true;
+      }
     }
   } catch (err) {
     // A display extra: the editor keeps working without it.

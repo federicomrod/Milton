@@ -133,6 +133,11 @@ export interface EditorLine {
    */
   milton_price_estimate?: { unit_price: number; unit: string };
   /**
+   * A preparation line whose batch output is missing or only the import's
+   * assumed «1 orden»: shown inline as ⚑ «falta rendimiento» (#407).
+   */
+  yield_missing?: boolean;
+  /**
    * «Costo efectivo»: the raw `amount` after the ONE loss factor that applies
    * (merma propia / preparación medida / merma de cocina). Display only,
    * attached when the editor is read; never stored.

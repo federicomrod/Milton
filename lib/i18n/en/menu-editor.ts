@@ -45,6 +45,7 @@ export const menuEditor: Dictionary["menu"]["editor"] = {
     factorOwnYield: "own yield loss {pct}%",
     factorMeasuredPrep: "measured preparation (no buffer)",
     factorKitchenBuffer: "kitchen buffer {pct}%",
+    yieldMissing: "⚑ yield missing",
     noPriceLower: "no price",
     reasonUnitToConfirm: "Unit to confirm",
     reasonDifferentUnit: "Different unit",

@@ -469,6 +469,14 @@ function PreparationDetail({
             ) : (
               <Chip tone="warn">{w.suggestedToConfirm}</Chip>
             )}
+            {prep.yield_missing ? (
+              <span
+                data-testid="yield-missing"
+                className="rounded-full bg-[#FFF3BF] px-2 py-0.5 text-[11px] font-bold text-[#5C4A00]"
+              >
+                {d.menu.editor.lines.yieldMissing}
+              </span>
+            ) : null}
           </div>
           {state?.editable && !approvedNow ? (
             <div className="flex flex-wrap items-center gap-2">

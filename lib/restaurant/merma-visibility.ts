@@ -7,6 +7,7 @@
 // the editor for the same date. Display only, no I/O.
 
 import { effectiveLineCost } from "@/lib/restaurant/effective-cost";
+import { factorForLine } from "@/lib/restaurant/nested-yield";
 import { convertUnitStr } from "@/lib/restaurant/units";
 
 /** A price is usable only when it is a number above 0 (never shown as $0). */
@@ -49,7 +50,7 @@ export type UseImpact =
 export interface UseLine {
   qty: number | null;
   unit: string | null;
-  /** The recipe is a preparation whose batch output is measured. */
+  /** The recipe is a preparation covered by a measured yield (itself or above it). */
   insideMeasuredPrep: boolean;
 }
 
@@ -76,13 +77,15 @@ export function impactOfUse(i: {
     inPriceUnit = c.value;
   }
   const raw = i.price * inPriceUnit;
-  const r = effectiveLineCost({
-    amount: raw,
-    kind: "ingredient",
-    ownYieldLossPct: i.ownLossPct,
-    insideMeasuredPrep: i.line.insideMeasuredPrep,
-    bufferPct: i.bufferPct,
-  });
+  const r = factorForLine(
+    {
+      amount: raw,
+      kind: "ingredient",
+      ownYieldLossPct: i.ownLossPct,
+    },
+    i.line.insideMeasuredPrep,
+    i.bufferPct
+  );
   if (
     r.effective === null ||
     r.factor === "measured_prep" ||

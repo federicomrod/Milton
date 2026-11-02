@@ -1275,7 +1275,7 @@ function ImpactCell({
     line: {
       qty: u.qty,
       unit: u.unit,
-      insideMeasuredPrep: u.kind === "preparacion" && u.prepMeasured === true,
+      insideMeasuredPrep: u.kind === "preparacion" && u.prepCovered === true,
     },
   });
   if (r.kind === "missing")

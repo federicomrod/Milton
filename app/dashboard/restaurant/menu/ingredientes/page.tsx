@@ -27,7 +27,11 @@ import {
   type HistoryLine,
 } from "@/lib/restaurant/kitchen-buffer-server";
 import { currentYield } from "@/lib/restaurant/ingredient-yield-view";
-import { loadMeasuredPrepIds } from "@/lib/restaurant/measured-preps-server";
+import { loadPrepGraph } from "@/lib/restaurant/nested-yield-server";
+import {
+  coveredByMeasuredPrep,
+  type PrepNode,
+} from "@/lib/restaurant/nested-yield";
 import { loadBusinessToday } from "@/lib/restaurant/kitchen-buffer-server";
 import { listAllCompanyRestaurants } from "@/lib/restaurant/restaurant-context-server";
 import { loadResolvedBufferAt } from "@/lib/restaurant/yield-buffer";
@@ -95,8 +99,10 @@ async function loadIngredientes(
     ),
   ]);
   // Display only: the buffer in force today and which preparations are measured.
-  const measuredPreps = await loadMeasuredPrepIds(supabase, companyId).catch(
-    () => new Set<string>()
+  // #407's shared loader and rule: a preparation is covered when it, or any
+  // preparation above it, has a measured batch output.
+  const prepGraph = await loadPrepGraph(supabase, companyId).catch(
+    () => new Map<string, PrepNode>()
   );
   const bufferPct = await (async () => {
     try {
@@ -163,7 +169,13 @@ async function loadIngredientes(
       usedIn:
         usedIn?.map((u) =>
           u.kind === "preparacion"
-            ? { ...u, prepMeasured: measuredPreps.has(u.key.split(":")[1]) }
+            ? {
+                ...u,
+                prepCovered: coveredByMeasuredPrep(
+                  u.key.split(":")[1],
+                  prepGraph
+                ),
+              }
             : u
         ) ?? null,
       // The yield in force today is the newest entry that already applies;

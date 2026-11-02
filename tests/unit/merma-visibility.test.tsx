@@ -17,6 +17,11 @@ import {
 } from "@/components/restaurant/menu/IngredientesScreen";
 import { effectiveLineCost } from "@/lib/restaurant/effective-cost";
 import { panelRealCost, impactOfUse } from "@/lib/restaurant/merma-visibility";
+import {
+  coveredByMeasuredPrep,
+  factorsForTree,
+  type PrepNode,
+} from "@/lib/restaurant/nested-yield";
 import type { IngredientUseEntry } from "@/lib/restaurant/ingredient-uses";
 
 afterEach(() => {
@@ -143,7 +148,7 @@ describe("«Se usa en» table", () => {
         key: "preparacion:2",
         kind: "preparacion",
         name: "Salsa demo",
-        prepMeasured: true,
+        prepCovered: true,
       }),
     ];
     const { rerender } = render(<UsesList usedIn={usedIn} impact={impact()} />);
@@ -223,5 +228,94 @@ describe("panel", () => {
       { "ingredients.manage": false, "prices.edit": false }
     );
     expect(screen.queryByTestId("real-cost")).toBeNull();
+  });
+});
+
+describe("nested preparations (same rule as the recipe editor, #407)", () => {
+  // Plato demo > prep A (measured) > prep B (unmeasured) > raw «Tomate demo».
+  const nodes = new Map<string, PrepNode>([
+    ["A", { id: "A", measured: true, children: ["B"] }],
+    ["B", { id: "B", measured: false, children: [] }],
+  ]);
+
+  it("a raw ingredient in unmeasured B inside measured A shows —, like the editor", () => {
+    const covered = coveredByMeasuredPrep("B", nodes);
+    expect(covered).toBe(true);
+    const column = impactOfUse({
+      price: 10,
+      priceUnit: "kg",
+      ownLossPct: null,
+      bufferPct: 5,
+      line: { qty: 2, unit: "kg", insideMeasuredPrep: covered },
+    });
+    expect(column).toEqual({ kind: "none" });
+
+    const editor = factorsForTree(
+      {
+        prepId: null,
+        lines: [
+          {
+            name: "A",
+            prepId: "A",
+            amount: 1,
+            kind: "component",
+            ownYieldLossPct: null,
+          },
+        ],
+      },
+      new Map([
+        [
+          "A",
+          {
+            prepId: "A",
+            lines: [
+              {
+                name: "B",
+                prepId: "B",
+                amount: 1,
+                kind: "component" as const,
+                ownYieldLossPct: null,
+              },
+            ],
+          },
+        ],
+        [
+          "B",
+          {
+            prepId: "B",
+            lines: [
+              {
+                name: "Tomate demo",
+                amount: 20,
+                kind: "ingredient" as const,
+                ownYieldLossPct: null,
+              },
+            ],
+          },
+        ],
+      ]),
+      nodes,
+      5
+    );
+    expect(editor[0].factor).toBe("measured_prep");
+    expect(editor[0].effective).toBe(20);
+  });
+
+  it("an unmeasured B with no measured prep above takes the buffer in both", () => {
+    const free = new Map<string, PrepNode>([
+      ["A", { id: "A", measured: false, children: ["B"] }],
+      ["B", { id: "B", measured: false, children: [] }],
+    ]);
+    const covered = coveredByMeasuredPrep("B", free);
+    expect(covered).toBe(false);
+    expect(
+      impactOfUse({
+        price: 10,
+        priceUnit: "kg",
+        ownLossPct: null,
+        bufferPct: 5,
+        line: { qty: 2, unit: "kg", insideMeasuredPrep: covered },
+      })
+    ).toEqual({ kind: "extra", amount: 20 * 1.05 - 20 });
   });
 });

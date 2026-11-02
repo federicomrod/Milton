@@ -15,6 +15,44 @@ export const costs: Dictionary["costs"] = {
     repeatFailed: "Die Kosten des Monats konnten nicht übernommen werden.",
     historyFailed: "Der Verlauf konnte nicht gelesen werden.",
   },
+  fixedUpload: {
+    button: "⇪ Datei hochladen",
+    accepts: "Excel, CSV, PDF oder Foto",
+    reading: "Datei wird gelesen…",
+    title: "Prüfe, was Milton gelesen hat",
+    intro:
+      "In deinen Fixkosten ändert sich nichts, bis du bestätigst. Korrigiere Kategorie oder Betrag bei Bedarf.",
+    aiTag: "Von Milton gelesen",
+    pickCategory: "Kategorie wählen",
+    amountLabel: "Betrag",
+    rateLabel: "Satz in %",
+    noPrice: "Kein Preis",
+    unrecognized:
+      "Milton konnte diese Zeile nicht verstehen: korrigiere oder verwirf sie.",
+    group: "Gruppe",
+    approveAll: "Alle bestätigen",
+    approveLine: "Bestätigen",
+    discardLine: "Verwerfen",
+    discardAll: "Alle verwerfen",
+    close: "Schließen",
+    overwriteTitle: "Das ersetzt Werte, die du schon hast",
+    overwriteRow: "{category} · {month}: {old} → {new}",
+    overwriteConfirm: "Ersetzen und bestätigen",
+    overwriteCancel: "Abbrechen",
+    approved:
+      "{n} Zeilen aus der Datei gespeichert. Im Verlauf erscheinen sie als Datei.",
+    nothingApproved: "Es gab keine Zeilen, die bereit zum Bestätigen waren.",
+    errUnsupported:
+      "Dieser Dateityp kann nicht gelesen werden. Lade Excel, CSV, PDF oder ein Foto hoch.",
+    errEmpty: "In der Datei wurden keine Kosten gefunden.",
+    errUnreadable: "Die Datei konnte nicht gelesen werden.",
+    errAi:
+      "Milton kann PDFs und Fotos gerade nicht lesen. Versuche Excel oder CSV.",
+    errTooBig: "Die Datei ist zu groß (maximal 8 MB).",
+    errNoFile: "Wähle eine Datei.",
+    errSave: "Speichern fehlgeschlagen. Versuche es erneut.",
+    errNotFound: "Dieser Entwurf existiert nicht mehr.",
+  },
   marginReasons: {
     pickRestaurant:
       "Der Break-even-Punkt wird pro Restaurant berechnet: Wählen Sie oben eines aus.",

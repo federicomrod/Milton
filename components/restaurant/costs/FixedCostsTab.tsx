@@ -32,6 +32,7 @@ import type {
   FixedCostHistoryItem,
   FixedCostsView,
 } from "@/lib/restaurant/fixed-costs-server";
+import { FixedCostUpload } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
@@ -362,6 +363,19 @@ export function FixedCostsTab({
 
       <div className="lg:flex lg:items-start lg:gap-6">
         <div className="min-w-0 space-y-4 lg:flex-1">
+          <FixedCostUpload
+            month={view.month}
+            locationId={view.locationId}
+            currency={view.currency}
+            locationNames={{
+              ...Object.fromEntries(
+                splitTargets.map((t) => [t.location_id, t.name])
+              ),
+              ...(view.locationId && locationName
+                ? { [view.locationId]: locationName }
+                : {}),
+            }}
+          />
           <div className="divide-y divide-[#dfe3ea] rounded-xl border border-[#dfe3ea] bg-white">
             {FIXED_COST_CATEGORIES.map((category) => {
               const isTax = category === "impuestos";

@@ -15,7 +15,10 @@
 //
 // Missing values are `null`, never 0.
 
-import type { WastePlanVsReported } from "@/lib/restaurant/unplanned-waste";
+import {
+  valuedPct,
+  type WastePlanVsReported,
+} from "@/lib/restaurant/unplanned-waste";
 import {
   AMOUNT_CATEGORIES,
   breakEvenPerDay,
@@ -290,6 +293,10 @@ export interface RentabilidadMonth {
   /** Month waste ÷ month sales, 0–1; null without sales or waste. */
   wastePctOfSales: number | null;
   wastePlan: WastePlanVsReported | null;
+  /** The waste projection runs on open days, or on calendar days (none set). */
+  wasteBasis: "open" | "calendar";
+  /** Confirmed waste lines with a cost, 0–100; null without confirmed lines. */
+  wasteValuedPct: number | null;
   fixed: {
     amounts: Record<AmountCategory, number | null>;
     /** null = a category is missing. */
@@ -390,8 +397,19 @@ export function computeRentabilidad(
 
   const foodRate = food.periodSales > 0 ? food.cogs / food.periodSales : 0;
   const waste = input.unplannedWaste ?? 0;
-  const wastePerDay = actualDays > 0 ? waste / actualDays : 0;
   const open = input.openWeekdays ? new Set(input.openWeekdays) : null;
+  // Waste is spread over the restaurant's OPEN days (like the break-even);
+  // calendar days only when no open days are set.
+  let openActualDays = 0;
+  if (open)
+    for (let day = 1; day <= actualDays; day++)
+      if (open.has(isoWeekday(dateOfDay(month, day)))) openActualDays += 1;
+  const wasteOnOpenDays = open !== null && openActualDays > 0;
+  const wastePerDay = wasteOnOpenDays
+    ? waste / openActualDays
+    : actualDays > 0
+      ? waste / actualDays
+      : 0;
 
   const days: DayRow[] = [];
   let cum = 0;
@@ -407,7 +425,7 @@ export function computeRentabilidad(
       : (input.dailySales[date] ?? 0);
     const impuestos = taxInSales(sales, impuestosPct);
     const foodCost = sales * foodRate;
-    const wasteDay = wastePerDay;
+    const wasteDay = !wasteOnOpenDays || open!.has(weekday) ? wastePerDay : 0;
     const margin = sales - impuestos - foodCost - wasteDay;
     cum += margin;
     days.push({
@@ -540,6 +558,11 @@ export function computeRentabilidad(
         ? monthTotals.waste / monthTotals.sales
         : null,
     wastePlan: input.wastePlan ?? null,
+    wasteBasis: wasteOnOpenDays ? "open" : "calendar",
+    wasteValuedPct: valuedPct(
+      input.waste?.counted ?? 0,
+      input.waste?.missing ?? 0
+    ),
     fixed: {
       amounts: input.fixed.amounts,
       total: fixedTotal === null ? null : round2(fixedTotal),

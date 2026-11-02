@@ -218,20 +218,35 @@ export async function loadRentabilidad(args: {
         ? await loadWasteSummary(
             supabase,
             companyId,
-            locationId,
+            [locationId],
             month,
             windowTo
           )
         : ({ available: false } as const);
+      // Purchases are company-wide (ingredient_cost_entries has no location):
+      // with several restaurants the plan line compares them with the waste of
+      // ALL of them and says so.
+      const allRestaurants = restaurantIds.length > 1;
+      const reportedAll =
+        allRestaurants && wasteRead.available
+          ? await loadWasteSummary(
+              supabase,
+              companyId,
+              restaurantIds,
+              month,
+              windowTo
+            )
+          : wasteRead;
       const wastePlan =
-        wasteRead.available && wasteRead.summary.counted > 0
+        reportedAll.available && reportedAll.summary.counted > 0
           ? await loadPlanVsReported(
               supabase,
               companyId,
               locationId,
               month,
               windowTo,
-              wasteRead.summary.amount
+              reportedAll.summary.amount,
+              allRestaurants
             )
           : null;
       return [

@@ -38,7 +38,7 @@ describe("table not there yet", () => {
       await loadWasteSummary(
         failing("42P01"),
         "c",
-        "l",
+        ["l"],
         "2026-10-01",
         "2026-10-26"
       )

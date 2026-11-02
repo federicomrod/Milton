@@ -154,6 +154,10 @@ export function RentabilidadPage({
   });
   const salesHref = withShellParams(SALES_HREF, { locationId });
   const platos = withShellParams(platosHref(), { locationId });
+  const ingredientes = withShellParams(
+    "/dashboard/restaurant/menu/ingredientes",
+    { locationId }
+  );
   const estimada = m.basis === "estimada";
   const fixedMissing = m.fixed.total === null;
   const showFlag =
@@ -604,7 +608,12 @@ export function RentabilidadPage({
             <StatementTable
               data={data}
               money={money}
-              links={{ sales: salesHref, platos, fixed: fixedHref }}
+              links={{
+                sales: salesHref,
+                platos,
+                fixed: fixedHref,
+                ingredientes,
+              }}
             />
           ) : (
             <DailyTable data={data} money={money} />
@@ -846,7 +855,12 @@ function StatementTable({
 }: {
   data: RentabilidadPageData;
   money: (n: number) => string;
-  links: { sales: string; platos: string; fixed: string };
+  links: {
+    sales: string;
+    platos: string;
+    fixed: string;
+    ingredientes: string;
+  };
 }) {
   const { d, lang, fmt } = useT();
   const r = d.rentabilidad;
@@ -892,17 +906,21 @@ function StatementTable({
     m.wasteAvailable
       ? {
           label: st.waste,
-          note:
+          note: [
             m.wastePctOfSales !== null
               ? fmt(ww.rowNote, { pct: pctText(m.wastePctOfSales, 1, lang) })
-              : undefined,
+              : null,
+            m.wasteBasis === "calendar" ? ww.calendarBasis : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
           values: [
             <span key="a" data-testid="waste-actual">
               {out(a.waste)}
               {m.wasteMissing > 0 ? (
                 <>
                   {" "}
-                  <span className={ALERT_PILL}>{r.page.flagMissing}</span>
+                  <span className={ALERT_PILL}>{ww.noCost}</span>
                 </>
               ) : null}
             </span>,
@@ -1040,17 +1058,27 @@ function StatementTable({
         ) : null}
         {m.wastePlan ? (
           <p data-testid="waste-vs-plan">
-            {fmt(ww.vsPlan, {
+            {fmt(m.wastePlan.allRestaurants ? ww.vsPlanAll : ww.vsPlan, {
               planned: pctText(m.wastePlan.plannedPct / 100, 1, lang),
               reported: pctText(m.wastePlan.reportedPct / 100, 1, lang),
               diff: signed(m.wastePlan.difference, money),
             })}
+          </p>
+        ) : null}
+        {m.wasteValuedPct !== null ? (
+          <p data-testid="waste-valued">
+            <strong className="text-[#0f1b3d]">
+              {fmt(ww.valuedPct, { pct: `${m.wasteValuedPct}%` })}
+            </strong>
             {m.wasteMissing > 0 ? (
               <>
-                {" "}
-                <span className={ALERT_PILL}>
-                  {fmt(ww.missingCount, { n: m.wasteMissing })}
-                </span>
+                {" · "}
+                <Link
+                  href={links.ingredientes}
+                  className="font-semibold text-[#1B40C8] underline"
+                >
+                  {ww.addPrices}
+                </Link>
               </>
             ) : null}
           </p>

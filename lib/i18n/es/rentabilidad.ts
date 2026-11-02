@@ -152,9 +152,17 @@ export const rentabilidad = {
   },
   waste: {
     rowNote: "{pct} de tus ventas",
-    missingCount: "{n} sin valor",
     vsPlan:
       "Hasta ayer, de lo que compraste: planeaste {planned} de merma, reportaste {reported}: {diff} de diferencia",
+    historyTitle: "Historial de merma",
+    noCost: "Sin costo",
+    expired: "Vencido",
+    valuedPct: "{pct} valorado",
+    addPrices: "Agregar precios que faltan",
+    calendarBasis:
+      "Proyección con días calendario: no hay días abiertos definidos",
+    vsPlanAll:
+      "Hasta ayer, de lo que compraste en todos tus restaurantes: planeaste {planned} de merma, reportaste {reported}: {diff} de diferencia",
     cocinaTitle: "Merma por confirmar",
     cocinaIntro:
       "Milton leyó estos reportes. Solo cuentan en Rentabilidad cuando los confirmas.",

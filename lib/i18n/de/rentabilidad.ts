@@ -156,9 +156,17 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
   },
   waste: {
     rowNote: "{pct} deines Umsatzes",
-    missingCount: "{n} ohne Wert",
     vsPlan:
       "Bis gestern, von dem, was du eingekauft hast: geplant {planned} Verlust, gemeldet {reported}: {diff} Differenz",
+    historyTitle: "Verlustverlauf",
+    noCost: "Ohne Kosten",
+    expired: "Abgelaufen",
+    valuedPct: "{pct} bewertet",
+    addPrices: "Fehlende Preise ergänzen",
+    calendarBasis:
+      "Hochrechnung mit Kalendertagen: keine Öffnungstage festgelegt",
+    vsPlanAll:
+      "Bis gestern, von dem, was du in allen deinen Restaurants eingekauft hast: geplant {planned} Verlust, gemeldet {reported}: {diff} Differenz",
     cocinaTitle: "Verlust zu bestätigen",
     cocinaIntro:
       "Milton hat diese Meldungen gelesen. Sie zählen in der Rentabilität erst, wenn du sie bestätigst.",

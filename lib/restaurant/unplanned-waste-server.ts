@@ -37,20 +37,21 @@ export type WasteMonth =
   | { available: false }
   | { available: true; summary: WasteSummary };
 
-/** Confirmed waste of one restaurant between two dates (inclusive). */
+/** Waste lines of the given restaurants between two dates (inclusive). */
 export async function loadWasteSummary(
   supabase: SupabaseClient,
   companyId: string,
-  locationId: string,
+  locationIds: readonly string[],
   from: string,
   to: string
 ): Promise<WasteMonth> {
   try {
+    if (!locationIds.length) return { available: false };
     const { data, error } = await supabase
       .from("kitchen_waste_lines")
-      .select("status, value")
+      .select("status, value, created_at")
       .eq("company_id", companyId)
-      .eq("location_id", locationId)
+      .in("location_id", [...locationIds])
       .gte("report_date", from)
       .lte("report_date", to)
       .limit(20000);
@@ -58,6 +59,7 @@ export async function loadWasteSummary(
     const rows = (data ?? []) as Array<{
       status: "draft" | "confirmed";
       value: number | string | null;
+      created_at?: string;
     }>;
     return {
       available: true,
@@ -65,6 +67,7 @@ export async function loadWasteSummary(
         rows.map((r) => ({
           status: r.status,
           value: r.value === null ? null : Number(r.value),
+          createdAt: r.created_at,
         }))
       ),
     };
@@ -76,7 +79,10 @@ export async function loadWasteSummary(
 /**
  * «De lo que compraste»: purchases of the window, the loss they plan for (each
  * ingredient's own yield, else the kitchen buffer, as of `to`) and what the
- * confirmed reports lost. Null when it cannot be read or there are no purchases.
+ * confirmed reports lost. ingredient_cost_entries has no location, so the
+ * purchases are company-wide: with several restaurants `reported` must be the
+ * waste of ALL of them (`allRestaurants`), and the line says so. Null when it
+ * cannot be read or there are no purchases.
  */
 export async function loadPlanVsReported(
   supabase: SupabaseClient,
@@ -84,7 +90,8 @@ export async function loadPlanVsReported(
   locationId: string,
   from: string,
   to: string,
-  reported: number
+  reported: number,
+  allRestaurants = false
 ): Promise<WastePlanVsReported | null> {
   try {
     const { data, error } = await supabase
@@ -119,35 +126,41 @@ export async function loadPlanVsReported(
         lossPct: yields.get(b.id)?.lossPct ?? buffer.bufferPct,
       }))
     );
-    return planVsReported({ purchases, planned, reported });
+    return planVsReported({ purchases, planned, reported, allRestaurants });
   } catch {
     return null;
   }
 }
 
-/** The price of an ingredient on a day, and its effective-cost factors that day. */
+/**
+ * The purchase price of an ingredient on a day (the newest entry in force that
+ * day), per as-bought unit, times the quantity. No yield or buffer: the merma
+ * is already in the dish cost. Null = «Sin costo».
+ */
 export async function valueIngredientWaste(
   supabase: SupabaseClient,
   companyId: string,
-  locationId: string,
   ingredientId: string,
   date: string,
   quantity: number | null,
   unit: string | null
 ): Promise<{ unitCost: number; value: number } | null> {
-  const [entries, yields, buffer] = await Promise.all([
-    supabase
-      .from("ingredient_cost_entries")
-      .select(
-        "ingredient_id, effective_date, cost_date, created_at, normalized_unit_cost, normalized_unit, unit_cost, source_type"
-      )
-      .eq("company_id", companyId)
-      .eq("ingredient_id", ingredientId)
-      .lte("cost_date", date)
-      .limit(500),
-    loadYieldsAt(supabase, companyId, [ingredientId], date),
-    loadResolvedBufferAt(supabase, companyId, locationId, date),
-  ]);
+  // Newest first BEFORE the limit, and an entry counts by its effective date
+  // (the cost date only when it has none), as latestCostEntry reads it.
+  const entries = await supabase
+    .from("ingredient_cost_entries")
+    .select(
+      "ingredient_id, effective_date, cost_date, created_at, normalized_unit_cost, normalized_unit, unit_cost, source_type"
+    )
+    .eq("company_id", companyId)
+    .eq("ingredient_id", ingredientId)
+    .or(
+      `effective_date.lte.${date},and(effective_date.is.null,cost_date.lte.${date})`
+    )
+    .order("effective_date", { ascending: false, nullsFirst: false })
+    .order("cost_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(500);
   if (entries.error) return null;
   const entry = latestCostEntry(
     (entries.data ?? []) as unknown as IngredientCostEntry[],
@@ -159,7 +172,5 @@ export async function valueIngredientWaste(
     unit,
     price: Number(entry.normalized_unit_cost),
     priceUnit: entry.normalized_unit,
-    ownLossPct: yields.get(ingredientId)?.lossPct ?? null,
-    bufferPct: buffer.bufferPct,
   });
 }

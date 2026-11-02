@@ -5,7 +5,7 @@
 //   A manager confirms (or edits and confirms) a DRAFT waste line from Cocina,
 //   or discards it. Only owner, admin and manager (kitchen.drafts) can; the
 //   company comes from the session. A confirmed line is valued at the
-//   effective cost of the report's day; with no quantity or no price it stays
+//   purchase price per as-bought unit on the report's day; with no quantity or no price it stays
 //   without a value (counted, «⚑ Falta»), never $0. → { ok }
 
 import { NextRequest, NextResponse } from "next/server";
@@ -110,7 +110,9 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: w.invalid }, { status: 400 });
   }
   let ingredientId = line.ingredient_id;
-  if (typeof body.ingredientId === "string" && body.ingredientId) {
+  // null clears the ingredient (the line then has no cost: «Sin costo»).
+  if (body.ingredientId === null) ingredientId = null;
+  else if (typeof body.ingredientId === "string" && body.ingredientId) {
     const ok = await supabase
       .from("ingredients")
       .select("id")
@@ -126,7 +128,6 @@ export async function PATCH(req: NextRequest) {
     ? await valueIngredientWaste(
         supabase,
         companyId,
-        line.location_id,
         ingredientId,
         line.report_date,
         quantity,

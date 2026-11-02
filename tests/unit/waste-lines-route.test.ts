@@ -131,6 +131,18 @@ describe("waste-lines route", () => {
     });
   });
 
+  it("changing the ingredient re-values with the new one; null clears it", async () => {
+    await patch({ id: "w1", action: "confirm", ingredientId: "ing-2" });
+    expect(updates[0]).toMatchObject({ ingredient_id: "ing-2", value: 21 });
+    valued = null; // no ingredient -> the helper is not even asked
+    await patch({ id: "w1", action: "confirm", ingredientId: null });
+    expect(updates[1]).toMatchObject({
+      ingredient_id: null,
+      value: null,
+      unit_cost: null,
+    });
+  });
+
   it("rejects a bad quantity and discards a draft", async () => {
     expect(
       (await patch({ id: "w1", action: "confirm", quantity: -2 })).status

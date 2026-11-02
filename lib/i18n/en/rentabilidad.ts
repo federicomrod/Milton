@@ -151,9 +151,16 @@ export const rentabilidad: Dictionary["rentabilidad"] = {
   },
   waste: {
     rowNote: "{pct} of your sales",
-    missingCount: "{n} without a value",
     vsPlan:
       "Up to yesterday, of what you bought: you planned {planned} waste, you reported {reported}: {diff} difference",
+    historyTitle: "Waste history",
+    noCost: "No cost",
+    expired: "Expired",
+    valuedPct: "{pct} valued",
+    addPrices: "Add the missing prices",
+    calendarBasis: "Projected on calendar days: no open days are set",
+    vsPlanAll:
+      "Up to yesterday, of what you bought across all your restaurants: you planned {planned} waste, you reported {reported}: {diff} difference",
     cocinaTitle: "Waste to confirm",
     cocinaIntro:
       "Milton read these reports. They only count in Profitability once you confirm them.",

@@ -45,6 +45,11 @@ export function ancestorsOf(
 }
 
 /**
+ * TODO(#407 follow-up): a preparation used both under a measured preparation
+ * and directly in a plato is shown as covered here (editor view, one answer
+ * per preparation). When effective cost is wired into dish costs / COGS,
+ * resolve per usage path with `factorsForTree` instead. No behaviour change now.
+ *
  * True when a line of `prepId` is covered by a measured yield: the
  * preparation itself or any preparation above it.
  */

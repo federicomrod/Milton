@@ -1160,7 +1160,7 @@ function Row({
                       {" · "}
                       <span
                         data-testid="yield-missing"
-                        className="rounded-full bg-[#FFF3BF] px-2 py-0.5 text-[11px] font-bold text-[#5C4A00]"
+                        className="inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
                       >
                         {d.lines.yieldMissing}
                       </span>

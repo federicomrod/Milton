@@ -38,6 +38,7 @@ export function MermaField({
   strings,
   idPrefix,
   placeholder,
+  onSaved,
 }: {
   endpoint: string;
   /** The JSON body of the PUT for a value and a scope. */
@@ -52,6 +53,8 @@ export function MermaField({
   strings: MermaStrings;
   idPrefix: string;
   placeholder?: string;
+  /** Called with the saved value, so the screen updates before the refresh lands. */
+  onSaved?: (pct: number) => void;
 }) {
   const { d, lang, locale } = useT();
   const b = d.costs.buffer;
@@ -87,6 +90,7 @@ export function MermaField({
         return;
       }
       setStep("view");
+      onSaved?.(value);
       router.refresh();
     } catch {
       setError(strings.saveFailed);

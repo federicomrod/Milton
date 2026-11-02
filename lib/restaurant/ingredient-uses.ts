@@ -62,6 +62,8 @@ export interface IngredientUseEntry {
   /** «a través de la preparación X» / «por el alias …» / «ingrediente unido». */
   via: string | null;
   href: string;
+  /** A preparation covered by a measured yield, itself or above it (set by the page, display only). */
+  prepCovered?: boolean;
 }
 
 export interface UsesLine {

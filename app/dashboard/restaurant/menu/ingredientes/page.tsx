@@ -27,6 +27,14 @@ import {
   type HistoryLine,
 } from "@/lib/restaurant/kitchen-buffer-server";
 import { currentYield } from "@/lib/restaurant/ingredient-yield-view";
+import { loadPrepGraph } from "@/lib/restaurant/nested-yield-server";
+import {
+  coveredByMeasuredPrep,
+  type PrepNode,
+} from "@/lib/restaurant/nested-yield";
+import { loadBusinessToday } from "@/lib/restaurant/kitchen-buffer-server";
+import { listAllCompanyRestaurants } from "@/lib/restaurant/restaurant-context-server";
+import { loadResolvedBufferAt } from "@/lib/restaurant/yield-buffer";
 import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
@@ -50,6 +58,8 @@ type LoadResult =
       archiveAvailable: boolean;
       duplicates: DuplicateState;
       capabilities: Record<Capability, boolean>;
+      /** The kitchen buffer in force today for the selected restaurant, in %. */
+      bufferPct: number | null;
     }
   | { kind: "no-company" };
 
@@ -88,6 +98,30 @@ async function loadIngredientes(
       () => new Map<string, HistoryLine[]>()
     ),
   ]);
+  // Display only: the buffer in force today and which preparations are measured.
+  // #407's shared loader and rule: a preparation is covered when it, or any
+  // preparation above it, has a measured batch output.
+  const prepGraph = await loadPrepGraph(supabase, companyId).catch(
+    () => new Map<string, PrepNode>()
+  );
+  const bufferPct = await (async () => {
+    try {
+      const { locations } = await listAllCompanyRestaurants(
+        supabase,
+        companyId
+      );
+      const where =
+        locationId && locations.some((l) => l.id === locationId)
+          ? locationId
+          : (locations[0]?.id ?? null);
+      if (!where) return null;
+      const day = await loadBusinessToday(supabase, companyId, where);
+      return (await loadResolvedBufferAt(supabase, companyId, where, day))
+        .bufferPct;
+    } catch {
+      return null;
+    }
+  })();
   const capabilities = capabilityFlags(
     await getCachedActor(user.id, companyId)
   );
@@ -132,7 +166,18 @@ async function loadIngredientes(
         ? usageState(ing.id, usage, usage.archivedIds)
         : { inUse: true, archived: false }),
       sold_net_sales: soldNetSales.get(ing.id) ?? 0,
-      usedIn,
+      usedIn:
+        usedIn?.map((u) =>
+          u.kind === "preparacion"
+            ? {
+                ...u,
+                prepCovered: coveredByMeasuredPrep(
+                  u.key.split(":")[1],
+                  prepGraph
+                ),
+              }
+            : u
+        ) ?? null,
       // The yield in force today is the newest entry that already applies;
       // none = no yield set (never shown as 0).
       yieldPct: currentYield(yieldHistories.get(ing.id) ?? [], today),
@@ -152,6 +197,7 @@ async function loadIngredientes(
     archiveAvailable: usage.archiveAvailable,
     duplicates,
     capabilities,
+    bufferPct,
     itemGroups: economics.ok ? (economics.result.item_groups ?? null) : null,
   };
 }
@@ -184,6 +230,7 @@ export default async function IngredientesRoute({
       archiveAvailable={result.archiveAvailable}
       duplicates={result.duplicates}
       capabilities={result.capabilities}
+      bufferPct={result.bufferPct}
       initialSelectedId={params.ingrediente ?? null}
       initialFilter={parseIngredientesFilter(params.filtro)}
     />

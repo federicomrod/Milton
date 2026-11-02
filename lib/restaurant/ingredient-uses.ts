@@ -62,6 +62,8 @@ export interface IngredientUseEntry {
   /** «a través de la preparación X» / «por el alias …» / «ingrediente unido». */
   via: string | null;
   href: string;
+  /** A preparation whose batch output is measured (set by the page, display only). */
+  prepMeasured?: boolean;
 }
 
 export interface UsesLine {

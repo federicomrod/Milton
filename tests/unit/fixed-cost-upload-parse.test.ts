@@ -285,19 +285,19 @@ describe("approval plan", () => {
 
 describe("which restaurant a text means", () => {
   const two = [
-    { id: A, name: "Los Ranchos Centro" },
-    { id: B, name: "Los Ranchos Escalón" },
+    { id: A, name: "La Esquina Centro" },
+    { id: B, name: "La Esquina Norte" },
   ];
   it("a shared prefix is not guessed", () => {
-    expect(scopeFromText("Los Ranchos", two)).toBeNull();
+    expect(scopeFromText("La Esquina", two)).toBeNull();
     expect(scopeFromText("Los", two)).toBeNull();
   });
   it("an exact name wins; a unique partial of 4+ characters matches", () => {
-    expect(scopeFromText("Los Ranchos Escalón", two)).toEqual({
+    expect(scopeFromText("La Esquina Norte", two)).toEqual({
       kind: "restaurant",
       locationId: B,
     });
-    expect(scopeFromText("los ranchos escalon", two)).toEqual({
+    expect(scopeFromText("la esquina norte", two)).toEqual({
       kind: "restaurant",
       locationId: B,
     });
@@ -317,7 +317,7 @@ describe("which restaurant a text means", () => {
             label: "Luz",
             category: "servicios",
             amount: 90,
-            restaurant: "Los Ranchos",
+            restaurant: "La Esquina",
           },
           {
             label: "Luz",

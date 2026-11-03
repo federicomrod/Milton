@@ -266,6 +266,11 @@ export const menuEditor: Dictionary["menu"]["editor"] = {
     invalidUnit: "Diese Einheit ist ungültig.",
     lineNotFound: "Diese Zeile wurde nicht gefunden.",
     invalidYield: "Geben Sie die Ergiebigkeit mit einer gültigen Einheit an.",
+    onlyDefaultConfirmable:
+      "Nur die Standardeinheit (1) kann so bestätigt werden; jeden anderen Wert tragen Sie ein.",
+    confirmNeedsDraft:
+      "Diese Zubereitung hat keinen offenen Entwurf: Tragen Sie die Ergiebigkeit ein.",
+    nothingToUndo: "Es gibt keine Bestätigung zum Rückgängigmachen.",
     ingredientNameRequired: "Geben Sie den Namen der Zutat ein.",
     ingredientUnitRequired: "Wählen Sie die Einheit, in der Sie sie kaufen.",
     priceNegative: "Der Preis darf nicht negativ sein.",

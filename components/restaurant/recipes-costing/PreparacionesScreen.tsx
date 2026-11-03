@@ -381,7 +381,7 @@ export function PreparacionesScreen({
   );
 }
 
-function PreparationDetail({
+export function PreparationDetail({
   componentId,
   actor,
   onChanged,
@@ -398,7 +398,7 @@ function PreparationDetail({
   onApproveStart: (componentId: string) => void;
   onApproveFailed: (componentId: string, message: string) => void;
 }) {
-  const { d, fmt, lang } = useT();
+  const { d, fmt, lang, locale } = useT();
   const w = d.menu.workspace.preparaciones;
   const unitPlural = w.unitPlural as Record<string, string>;
   const unitSingular = w.unitSingular as Record<string, string>;
@@ -545,6 +545,36 @@ function PreparationDetail({
               >
                 {w.confirmYield}
               </GhostBtn>
+              {/* «Confirmar 1 unidad»: the default 1 IS the real output. One
+                  tap, reversible, recorded with who and when. */}
+              {prep.yield && !prep.yield.confirmed && prep.yield.value === 1 ? (
+                <GhostBtn
+                  data-testid="confirm-one-unit"
+                  disabled={busy}
+                  onClick={() =>
+                    void post("/api/restaurant/recipes/editor", {
+                      component_id: componentId,
+                      action: "confirm_yield",
+                    })
+                  }
+                >
+                  {w.confirmOneUnit}
+                </GhostBtn>
+              ) : null}
+              {prep.yield_confirmed_default ? (
+                <GhostBtn
+                  data-testid="undo-confirm-one-unit"
+                  disabled={busy}
+                  onClick={() =>
+                    void post("/api/restaurant/recipes/editor", {
+                      component_id: componentId,
+                      action: "unconfirm_yield",
+                    })
+                  }
+                >
+                  {w.undoConfirmOne}
+                </GhostBtn>
+              ) : null}
             </div>
           ) : (
             <p>
@@ -555,14 +585,43 @@ function PreparationDetail({
               })}
             </p>
           )}
-          <div className="text-[#5b6476]">
-            {prep.cost_per_output_unit !== null && prep.yield
-              ? fmt(w.costPerUnit, {
-                  cost: money(prep.cost_per_output_unit),
-                  unit: unitSingular[prep.yield.unit] ?? prep.yield.unit,
-                })
-              : w.costWhenPriced}
-          </div>
+          {state?.money_hidden ? null : (
+            <div className="text-[#5b6476]">
+              {prep.cost_per_output_unit !== null && prep.yield
+                ? fmt(w.costPerUnit, {
+                    cost: money(prep.cost_per_output_unit),
+                    unit: unitSingular[prep.yield.unit] ?? prep.yield.unit,
+                  })
+                : w.costWhenPriced}
+            </div>
+          )}
+
+          {prep.yield_history && prep.yield_history.length > 0 ? (
+            <div data-testid="yield-history" className="text-[12px]">
+              <div className="font-semibold text-[#5b6476]">
+                {w.yieldHistoryTitle}
+              </div>
+              <ul className="mt-1 space-y-0.5 text-[#5b6476]">
+                {prep.yield_history.map((h) => (
+                  <li key={`${h.at}-${h.action}`}>
+                    {fmt(
+                      h.action === "confirm"
+                        ? w.historyConfirmed
+                        : w.historyRevoked,
+                      {
+                        who: h.by_name ?? w.historyUnknownWho,
+                        date: new Date(h.at).toLocaleDateString(locale, {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        }),
+                      }
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {error ? (
             <div className="rounded-md border border-[#f1c0c0] bg-[#fdecec] px-3 py-2 text-[#c03535]">

@@ -44,6 +44,10 @@ export function parseEditorAction(
       if (!unit || quantity === undefined) return null;
       return { action: "set_yield", quantity, unit };
     }
+    case "confirm_yield":
+      return { action: "confirm_yield" };
+    case "unconfirm_yield":
+      return { action: "unconfirm_yield" };
     case "answer_unit": {
       const inputId = str(body.input_id);
       const unit = str(body.unit);

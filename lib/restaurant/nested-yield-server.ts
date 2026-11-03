@@ -5,10 +5,9 @@
 // when its newest version has a positive batch output and no pending draft
 // still carries the import's assumed «1 orden».
 
-import { isMeasuredOutput } from "@/lib/restaurant/prep-yield";
+import { isMeasuredOutput, yieldEvidenceOf } from "@/lib/restaurant/prep-yield";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchAllRows } from "@/lib/restaurant/paginated-read";
-import { yieldOf } from "@/lib/restaurant/recipe-costing/editor-service";
 import { PREPARATION_DRAFT_KIND } from "@/lib/restaurant/recipe-costing/prefill-preparations";
 import type { PrepNode } from "@/lib/restaurant/nested-yield";
 import type { PrepDef } from "@/lib/restaurant/merma-visibility";
@@ -52,9 +51,10 @@ export async function loadPrepGraph(
   const evidence = new Map<string, { confirmed: boolean }>();
   for (const d of drafts.rows) {
     const raw = d.raw_values ?? {};
-    const y = yieldOf(raw);
-    if (typeof raw.component_id === "string")
-      evidence.set(raw.component_id, { confirmed: y ? y.confirmed : false });
+    // No usable reading = no evidence: the version's own output decides.
+    const y = yieldEvidenceOf(raw);
+    if (typeof raw.component_id === "string" && y)
+      evidence.set(raw.component_id, y);
   }
   const versionIds = [...newest.values()].map((v) => v.id);
   const inputs = versionIds.length

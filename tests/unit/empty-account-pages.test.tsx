@@ -55,6 +55,13 @@ vi.mock("@/lib/restaurant/auth-user", async (orig) => ({
   ...(await orig<typeof import("@/lib/restaurant/auth-user")>()),
   getCachedAuthUser: async () => ({ id: "u1", email: "a@b.co" }),
   getCachedCompanyId: async () => "11111111-1111-4111-8111-111111111111",
+  // Menú › Ingredientes is closed to roles without prices.view (kitchen).
+  getCachedActor: async () => ({
+    userId: "u1",
+    companyId: "11111111-1111-4111-8111-111111111111",
+    role: "owner",
+    isMiltonStaff: false,
+  }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push() {}, refresh() {}, replace() {} }),

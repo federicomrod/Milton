@@ -2,7 +2,7 @@
 // and what approving it unlocks (dishes and share of net sales). Company
 // comes from auth, never from the request.
 
-import { isMeasuredOutput } from "@/lib/restaurant/prep-yield";
+import { isMeasuredOutput, yieldEvidenceOf } from "@/lib/restaurant/prep-yield";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { fetchCostingRecipeVersions } from "@/lib/restaurant/costing-versions";
@@ -127,12 +127,9 @@ export async function loadPreparationsOverview(
   for (const item of items.rows) {
     const id = item.raw_values.component_id;
     if (typeof id !== "string") continue;
-    const y = item.raw_values.yield as Record<string, unknown> | undefined;
     openByComponent.set(id, {
       note: item.reason,
-      yieldEvidence: y
-        ? { confirmed: y.confirmed !== false && y.source !== "assumed" }
-        : null,
+      yieldEvidence: yieldEvidenceOf(item.raw_values),
     });
   }
 

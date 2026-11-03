@@ -174,12 +174,14 @@ function batchImpact(
     ownLossPct: number | null;
     bufferPct: number;
   },
-  covered: ReadonlyMap<string, boolean>,
+  /** A measured preparation is above this one ON THIS PATH (path-aware, #476). */
+  measuredAbove: boolean,
   seen: ReadonlySet<string>
 ): UseImpact {
   const def = defs.get(prepId);
   if (!def || seen.has(prepId)) return { kind: "unknown" };
   const next = new Set(seen).add(prepId);
+  const covered = measuredAbove || def.measured;
   let total = 0;
   let any = false;
   for (const line of def.lines) {
@@ -190,7 +192,7 @@ function batchImpact(
         line: {
           qty: line.qty,
           unit: line.unit,
-          insideMeasuredPrep: covered.get(prepId) === true,
+          insideMeasuredPrep: covered,
         },
       });
       if (r.kind === "missing" || r.kind === "noConversion") return r;
@@ -260,7 +262,13 @@ export function impactViaPreps(
     ownLossPct: number | null;
     bufferPct: number;
   },
-  covered: ReadonlyMap<string, boolean>
+  /**
+   * A measured preparation is above the start of this path (a preparation that
+   * uses the ingredient only through others, and is itself covered). A plato is
+   * false. Each step down adds its own measured output, so a sibling path is
+   * never judged by another path.
+   */
+  startCovered = false
 ): UseImpact {
   if (!usablePrice(ctx.price)) return { kind: "missing" };
   if (via.length === 0) return { kind: "unknown" };
@@ -274,7 +282,7 @@ export function impactViaPreps(
       v.componentId,
       defs,
       ctx,
-      covered,
+      startCovered,
       new Set()
     );
     if (batch.kind === "missing" || batch.kind === "noConversion") return batch;
@@ -310,7 +318,8 @@ export function coveredMap(
 }
 
 /**
- * What a role without price access may be sent: no price, no merma inputs.
+ * What a role without price access may be sent: no price, no merma inputs, no
+ * sales figure.
  * Used by the Ingredientes page so the payload never carries money for cooks.
  */
 export function redactMermaInputs<
@@ -321,6 +330,8 @@ export function redactMermaInputs<
     price_date: string | null;
     yieldPct?: number | null;
     yieldHistory?: unknown[];
+    /** Sales of the dishes that use it: money too. */
+    sold_net_sales?: number;
   },
 >(item: T, canViewPrices: boolean): T {
   if (canViewPrices) return item;
@@ -332,5 +343,6 @@ export function redactMermaInputs<
     price_date: null,
     yieldPct: null,
     yieldHistory: [],
+    sold_net_sales: 0,
   };
 }

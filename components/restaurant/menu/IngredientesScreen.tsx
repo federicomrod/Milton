@@ -22,7 +22,6 @@ import { pctText } from "@/lib/restaurant/merma-format";
 import { MAX_YIELD_LOSS_PCT } from "@/lib/restaurant/yield-buffer";
 import type { HistoryLine } from "@/lib/restaurant/kitchen-buffer-server";
 import {
-  coveredMap,
   impactOfUse,
   impactViaPreps,
   panelRealCost,
@@ -1165,7 +1164,7 @@ export function impactForUse(
       u.viaPreps,
       defs,
       ctx,
-      coveredMap(defs)
+      u.kind === "preparacion" && u.prepCovered === true
     );
     return noFactor && r.kind === "extra" ? { kind: "none" } : r;
   }

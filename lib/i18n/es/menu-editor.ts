@@ -259,6 +259,11 @@ export const menuEditor = {
     invalidUnit: "Esa unidad no es válida.",
     lineNotFound: "No encontré esa línea.",
     invalidYield: "Indica cuánto rinde, con una unidad válida.",
+    onlyDefaultConfirmable:
+      "Solo se puede confirmar la unidad por defecto (1); otro valor se escribe.",
+    confirmNeedsDraft:
+      "Esta preparación no tiene borrador abierto: escribe el rendimiento.",
+    nothingToUndo: "No hay ninguna confirmación que deshacer.",
     ingredientNameRequired: "Escribe el nombre del ingrediente.",
     ingredientUnitRequired: "Elige la unidad en la que lo compras.",
     priceNegative: "El precio no puede ser negativo.",

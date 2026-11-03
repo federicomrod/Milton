@@ -5,7 +5,9 @@
 // from ingredient_cost_entries (fetchIngredientLatestCosts); "Se usa en"
 // comes from loadIngredientUsage (one list for the counters and the detail).
 
+import { redirect } from "next/navigation";
 import { getDictionary } from "@/lib/i18n";
+import { MENU_TAB_PATHS } from "@/lib/restaurant/recetas-redirect";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { createClient } from "@/lib/supabase/server";
@@ -46,7 +48,10 @@ import { loadIngredientUsage } from "@/lib/restaurant/ingredient-usage-server";
 import { usageState } from "@/lib/restaurant/ingredient-usage";
 import { loadDishEconomics } from "@/lib/restaurant/costing/dish-economics-server";
 import type { ItemGroupsLoad } from "@/lib/restaurant/groups/item-groups";
-import { parseIngredientesFilter } from "@/lib/restaurant/ingredientes-screen";
+import {
+  canSeeIngredientes,
+  parseIngredientesFilter,
+} from "@/lib/restaurant/ingredientes-screen";
 import {
   IngredientesScreen,
   type IngredienteItem,
@@ -70,7 +75,9 @@ type LoadResult =
       /** Preparations' recipes for the share via a preparation; none for cooks. */
       prepDefs: Record<string, PrepDef>;
     }
-  | { kind: "no-company" };
+  | { kind: "no-company" }
+  // Kitchen roles do not see this screen at all: nothing below is read for them.
+  | { kind: "denied" };
 
 async function loadIngredientes(
   locationId: string | null,
@@ -80,6 +87,10 @@ async function loadIngredientes(
   if (!user) return { kind: "no-company" };
   const companyId = await getCachedCompanyId(user.id);
   if (!companyId) return { kind: "no-company" };
+  const capabilities = capabilityFlags(
+    await getCachedActor(user.id, companyId)
+  );
+  if (!canSeeIngredientes(capabilities)) return { kind: "denied" };
   const supabase = await createClient();
 
   const [
@@ -131,9 +142,6 @@ async function loadIngredientes(
       return null;
     }
   })();
-  const capabilities = capabilityFlags(
-    await getCachedActor(user.id, companyId)
-  );
   if (!economics.ok) {
     console.error("[menu/ingredientes] dish economics:", economics.error);
   }
@@ -234,6 +242,7 @@ export default async function IngredientesRoute({
   const params = await searchParams;
   const { lang } = await loadRestaurantShellChrome();
   const result = await loadIngredientes(params.location ?? null, lang);
+  if (result.kind === "denied") redirect(MENU_TAB_PATHS.resumen);
   if (result.kind === "no-company") {
     return (
       <p className="mt-3 text-[13px] text-[#8a92a3]">

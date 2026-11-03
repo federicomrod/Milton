@@ -8,7 +8,6 @@ import {
   isMeasuredOutput,
 } from "@/lib/restaurant/prep-yield";
 import {
-  coveredMap,
   impactOfUse,
   impactViaPreps,
   redactMermaInputs,
@@ -162,6 +161,7 @@ describe("cooks get no money", () => {
     price_date: "2026-10-01",
     yieldPct: 20,
     yieldHistory: [{}],
+    sold_net_sales: 4200,
   };
   it("redacts price and merma inputs for a role without prices.view", () => {
     expect(redactMermaInputs(item, false)).toMatchObject({
@@ -170,6 +170,7 @@ describe("cooks get no money", () => {
       price_unit: null,
       yieldPct: null,
       yieldHistory: [],
+      sold_net_sales: 0,
     });
     expect(redactMermaInputs(item, true)).toEqual(item);
   });
@@ -213,47 +214,62 @@ describe("«Impacto merma» through preparations", () => {
 
   it("worked example, 2 levels deep: 2/5 × (1/4 × 5% of $20) = $0.10", () => {
     const d = defs();
-    const r = impactViaPreps("tomate", via, d, ctx, coveredMap(d));
+    const r = impactViaPreps("tomate", via, d, ctx);
     expect(r.kind).toBe("extra");
     expect(r.kind === "extra" && r.amount).toBeCloseTo(0.1, 9);
   });
   it("a measured prep above means no factor: —", () => {
     const d = defs({ A: { measured: true } });
-    expect(impactViaPreps("tomate", via, d, ctx, coveredMap(d))).toEqual({
+    expect(impactViaPreps("tomate", via, d, ctx)).toEqual({
       kind: "none",
     });
   });
   it("an own yield still applies once inside a measured prep (share of the extra)", () => {
     const d = defs({ A: { measured: true } });
-    const r = impactViaPreps(
-      "tomate",
-      via,
-      d,
-      { ...ctx, ownLossPct: 20 },
-      coveredMap(d)
-    );
+    const r = impactViaPreps("tomate", via, d, { ...ctx, ownLossPct: 20 });
     // batch extra in B: 20/0.8 − 20 = 5 → ×1/4 in A → ×2/5 in the plato = 0.5
     expect(r.kind === "extra" && r.amount).toBeCloseTo(0.5, 9);
   });
   it("a share that cannot be computed is «unknown» (— vía preparación)", () => {
     const noOutput = defs({ A: { outputQty: null } });
-    expect(
-      impactViaPreps("tomate", via, noOutput, ctx, coveredMap(noOutput)).kind
-    ).toBe("unknown");
+    expect(impactViaPreps("tomate", via, noOutput, ctx).kind).toBe("unknown");
     const badUnit = [{ componentId: "A", qty: 2, unit: "unidad" }];
     const d = defs();
-    expect(impactViaPreps("tomate", badUnit, d, ctx, coveredMap(d)).kind).toBe(
-      "unknown"
-    );
-    expect(impactViaPreps("tomate", [], d, ctx, coveredMap(d)).kind).toBe(
-      "unknown"
-    );
+    expect(impactViaPreps("tomate", badUnit, d, ctx).kind).toBe("unknown");
+    expect(impactViaPreps("tomate", [], d, ctx).kind).toBe("unknown");
+  });
+  it("is path-aware: a measured prep on ANOTHER path does not remove the factor here", () => {
+    // plato uses A (unmeasured) and C (measured); both use the same B.
+    const d = defs();
+    d.set("C", {
+      id: "C",
+      outputQty: 5,
+      outputUnit: "kg",
+      measured: true,
+      lines: [{ kind: "component", componentId: "B", qty: 1, unit: "kg" }],
+    });
+    const both = [
+      { componentId: "A", qty: 2, unit: "kg" },
+      { componentId: "C", qty: 2, unit: "kg" },
+    ];
+    const r = impactViaPreps("tomate", both, d, ctx);
+    // only the A path carries the factor: the same $0.10 as A alone
+    expect(r.kind === "extra" && r.amount).toBeCloseTo(0.1, 9);
+    expect(impactViaPreps("tomate", [both[1]], d, ctx)).toEqual({
+      kind: "none",
+    });
+  });
+  it("a use row that is itself covered passes that down", () => {
+    const d = defs();
+    expect(impactViaPreps("tomate", via, d, ctx, true)).toEqual({
+      kind: "none",
+    });
   });
   it("no price: ⚑ Falta, never 0", () => {
     const d = defs();
-    expect(
-      impactViaPreps("tomate", via, d, { ...ctx, price: 0 }, coveredMap(d))
-    ).toEqual({ kind: "missing" });
+    expect(impactViaPreps("tomate", via, d, { ...ctx, price: 0 })).toEqual({
+      kind: "missing",
+    });
   });
 });
 

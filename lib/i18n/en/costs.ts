@@ -40,7 +40,11 @@ export const costs: Dictionary["costs"] = {
     overwriteConfirm: "Replace and approve",
     overwriteCancel: "Cancel",
     approved:
-      "{n} lines saved from the file. They show in the history as file.",
+      "{n} costs saved from the file. They show in the history as file.",
+    groupTotal: "{category} · {month}: {n} lines · {total}",
+    dupTax:
+      "There is more than one tax line for the same month and restaurant. A rate is not added up: keep one and discard the others.",
+    notSaved: "Not saved: {line} — {error}",
     nothingApproved: "There were no lines ready to approve.",
     errUnsupported:
       "That file type cannot be read. Upload Excel, CSV, PDF or a photo.",

@@ -134,3 +134,62 @@ describe("FixedCostUpload", () => {
     expect(JSON.parse(calls[1].body).confirmed).toEqual(["l1"]);
   });
 });
+
+describe("lines of one category", () => {
+  const mk = (id: string, raw: string, category: string, amount: number) => ({
+    id,
+    raw,
+    category,
+    amount,
+    month: "2026-10-01",
+    scope: { kind: "restaurant", locationId: LOC },
+    from: "file",
+    status: "pending",
+  });
+
+  it("shows «Servicios: 3 líneas · total» before approving", async () => {
+    show(async () =>
+      ok({
+        draft: {
+          ...draft,
+          lines: [
+            mk("a", "Luz", "servicios", 100),
+            mk("b", "Agua", "servicios", 50),
+            mk("c", "Internet", "servicios", 30),
+          ],
+        },
+      })
+    );
+    const totals = await screen.findByTestId("category-totals");
+    expect(totals.textContent).toMatch(/Servicios/);
+    expect(totals.textContent).toContain("3 líneas");
+    expect(totals.textContent).toContain("$180");
+  });
+
+  it("two impuestos lines of one key are ⚑ Falta with a message and cannot be approved", async () => {
+    show(async () =>
+      ok({
+        draft: {
+          ...draft,
+          lines: [
+            mk("a", "IVA", "impuestos", 10),
+            mk("b", "ISR", "impuestos", 6),
+          ],
+        },
+      })
+    );
+    const lines = await screen.findAllByTestId("upload-line");
+    for (const row of lines) {
+      expect(within(row).getAllByText(/Falta/).length).toBeGreaterThan(0);
+      expect(row.textContent).toContain("Una tasa no se suma");
+      expect(
+        (
+          within(row).getByRole("button", {
+            name: "Aprobar",
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(true);
+    }
+    expect(screen.queryByTestId("category-totals")).toBeNull();
+  });
+});

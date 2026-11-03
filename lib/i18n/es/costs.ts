@@ -38,7 +38,11 @@ export const costs = {
     overwriteConfirm: "Reemplazar y aprobar",
     overwriteCancel: "Cancelar",
     approved:
-      "{n} líneas guardadas desde el archivo. Aparecen en el historial como archivo.",
+      "{n} costos guardados desde el archivo. Aparecen en el historial como archivo.",
+    groupTotal: "{category} · {month}: {n} líneas · {total}",
+    dupTax:
+      "Hay más de una línea de impuestos para el mismo mes y restaurante. Una tasa no se suma: deja solo una y descarta las demás.",
+    notSaved: "No se guardó: {line} — {error}",
     nothingApproved: "No había líneas listas para aprobar.",
     errUnsupported:
       "Ese tipo de archivo no se puede leer. Sube Excel, CSV, PDF o una foto.",

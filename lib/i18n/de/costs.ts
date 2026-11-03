@@ -40,7 +40,11 @@ export const costs: Dictionary["costs"] = {
     overwriteConfirm: "Ersetzen und bestätigen",
     overwriteCancel: "Abbrechen",
     approved:
-      "{n} Zeilen aus der Datei gespeichert. Im Verlauf erscheinen sie als Datei.",
+      "{n} Kosten aus der Datei gespeichert. Im Verlauf erscheinen sie als Datei.",
+    groupTotal: "{category} · {month}: {n} Zeilen · {total}",
+    dupTax:
+      "Es gibt mehr als eine Steuerzeile für denselben Monat und dasselbe Restaurant. Ein Satz wird nicht addiert: Behalte eine und verwirf die anderen.",
+    notSaved: "Nicht gespeichert: {line} — {error}",
     nothingApproved: "Es gab keine Zeilen, die bereit zum Bestätigen waren.",
     errUnsupported:
       "Dieser Dateityp kann nicht gelesen werden. Lade Excel, CSV, PDF oder ein Foto hoch.",

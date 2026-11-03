@@ -20,6 +20,8 @@ import {
   type FixedCostCategory,
 } from "@/lib/restaurant/fixed-costs";
 import {
+  categoryTotals,
+  duplicateTaxIds,
   issuesOf,
   type DraftLine,
   type OverwriteConflict,
@@ -159,11 +161,29 @@ export function FixedCostUpload({
           ? fmt(t.approved, { n: Number(body.approved) })
           : t.nothingApproved
       );
+      // A line the server could not save stays in the draft: say which and why.
+      const failed = Array.isArray(body.issues)
+        ? (body.issues as Array<{ lineId: string; error: string }>)
+        : [];
+      if (failed.length)
+        setError(
+          failed
+            .map((i) =>
+              fmt(t.notSaved, {
+                line: draft.lines.find((l) => l.id === i.lineId)?.raw ?? "",
+                error: i.error,
+              })
+            )
+            .join(" · ")
+        );
       router.refresh();
     } else setError(String(body.error ?? t.errSave));
   }
 
   const lines = draft?.lines.filter((l) => l.status === "pending") ?? [];
+  const dupTax = duplicateTaxIds(lines);
+  // Several lines of one category are saved as ONE value: show the sum first.
+  const sums = categoryTotals(lines).filter((g) => g.lines > 1);
   const where = (l: DraftLine) =>
     l.scope?.kind === "restaurant"
       ? (locationNames[l.scope.locationId] ?? "")
@@ -276,12 +296,31 @@ export function FixedCostUpload({
             </div>
           ) : null}
 
+          {sums.length > 0 ? (
+            <ul data-testid="category-totals" className="mt-3 space-y-1">
+              {sums.map((g) => (
+                <li
+                  key={g.key}
+                  className="break-words rounded-lg bg-[#E7EDFD] px-3 py-2 text-sm font-semibold text-[#0F172A]"
+                >
+                  {fmt(t.groupTotal, {
+                    category: categoryLabel(g.category, lang),
+                    month: monthText({ month: g.month } as DraftLine),
+                    n: g.lines,
+                    total: money(g.category, g.total),
+                  })}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <ul className="mt-3 space-y-3">
             {lines.map((l) => (
               <LineRow
                 key={`${l.id}-${l.category}-${l.amount}`}
                 line={l}
                 busy={busy}
+                dupTax={dupTax.has(l.id)}
                 where={where(l)}
                 monthText={monthText(l)}
                 onCommit={(edit) =>
@@ -321,6 +360,8 @@ export function FixedCostUpload({
 function LineRow(props: {
   line: DraftLine;
   busy: boolean;
+  /** Another tax line has the same month and restaurant: keep one. */
+  dupTax: boolean;
   where: string;
   monthText: string;
   onCommit: (edit: {
@@ -334,6 +375,7 @@ function LineRow(props: {
   const t = d.costs.fixedUpload;
   const { line } = props;
   const issues = issuesOf(line);
+  const flagged = issues.length > 0 || props.dupTax;
   const [amount, setAmount] = useState(
     line.amount === null ? "" : formatTypedNumber(line.amount, lang)
   );
@@ -348,7 +390,7 @@ function LineRow(props: {
           {line.raw || "—"}
         </span>
         {line.from === "ai" ? <span className={AI_PILL}>{t.aiTag}</span> : null}
-        {issues.length > 0 ? (
+        {flagged ? (
           <span className={ALERT_PILL}>{d.costs.fixed.missing}</span>
         ) : null}
       </div>
@@ -357,6 +399,8 @@ function LineRow(props: {
       </p>
       {issues.length > 0 ? (
         <p className="mt-1 text-[12px] text-[#4a5a85]">{t.unrecognized}</p>
+      ) : props.dupTax ? (
+        <p className="mt-1 text-[12px] text-[#4a5a85]">{t.dupTax}</p>
       ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <select
@@ -397,7 +441,7 @@ function LineRow(props: {
       <div className="mt-2 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={props.busy || issues.length > 0}
+          disabled={props.busy || flagged}
           onClick={props.onApprove}
           className={BTN}
         >

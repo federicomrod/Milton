@@ -158,6 +158,118 @@ describe("approving", () => {
     });
   });
 
+  it("3 servicios lines are saved as ONE row with the sum, one log entry, all approved", async () => {
+    const { db, ctx } = setup();
+    const draft = (await createDraft(ctx, {
+      fileName: "x.csv",
+      month: "2026-10-01",
+      locationId: LOC,
+      lines: [
+        line({ id: "a", category: "servicios", raw: "Luz", amount: 100 }),
+        line({ id: "b", category: "servicios", raw: "Agua", amount: 50 }),
+        line({ id: "c", category: "servicios", raw: "Internet", amount: 30 }),
+      ],
+    }))!;
+    const res = await approveDraft(ctx, draft, {});
+    expect(res).toMatchObject({ ok: true, approved: 1, issues: [] });
+    expect(db.tables.restaurant_fixed_costs).toHaveLength(1);
+    expect(db.tables.restaurant_fixed_costs[0]).toMatchObject({
+      category: "servicios",
+      amount: 180,
+      label: "Luz + Agua + Internet",
+      source: "upload",
+    });
+    expect(db.tables.restaurant_fixed_costs_log).toHaveLength(1);
+    expect(db.tables.restaurant_fixed_costs_log[0]).toMatchObject({
+      new_value: { amount: 180, pct_of_sales: null },
+    });
+    if (res.ok)
+      expect(res.draft.lines.map((l) => l.status)).toEqual([
+        "approved",
+        "approved",
+        "approved",
+      ]);
+  });
+  it("the sum against a different existing value is a 409 conflict; nothing written", async () => {
+    const { db, ctx } = setup({
+      restaurant_fixed_costs: [
+        {
+          id: "fc1",
+          company_id: "c1",
+          location_id: LOC,
+          month: "2026-10-01",
+          category: "servicios",
+          amount: 100,
+          pct_of_sales: null,
+          source: "manual",
+        },
+      ],
+    });
+    const draft = (await createDraft(ctx, {
+      fileName: "x.csv",
+      month: "2026-10-01",
+      locationId: LOC,
+      lines: [
+        line({ id: "a", category: "servicios", amount: 100 }),
+        line({ id: "b", category: "servicios", amount: 50 }),
+      ],
+    }))!;
+    const res = await approveDraft(ctx, draft, {});
+    expect(res).toMatchObject({
+      ok: false,
+      conflicts: [{ lineId: "a", old: 100, new: 150 }],
+    });
+    expect(costWrites(db)).toHaveLength(0);
+    const ok = await approveDraft(ctx, draft, { confirmed: ["a"] });
+    expect(ok.ok).toBe(true);
+    expect(db.tables.restaurant_fixed_costs[0].amount).toBe(150);
+  });
+  it("two impuestos lines of one key stay pending, nothing written", async () => {
+    const { db, ctx } = setup();
+    const draft = (await createDraft(ctx, {
+      fileName: "x.csv",
+      month: "2026-10-01",
+      locationId: LOC,
+      lines: [
+        line({ id: "a", category: "impuestos", amount: 10 }),
+        line({ id: "b", category: "impuestos", amount: 6 }),
+      ],
+    }))!;
+    const res = await approveDraft(ctx, draft, {});
+    expect(res).toMatchObject({ ok: true, approved: 0 });
+    expect(costWrites(db)).toHaveLength(0);
+    if (res.ok)
+      expect(res.draft.lines.map((l) => l.status)).toEqual([
+        "pending",
+        "pending",
+      ]);
+  });
+  it("a line the row check rejects is reported, not skipped silently", async () => {
+    const { db, ctx } = setup();
+    const draft = (await createDraft(ctx, {
+      fileName: "x.csv",
+      month: "2026-10-01",
+      locationId: LOC,
+      lines: [
+        line({ id: "a" }),
+        // a location id that is not a UUID passes isApprovable but not validateLine
+        line({
+          id: "b",
+          category: "planilla",
+          scope: { kind: "restaurant", locationId: "not-a-uuid" },
+        }),
+      ],
+    }))!;
+    const res = await approveDraft(ctx, draft, {});
+    expect(res).toMatchObject({
+      ok: true,
+      approved: 1,
+      issues: [{ lineId: "b" }],
+    });
+    expect(db.tables.restaurant_fixed_costs).toHaveLength(1);
+    if (res.ok)
+      expect(res.draft.lines.find((l) => l.id === "b")?.status).toBe("pending");
+  });
   it("the same value is not a conflict and writes nothing", async () => {
     const { db, ctx } = setup({
       restaurant_fixed_costs: [

@@ -78,8 +78,10 @@ export function parseAmount(cell: unknown): number | null {
     const sep = lastDot >= 0 ? "." : ",";
     const parts = t.split(sep);
     const tail = parts[parts.length - 1];
+    // "0.750" is 0.75, never 750: a leading 0 cannot head a thousands group.
     const thousands =
-      parts.length > 2 || (tail.length === 3 && parts[0].length <= 3);
+      parts.length > 2 ||
+      (tail.length === 3 && parts[0].length <= 3 && parts[0] !== "0");
     t = thousands ? parts.join("") : parts.join(".");
   }
   const n = Number(t);
@@ -185,17 +187,29 @@ function ymd(y: number, m: number): string | null {
 const GROUP_WORDS =
   /^(grupo|group|gruppe|todos|all|compartido|shared|general)\b/;
 
-function scopeFromText(
+const MIN_PARTIAL_SCOPE = 4;
+
+export function scopeFromText(
   text: string,
   locations: readonly KnownLocation[]
 ): DraftScope | null {
   const t = fold(text);
   if (GROUP_WORDS.test(t)) return { kind: "group" };
-  const hit = locations.find((l) => {
+  if (!t) return null;
+  // An exact name wins. Otherwise a partial match counts only when it is
+  // unambiguous (exactly one restaurant) and the text is long enough to mean
+  // something; «Los Ranchos» between two «Los Ranchos …» is null (⚑ Falta).
+  const exact = locations.filter((l) => fold(l.name) === t);
+  if (exact.length === 1)
+    return { kind: "restaurant", locationId: exact[0].id };
+  if (exact.length > 1 || t.length < MIN_PARTIAL_SCOPE) return null;
+  const partial = locations.filter((l) => {
     const n = fold(l.name);
-    return n && (n === t || n.includes(t) || t.includes(n));
+    return n && (n.includes(t) || t.includes(n));
   });
-  return hit ? { kind: "restaurant", locationId: hit.id } : null;
+  return partial.length === 1
+    ? { kind: "restaurant", locationId: partial[0].id }
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,12 +365,19 @@ export interface ExistingValue {
 }
 
 export interface ApprovalWrite {
+  /**
+   * What is saved: the first line of the group with the SUMMED amount and the
+   * parts joined in `raw`. A lone line is itself.
+   */
   line: DraftLine;
+  /** Every draft line that this one row stands for (all approved together). */
+  members: DraftLine[];
   /** The row's current value, when the month already has one. */
   previous: ExistingValue | null;
 }
 
 export interface OverwriteConflict {
+  /** The first line of the group: confirming it confirms the whole group. */
   lineId: string;
   category: FixedCostCategory;
   month: string;
@@ -377,11 +398,69 @@ export const keyOfLine = (l: DraftLine): string =>
     category: l.category as FixedCostCategory,
   });
 
+const LABEL_MAX = 120;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 /**
- * What approving `selected` would do. A value already in the month is never
- * overwritten silently: a different one is a conflict (old → new) that needs a
- * confirmation; an identical one changes nothing. Lines with issues are left
- * alone.
+ * Pending impuestos lines that share a category/month/scope with another one.
+ * A rate (%) is not additive, so these are never summed: they stay ⚑ Falta
+ * until the person keeps one.
+ */
+export function duplicateTaxIds(lines: readonly DraftLine[]): Set<string> {
+  const byKey = new Map<string, string[]>();
+  for (const l of lines) {
+    if (l.category !== "impuestos" || !isApprovable(l)) continue;
+    const k = keyOfLine(l);
+    byKey.set(k, [...(byKey.get(k) ?? []), l.id]);
+  }
+  const out = new Set<string>();
+  for (const ids of byKey.values())
+    if (ids.length > 1) ids.forEach((i) => out.add(i));
+  return out;
+}
+
+export interface CategoryTotal {
+  key: string;
+  category: FixedCostCategory;
+  month: string;
+  scope: DraftScope;
+  lines: number;
+  total: number;
+}
+
+/** Per category/month/scope, how many ready lines and their sum (not for impuestos). */
+export function categoryTotals(lines: readonly DraftLine[]): CategoryTotal[] {
+  const dup = duplicateTaxIds(lines);
+  const by = new Map<string, CategoryTotal>();
+  for (const l of lines) {
+    if (!isApprovable(l) || dup.has(l.id) || l.category === "impuestos")
+      continue;
+    const key = keyOfLine(l);
+    const g = by.get(key);
+    if (g) {
+      g.lines += 1;
+      g.total = round2(g.total + (l.amount as number));
+    } else
+      by.set(key, {
+        key,
+        category: l.category as FixedCostCategory,
+        month: l.month as string,
+        scope: l.scope as DraftScope,
+        lines: 1,
+        total: l.amount as number,
+      });
+  }
+  return [...by.values()];
+}
+
+/**
+ * What approving `selected` would do. Lines of one category/month/scope are
+ * ONE row (restaurant_fixed_costs allows one per key): their amounts are
+ * summed and their labels joined with « + ». Two impuestos lines of the same
+ * key are not summed: they are blocked. A value already in the month is never
+ * overwritten silently: a different one (compared with the sum) is a conflict
+ * (old → new) that needs a confirmation; an identical one changes nothing.
+ * Lines with issues are left alone.
  */
 export function planApproval(
   selected: readonly DraftLine[],
@@ -396,38 +475,50 @@ export function planApproval(
   const conflicts: OverwriteConflict[] = [];
   const unchanged: DraftLine[] = [];
   const blocked: DraftLine[] = [];
-  const seen = new Set<string>();
+  const dupTax = duplicateTaxIds(selected);
+  const groups = new Map<string, DraftLine[]>();
   for (const line of selected) {
-    if (!isApprovable(line)) {
+    if (!isApprovable(line) || dupTax.has(line.id)) {
       blocked.push(line);
       continue;
     }
     const key = keyOfLine(line);
-    // Two lines for the same category/month/scope in one file: the first wins,
-    // the second waits (it would otherwise overwrite the first silently).
-    if (seen.has(key)) {
-      blocked.push(line);
-      continue;
-    }
-    seen.add(key);
+    groups.set(key, [...(groups.get(key) ?? []), line]);
+  }
+  for (const [key, members] of groups) {
+    const first = members[0];
+    const category = first.category as FixedCostCategory;
+    const amount = round2(
+      members.reduce((sum, l) => sum + (l.amount as number), 0)
+    );
+    const line: DraftLine =
+      members.length === 1
+        ? first
+        : {
+            ...first,
+            amount,
+            raw: members
+              .map((l) => l.raw)
+              .filter(Boolean)
+              .join(" + ")
+              .slice(0, LABEL_MAX),
+          };
     const prev = existing.get(key) ?? null;
-    const old = prev
-      ? valueOfExisting(prev, line.category as FixedCostCategory)
-      : null;
-    if (prev && old !== null && old === line.amount) {
-      unchanged.push(line);
+    const old = prev ? valueOfExisting(prev, category) : null;
+    if (prev && old !== null && old === amount) {
+      unchanged.push(...members);
       continue;
     }
     if (prev && old !== null)
       conflicts.push({
-        lineId: line.id,
-        category: line.category as FixedCostCategory,
-        month: line.month as string,
-        scope: line.scope as DraftScope,
+        lineId: first.id,
+        category,
+        month: first.month as string,
+        scope: first.scope as DraftScope,
         old,
-        new: line.amount as number,
+        new: amount,
       });
-    writes.push({ line, previous: prev });
+    writes.push({ line, members, previous: prev });
   }
   return { writes, conflicts, unchanged, blocked };
 }

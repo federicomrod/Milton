@@ -3,7 +3,9 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
+  categoryTotals,
   detectCategory,
+  duplicateTaxIds,
   isApprovable,
   issuesOf,
   normalizeAiLines,
@@ -11,6 +13,7 @@ import {
   parseGrid,
   parseMonthCell,
   planApproval,
+  scopeFromText,
   type DraftLine,
   type ReadDefaults,
 } from "@/lib/restaurant/fixed-cost-upload";
@@ -33,6 +36,10 @@ describe("cells", () => {
     expect(parseAmount("1.200,50")).toBe(1200.5);
     expect(parseAmount("12,50")).toBe(12.5);
     expect(parseAmount("1,200")).toBe(1200);
+    // a leading 0 is a decimal, never a thousands group
+    expect(parseAmount("0.750")).toBe(0.75);
+    expect(parseAmount("0,750")).toBe(0.75);
+    expect(parseAmount("1.750")).toBe(1750);
     expect(parseAmount(850)).toBe(850);
     expect(parseAmount("0")).toBeNull();
     expect(parseAmount(-5)).toBeNull();
@@ -184,13 +191,87 @@ describe("approval plan", () => {
     expect(p.writes).toHaveLength(0);
     expect(p.unchanged).toHaveLength(1);
   });
-  it("lines with issues and duplicates wait", () => {
+  it("lines with issues wait; the rest are written", () => {
     const p = planApproval(
-      [line({ id: "a" }), line({ id: "b" }), line({ id: "c", category: null })],
+      [line({ id: "a" }), line({ id: "c", category: null })],
       new Map()
     );
     expect(p.writes.map((w) => w.line.id)).toEqual(["a"]);
-    expect(p.blocked.map((l) => l.id)).toEqual(["b", "c"]);
+    expect(p.blocked.map((l) => l.id)).toEqual(["c"]);
+  });
+  it("3 servicios lines of one month and restaurant are ONE write: the sum, parts joined", () => {
+    const p = planApproval(
+      [
+        line({ id: "a", category: "servicios", raw: "Luz", amount: 100.1 }),
+        line({ id: "b", category: "servicios", raw: "Agua", amount: 50.2 }),
+        line({ id: "c", category: "servicios", raw: "Internet", amount: 30 }),
+      ],
+      new Map()
+    );
+    expect(p.writes).toHaveLength(1);
+    expect(p.blocked).toHaveLength(0);
+    expect(p.writes[0].line).toMatchObject({
+      amount: 180.3,
+      raw: "Luz + Agua + Internet",
+    });
+    expect(p.writes[0].members.map((m) => m.id)).toEqual(["a", "b", "c"]);
+  });
+  it("the joined label is cut to the 120-character limit", () => {
+    const long = "x".repeat(60);
+    const p = planApproval(
+      [
+        line({ id: "a", raw: long }),
+        line({ id: "b", raw: long }),
+        line({ id: "c", raw: long }),
+      ],
+      new Map()
+    );
+    expect(p.writes[0].line.raw.length).toBe(120);
+  });
+  it("the sum is what is compared with the existing value", () => {
+    const k = `${A}|2026-10-01|servicios`;
+    const three = [
+      line({ id: "a", category: "servicios", amount: 100 }),
+      line({ id: "b", category: "servicios", amount: 50 }),
+      line({ id: "c", category: "servicios", amount: 30 }),
+    ];
+    const diff = planApproval(
+      three,
+      new Map([[k, { amount: 100, pct_of_sales: null }]])
+    );
+    expect(diff.conflicts).toEqual([
+      expect.objectContaining({ lineId: "a", old: 100, new: 180 }),
+    ]);
+    const same = planApproval(
+      three,
+      new Map([[k, { amount: 180, pct_of_sales: null }]])
+    );
+    expect(same.writes).toHaveLength(0);
+    expect(same.unchanged).toHaveLength(3);
+  });
+  it("two impuestos lines of one key are flagged, never summed", () => {
+    const two = [
+      line({ id: "a", category: "impuestos", amount: 10 }),
+      line({ id: "b", category: "impuestos", amount: 6 }),
+    ];
+    expect([...duplicateTaxIds(two)]).toEqual(["a", "b"]);
+    const p = planApproval(two, new Map());
+    expect(p.writes).toHaveLength(0);
+    expect(p.blocked.map((l) => l.id)).toEqual(["a", "b"]);
+    // once the person keeps one, it goes through
+    const kept = planApproval([two[0]], new Map());
+    expect(kept.writes).toHaveLength(1);
+  });
+  it("the review shows the combined total per category", () => {
+    const totals = categoryTotals([
+      line({ id: "a", category: "servicios", amount: 100 }),
+      line({ id: "b", category: "servicios", amount: 50 }),
+      line({ id: "c" }),
+    ]);
+    expect(totals.find((t) => t.category === "servicios")).toMatchObject({
+      lines: 2,
+      total: 150,
+    });
   });
   it("impuestos is a rate up to 100", () => {
     expect(isApprovable(line({ category: "impuestos", amount: 16 }))).toBe(
@@ -199,5 +280,56 @@ describe("approval plan", () => {
     expect(isApprovable(line({ category: "impuestos", amount: 160 }))).toBe(
       false
     );
+  });
+});
+
+describe("which restaurant a text means", () => {
+  const two = [
+    { id: A, name: "Los Ranchos Centro" },
+    { id: B, name: "Los Ranchos Escalón" },
+  ];
+  it("a shared prefix is not guessed", () => {
+    expect(scopeFromText("Los Ranchos", two)).toBeNull();
+    expect(scopeFromText("Los", two)).toBeNull();
+  });
+  it("an exact name wins; a unique partial of 4+ characters matches", () => {
+    expect(scopeFromText("Los Ranchos Escalón", two)).toEqual({
+      kind: "restaurant",
+      locationId: B,
+    });
+    expect(scopeFromText("los ranchos escalon", two)).toEqual({
+      kind: "restaurant",
+      locationId: B,
+    });
+    expect(scopeFromText("centro", two)).toEqual({
+      kind: "restaurant",
+      locationId: A,
+    });
+  });
+  it("a partial shorter than 4 characters is not enough", () => {
+    expect(scopeFromText("cen", two)).toBeNull();
+  });
+  it("AI-read lines follow the same rule", () => {
+    const lines = normalizeAiLines(
+      {
+        lines: [
+          {
+            label: "Luz",
+            category: "servicios",
+            amount: 90,
+            restaurant: "Los Ranchos",
+          },
+          {
+            label: "Luz",
+            category: "servicios",
+            amount: 90,
+            restaurant: "Centro",
+          },
+        ],
+      },
+      { ...defaults, locations: two }
+    );
+    expect(lines[0].scope).toBeNull();
+    expect(lines[1].scope).toEqual({ kind: "restaurant", locationId: A });
   });
 });

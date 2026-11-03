@@ -313,13 +313,21 @@ export async function discardDraft(
 // ---------------------------------------------------------------------------
 
 export type ApproveResult =
-  | { ok: true; approved: number; draft: UploadDraft }
+  | {
+      ok: true;
+      /** Rows actually written to Costos fijos (a group of lines is one row). */
+      approved: number;
+      /** Lines left pending because their row could not be saved. */
+      issues: Array<{ lineId: string; error: string }>;
+      draft: UploadDraft;
+    }
   | { ok: false; conflicts: OverwriteConflict[] }
   | { ok: false; error: "forbidden" | "failed" };
 
 /**
  * Saves the selected lines (default: every approvable one) with source 'upload'
- * and logs each change. If any of them would replace a DIFFERENT value already
+ * and logs each change. Lines of one category/month/scope are saved as ONE row
+ * (their sum); all of them are approved together. If any of them would replace a DIFFERENT value already
  * in the month and was not confirmed (`confirmed` = line ids), nothing is
  * written and the conflicts (old → new) come back.
  */
@@ -371,7 +379,9 @@ export async function approveDraft(
 
   const currency = await resolveCompanyCurrency(ctx.supabase, ctx.companyId);
   const done = new Set<string>();
-  for (const { line, previous } of plan.writes) {
+  const issues: Array<{ lineId: string; error: string }> = [];
+  let written = 0;
+  for (const { line, members, previous } of plan.writes) {
     const checked = validateLine({
       location_id:
         line.scope?.kind === "restaurant" ? line.scope.locationId : null,
@@ -380,7 +390,12 @@ export async function approveDraft(
       label: line.raw,
       value: line.amount,
     });
-    if (!checked.ok) continue;
+    if (!checked.ok) {
+      // Not saved and not approved: it stays in the draft with the reason.
+      for (const m of members)
+        issues.push({ lineId: m.id, error: checked.error });
+      continue;
+    }
     const v = checked.value;
     const prevRow = existing.get(keyOfLine(line));
     const row = {
@@ -434,7 +449,8 @@ export async function approveDraft(
         source: "upload",
       });
     if (logged.error) return { ok: false, error: "failed" };
-    done.add(line.id);
+    for (const m of members) done.add(m.id);
+    written += 1;
   }
   for (const l of plan.unchanged) done.add(l.id); // already in Costos fijos with this value
   const lines = draft.lines.map((l) =>
@@ -442,5 +458,5 @@ export async function approveDraft(
   );
   const saved = await saveLines(ctx, draft, lines);
   if (!saved) return { ok: false, error: "failed" };
-  return { ok: true, approved: plan.writes.length, draft: saved };
+  return { ok: true, approved: written, issues, draft: saved };
 }

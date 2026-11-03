@@ -362,6 +362,8 @@ export const FIXED_COST_AI_PROMPT =
 export interface ExistingValue {
   amount: number | null;
   pct_of_sales: number | null;
+  /** Where the saved value came from ('upload', 'manual', …), when known. */
+  source?: string | null;
 }
 
 export interface ApprovalWrite {
@@ -461,10 +463,18 @@ export function categoryTotals(lines: readonly DraftLine[]): CategoryTotal[] {
  * overwritten silently: a different one (compared with the sum) is a conflict
  * (old → new) that needs a confirmation; an identical one changes nothing.
  * Lines with issues are left alone.
+ *
+ * One at a time: when the saved value is exactly what THIS upload already
+ * approved for the key (`approved` = the draft's approved lines, saved with
+ * source 'upload'), approving more lines of that key ADDS to it (Luz 1,800 +
+ * Agua 650 = 2,450, label «Luz + Agua»), without a warning. A value from
+ * anywhere else (typed by hand, an earlier file, edited since) is still a
+ * conflict. A rate (impuestos) is never added up.
  */
 export function planApproval(
   selected: readonly DraftLine[],
-  existing: ReadonlyMap<string, ExistingValue>
+  existing: ReadonlyMap<string, ExistingValue>,
+  approved: readonly DraftLine[] = []
 ): {
   writes: ApprovalWrite[];
   conflicts: OverwriteConflict[];
@@ -485,31 +495,49 @@ export function planApproval(
     const key = keyOfLine(line);
     groups.set(key, [...(groups.get(key) ?? []), line]);
   }
+  const before = new Map<string, DraftLine[]>();
+  for (const l of approved) {
+    if (l.status !== "approved" || !isApprovable({ ...l, status: "pending" }))
+      continue;
+    before.set(keyOfLine(l), [...(before.get(keyOfLine(l)) ?? []), l]);
+  }
   for (const [key, members] of groups) {
     const first = members[0];
     const category = first.category as FixedCostCategory;
+    const prev = existing.get(key) ?? null;
+    const old = prev ? valueOfExisting(prev, category) : null;
+    // The saved value is this upload's own earlier approvals: add to it.
+    const mine = before.get(key) ?? [];
+    const mineSum = round2(
+      mine.reduce((sum, l) => sum + (l.amount as number), 0)
+    );
+    const adds =
+      category !== "impuestos" &&
+      prev?.source === "upload" &&
+      old !== null &&
+      mine.length > 0 &&
+      old === mineSum;
+    const parts = adds ? [...mine, ...members] : members;
     const amount = round2(
-      members.reduce((sum, l) => sum + (l.amount as number), 0)
+      parts.reduce((sum, l) => sum + (l.amount as number), 0)
     );
     const line: DraftLine =
-      members.length === 1
+      parts.length === 1
         ? first
         : {
             ...first,
             amount,
-            raw: members
+            raw: parts
               .map((l) => l.raw)
               .filter(Boolean)
               .join(" + ")
               .slice(0, LABEL_MAX),
           };
-    const prev = existing.get(key) ?? null;
-    const old = prev ? valueOfExisting(prev, category) : null;
     if (prev && old !== null && old === amount) {
       unchanged.push(...members);
       continue;
     }
-    if (prev && old !== null)
+    if (prev && old !== null && !adds)
       conflicts.push({
         lineId: first.id,
         category,

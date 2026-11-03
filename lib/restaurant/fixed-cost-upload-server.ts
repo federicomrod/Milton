@@ -345,7 +345,7 @@ export async function approveDraft(
   if (months.length) {
     const { data, error } = await ctx.supabase
       .from("restaurant_fixed_costs")
-      .select("id, location_id, month, category, amount, pct_of_sales")
+      .select("id, location_id, month, category, amount, pct_of_sales, source")
       .eq("company_id", ctx.companyId)
       .in("month", months);
     if (error) return { ok: false, error: "failed" };
@@ -356,6 +356,7 @@ export async function approveDraft(
       category: FixedCostCategory;
       amount: number | string | null;
       pct_of_sales: number | string | null;
+      source: string | null;
     }>)
       existing.set(
         keyOfLine({
@@ -369,10 +370,11 @@ export async function approveDraft(
           id: r.id,
           amount: r.amount === null ? null : Number(r.amount),
           pct_of_sales: r.pct_of_sales === null ? null : Number(r.pct_of_sales),
+          source: r.source,
         }
       );
   }
-  const plan = planApproval(selected, existing);
+  const plan = planApproval(selected, existing, draft.lines);
   const confirmed = new Set(args.confirmed ?? []);
   const open = plan.conflicts.filter((c) => !confirmed.has(c.lineId));
   if (open.length) return { ok: false, conflicts: open };

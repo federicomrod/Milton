@@ -31,18 +31,18 @@ const row = (
 
 describe("the cutover constant", () => {
   it("is one date, set to the release", () => {
-    expect(BUFFER_DEFAULT_FROM).toBe("2026-11-02");
+    expect(BUFFER_DEFAULT_FROM).toBe("2026-11-03");
   });
 });
 
 describe("no row in force", () => {
   it("is 0% before the cutover and 5% on or after it", () => {
-    expect(resolveBufferAt([], CENTRO, "2026-11-01")).toEqual({
+    expect(resolveBufferAt([], CENTRO, "2026-11-02")).toEqual({
       bufferPct: 0,
       effectiveFrom: null,
       isDefault: true,
     });
-    expect(resolveBufferAt([], CENTRO, "2026-11-02").bufferPct).toBe(5);
+    expect(resolveBufferAt([], CENTRO, "2026-11-03").bufferPct).toBe(5);
     expect(resolveBufferAt([], CENTRO, "2027-03-15")).toEqual({
       bufferPct: 5,
       effectiveFrom: null,

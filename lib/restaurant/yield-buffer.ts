@@ -25,9 +25,9 @@ export const MAX_BUFFER_PCT = 30;
  * kitchen_buffer_settings row in force on a date is read as 5% for dates on or
  * after this one and 0% before it. Never a row: the default is resolved at
  * read time. It is a single constant on purpose: Sofia's decision is that we
- * move it to the real release date when we release (2026-11-02 for now).
+ * move it to the real release date when we release (2026-11-03, release day).
  */
-export const BUFFER_DEFAULT_FROM = "2026-11-02";
+export const BUFFER_DEFAULT_FROM = "2026-11-03";
 
 /** The buffer % used for a date when no row is in force (read time, no rows). */
 export function defaultBufferPct(date: string): number {

@@ -198,7 +198,7 @@ export function scopeFromText(
   if (!t) return null;
   // An exact name wins. Otherwise a partial match counts only when it is
   // unambiguous (exactly one restaurant) and the text is long enough to mean
-  // something; «Los Ranchos» between two «Los Ranchos …» is null (⚑ Falta).
+  // something; «La Esquina» between two «La Esquina …» is null (⚑ Falta).
   const exact = locations.filter((l) => fold(l.name) === t);
   if (exact.length === 1)
     return { kind: "restaurant", locationId: exact[0].id };

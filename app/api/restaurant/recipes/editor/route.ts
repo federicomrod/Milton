@@ -18,6 +18,7 @@ import {
   applyEdit,
   loadEditor,
 } from "@/lib/restaurant/recipe-costing/editor-service";
+import { restrictEditorState } from "@/lib/restaurant/recipe-costing/editor-redact";
 import { parseEditorAction } from "@/lib/restaurant/recipe-costing/editor-actions";
 import { loadPriceEstimates } from "@/lib/restaurant/menu-reading/estimate-store";
 
@@ -68,17 +69,31 @@ export async function GET(req: NextRequest) {
         { status: result.status ?? 400 }
       );
     }
-    // Raw vs effective cost per line (display only).
-    await attachEffectiveCosts(
-      auth.supabase,
-      auth.companyId,
-      str(req.nextUrl.searchParams.get("location_id")),
-      result.state
+    // Raw vs effective cost per line (display only). The merma values are
+    // money: kitchen roles (cooks) never get them, not even in the payload.
+    const actor = await resolveActor(auth.supabase, auth.userId, {
+      companyId: auth.companyId,
+    });
+    const canViewPrices = can(actor, "prices.view");
+    if (canViewPrices) {
+      await attachEffectiveCosts(
+        auth.supabase,
+        auth.companyId,
+        str(req.nextUrl.searchParams.get("location_id")),
+        result.state
+      );
+    }
+    // Quantities stay for everyone; money only for roles with prices.view, and
+    // only recipes.edit roles may edit.
+    const state = restrictEditorState(
+      result.state,
+      { canEdit: can(actor, "recipes.edit"), canViewPrices },
+      msg.roleCannotEdit
     );
     const ms = Date.now() - started;
     // One line per read, to measure it in the logs (no client data).
     console.info(`[recipes/editor] load ${ms}ms`);
-    return NextResponse.json(result.state, {
+    return NextResponse.json(state, {
       headers: { "Server-Timing": `load;dur=${ms}` },
     });
   } catch (err) {
@@ -123,6 +138,24 @@ export async function POST(req: NextRequest) {
   // unhandled rejection behind.
   guard.catch(() => undefined);
 
+  // Who confirmed «1 unidad» is shown in the yield history (decoration only).
+  let actorName: string | null = null;
+  if (
+    action.action === "confirm_yield" ||
+    action.action === "unconfirm_yield"
+  ) {
+    try {
+      const { data } = await auth.supabase.auth.getUser();
+      const meta = data.user?.user_metadata ?? {};
+      const pick = (v: unknown) =>
+        typeof v === "string" && v.trim() ? v.trim() : null;
+      actorName =
+        pick(meta.full_name) ?? pick(meta.name) ?? pick(data.user?.email);
+    } catch {
+      actorName = null;
+    }
+  }
+
   const started = Date.now();
   try {
     const result = await applyEdit(
@@ -134,6 +167,7 @@ export async function POST(req: NextRequest) {
         componentId: componentId ?? undefined,
         locationId: str(body.location_id),
         userId: auth.userId,
+        actorName,
         omitOptions: body.omit_options === true,
         guard,
       },

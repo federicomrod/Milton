@@ -416,6 +416,13 @@ export const menuWorkspace: Dictionary["menu"]["workspace"] = {
     chipDrafts: "{n} zur Freigabe",
     chipApproved: "{n} freigegeben",
     yieldToConfirmSuffix: " · Ausbeute zu bestätigen",
+    filterMissingYield: "Ausbeute fehlt ({n})",
+    confirmOneUnit: "1 Einheit bestätigen",
+    undoConfirmOne: "Bestätigung rückgängig",
+    yieldHistoryTitle: "Ausbeute-Verlauf",
+    historyConfirmed: "{who} hat 1 Einheit bestätigt · {date}",
+    historyRevoked: "{who} hat die Bestätigung rückgängig gemacht · {date}",
+    historyUnknownWho: "jemand",
     backToDish: "← Zurück zum Gericht",
     title: "Zubereitungen Ihrer Küche",
     titleHint:

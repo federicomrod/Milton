@@ -201,7 +201,11 @@ function show(over: Partial<IngredienteItem>, caps: Record<string, boolean>) {
     />
   );
 }
-const MANAGER = { "ingredients.manage": true, "prices.edit": true };
+const MANAGER = {
+  "ingredients.manage": true,
+  "prices.edit": true,
+  "prices.view": true,
+};
 
 describe("panel", () => {
   it("own merma: Costo real with the own label", () => {
@@ -225,7 +229,11 @@ describe("panel", () => {
   it("hidden for roles without price access", () => {
     show(
       { yieldPct: 20 },
-      { "ingredients.manage": false, "prices.edit": false }
+      {
+        "ingredients.manage": false,
+        "prices.edit": false,
+        "prices.view": false,
+      }
     );
     expect(screen.queryByTestId("real-cost")).toBeNull();
   });

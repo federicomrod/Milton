@@ -257,6 +257,10 @@ export const menuEditor: Dictionary["menu"]["editor"] = {
     invalidUnit: "That unit isn't valid.",
     lineNotFound: "Couldn't find that line.",
     invalidYield: "Enter how much it yields, with a valid unit.",
+    onlyDefaultConfirmable:
+      "Only the default 1 unit can be confirmed as is; type any other value.",
+    confirmNeedsDraft: "This preparation has no open draft: type the yield.",
+    nothingToUndo: "There is no confirmation to undo.",
     ingredientNameRequired: "Type the ingredient name.",
     ingredientUnitRequired: "Choose the unit you buy it in.",
     priceNegative: "The price can't be negative.",

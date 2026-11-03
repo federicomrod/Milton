@@ -44,6 +44,7 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "recipes.submit": [true, true, true, false, false, false],
   "recipes.approve": [true, true, false, false, false, false],
   "prices.edit": [true, true, true, false, false, false],
+  "prices.view": [true, true, true, false, true, false],
   "links.confirm": [true, true, true, false, false, false],
   "ingredients.manage": [true, true, true, false, false, false],
   "menu.manage": [true, true, true, false, false, false],

@@ -30,7 +30,14 @@ export function activeMenuTab(pathname: string): MenuTab {
   return "resumen";
 }
 
-export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
+export function MenuAreaTabs({
+  lang,
+  showIngredientes = true,
+}: {
+  lang: PreferredLanguage;
+  /** False for kitchen roles: the tab is not shown. */
+  showIngredientes?: boolean;
+}) {
   const w = getDictionary(lang).menu.workspace.tabs;
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
@@ -49,47 +56,49 @@ export function MenuAreaTabs({ lang }: { lang: PreferredLanguage }) {
       aria-label={w.ariaLabel}
       className="mt-2 mb-2 flex gap-7 border-b border-[#dfe3ea]"
     >
-      {TABS.map((id) => {
-        const tab = { id };
-        const isPage = tab.id === "ingredientes" || active === "ingredientes";
-        const href = withSaveEpoch(
-          withShellParams(MENU_TAB_PATHS[tab.id], shell),
-          isPage ? epoch : 0
-        );
-        return (
-          <Link
-            key={tab.id}
-            href={href}
-            prefetch={isPage && warm ? true : undefined}
-            aria-current={active === tab.id ? "page" : undefined}
-            // R1-12: an open workspace switches tabs from its own cache;
-            // otherwise (or with a modifier key) this is a normal link.
-            onClick={(event) => {
-              if (
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey ||
-                active === tab.id
-              ) {
-                return;
+      {TABS.filter((id) => showIngredientes || id !== "ingredientes").map(
+        (id) => {
+          const tab = { id };
+          const isPage = tab.id === "ingredientes" || active === "ingredientes";
+          const href = withSaveEpoch(
+            withShellParams(MENU_TAB_PATHS[tab.id], shell),
+            isPage ? epoch : 0
+          );
+          return (
+            <Link
+              key={tab.id}
+              href={href}
+              prefetch={isPage && warm ? true : undefined}
+              aria-current={active === tab.id ? "page" : undefined}
+              // R1-12: an open workspace switches tabs from its own cache;
+              // otherwise (or with a modifier key) this is a normal link.
+              onClick={(event) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey ||
+                  active === tab.id
+                ) {
+                  return;
+                }
+                if (trySwitchMenuTab(tab.id, href)) event.preventDefault();
+              }}
+              onMouseEnter={() => prefetchMenuTab(tab.id)}
+              onFocus={() => prefetchMenuTab(tab.id)}
+              className={
+                "-mb-px border-b-[3px] py-2 text-[15px] font-semibold " +
+                (active === tab.id
+                  ? "border-[#1b40c8] text-[#1b40c8]"
+                  : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
               }
-              if (trySwitchMenuTab(tab.id, href)) event.preventDefault();
-            }}
-            onMouseEnter={() => prefetchMenuTab(tab.id)}
-            onFocus={() => prefetchMenuTab(tab.id)}
-            className={
-              "-mb-px border-b-[3px] py-2 text-[15px] font-semibold " +
-              (active === tab.id
-                ? "border-[#1b40c8] text-[#1b40c8]"
-                : "border-transparent text-[#6b7385] hover:text-[#151c2c]")
-            }
-          >
-            {w[tab.id]}
-          </Link>
-        );
-      })}
+            >
+              {w[tab.id]}
+            </Link>
+          );
+        }
+      )}
     </nav>
   );
 }

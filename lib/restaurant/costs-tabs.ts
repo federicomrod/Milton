@@ -63,6 +63,15 @@ export function invoiceUploadHref(params: Params = {}): string {
   return costsTabHref("compras", params, INVOICE_UPLOAD_ANCHOR);
 }
 
+/** Query param that opens the file picker in Costos fijos (consumed once). */
+export const FIXED_UPLOAD_PARAM = "subir";
+
+/** Costos fijos with «⇪ Subir archivo» opened (from Rentabilidad's «Sube tus costos fijos»). */
+export function fixedCostUploadHref(params: Params = {}): string {
+  const base = costsTabHref("costos-fijos", params);
+  return `${base}${base.includes("?") ? "&" : "?"}${FIXED_UPLOAD_PARAM}=1`;
+}
+
 /** Query param that opens one invoice's review in Compras (consumed once). */
 export const INVOICE_REVIEW_PARAM = "factura";
 

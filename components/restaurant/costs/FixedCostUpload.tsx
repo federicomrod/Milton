@@ -11,8 +11,9 @@
 // first (old → new).
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useT } from "@/lib/i18n/client";
+import { FIXED_UPLOAD_PARAM } from "@/lib/restaurant/costs-tabs";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   FIXED_COST_CATEGORIES,
@@ -54,6 +55,7 @@ export function FixedCostUpload({
   locationId,
   currency,
   locationNames,
+  inputRef,
 }: {
   /** The month on screen (YYYY-MM-01): the default for lines without one. */
   month: string;
@@ -62,11 +64,14 @@ export function FixedCostUpload({
   currency: string;
   /** id → name, to say where a line goes. */
   locationNames: Record<string, string>;
+  /** The file input, so the page's «Sube tus costos fijos» opens this same picker. */
+  inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   const { d, lang, locale, fmt } = useT();
   const t = d.costs.fixedUpload;
   const router = useRouter();
-  const input = useRef<HTMLInputElement>(null);
+  const ownInput = useRef<HTMLInputElement>(null);
+  const input = inputRef ?? ownInput;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +91,28 @@ export function FixedCostUpload({
       live = false;
     };
   }, []);
+
+  // ?subir=1 (from Rentabilidad): open the picker once, then take the param
+  // out of the URL (other params stay) so a reload does not reopen it.
+  const consumedPicker = useRef(false);
+  useEffect(() => {
+    if (consumedPicker.current) return;
+    consumedPicker.current = true;
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.get(FIXED_UPLOAD_PARAM)) return;
+      url.searchParams.delete(FIXED_UPLOAD_PARAM);
+      const query = url.searchParams.toString();
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${url.pathname}${query ? `?${query}` : ""}${url.hash}`
+      );
+      input.current?.click();
+    } catch {
+      // no URL to read (tests / odd embeds): nothing to open
+    }
+  }, [input]);
 
   async function call(
     url: string,

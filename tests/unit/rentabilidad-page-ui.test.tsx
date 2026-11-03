@@ -172,6 +172,21 @@ describe("RentabilidadPage", () => {
     expect(html).not.toContain("Proyección al cierre");
   });
 
+  it("«Sube tus costos fijos» goes to Costos fijos and asks to open the picker", () => {
+    const html = render(
+      data([dish(1, 62000)], {
+        planilla: 21400,
+        alquiler: null,
+        servicios: 3900,
+        otros: 9800,
+      })
+    );
+    const href = html.match(/href="([^"]+)"[^>]*>Sube tus costos fijos</)?.[1];
+    expect(href).toBe(
+      "/dashboard/restaurant/costs?location=loc-1&amp;month=2026-10-01&amp;subir=1"
+    );
+  });
+
   it("with no confirmed waste, Merma no planeada is «⚑ Falta», never $0 (#408)", () => {
     const html = render(data([dish(1, 62000)]));
     expect(html).toContain("Estado de resultados");

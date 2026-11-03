@@ -14,6 +14,47 @@ export const costs = {
     repeatFailed: "No se pudo repetir los costos del mes.",
     historyFailed: "No se pudo leer el historial.",
   },
+  fixedUpload: {
+    button: "⇪ Subir archivo",
+    accepts: "Excel, CSV, PDF o foto",
+    reading: "Leyendo el archivo…",
+    title: "Revisa lo que Milton leyó",
+    intro:
+      "Nada cambia en tus costos fijos hasta que lo apruebes. Corrige la categoría o el monto si hace falta.",
+    aiTag: "Leído por Milton",
+    pickCategory: "Elige categoría",
+    amountLabel: "Monto",
+    rateLabel: "Tasa en %",
+    noPrice: "Sin precio",
+    unrecognized: "Milton no pudo entender esta línea: corrígela o descártala.",
+    group: "Grupo",
+    approveAll: "Aprobar todo",
+    approveLine: "Aprobar",
+    discardLine: "Descartar",
+    discardAll: "Descartar todo",
+    close: "Cerrar",
+    overwriteTitle: "Esto reemplaza valores que ya tienes",
+    overwriteRow: "{category} · {month}: {old} → {new}",
+    overwriteConfirm: "Reemplazar y aprobar",
+    overwriteCancel: "Cancelar",
+    approved:
+      "{n} costos guardados desde el archivo. Aparecen en el historial como archivo.",
+    groupTotal: "{category} · {month}: {n} líneas · {total}",
+    dupTax:
+      "Hay más de una línea de impuestos para el mismo mes y restaurante. Una tasa no se suma: deja solo una y descarta las demás.",
+    notSaved: "No se guardó: {line} — {error}",
+    nothingApproved: "No había líneas listas para aprobar.",
+    errUnsupported:
+      "Ese tipo de archivo no se puede leer. Sube Excel, CSV, PDF o una foto.",
+    errEmpty: "No se encontraron costos en el archivo.",
+    errUnreadable: "No se pudo leer el archivo.",
+    errAi:
+      "Milton no puede leer PDF ni fotos en este momento. Prueba con Excel o CSV.",
+    errTooBig: "El archivo es demasiado grande (máximo 8 MB).",
+    errNoFile: "Elige un archivo.",
+    errSave: "No se pudo guardar. Inténtalo otra vez.",
+    errNotFound: "Ese borrador ya no existe.",
+  },
   marginReasons: {
     pickRestaurant:
       "El punto de equilibrio se calcula por restaurante: elige uno arriba.",
@@ -90,7 +131,7 @@ export const costs = {
     sourceManual: "a mano",
     sourceRepeat: "repetido del mes anterior",
     sourceEstimate: "estimado",
-    sourceUpload: "archivo",
+    sourceUpload: "Archivo",
     openDays: "Con {days} días abiertos al mes.",
     openDaysNoTax:
       "Con {days} días abiertos al mes y sin tasa de impuestos (se calcula con 0%).",

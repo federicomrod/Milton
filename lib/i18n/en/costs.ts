@@ -15,6 +15,47 @@ export const costs: Dictionary["costs"] = {
     repeatFailed: "Could not repeat the month's costs.",
     historyFailed: "Could not read the history.",
   },
+  fixedUpload: {
+    button: "⇪ Upload file",
+    accepts: "Excel, CSV, PDF or photo",
+    reading: "Reading the file…",
+    title: "Review what Milton read",
+    intro:
+      "Nothing changes in your fixed costs until you approve. Fix the category or amount if needed.",
+    aiTag: "Read by Milton",
+    pickCategory: "Pick a category",
+    amountLabel: "Amount",
+    rateLabel: "Rate in %",
+    noPrice: "No price",
+    unrecognized:
+      "Milton could not understand this line: fix it or discard it.",
+    group: "Group",
+    approveAll: "Approve all",
+    approveLine: "Approve",
+    discardLine: "Discard",
+    discardAll: "Discard all",
+    close: "Close",
+    overwriteTitle: "This replaces values you already have",
+    overwriteRow: "{category} · {month}: {old} → {new}",
+    overwriteConfirm: "Replace and approve",
+    overwriteCancel: "Cancel",
+    approved:
+      "{n} costs saved from the file. They show in the history as file.",
+    groupTotal: "{category} · {month}: {n} lines · {total}",
+    dupTax:
+      "There is more than one tax line for the same month and restaurant. A rate is not added up: keep one and discard the others.",
+    notSaved: "Not saved: {line} — {error}",
+    nothingApproved: "There were no lines ready to approve.",
+    errUnsupported:
+      "That file type cannot be read. Upload Excel, CSV, PDF or a photo.",
+    errEmpty: "No costs were found in the file.",
+    errUnreadable: "The file could not be read.",
+    errAi: "Milton cannot read PDFs or photos right now. Try Excel or CSV.",
+    errTooBig: "The file is too large (8 MB maximum).",
+    errNoFile: "Pick a file.",
+    errSave: "Could not save. Try again.",
+    errNotFound: "That draft no longer exists.",
+  },
   marginReasons: {
     pickRestaurant:
       "The break-even point is calculated per restaurant: pick one above.",
@@ -90,7 +131,7 @@ export const costs: Dictionary["costs"] = {
     sourceManual: "manual",
     sourceRepeat: "repeated from the previous month",
     sourceEstimate: "estimated",
-    sourceUpload: "file",
+    sourceUpload: "File",
     openDays: "With {days} open days a month.",
     openDaysNoTax:
       "With {days} open days a month and no tax rate (calculated at 0%).",

@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
-import { costsTabHref } from "@/lib/restaurant/costs-tabs";
+import { costsTabHref, fixedCostUploadHref } from "@/lib/restaurant/costs-tabs";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { SALES_HREF, withShellParams } from "@/lib/restaurant/navigation";
 import { categoryLabel } from "@/lib/restaurant/fixed-costs";
@@ -149,6 +149,10 @@ export function RentabilidadPage({
   };
 
   const fixedHref = costsTabHref("costos-fijos", {
+    location: locationId,
+    month: m.month,
+  });
+  const uploadHref = fixedCostUploadHref({
     location: locationId,
     month: m.month,
   });
@@ -385,7 +389,7 @@ export function RentabilidadPage({
                 </li>
               </ul>
               <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-                <Link href={fixedHref} className={BTN}>
+                <Link href={uploadHref} className={BTN}>
                   {r.page.uploadFixed}
                 </Link>
                 <span className="text-[13px] text-[#4a5a85]">

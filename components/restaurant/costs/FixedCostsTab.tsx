@@ -11,7 +11,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   AMOUNT_CATEGORIES,
@@ -103,6 +103,7 @@ export function FixedCostsTab({
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
+  const uploadInput = useRef<HTMLInputElement>(null);
   const { d, lang, locale, fmt } = useT();
   const f = d.costs.fixed;
   // Spanish and English write a category inside a sentence in lower case;
@@ -364,6 +365,7 @@ export function FixedCostsTab({
       <div className="lg:flex lg:items-start lg:gap-6">
         <div className="min-w-0 space-y-4 lg:flex-1">
           <FixedCostUpload
+            inputRef={uploadInput}
             month={view.month}
             locationId={view.locationId}
             currency={view.currency}
@@ -477,10 +479,7 @@ export function FixedCostsTab({
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  const first = missingAmounts[0];
-                  if (first) document.getElementById(`fixed-${first}`)?.focus();
-                }}
+                onClick={() => uploadInput.current?.click()}
                 className="inline-flex h-11 items-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
               >
                 {f.uploadFixed}

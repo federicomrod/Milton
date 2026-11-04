@@ -21,6 +21,7 @@ import {
   type TeamMember,
 } from "../team/types";
 import { KitchenAppInviteCard } from "@/components/restaurant/kitchen/KitchenAppInviteCard";
+import { KitchenTeamCard } from "@/components/restaurant/kitchen/KitchenTeamCard";
 import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
 
 const MEMBER_LIMIT = 50;
@@ -137,6 +138,9 @@ export async function EquipoSection() {
         actorRole={actor.role}
         actorIsStaff={actor.isMiltonStaff}
       />
+      {can(actor, "kitchen.team") ? (
+        <KitchenTeamCard locations={chrome.locations} />
+      ) : null}
       {can(actor, "kitchen.qr") ? (
         <div className="space-y-4">
           <KitchenAppInviteCard locations={chrome.locations} />

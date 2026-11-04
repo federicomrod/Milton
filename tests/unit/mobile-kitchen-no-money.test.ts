@@ -105,6 +105,12 @@ import * as uploadsComplete from "@/app/api/mobile/v1/kitchen/uploads/complete/r
 import * as recipes from "@/app/api/mobile/v1/kitchen/recipes/route";
 import * as invites from "@/app/api/mobile/v1/kitchen/invites/route";
 import * as inviteById from "@/app/api/mobile/v1/kitchen/invites/[id]/route";
+import * as pinLogin from "@/app/api/mobile/v1/kitchen/pin-login/route";
+import * as pinRoute from "@/app/api/mobile/v1/kitchen/pin/route";
+import * as selfDevice from "@/app/api/mobile/v1/kitchen/self-device/route";
+import * as team from "@/app/api/mobile/v1/kitchen/team/route";
+import * as teamById from "@/app/api/mobile/v1/kitchen/team/[id]/route";
+import { hashPin } from "@/lib/restaurant/kitchen/pin";
 import * as devices from "@/app/api/mobile/v1/kitchen/devices/route";
 import * as deviceById from "@/app/api/mobile/v1/kitchen/devices/[id]/route";
 
@@ -255,6 +261,52 @@ const CASES: Record<string, () => Promise<Response[]>> = {
       idParams(INVITE_1)
     ),
   ],
+  "pin-login/route.ts": async () => [
+    await pinLogin.POST(
+      jsonReq("pin-login", "POST", null, {
+        code: "ABC234",
+        name: "Luis",
+        pin: "2468",
+      })
+    ),
+    await pinLogin.POST(
+      jsonReq("pin-login", "POST", null, {
+        code: "ABC234",
+        name: "Luis",
+        pin: "1357",
+      })
+    ),
+  ],
+  "pin/route.ts": async () => [
+    await pinRoute.POST(
+      jsonReq("pin", "POST", DEVICE_TOKEN, { pin: "8642", currentPin: "2468" })
+    ),
+  ],
+  "self-device/route.ts": async () => [
+    await selfDevice.POST(
+      jsonReq("self-device", "POST", "owner-token", { platform: "ios" })
+    ),
+  ],
+  "team/route.ts": async () => [
+    await team.GET(jsonReq("team", "GET", "owner-token")),
+  ],
+  "team/[id]/route.ts": async () => [
+    await teamById.POST(
+      jsonReq(`team/${STAFF_1}`, "POST", "owner-token", {
+        action: "reset_pin",
+        mode: "temporary",
+      }),
+      idParams(STAFF_1)
+    ),
+    await teamById.POST(
+      jsonReq(`team/${STAFF_1}`, "POST", "owner-token", { action: "new_link" }),
+      idParams(STAFF_1)
+    ),
+    await teamById.POST(
+      jsonReq(`team/${STAFF_2}`, "POST", "owner-token", { action: "sign_out" }),
+      idParams(STAFF_2)
+    ),
+  ],
   "devices/route.ts": async () => [
     await devices.GET(
       jsonReq(`devices?locationId=${LOC}`, "GET", "owner-token")
@@ -285,7 +337,17 @@ const ROUTES = routeFiles(KITCHEN_DIR).map((f) =>
 
 beforeEach(() => {
   h.state.db = createFakeDb({
-    companies: [{ id: CO, name: "Casa A", ...MONEY_ROW }],
+    companies: [
+      { id: CO, name: "Casa A", kitchen_code: "ABC234", ...MONEY_ROW },
+    ],
+    kitchen_staff_pins: [
+      {
+        staff_id: STAFF_1,
+        company_id: CO,
+        pin_hash: hashPin("2468"),
+        must_change: false,
+      },
+    ],
     restaurant_locations: [
       {
         id: LOC,
@@ -544,7 +606,7 @@ describe("no money in any kitchen route", () => {
     for (const rel of ROUTES) {
       const src = readFileSync(join(KITCHEN_DIR, rel), "utf8");
       expect(src, rel).toMatch(/export const runtime = "nodejs"/);
-      const managerRoute = /^(invites|devices)\//.test(rel);
+      const managerRoute = /^(invites|devices|team|self-device)\//.test(rel);
       if (managerRoute) {
         expect(src, rel).toMatch(/mobileJson/);
       } else {
@@ -568,6 +630,8 @@ describe("kitchen serializer", () => {
       locations: [{ id: "l", name: "Centro", ...MONEY_ROW }],
     });
     expect(out).toEqual({
+      pin: { set: false, mustChange: false },
+      kitchenCode: null,
       staff: { id: "s", name: "Luis" },
       // `language` is the company language the app speaks (never money).
       company: { name: "Casa A", language: "es" },

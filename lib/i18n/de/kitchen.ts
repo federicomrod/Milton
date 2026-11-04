@@ -101,6 +101,19 @@ export const kitchen: Dictionary["kitchen"] = {
     signOutFailed: "Ich konnte Sie nicht abmelden.",
     submissionNotFound: "Ich habe diese Sendung nicht gefunden.",
     submissionSaveFailed: "Ich konnte Ihre Sendung nicht speichern.",
+    pinInvalid: "Die PIN muss aus 4 bis 6 Ziffern bestehen.",
+    pinLocked:
+      "Zu viele Versuche. Warte 15 Minuten oder bitte deine Leitung um eine neue PIN.",
+    pinLoginFailed:
+      "Anmeldung nicht möglich. Prüfe den Code, deinen Namen und deine PIN. Wenn du vor der Einführung der PIN beigetreten bist, bitte deine Leitung um eine PIN oder einen neuen Link.",
+    pinSaveFailed: "Die PIN konnte nicht gespeichert werden.",
+    pinWeak:
+      "Wähle eine PIN, die schwerer zu erraten ist (nicht 1234 oder 0000).",
+    pinWrong: "Die aktuelle PIN ist nicht korrekt.",
+    selfDeviceFailed: "Küche konnte nicht geöffnet werden. Versuche es erneut.",
+    selfDeviceForbidden: "Deine Rolle kann die Küche nicht öffnen.",
+    teamActionFailed: "Die Änderung konnte nicht vorgenommen werden.",
+    teamLoadFailed: "Das Küchenteam konnte nicht geladen werden.",
     tooManyAttempts: "Zu viele Versuche. Bitte warten Sie eine Minute.",
     typeInvalid: "Die Art ist ungültig.",
     uploadPrepareFailed: "Ich konnte die Sendung nicht vorbereiten.",

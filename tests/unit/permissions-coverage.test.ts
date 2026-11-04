@@ -55,6 +55,10 @@ export const ALLOW: Record<string, string> = {
     "a cook reports to their own location; the device token is the authority",
   "mobile/v1/kitchen/retry/route.ts":
     "a cook re-runs their own unfinished message; the device token is the authority",
+  "mobile/v1/kitchen/pin-login/route.ts":
+    "a cook signs back in with kitchen code, name and PIN; the PIN is the authority and wrong tries lock it",
+  "mobile/v1/kitchen/pin/route.ts":
+    "a cook sets their own PIN; the device token is the authority",
   "mobile/v1/kitchen/logout/route.ts":
     "a cook revokes their own device; the device token is the authority",
 };

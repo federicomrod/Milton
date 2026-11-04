@@ -6,10 +6,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Button, Muted, text } from "../components/ui";
 import { useG } from "../gestion/hooks";
+import { useStrings } from "../i18n";
 import { colors, space } from "../theme";
 
 export default function Entrada() {
   const g = useG();
+  const s = useStrings();
   const router = useRouter();
   return (
     <SafeAreaView style={st.screen}>
@@ -26,6 +28,11 @@ export default function Entrada() {
           label={g.welcome.kitchen}
           variant="secondary"
           onPress={() => router.push("/join")}
+        />
+        <Button
+          label={s.join.haveAccount}
+          variant="secondary"
+          onPress={() => router.push("/pin")}
         />
       </View>
     </SafeAreaView>

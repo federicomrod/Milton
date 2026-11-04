@@ -18,6 +18,7 @@ import {
   Inter_800ExtraBold,
   useFonts,
 } from "@expo-google-fonts/inter";
+import { AppLock } from "../components/AppLock";
 import { ToastHost } from "../components/ToastHost";
 import { Button, Muted } from "../components/ui";
 import { ManagerProvider, useManager } from "../gestion/ManagerProvider";
@@ -39,6 +40,19 @@ function SignedOutLanding() {
     signedOutLanding(pathname, typeof secret === "string" && secret !== "")
   );
   return target ? <Redirect href={target} /> : null;
+}
+
+/** A cook who must set a PIN goes there first; right after joining, the welcome. */
+function KitchenGates() {
+  const pathname = usePathname();
+  const { gate, welcome } = useSession();
+  if (gate !== "none") {
+    return pathname === "/pin-nuevo" ? null : <Redirect href="/pin-nuevo" />;
+  }
+  if (welcome) {
+    return pathname === "/bienvenida" ? null : <Redirect href="/bienvenida" />;
+  }
+  return null;
 }
 
 function Splash() {
@@ -147,6 +161,10 @@ function Routes() {
             }}
           />
         </Stack.Protected>
+        <Stack.Protected guard={kitchenIn}>
+          <Stack.Screen name="pin-nuevo" options={{ headerShown: false }} />
+          <Stack.Screen name="bienvenida" options={{ headerShown: false }} />
+        </Stack.Protected>
         <Stack.Protected guard={noAccess}>
           <Stack.Screen name="sin-acceso" options={{ headerShown: false }} />
         </Stack.Protected>
@@ -156,9 +174,11 @@ function Routes() {
         </Stack.Protected>
         <Stack.Protected guard={!kitchenIn && !noAccess}>
           <Stack.Screen name="join" options={{ headerShown: false }} />
+          <Stack.Screen name="pin" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
       {signedOut ? <SignedOutLanding /> : null}
+      {showKitchen ? <KitchenGates /> : null}
     </>
   );
 }
@@ -178,7 +198,7 @@ export default function RootLayout() {
         <SessionProvider>
           <ManagerProvider>
             <StatusBar style="dark" />
-            {loaded || failed ? <Routes /> : <Splash />}
+            <AppLock>{loaded || failed ? <Routes /> : <Splash />}</AppLock>
             <ToastHost />
           </ManagerProvider>
         </SessionProvider>

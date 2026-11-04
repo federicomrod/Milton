@@ -15,7 +15,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readBearerToken } from "@/lib/restaurant/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveKitchenDevice } from "@/lib/restaurant/kitchen/app-identity";
+import { lookupKitchenDevice } from "@/lib/restaurant/kitchen/app-identity";
 import { getDictionary } from "@/lib/i18n";
 import {
   mobileJson,
@@ -42,7 +42,13 @@ export type KitchenAuthResult =
   | KitchenAuthOk
   | { ok: false; response: NextResponse };
 
-function unauthorized(request: Request): {
+// A 401 carries the reason. The app signs the cook out ONLY for «revoked» or
+// «unknown_device» (after one retry); anything else (a missing token, a proxy,
+// a 5xx, a timeout) keeps the session.
+function unauthorized(
+  request: Request,
+  reason: "revoked" | "unknown_device" = "unknown_device"
+): {
   ok: false;
   response: NextResponse;
 } {
@@ -51,6 +57,7 @@ function unauthorized(request: Request): {
     response: mobileJson(
       {
         error: getDictionary(mobileLanguage(request)).kitchen.api.signInAgain,
+        reason,
       },
       401
     ),
@@ -64,8 +71,24 @@ export async function authKitchenDevice(
   if (!token) return unauthorized(request);
   try {
     const admin = createAdminClient();
-    const resolved = await resolveKitchenDevice(admin, token);
-    if (!resolved) return unauthorized(request);
+    const found = await lookupKitchenDevice(admin, token);
+    if (!found.ok) {
+      if (found.reason === "unavailable") {
+        return {
+          ok: false,
+          response: mobileJson(
+            {
+              error: getDictionary(mobileLanguage(request)).kitchen.api
+                .sessionCheckFailed,
+              reason: "unavailable",
+            },
+            503
+          ),
+        };
+      }
+      return unauthorized(request, found.reason);
+    }
+    const resolved = found.resolved;
     return {
       ok: true,
       admin,

@@ -96,6 +96,18 @@ export const kitchen = {
     signOutFailed: "No pude cerrar la sesión.",
     submissionNotFound: "No encontré ese envío.",
     submissionSaveFailed: "No pude guardar tu envío.",
+    pinInvalid: "El PIN tiene que tener de 4 a 6 números.",
+    pinLocked:
+      "Demasiados intentos. Espera 15 minutos o pide a tu encargado un nuevo PIN.",
+    pinLoginFailed:
+      "No pudimos entrar. Revisa el código, tu nombre y tu PIN. Si te uniste antes de que hubiera PIN, pide a tu encargado un PIN o un nuevo enlace.",
+    pinSaveFailed: "No pude guardar tu PIN.",
+    pinWeak: "Elige un PIN más difícil de adivinar (no 1234 ni 0000).",
+    pinWrong: "El PIN actual no es correcto.",
+    selfDeviceFailed: "No pude abrir Cocina. Inténtalo otra vez.",
+    selfDeviceForbidden: "Tu rol no puede abrir Cocina.",
+    teamActionFailed: "No pude hacer ese cambio.",
+    teamLoadFailed: "No pude cargar al equipo de cocina.",
     tooManyAttempts: "Demasiados intentos. Espera un minuto.",
     typeInvalid: "El tipo no es válido.",
     uploadPrepareFailed: "No pude preparar el envío.",

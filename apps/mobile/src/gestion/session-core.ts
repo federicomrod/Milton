@@ -44,3 +44,18 @@ export function accessOf(companies: ManagerCompany[]): GestionAccess {
 export function canInviteTeam(company: ManagerCompany | null): boolean {
   return !!company && company.capabilities.includes("kitchen.qr");
 }
+
+/**
+ * Equipo de cocina tools (PIN reset, new link, sign out a phone) and Cocina
+ * without a link: the owner's, admin's and manager's «kitchen.team». The
+ * session's capability list decides; while it does not list it yet, the role
+ * does. The server checks again on every call.
+ */
+export function canManageKitchenTeam(company: ManagerCompany | null): boolean {
+  if (!company) return false;
+  if (company.capabilities.includes("kitchen.team")) return true;
+  return (
+    !!company.role &&
+    (MANAGER_ROLES as readonly string[]).includes(company.role)
+  );
+}

@@ -4,11 +4,13 @@
 // signed out. Errors never carry server text, the URL or a token.
 
 import { ApiError, createRequester } from "../api/client";
+import type { RedeemResponse } from "../api/types";
 import type {
   ApproveResult,
   CostosData,
   HomeData,
   KitchenInvite,
+  KitchenTeam,
   LocationRef,
   ManagerMe,
   ManagerTokens,
@@ -116,6 +118,51 @@ export function createManagerApi(deps: ManagerApiDeps) {
         request<KitchenInvite>("POST", `${V1}/kitchen/invites`, {
           body: { locationId },
         })
+      ),
+    /** Cocina on this phone without a link: a kitchen device for the manager. */
+    selfDevice: (input: {
+      locationId?: string | null;
+      platform: string;
+      deviceLabel: string;
+    }) =>
+      authed(() =>
+        request<RedeemResponse>("POST", `${V1}/kitchen/self-device`, {
+          body: {
+            ...(input.locationId ? { locationId: input.locationId } : {}),
+            platform: input.platform,
+            deviceLabel: input.deviceLabel,
+          },
+        })
+      ),
+    /** Equipo de cocina: the cooks, their PINs and phones, and the kitchen code. */
+    kitchenTeam: () =>
+      authed(() => request<KitchenTeam>("GET", `${V1}/kitchen/team`)),
+    /** «Restablecer PIN»: a temporary PIN (shown once) or none. */
+    resetPin: (staffId: string, mode: "temporary" | "clear") =>
+      authed(() =>
+        request<{ temporaryPin: string | null }>(
+          "POST",
+          `${V1}/kitchen/team/${encodeURIComponent(staffId)}`,
+          { body: { action: "reset_pin", mode } }
+        )
+      ),
+    /** «Enviar nuevo enlace» for a cook who lost the phone. */
+    newLink: (staffId: string) =>
+      authed(() =>
+        request<{ inviteId: string; inviteUrl: string; expiresAt: string }>(
+          "POST",
+          `${V1}/kitchen/team/${encodeURIComponent(staffId)}`,
+          { body: { action: "new_link" } }
+        )
+      ),
+    /** «Cerrar sesión en este teléfono» (or on all of the cook's phones). */
+    signOutPhone: (staffId: string, deviceId?: string) =>
+      authed(() =>
+        request<{ success: boolean }>(
+          "POST",
+          `${V1}/kitchen/team/${encodeURIComponent(staffId)}`,
+          { body: { action: "sign_out", ...(deviceId ? { deviceId } : {}) } }
+        )
       ),
   };
 }

@@ -3,6 +3,7 @@ import {
   REFRESH_MARGIN_S,
   accessOf,
   canInviteTeam,
+  canManageKitchenTeam,
   canUseGestion,
   needsRefresh,
   pickCompany,
@@ -55,5 +56,19 @@ describe("who can use Gestión", () => {
     expect(canInviteTeam(co("a", "owner", ["kitchen.qr"]))).toBe(true);
     expect(canInviteTeam(co("a", "manager", ["prices.edit"]))).toBe(false);
     expect(canInviteTeam(null)).toBe(false);
+  });
+});
+
+describe("Equipo de cocina rights", () => {
+  it("owner, admin and manager; the capability or, until it is listed, the role", () => {
+    expect(canManageKitchenTeam(null)).toBe(false);
+    expect(canManageKitchenTeam(co("a", "owner"))).toBe(true);
+    expect(canManageKitchenTeam(co("a", "admin"))).toBe(true);
+    expect(canManageKitchenTeam(co("a", "manager"))).toBe(true);
+    expect(canManageKitchenTeam(co("a", "viewer"))).toBe(false);
+    expect(canManageKitchenTeam(co("a", null))).toBe(false);
+    expect(canManageKitchenTeam(co("a", "viewer", ["kitchen.team"]))).toBe(
+      true
+    );
   });
 });

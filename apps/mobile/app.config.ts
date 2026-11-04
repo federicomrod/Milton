@@ -14,6 +14,11 @@ const PHOTOS_EN = "Milton uses your photos so you can send kitchen images.";
 const MIC_ES = "Milton usa el micrófono para que envíes notas de voz.";
 const MIC_EN = "Milton uses the microphone so you can send voice notes.";
 
+const FACE_ES =
+  "Milton usa Face ID para que entres más rápido con tu cara. Tu PIN se guarda solo en este teléfono.";
+const FACE_EN =
+  "Milton uses Face ID so you can sign in faster. Your PIN stays only on this phone.";
+
 const both = (es: string, en: string) => `${es} / ${en}`;
 
 const config: ExpoConfig = {
@@ -44,6 +49,7 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     "expo-secure-store",
+    ["expo-local-authentication", { faceIDPermission: both(FACE_ES, FACE_EN) }],
     [
       "expo-image-picker",
       {

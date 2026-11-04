@@ -168,3 +168,25 @@ export interface ApproveResult {
 export interface KitchenInvite {
   inviteUrl: string;
 }
+
+export interface KitchenTeamDevice {
+  id: string;
+  label: string | null;
+  platform: string | null;
+  lastSeenAt: string | null;
+}
+
+export interface KitchenTeamMember {
+  id: string;
+  name: string;
+  locationId: string | null;
+  hasPin: boolean;
+  pinMustChange: boolean;
+  isSelf: boolean;
+  devices: KitchenTeamDevice[];
+}
+
+export interface KitchenTeam {
+  kitchenCode: string | null;
+  team: KitchenTeamMember[];
+}

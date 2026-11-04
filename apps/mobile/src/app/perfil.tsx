@@ -4,6 +4,7 @@
 
 import React from "react";
 import {
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -15,7 +16,9 @@ import Constants, { ExecutionEnvironment } from "expo-constants";
 import { useRouter } from "expo-router";
 import { Button, Card, Icon, Muted } from "../components/ui";
 import { ApiError } from "../api/client";
-import { canInviteTeam } from "../gestion/session-core";
+import { canInviteTeam, canManageKitchenTeam } from "../gestion/session-core";
+import { TeamSection } from "../gestion/TeamSection";
+import { deviceLabel } from "../lib/device";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
 import { useSession } from "../session/SessionProvider";
@@ -40,9 +43,49 @@ export default function Perfil() {
   const inviteLocation =
     m.locationId ?? (m.locations.length === 1 ? m.locations[0].id : null);
 
-  function chooseMode(next: "manager" | "kitchen") {
+  const canSelfKitchen = canManageKitchenTeam(m.company);
+
+  /** Cocina on this phone without a link: the manager's own kitchen device. */
+  async function joinKitchenDirectly(): Promise<boolean> {
+    try {
+      const res = await m.api.selfDevice({
+        locationId: inviteLocation,
+        platform: Platform.OS,
+        deviceLabel: deviceLabel(),
+      });
+      m.setMode("kitchen");
+      await kitchen.signIn(
+        res.deviceToken,
+        {
+          name: res.staff.name,
+          location: res.location.name,
+          company: null,
+          language: res.language,
+          selfDevice: true,
+        },
+        { staffId: res.staff.id, kitchenCode: res.kitchenCode }
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function chooseMode(next: "manager" | "kitchen") {
     if (next === "kitchen") {
       if (!hasKitchen) {
+        if (busy) return;
+        if (canSelfKitchen) {
+          setBusy(true);
+          const ok = await joinKitchenDirectly();
+          setBusy(false);
+          if (ok) {
+            router.dismissAll?.();
+            router.replace("/");
+            return;
+          }
+        }
+        // No rights, or the call failed: the invite link still works.
         router.push("/join");
         return;
       }
@@ -128,7 +171,13 @@ export default function Perfil() {
       <ModeCard
         icon="mic-outline"
         title={g.profile.kitchen}
-        hint={hasKitchen ? g.profile.modeKitchenHint : g.profile.kitchenJoin}
+        hint={
+          hasKitchen
+            ? g.profile.modeKitchenHint
+            : canSelfKitchen
+              ? g.profile.kitchenSelf
+              : g.profile.kitchenJoin
+        }
         selected={kitchenOn}
         onPress={() => chooseMode("kitchen")}
       />
@@ -193,6 +242,8 @@ export default function Perfil() {
         </Card>
       ) : null}
       {inviteError ? <Muted>{inviteError}</Muted> : null}
+
+      {canSelfKitchen ? <TeamSection /> : null}
 
       <Button
         label={g.profile.signOut}

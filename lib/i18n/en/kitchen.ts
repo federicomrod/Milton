@@ -97,6 +97,18 @@ export const kitchen: Dictionary["kitchen"] = {
     signOutFailed: "I could not sign you out.",
     submissionNotFound: "I did not find that submission.",
     submissionSaveFailed: "I could not save your submission.",
+    pinInvalid: "The PIN must be 4 to 6 digits.",
+    pinLocked:
+      "Too many tries. Wait 15 minutes or ask your manager for a new PIN.",
+    pinLoginFailed:
+      "We could not sign you in. Check the code, your name and your PIN. If you joined before PINs existed, ask your manager for a PIN or a new link.",
+    pinSaveFailed: "I could not save your PIN.",
+    pinWeak: "Choose a PIN that is harder to guess (not 1234 or 0000).",
+    pinWrong: "The current PIN is not correct.",
+    selfDeviceFailed: "I could not open Kitchen. Try again.",
+    selfDeviceForbidden: "Your role cannot open Kitchen.",
+    teamActionFailed: "I could not make that change.",
+    teamLoadFailed: "I could not load the kitchen team.",
     tooManyAttempts: "Too many attempts. Wait a minute.",
     typeInvalid: "The type is not valid.",
     uploadPrepareFailed: "I could not prepare the submission.",

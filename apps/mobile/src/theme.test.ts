@@ -75,11 +75,12 @@ describe("brand palette", () => {
     }
   });
 
-  it("cook-side code never imports Gestión code (only the router shell, the join screen and the profile may)", () => {
+  it("cook-side code never imports Gestión code (only the router shell, the join and PIN sign-in screens and the profile may)", () => {
     const root = join(__dirname, "..");
     const ALLOWED = new Set([
       join("src", "app", "_layout.tsx"),
       join("src", "app", "join.tsx"),
+      join("src", "app", "pin.tsx"),
       join("src", "app", "perfil.tsx"),
       join("src", "app", "platos.tsx"),
       join("src", "app", "factura.tsx"),

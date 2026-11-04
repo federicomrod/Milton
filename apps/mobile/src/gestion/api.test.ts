@@ -126,3 +126,50 @@ describe("manager api", () => {
     expect(onSignedOut).not.toHaveBeenCalled();
   });
 });
+
+describe("Equipo de cocina and Cocina without a link", () => {
+  it("self-device, team and team actions use the right paths and bodies", async () => {
+    const { api, fetchImpl } = setup([
+      json({ deviceToken: "t" }, 201),
+      json({ kitchenCode: "K7M2QX", team: [] }),
+      json({ temporaryPin: "482913" }),
+      json({ inviteId: "i", inviteUrl: "u", expiresAt: "e" }),
+      json({ success: true }),
+      json({ success: true }),
+    ]);
+    await api.selfDevice({
+      locationId: "loc-1",
+      platform: "ios",
+      deviceLabel: "iPhone",
+    });
+    await api.kitchenTeam();
+    await api.resetPin("st-1", "temporary");
+    await api.newLink("st-1");
+    await api.signOutPhone("st-1", "dev-1");
+    await api.signOutPhone("st-1");
+    const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
+    const body = (i: number) => JSON.parse(String(calls[i][1].body));
+    expect(calls[0][0]).toMatch(/\/kitchen\/self-device$/);
+    expect(body(0)).toEqual({
+      locationId: "loc-1",
+      platform: "ios",
+      deviceLabel: "iPhone",
+    });
+    expect(calls[1][0]).toMatch(/\/kitchen\/team$/);
+    expect(calls[2][0]).toMatch(/\/kitchen\/team\/st-1$/);
+    expect(body(2)).toEqual({ action: "reset_pin", mode: "temporary" });
+    expect(body(3)).toEqual({ action: "new_link" });
+    expect(body(4)).toEqual({ action: "sign_out", deviceId: "dev-1" });
+    expect(body(5)).toEqual({ action: "sign_out" });
+  });
+
+  it("a manager 401 that cannot be renewed still signs the manager out (policy unchanged)", async () => {
+    const { api, onSignedOut } = setup([json({ reason: "unavailable" }, 401)], {
+      refresh: false,
+    });
+    await expect(api.kitchenTeam()).rejects.toMatchObject({
+      kind: "unauthorized",
+    });
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+  });
+});

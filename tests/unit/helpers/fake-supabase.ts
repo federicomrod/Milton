@@ -24,6 +24,9 @@ export interface FakeDb {
 const UNIQUE: Record<string, string[][]> = {
   kitchen_invites: [["secret_hash"]],
   kitchen_devices: [["token_hash"]],
+  // 078
+  kitchen_staff_pins: [["staff_id"]],
+  kitchen_pin_attempts: [["kind", "subject"]],
   kitchen_reports: [["staff_id", "client_ref"]],
   // 067: storage_path UNIQUE and the partial (channel, source_ref) index.
   kitchen_media: [["storage_path"], ["channel", "source_ref"]],

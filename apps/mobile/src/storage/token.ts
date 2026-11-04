@@ -14,6 +14,8 @@ export interface Profile {
   company: string | null;
   /** The company language, cached so the first screen is already in it. */
   language?: string;
+  /** A manager's own kitchen phone: signs in with their account, no PIN asked. */
+  selfDevice?: boolean;
 }
 
 export async function getToken(): Promise<string | null> {

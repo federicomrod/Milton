@@ -28,6 +28,7 @@ export type Capability =
   | "shifts.edit"
   | "kitchen.drafts"
   | "kitchen.qr"
+  | "kitchen.team"
   | "costs.reset"
   | "costs.fixed"
   | "costs.buffer"
@@ -74,6 +75,7 @@ export const CAPABILITIES: Record<Capability, Role[]> = {
   "kitchen.drafts": OWNER_ADMIN_MANAGER,
   // QR codes, cooks and reports: the owner (and Milton staff).
   "kitchen.qr": ["owner"],
+  "kitchen.team": OWNER_ADMIN_MANAGER,
   // "Empezar de nuevo": owner and admin; Milton staff do NOT reset a client.
   "costs.reset": OWNER_ADMIN,
   // Costos fijos (rent, payroll, utilities, taxes %): owner, admin and manager.
@@ -228,6 +230,7 @@ export const CAPABILITY_MESSAGES: Record<Capability, string> = {
   "shifts.edit": "Tu rol no puede cambiar los turnos.",
   "kitchen.drafts": DEFAULT_FORBIDDEN_MESSAGE,
   "kitchen.qr": DEFAULT_FORBIDDEN_MESSAGE,
+  "kitchen.team": DEFAULT_FORBIDDEN_MESSAGE,
   "costs.reset": DEFAULT_FORBIDDEN_MESSAGE,
   "costs.fixed": "Tu rol no puede ver ni cambiar los costos fijos.",
   "costs.buffer": "Tu rol no puede cambiar la merma de cocina.",

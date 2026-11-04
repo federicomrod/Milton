@@ -130,13 +130,26 @@ function strOrNull(value: unknown): string | null {
 // Kitchen (cook) responses
 // ---------------------------------------------------------------------------
 
+/** What the app needs to know about the cook's PIN: never the PIN, never a hash. */
+export interface KitchenPinState {
+  set: boolean;
+  mustChange: boolean;
+}
+
 export function serializeKitchenMe(input: {
   staff: Row;
   company: Row | null;
   locations: Row[];
+  pin?: KitchenPinState;
+  kitchenCode?: string | null;
 }) {
   const staff = pickAllowed(input.staff, ["id", "display_name"]);
   return {
+    pin: {
+      set: input.pin?.set === true,
+      mustChange: input.pin?.mustChange === true,
+    },
+    kitchenCode: input.kitchenCode ?? null,
     staff: { id: str(staff.id), name: str(staff.display_name) },
     company: {
       name: str(pickAllowed(input.company, ["name"]).name),
@@ -159,8 +172,15 @@ export function serializeKitchenRedeem(input: {
   locationId: string;
   locationName: string;
   language?: unknown;
+  pin?: KitchenPinState;
+  kitchenCode?: string | null;
 }) {
   return {
+    pin: {
+      set: input.pin?.set === true,
+      mustChange: input.pin?.mustChange === true,
+    },
+    kitchenCode: input.kitchenCode ?? null,
     deviceToken: input.deviceToken,
     language: resolveRestaurantCockpitLanguage(input.language),
     staff: { id: input.staffId, name: input.staffName },

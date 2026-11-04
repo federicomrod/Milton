@@ -54,6 +54,7 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "shifts.edit": [true, true, true, false, false, false],
   "kitchen.drafts": [true, true, true, false, false, false],
   "kitchen.qr": [true, false, false, false, false, false],
+  "kitchen.team": [true, true, true, false, false, false],
   "costs.reset": [true, true, false, false, false, false],
   "costs.fixed": [true, true, true, false, false, false],
   "costs.buffer": [true, true, true, false, false, false],

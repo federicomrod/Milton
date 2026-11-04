@@ -555,6 +555,8 @@ export interface FixedCostsView {
   marginReason: string | null;
   /** null = no number (a category is missing, or no margin). */
   breakEven: number | null;
+  /** The previous month's value per category in the same scope (small grey text, ±20% flag). */
+  lastMonth: Partial<Record<FixedCostCategory, number>>;
 }
 
 export async function loadFixedCostsView(
@@ -570,7 +572,7 @@ export async function loadFixedCostsView(
 ): Promise<FixedCostsView> {
   const { supabase, companyId } = ctx;
   const marginRead = args.marginRead;
-  const [currency, lines, shiftRows, group] = await Promise.all([
+  const [currency, lines, shiftRows, group, lastLines] = await Promise.all([
     resolveCompanyCurrency(supabase, companyId),
     listFixedCosts(supabase, companyId, args.month, args.locationId),
     args.locationId
@@ -593,7 +595,19 @@ export async function loadFixedCostsView(
           impuestosPct: null,
           hasEstimate: false,
         }),
+    // A hiccup here only hides the small grey «Mes pasado» text.
+    listFixedCosts(
+      supabase,
+      companyId,
+      previousMonthStart(args.month),
+      args.locationId
+    ).catch(() => [] as FixedCostLine[]),
   ]);
+  const lastMonth: Partial<Record<FixedCostCategory, number>> = {};
+  for (const l of lastLines) {
+    const v = l.category === "impuestos" ? l.pct_of_sales : l.amount;
+    if (v !== null) lastMonth[l.category] = v;
+  }
   // Before migration 054 the table is missing: no shifts → every day is open.
   const weekdays = (
     (shiftRows.data ?? []) as Array<{ weekdays: number[]; active: boolean }>
@@ -624,5 +638,6 @@ export async function loadFixedCostsView(
       margin,
       openDays,
     }),
+    lastMonth,
   };
 }

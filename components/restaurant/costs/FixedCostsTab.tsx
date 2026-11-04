@@ -11,7 +11,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   AMOUNT_CATEGORIES,
@@ -32,7 +32,7 @@ import type {
   FixedCostHistoryItem,
   FixedCostsView,
 } from "@/lib/restaurant/fixed-costs-server";
-import { FixedCostUpload } from "./FixedCostUpload";
+import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
@@ -76,6 +76,15 @@ function describeValue(
   if (!v) return "—";
   if (v.pct_of_sales !== null) return `${v.pct_of_sales}%`;
   return v.amount === null ? "—" : formatMoney(v.amount, currency, lang);
+}
+
+/** Clusters whose saved value came from an uploaded file: read-only totals. */
+function derivedFrom(
+  lines: readonly FixedCostLine[]
+): Partial<Record<FixedCostCategory, string | null>> {
+  const out: Partial<Record<FixedCostCategory, string | null>> = {};
+  for (const l of lines) if (l.source === "upload") out[l.category] = l.label;
+  return out;
 }
 
 export interface FixedCostsTabProps {
@@ -144,6 +153,29 @@ export function FixedCostsTab({
       return out;
     }
   );
+  // What was approved from an upload on this screen, before the page re-reads
+  // it: the cluster totals follow the approved lines, so the typed value never
+  // fights them. `derived` = the total is the sum of approved lines.
+  const [saved, setSaved] = useState<
+    Partial<Record<FixedCostCategory, string>>
+  >({});
+  const [derived, setDerived] = useState<
+    Partial<Record<FixedCostCategory, string | null>>
+  >(() => derivedFrom(view.lines));
+  const [unlocked, setUnlocked] = useState<Set<FixedCostCategory>>(new Set());
+  const [flash, setFlash] = useState<{
+    cats: FixedCostCategory[];
+    breakEven: boolean;
+  } | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    []
+  );
   const [repeats, setRepeats] = useState(
     view.lines.length > 0 && view.lines.every((l) => l.repeats)
   );
@@ -171,11 +203,13 @@ export function FixedCostsTab({
   const dirty =
     FIXED_COST_CATEGORIES.some((c) => {
       const l = byCategory.get(c);
-      const saved = toText(
-        c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
-        lang
-      );
-      return values[c].trim() !== saved;
+      const savedText =
+        saved[c] ??
+        toText(
+          c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
+          lang
+        );
+      return values[c].trim() !== savedText;
     }) ||
     (view.lines.length > 0 && repeats !== view.lines.every((l) => l.repeats));
 
@@ -213,7 +247,74 @@ export function FixedCostsTab({
     view.openDays,
   ]);
 
+  // The page re-reads the month after an approval (quietly): take what the
+  // server now says, unless the person is in the middle of typing something.
+  const lastLines = useRef(view.lines);
+  useEffect(() => {
+    const before = lastLines.current;
+    if (before === view.lines) return;
+    lastLines.current = view.lines;
+    const textOf = (lines: readonly FixedCostLine[], c: FixedCostCategory) => {
+      const l = lines.find((x) => x.category === c);
+      return toText(
+        c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
+        lang
+      );
+    };
+    setValues((prev) => {
+      const out = { ...prev };
+      for (const c of FIXED_COST_CATEGORIES) {
+        // Something the person is typing right now is theirs: keep it.
+        const wasSaved = saved[c] ?? textOf(before, c);
+        if (prev[c].trim() === wasSaved) out[c] = textOf(view.lines, c);
+      }
+      return out;
+    });
+    setSaved({});
+    setDerived(derivedFrom(view.lines));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.lines]);
+
+  function applyTotals(changes: ClusterChange[]) {
+    if (changes.length === 0) return;
+    setValues((v) => {
+      const next = { ...v };
+      for (const c of changes) next[c.category] = toText(c.total, lang);
+      return next;
+    });
+    setSaved((s) => {
+      const next = { ...s };
+      for (const c of changes) next[c.category] = toText(c.total, lang);
+      return next;
+    });
+    setDerived((dv) => {
+      const next = { ...dv };
+      for (const c of changes) {
+        if (c.fromLines) next[c.category] = null;
+        else delete next[c.category];
+      }
+      return next;
+    });
+    setUnlocked((u) => {
+      const next = new Set(u);
+      for (const c of changes) next.delete(c.category);
+      return next;
+    });
+    setFlash({ cats: changes.map((c) => c.category), breakEven: true });
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1600);
+  }
+
+  function settle() {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 2500);
+  }
+
   const missingAmounts = live.completeness.missingAmounts;
+  const knownAmounts = AMOUNT_CATEGORIES.map(
+    (c) => live.costs.amounts[c]
+  ).filter((n): n is number => n !== null);
+  const fixedTotal = knownAmounts.reduce((a, b) => a + b, 0);
   const missingSet = new Set(live.completeness.missing);
 
   function goMonth(month: string) {
@@ -290,7 +391,13 @@ export function FixedCostsTab({
 
   const breakEvenBlock = (compact: boolean) =>
     breakEvenText ? (
-      <div data-testid="break-even">
+      <div
+        data-testid="break-even"
+        className={
+          "rounded-lg transition-colors duration-300 " +
+          (flash?.breakEven ? "bg-[#E7EDFD] ring-2 ring-[#1B40C8]" : "")
+        }
+      >
         <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
         <p className="text-base font-semibold text-[#151c2c]">
           {f.needSellBefore}{" "}
@@ -301,7 +408,13 @@ export function FixedCostsTab({
         </p>
       </div>
     ) : (
-      <div data-testid="break-even">
+      <div
+        data-testid="break-even"
+        className={
+          "rounded-lg transition-colors duration-300 " +
+          (flash?.breakEven ? "bg-[#E7EDFD] ring-2 ring-[#1B40C8]" : "")
+        }
+      >
         <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
         <p className="text-base font-semibold text-[#151c2c]">
           <span aria-hidden="true">{FLAG}</span> {f.missing}
@@ -366,6 +479,12 @@ export function FixedCostsTab({
         <div className="min-w-0 space-y-4 lg:flex-1">
           <FixedCostUpload
             inputRef={uploadInput}
+            lastMonth={view.lastMonth ?? {}}
+            currentTotals={Object.fromEntries(
+              FIXED_COST_CATEGORIES.map((c) => [c, parseTyped(values[c], lang)])
+            )}
+            onTotals={applyTotals}
+            onSettled={settle}
             month={view.month}
             locationId={view.locationId}
             currency={view.currency}
@@ -378,6 +497,28 @@ export function FixedCostsTab({
                 : {}),
             }}
           />
+          <p
+            data-testid="fixed-total"
+            className={
+              "flex flex-wrap items-baseline justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-[#151c2c] transition-colors duration-300 " +
+              (flash
+                ? "border-[#1B40C8] bg-[#E7EDFD]"
+                : "border-[#dfe3ea] bg-white")
+            }
+          >
+            <span>{f.totalFixed}</span>
+            <span>
+              {knownAmounts.length > 0
+                ? formatMoney(fixedTotal, view.currency, lang)
+                : "—"}
+              {missingAmounts.length > 0 ? (
+                <span className="ml-2 rounded-full bg-[#FDE68A] px-2 py-0.5 text-xs font-semibold">
+                  <span aria-hidden="true">{FLAG}</span>{" "}
+                  {fmt(f.totalMissing, { n: missingAmounts.length })}
+                </span>
+              ) : null}
+            </span>
+          </p>
           <div className="divide-y divide-[#dfe3ea] rounded-xl border border-[#dfe3ea] bg-white">
             {FIXED_COST_CATEGORIES.map((category) => {
               const isTax = category === "impuestos";
@@ -391,7 +532,10 @@ export function FixedCostsTab({
               return (
                 <div
                   key={category}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4"
+                  className={
+                    "flex flex-wrap items-center gap-x-4 gap-y-2 p-4 transition-colors duration-300 " +
+                    (flash?.cats.includes(category) ? "bg-[#E7EDFD]" : "")
+                  }
                   data-testid={`fixed-row-${category}`}
                 >
                   <div className="min-w-0 flex-1 basis-32">
@@ -419,42 +563,82 @@ export function FixedCostsTab({
                       <span aria-hidden="true">{FLAG}</span> {f.missing}
                     </span>
                   ) : null}
-                  <div className="flex items-center gap-1">
-                    {!isTax ? (
-                      <span
-                        className="text-sm text-[#6b7385]"
-                        aria-hidden="true"
+                  {derived[category] !== undefined &&
+                  !unlocked.has(category) ? (
+                    <div
+                      data-testid={`fixed-derived-${category}`}
+                      className="flex items-center gap-3"
+                    >
+                      <div className="text-right">
+                        <p
+                          id={id}
+                          className="text-base font-semibold text-[#151c2c]"
+                        >
+                          {parseTyped(values[category], lang) === null
+                            ? "—"
+                            : isTax
+                              ? `${values[category]}%`
+                              : formatMoney(
+                                  parseTyped(values[category], lang) as number,
+                                  view.currency,
+                                  lang
+                                )}
+                        </p>
+                        <p className="text-xs text-[#6b7385]">
+                          {f.fromLinesNote}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setUnlocked((u) => new Set(u).add(category))
+                        }
+                        className="text-sm font-semibold text-[#1B40C8] underline"
                       >
-                        {view.currency === "MXN" || view.currency === "USD"
-                          ? "$"
-                          : view.currency}
-                      </span>
-                    ) : null}
-                    <input
-                      id={id}
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={values[category]}
-                      aria-invalid={invalid.has(category) || undefined}
-                      aria-describedby={
-                        invalid.has(category) ? `${id}-error` : undefined
-                      }
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [category]: e.target.value }))
-                      }
-                      placeholder={isTax ? "0" : f.noData}
-                      className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-                    />
-                    {isTax ? (
-                      <span
-                        className="text-sm text-[#6b7385]"
-                        aria-hidden="true"
-                      >
-                        %
-                      </span>
-                    ) : null}
-                  </div>
+                        {f.editByHand}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      {!isTax ? (
+                        <span
+                          className="text-sm text-[#6b7385]"
+                          aria-hidden="true"
+                        >
+                          {view.currency === "MXN" || view.currency === "USD"
+                            ? "$"
+                            : view.currency}
+                        </span>
+                      ) : null}
+                      <input
+                        id={id}
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={values[category]}
+                        aria-invalid={invalid.has(category) || undefined}
+                        aria-describedby={
+                          invalid.has(category) ? `${id}-error` : undefined
+                        }
+                        onChange={(e) =>
+                          setValues((v) => ({
+                            ...v,
+                            [category]: e.target.value,
+                          }))
+                        }
+                        placeholder={isTax ? "0" : f.noData}
+                        className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+                      />
+                      {isTax ? (
+                        <span
+                          className="text-sm text-[#6b7385]"
+                          aria-hidden="true"
+                        >
+                          %
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
                   {invalid.has(category) ? (
                     <p
                       id={`${id}-error`}
@@ -544,7 +728,7 @@ export function FixedCostsTab({
                 "text-sm font-medium " +
                 (message.ok
                   ? "text-[#151c2c]"
-                  : "inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[#0F172A]")
+                  : "inline-block rounded-lg border border-[#1B40C8] bg-[#E7EDFD] px-2.5 py-1 text-[#0F172A]")
               }
             >
               {message.text}

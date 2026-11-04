@@ -7,6 +7,7 @@
 // amount that is missing, unreadable or ≤ 0 is «Sin precio».
 
 import {
+  FIXED_COST_CATEGORIES,
   isFixedCostCategory,
   lineKey,
   monthStartOf,
@@ -364,6 +365,7 @@ export interface ExistingValue {
   pct_of_sales: number | null;
   /** Where the saved value came from ('upload', 'manual', …), when known. */
   source?: string | null;
+  label?: string | null;
 }
 
 export interface ApprovalWrite {
@@ -549,4 +551,112 @@ export function planApproval(
     writes.push({ line, members, previous: prev });
   }
   return { writes, conflicts, unchanged, blocked };
+}
+
+// ---------------------------------------------------------------------------
+// Inline review (no modal, no reload): what the list shows
+// ---------------------------------------------------------------------------
+
+export interface ClusterReview {
+  category: FixedCostCategory;
+  pending: DraftLine[];
+  approved: DraftLine[];
+  /** Sum of the approved lines (not for impuestos: a rate is never added). */
+  approvedTotal: number;
+  /** Sum of the ready pending lines. */
+  pendingTotal: number;
+}
+
+export interface InlineReview {
+  /** ⚑ Falta lines (no category, no amount, or a duplicate rate): at the top until fixed. */
+  fix: DraftLine[];
+  clusters: ClusterReview[];
+}
+
+/** Lines grouped by cluster, flagged ones apart; clusters in the usual order. */
+export function inlineReview(lines: readonly DraftLine[]): InlineReview {
+  const dup = duplicateTaxIds(lines);
+  const fix: DraftLine[] = [];
+  const by = new Map<FixedCostCategory, ClusterReview>();
+  const slot = (c: FixedCostCategory) => {
+    let g = by.get(c);
+    if (!g) {
+      g = {
+        category: c,
+        pending: [],
+        approved: [],
+        approvedTotal: 0,
+        pendingTotal: 0,
+      };
+      by.set(c, g);
+    }
+    return g;
+  };
+  for (const l of lines) {
+    if (l.status === "discarded") continue;
+    if (l.status === "approved") {
+      if (!l.category) continue;
+      const g = slot(l.category);
+      g.approved.push(l);
+      if (l.category !== "impuestos")
+        g.approvedTotal = round2(g.approvedTotal + (l.amount ?? 0));
+      continue;
+    }
+    if (!isApprovable(l) || dup.has(l.id) || !l.category) {
+      fix.push(l);
+      continue;
+    }
+    const g = slot(l.category);
+    g.pending.push(l);
+    if (l.category !== "impuestos")
+      g.pendingTotal = round2(g.pendingTotal + (l.amount as number));
+  }
+  return {
+    fix,
+    clusters: FIXED_COST_CATEGORIES.flatMap((c) => {
+      const g = by.get(c);
+      return g ? [g] : [];
+    }),
+  };
+}
+
+/** «Aprobar todo (n · $X)»: only ready lines; ⚑ Falta lines are skipped. */
+export function bulkApprovable(lines: readonly DraftLine[]): {
+  ids: string[];
+  count: number;
+  total: number;
+} {
+  const dup = duplicateTaxIds(lines);
+  const ready = lines.filter((l) => isApprovable(l) && !dup.has(l.id));
+  return {
+    ids: ready.map((l) => l.id),
+    count: ready.length,
+    total: round2(
+      ready.reduce(
+        (sum, l) => sum + (l.category === "impuestos" ? 0 : (l.amount ?? 0)),
+        0
+      )
+    ),
+  };
+}
+
+/** The change vs last month as a fraction (0.34 = +34%), only when it is above 20%. */
+export function changeVsLastMonth(
+  total: number,
+  last: number | undefined
+): number | null {
+  if (last === undefined || last === 0) return null;
+  const change = (total - last) / last;
+  return Math.abs(change) > 0.2 ? change : null;
+}
+
+/** What a cluster is worth after approving `adding` on top of `current`. */
+export function clusterTotalAfter(
+  category: FixedCostCategory,
+  current: number | null,
+  adding: readonly DraftLine[]
+): number {
+  const sum = round2(adding.reduce((s, l) => s + (l.amount ?? 0), 0));
+  if (category === "impuestos") return adding[adding.length - 1]?.amount ?? 0;
+  return round2((current ?? 0) + sum);
 }

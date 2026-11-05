@@ -19,6 +19,7 @@ import {
   parseGrid,
   planApproval,
   type DraftLine,
+  type DraftScope,
   type ExistingValue,
   type OverwriteConflict,
   type ReadDefaults,
@@ -272,6 +273,10 @@ export interface LineEdit {
   lineId: string;
   category?: FixedCostCategory | null;
   amount?: number | null;
+  /** Where the line goes; the route checks a restaurant belongs to the company. */
+  scope?: DraftScope;
+  /** YYYY-MM-01, for a line whose month was not understood. */
+  month?: string;
   discard?: boolean;
 }
 
@@ -289,6 +294,8 @@ export async function editDraft(
       ...l,
       ...(e.category !== undefined ? { category: e.category } : {}),
       ...(e.amount !== undefined ? { amount: e.amount } : {}),
+      ...(e.scope !== undefined ? { scope: e.scope } : {}),
+      ...(e.month !== undefined ? { month: e.month } : {}),
       ...(e.discard ? { status: "discarded" as const } : {}),
     };
   });
@@ -353,7 +360,12 @@ export type ApproveResult =
 export async function approveDraft(
   ctx: FixedCostsContext,
   draft: UploadDraft,
-  args: { lineIds?: readonly string[]; confirmed?: readonly string[] }
+  args: {
+    lineIds?: readonly string[];
+    confirmed?: readonly string[];
+    /** Line ids whose cluster should ADD to the saved value («Sumar»). */
+    adds?: readonly string[];
+  }
 ): Promise<ApproveResult> {
   const wanted = args.lineIds ? new Set(args.lineIds) : null;
   const selected = draft.lines.filter(
@@ -397,7 +409,11 @@ export async function approveDraft(
         }
       );
   }
-  const plan = planApproval(selected, existing, draft.lines);
+  const addIds = new Set(args.adds ?? []);
+  const addKeys = new Set(
+    selected.filter((l) => addIds.has(l.id)).map((l) => keyOfLine(l))
+  );
+  const plan = planApproval(selected, existing, draft.lines, addKeys);
   const confirmed = new Set(args.confirmed ?? []);
   const open = plan.conflicts.filter((c) => !confirmed.has(c.lineId));
   if (open.length) return { ok: false, conflicts: open };

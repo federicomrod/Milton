@@ -44,14 +44,25 @@ test.describe("Rentabilidad", () => {
       ["alquiler", "12000"],
       ["planilla", "30000"],
       ["servicios", "4000"],
+      ["otros", "500"],
       ["impuestos", "10"],
     ]) {
+      // An empty cluster is ONE field + its own Guardar; once saved it becomes
+      // the confirmed amount and the field goes away.
       const input = page.locator(`#fixed-${category}`);
-      if (await input.count()) await input.fill(value);
+      if (await input.count()) {
+        await input.fill(value);
+        await input
+          .locator("xpath=ancestor::*[@data-testid][1]")
+          .getByRole("button", { name: /^guardar/i })
+          .click();
+      }
     }
-    await page.getByRole("button", { name: /guardar cambios/i }).click();
     await expect(page.getByTestId("break-even").first()).toBeVisible();
-    await expect(page.getByTestId("falta-alquiler")).toHaveCount(0);
+    await expect(page.getByTestId("fixed-row-alquiler")).toHaveAttribute(
+      "data-state",
+      "confirmed"
+    );
   });
 
   test("a missing cost shows a white card and ⚑ Falta, never $0", async ({

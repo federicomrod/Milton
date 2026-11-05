@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 // Costos fijos: «⇪ Subir archivo» is visible straight away; the inline review
-// shows ⚑ Falta and «Sin precio» for lines Milton could not read, the lavender
-// tag for AI lines, and asks before replacing a value (old → new).
+// says exactly what is missing on a line Milton could not place (never a bare
+// ⚑), keeps the lavender tag for AI lines, shows the diff against a confirmed
+// amount and lets the person replace or add. Demo data only.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -17,6 +18,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { FixedCostUpload } from "@/components/restaurant/costs/FixedCostUpload";
+import type { ClusterMap } from "@/lib/restaurant/fixed-cost-clusters";
 
 afterEach(() => {
   cleanup();
@@ -52,19 +54,40 @@ const draft = {
   ],
 };
 
-function show(fetcher: (url: string, init?: RequestInit) => Promise<Response>) {
+function show(
+  fetcher: (url: string, init?: RequestInit) => Promise<Response>,
+  clusters: ClusterMap = {}
+) {
   vi.stubGlobal("fetch", fetcher);
   render(
     <FixedCostUpload
       month="2026-10-01"
       locationId={LOC}
       currency="USD"
-      locationNames={{ [LOC]: "Sucursal Demo Norte" }}
+      restaurants={[{ id: LOC, name: "Sucursal Demo Norte" }]}
+      clusters={clusters}
     />
   );
 }
 const ok = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
+const mk = (
+  id: string,
+  raw: string,
+  category: string | null,
+  amount: number | null,
+  scope: unknown = { kind: "restaurant", locationId: LOC }
+) => ({
+  id,
+  raw,
+  category,
+  amount,
+  month: "2026-10-01",
+  scope,
+  from: "file",
+  status: "pending",
+});
+const withLines = (lines: unknown[]) => ({ ...draft, lines });
 
 describe("FixedCostUpload", () => {
   it("shows the button right away, no tab or menu", () => {
@@ -74,29 +97,64 @@ describe("FixedCostUpload", () => {
     ).toBeTruthy();
   });
 
-  // ⚑ Falta lines stay at the top, so the unreadable line is first.
-  it("review: AI tag, ⚑ Falta, «Sin precio»; the unreadable line cannot be approved", async () => {
+  it("a line Milton could not place says what is missing and has no ✓; ⚑ Falta stays on top", async () => {
     show(async () => ok({ draft }));
     const lines = await screen.findAllByTestId("upload-line");
     expect(lines).toHaveLength(2);
+    expect(lines[0].getAttribute("data-status")).toBe("falta");
+    expect(within(lines[0]).getByTestId("falta-tag").textContent).toContain(
+      "Falta · ¿A qué grupo de costos?"
+    );
+    expect(within(lines[0]).queryByRole("button", { name: "Aprobar" })).toBe(
+      null
+    );
     expect(within(lines[1]).getByText("Leído por Milton").className).toContain(
       "#DDD6FE"
     );
-    expect(within(lines[0]).getAllByText(/Falta/).length).toBeGreaterThan(0);
-    expect(within(lines[0]).getAllByText("Sin precio").length).toBeGreaterThan(
-      0
-    );
-    expect(
-      (
-        within(lines[0]).getByRole("button", {
-          name: "Aprobar",
-        }) as HTMLButtonElement
-      ).disabled
-    ).toBe(true);
     expect(screen.getByText(/Nada cambia en tus costos fijos/)).toBeTruthy();
   });
 
-  it("replacing an existing value asks first: old → new", async () => {
+  it("an unknown restaurant asks «¿A qué restaurante?» and lets you answer it", async () => {
+    const edits: unknown[] = [];
+    show(async (_url, init) => {
+      if (init?.method === "PATCH") {
+        edits.push(JSON.parse(String(init.body)));
+        return ok({
+          draft: withLines([mk("g", "Gas · Sucursal Inventada", "otros", 900)]),
+        });
+      }
+      return ok({
+        draft: withLines([
+          mk("g", "Gas · Sucursal Inventada", "otros", 900, null),
+        ]),
+      });
+    });
+    const row = await screen.findByTestId("upload-line");
+    expect(row.textContent).toContain("Falta · ¿A qué restaurante?");
+    expect(within(row).queryByRole("button", { name: "Aprobar" })).toBe(null);
+    fireEvent.change(within(row).getByLabelText("¿A qué restaurante?"), {
+      target: { value: LOC },
+    });
+    await waitFor(() => expect(edits).toHaveLength(1));
+    expect((edits[0] as any).edits[0]).toMatchObject({
+      lineId: "g",
+      scope: { kind: "restaurant", locationId: LOC },
+    });
+  });
+
+  it("«Aprobar todo» counts only what can be approved, and is hidden at 0", async () => {
+    show(async () => ok({ draft }));
+    await screen.findAllByTestId("upload-line");
+    expect(
+      screen.getByRole("button", { name: "Aprobar todo (1 · $7,000)" })
+    ).toBeTruthy();
+    cleanup();
+    show(async () => ok({ draft: withLines([mk("x", "Raro", null, null)]) }));
+    await screen.findAllByTestId("upload-line");
+    expect(screen.queryByRole("button", { name: /^Aprobar todo/ })).toBe(null);
+  });
+
+  it("an overwrite the server finds that we did not foresee still asks: old → new", async () => {
     const calls: Array<{ url: string; body: string }> = [];
     show(async (url, init) => {
       if (init?.method === "POST") {
@@ -105,6 +163,7 @@ describe("FixedCostUpload", () => {
         return JSON.parse(body).confirmed
           ? ok({
               approved: 1,
+              applied: [],
               draft: { ...draft, status: "draft", lines: [draft.lines[1]] },
             })
           : ok(
@@ -136,34 +195,73 @@ describe("FixedCostUpload", () => {
   });
 });
 
-describe("lines of one category", () => {
-  const mk = (id: string, raw: string, category: string, amount: number) => ({
-    id,
-    raw,
-    category,
-    amount,
-    month: "2026-10-01",
-    scope: { kind: "restaurant", locationId: LOC },
-    from: "file",
-    status: "pending",
+describe("a cluster that already has a confirmed amount", () => {
+  const planilla = { value: 21400, source: "manual", label: null };
+  const lineSet = () => withLines([mk("p", "Nómina demo", "planilla", 22100)]);
+
+  it("shows the diff and asks replace or add; «Aprobar todo» is hidden", async () => {
+    show(async () => ok({ draft: lineSet() }), { planilla });
+    const row = await screen.findByTestId("upload-line");
+    expect(row.getAttribute("data-status")).toBe("diff");
+    expect(within(row).getByTestId("line-diff").textContent).toBe(
+      "Planilla hoy $21,400 · la factura propone $22,100"
+    );
+    expect(
+      within(row).getByRole("button", { name: "Reemplazar" })
+    ).toBeTruthy();
+    expect(
+      within(row).getByRole("button", { name: "Sumar (→ $43,500)" })
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Aprobar todo/ })).toBe(null);
+    expect(screen.getByText(/1 líneas esperan tu decisión/)).toBeTruthy();
   });
 
-  it("shows the cluster with its lines and total before approving", async () => {
+  it.each([
+    ["Reemplazar", "confirmed"],
+    ["Sumar (→ $43,500)", "adds"],
+  ])("«%s» sends %s for that line", async (name, key) => {
+    let sent: any = null;
+    show(
+      async (_u, init) => {
+        if (init?.method === "POST") {
+          sent = JSON.parse(String(init.body));
+          return ok({ approved: 1, applied: [], draft: lineSet() });
+        }
+        return ok({ draft: lineSet() });
+      },
+      { planilla }
+    );
+    const row = await screen.findByTestId("upload-line");
+    fireEvent.click(within(row).getByRole("button", { name }));
+    await waitFor(() => expect(sent).not.toBeNull());
+    expect(sent[key]).toEqual(["p"]);
+  });
+
+  it("a rate is never added: impuestos offers only «Reemplazar»", async () => {
+    show(
+      async () => ok({ draft: withLines([mk("t", "IVA", "impuestos", 16)]) }),
+      { impuestos: { value: 13, source: "manual", label: null } }
+    );
+    const row = await screen.findByTestId("upload-line");
+    expect(
+      within(row).getByRole("button", { name: "Reemplazar" })
+    ).toBeTruthy();
+    expect(within(row).queryByRole("button", { name: /^Sumar/ })).toBe(null);
+  });
+});
+
+describe("lines of one category", () => {
+  it("«Aprobar todo» counts the lines of a cluster and their sum", async () => {
     show(async () =>
       ok({
-        draft: {
-          ...draft,
-          lines: [
-            mk("a", "Luz", "servicios", 100),
-            mk("b", "Agua", "servicios", 50),
-            mk("c", "Internet", "servicios", 30),
-          ],
-        },
+        draft: withLines([
+          mk("a", "Luz", "servicios", 100),
+          mk("b", "Agua", "servicios", 50),
+          mk("c", "Internet", "servicios", 30),
+        ]),
       })
     );
-    const head = await screen.findByTestId("cluster-head-servicios");
-    expect(head.textContent).toContain("Por aprobar (3)");
-    expect(head.textContent).toContain("$180");
+    await screen.findAllByTestId("upload-line");
     expect(
       screen.getByRole("button", { name: /^Aprobar todo \(3 · \$180/ })
     ).toBeTruthy();
@@ -172,27 +270,17 @@ describe("lines of one category", () => {
   it("two impuestos lines of one key are ⚑ Falta with a message and cannot be approved", async () => {
     show(async () =>
       ok({
-        draft: {
-          ...draft,
-          lines: [
-            mk("a", "IVA", "impuestos", 10),
-            mk("b", "ISR", "impuestos", 6),
-          ],
-        },
+        draft: withLines([
+          mk("a", "IVA", "impuestos", 10),
+          mk("b", "ISR", "impuestos", 6),
+        ]),
       })
     );
     const lines = await screen.findAllByTestId("upload-line");
     for (const row of lines) {
       expect(within(row).getAllByText(/Falta/).length).toBeGreaterThan(0);
       expect(row.textContent).toContain("Una tasa no se suma");
-      expect(
-        (
-          within(row).getByRole("button", {
-            name: "Aprobar",
-          }) as HTMLButtonElement
-        ).disabled
-      ).toBe(true);
+      expect(within(row).queryByRole("button", { name: "Aprobar" })).toBe(null);
     }
-    expect(screen.getByTestId("fix-first")).toBeTruthy();
   });
 });

@@ -119,7 +119,10 @@ describe("«Sube tus costos fijos» in Costos fijos", () => {
       button.compareDocumentPosition(firstRow) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    expect(screen.getByTestId("falta-cta")).toBeTruthy();
+    // an empty cluster always offers the same picker right on its card
+    const link = screen.getAllByRole("button", { name: "subir factura" })[0];
+    fireEvent.click(link);
+    expect(clicked).toHaveBeenCalledWith("file");
   });
 
   it("the group view still says it is the group's shared costs", () => {

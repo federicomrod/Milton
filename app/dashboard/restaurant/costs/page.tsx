@@ -580,6 +580,10 @@ async function CostosFijosTab({
         }
         shellParams={shellParams}
         currentMonth={currentMonth}
+        restaurants={context.locations.map((l) => ({
+          id: l.id,
+          name: l.name,
+        }))}
         splitTargets={
           splitSales
             ? context.locations.map((l) => ({

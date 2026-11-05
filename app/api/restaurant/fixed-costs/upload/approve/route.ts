@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     draftId?: unknown;
     lineIds?: unknown;
     confirmed?: unknown;
+    adds?: unknown;
   };
   if (typeof body.draftId !== "string")
     return NextResponse.json({ error: t.errNotFound }, { status: 404 });
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
   const result = await approveDraft(ctx, draft, {
     lineIds: ids(body.lineIds),
     confirmed: ids(body.confirmed),
+    adds: ids(body.adds),
   });
   if (result.ok) return NextResponse.json(result);
   if ("conflicts" in result)

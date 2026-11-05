@@ -31,7 +31,10 @@ import {
 } from "@/lib/restaurant/fixed-cost-upload";
 import {
   approvableAll,
+  approvedItems,
   clusterAfter,
+  conceptLabel,
+  type ClusterItem,
   fileProposal,
   isHere,
   isOwnTotal,
@@ -106,6 +109,8 @@ export function FixedCostUpload({
   inputRef,
   lastMonth = {},
   clusters,
+  showDrop = true,
+  onReview,
   onConfirm,
   onSettled,
 }: {
@@ -122,6 +127,13 @@ export function FixedCostUpload({
   lastMonth?: Partial<Record<FixedCostCategory, number>>;
   /** What each cluster holds on screen now (confirmed). */
   clusters: ClusterMap;
+  /** Nothing confirmed yet: show the wide «Suelta una factura o PDF» zone. */
+  showDrop?: boolean;
+  /** The lines this upload approved per cluster (the card lists them). */
+  onReview?: (info: {
+    items: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+    falta: string[];
+  }) => void;
   /** Called at once on approve/undo so the cards and break-even follow. */
   onConfirm?: (changes: ClusterChange[]) => void;
   /** Called a moment after the last change: the page may refresh quietly. */
@@ -155,6 +167,18 @@ export function FixedCostUpload({
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    const lines = draft?.lines ?? [];
+    const sc = { month, locationId };
+    const st = lineStatuses(lines, {}, sc);
+    onReview?.({
+      items: approvedItems(lines, sc),
+      falta: lines
+        .filter((l) => st.get(l.id)?.kind === "falta")
+        .map((l) => l.raw.split(" · ")[0].trim() || "—"),
+    });
+  }, [draft, month, locationId, onReview]);
 
   // ?subir=1 (from Rentabilidad): open the picker once, then take the param
   // out of the URL (other params stay) so a reload does not reopen it.
@@ -302,6 +326,21 @@ export function FixedCostUpload({
     const optimistic =
       ready.every((l) => isHere(l, screen)) && cats.every(decided);
 
+    const labelFor = (c: FixedCostCategory): string | null => {
+      const mine = ready.filter((l) => l.category === c);
+      const own =
+        mode !== "replace" && isOwnTotal(c, clusters[c], draft.lines, screen)
+          ? draft.lines.filter(
+              (l) =>
+                l.status === "approved" && l.category === c && isHere(l, screen)
+            )
+          : [];
+      const parts = conceptLabel([...own, ...mine]);
+      const prior = clusters[c]?.label;
+      if (c !== "impuestos" && mode === "add" && !own.length && prior)
+        return `${prior} + ${parts ?? ""}`.slice(0, 120);
+      return c === "impuestos" ? (parts?.split(" + ").pop() ?? null) : parts;
+    };
     const change = (c: FixedCostCategory): ClusterChange => ({
       category: c,
       total: clusterAfter(
@@ -311,7 +350,7 @@ export function FixedCostUpload({
         mode
       ),
       source: "upload",
-      label: null,
+      label: labelFor(c),
     });
     const undoChanges = () =>
       cats.map(
@@ -408,7 +447,32 @@ export function FixedCostUpload({
           category: a.category,
           total: a.total,
           source: "upload",
-          label: null,
+          label:
+            a.category === "impuestos"
+              ? (conceptLabel(
+                  next.lines.filter(
+                    (l) =>
+                      l.status === "approved" &&
+                      l.category === "impuestos" &&
+                      isHere(l, screen)
+                  )
+                )
+                  ?.split(" + ")
+                  .pop() ?? null)
+              : (() => {
+                  const names = conceptLabel(
+                    next.lines.filter(
+                      (l) =>
+                        l.status === "approved" &&
+                        l.category === a.category &&
+                        isHere(l, screen)
+                    )
+                  );
+                  const prior = a.previous?.label;
+                  return a.previous && a.previous.source !== "upload" && prior
+                    ? `${prior} + ${names ?? ""}`.slice(0, 120)
+                    : names;
+                })(),
         }))
       );
       const elsewhere = applied.filter((a) => !here.includes(a));
@@ -531,35 +595,60 @@ export function FixedCostUpload({
     duplicate: t.needsDuplicate,
   };
 
+  const [dragging, setDragging] = useState(false);
+  const drop = showDrop && list.length === 0;
+
   return (
     <div data-testid="fixed-cost-upload" className="min-w-0 space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => input.current?.click()}
-          className={BTN}
-        >
-          {t.button}
-        </button>
-        <span className="text-[12px] text-[#6b7385]">{t.accepts}</span>
-        <input
-          ref={input}
-          type="file"
-          accept=".xlsx,.xls,.csv,.pdf,image/jpeg,image/png,image/webp"
-          className="sr-only"
-          aria-label={t.button}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
+      <input
+        ref={input}
+        type="file"
+        accept=".xlsx,.xls,.csv,.pdf,image/jpeg,image/png,image/webp"
+        className="sr-only"
+        aria-label={t.button}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void upload(f);
+        }}
+      />
+      {drop ? (
+        <div
+          data-testid="dropzone"
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = e.dataTransfer.files?.[0];
             if (f) void upload(f);
           }}
-        />
-        {busy ? (
-          <span role="status" className="text-sm text-[#4a5a85]">
-            {t.reading}
-          </span>
-        ) : null}
-      </div>
+          className={
+            "flex flex-col items-center gap-3 rounded-xl border border-dashed border-[#1B40C8] px-4 py-8 text-center transition-colors " +
+            (dragging ? "bg-[#E7EDFD]" : "bg-[#F8FAFF]")
+          }
+        >
+          <p className="text-base font-semibold text-[#1B40C8]">
+            {t.dropTitle}
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            className={BTN}
+          >
+            {t.dropButton}
+          </button>
+          <p className="text-[12px] text-[#6b7385]">{t.accepts}</p>
+        </div>
+      ) : null}
+      {busy ? (
+        <p role="status" className="text-sm text-[#4a5a85]">
+          {t.reading}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-[#151c2c]">
           <span aria-hidden="true">⚑</span> {error}
@@ -569,15 +658,17 @@ export function FixedCostUpload({
       {draft && list.length > 0 ? (
         <section
           data-testid="upload-review"
-          className="min-w-0 rounded-xl border border-[#dbe3f7] bg-white p-3 sm:p-4"
+          className="min-w-0 rounded-xl border border-[#dbe3f7] bg-[#F8FAFF] p-3"
         >
-          <h3 className="text-[15px] font-bold text-[#0F172A]">{t.title}</h3>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <h3 className="text-[15px] font-bold text-[#0F172A]">{t.title}</h3>
+            {draft.fileName ? (
+              <p className="break-all text-[12px] text-[#6b7385]">
+                {draft.fileName}
+              </p>
+            ) : null}
+          </div>
           <p className="mt-1 text-sm text-[#4a5a85]">{t.intro}</p>
-          {draft.fileName ? (
-            <p className="mt-1 break-words text-[12px] text-[#6b7385]">
-              {draft.fileName}
-            </p>
-          ) : null}
 
           {conflicts.length > 0 ? (
             <div
@@ -723,14 +814,14 @@ export function FixedCostUpload({
         <div
           role="status"
           data-testid="approve-toast"
-          className="fixed bottom-20 left-4 right-4 z-40 mx-auto flex max-w-md items-center justify-between gap-3 rounded-xl bg-[#1B40C8] px-4 py-3 text-sm font-semibold text-white shadow-lg lg:bottom-6"
+          className="fixed bottom-20 left-4 right-4 z-40 flex max-w-sm items-center justify-between gap-3 rounded-xl border border-[#dfe3ea] bg-white px-4 py-3 text-sm font-medium text-[#151c2c] shadow-lg lg:bottom-6 lg:left-[256px] lg:right-auto"
         >
           <span className="min-w-0 break-words">{toast.text}</span>
           {toast.applied ? (
             <button
               type="button"
               onClick={() => void undo()}
-              className="shrink-0 rounded-md px-2 py-2 underline"
+              className="inline-flex min-h-[36px] shrink-0 items-center rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm font-semibold text-[#151c2c] hover:bg-[#F1F3F7]"
             >
               {t.undo}
             </button>
@@ -765,35 +856,44 @@ function LineRow(props: {
   const { d, lang, fmt } = useT();
   const t = d.costs.fixedUpload;
   const { line, status } = props;
-  const [editing, setEditing] = useState(line.amount === null);
+  const falta = status.kind === "falta";
+  const needs = falta ? status.needs : null;
+  // «Asignar» opens the one control that answers what is missing.
+  const [assigning, setAssigning] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(
     line.amount === null ? "" : formatTypedNumber(line.amount, lang)
   );
   const isTax = line.category === "impuestos";
+  const cat = line.category;
+  const showAmountInput = editing || (needs === "amount" && assigning);
+  const showChip = cat !== null || (needs === "category" && assigning);
   const commitAmount = () => {
     const p = parseLocaleNumber(amount, lang);
     if (!amount.trim()) return;
     if (p.ok && p.value !== null && p.value > 0 && p.value !== line.amount) {
       props.onCommit({ amount: p.value });
     }
-    if (p.ok && p.value !== null && p.value > 0) setEditing(false);
+    if (p.ok && p.value !== null && p.value > 0) {
+      setEditing(false);
+      setAssigning(false);
+    }
   };
-  const cat = line.category;
   return (
     <li
       data-testid="upload-line"
       data-status={status.kind}
-      className="min-w-0 rounded-lg border border-[#eef0f4] p-3"
+      className="min-w-0 rounded-lg border border-[#e3e8f5] bg-white p-3"
     >
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="min-w-0 break-words text-sm font-semibold text-[#0F172A]">
           {line.raw || "—"}
         </span>
-        {editing ? (
+        {showAmountInput ? (
           <input
             value={amount}
             inputMode="decimal"
-            autoFocus={line.amount !== null}
+            autoFocus
             aria-label={isTax ? t.rateLabel : t.amountLabel}
             placeholder={t.noPrice}
             onChange={(e) => setAmount(e.target.value)}
@@ -801,32 +901,37 @@ function LineRow(props: {
             onKeyDown={(e) => {
               if (e.key === "Enter") commitAmount();
             }}
-            className={FIELD + " w-28 shrink-0 text-right"}
+            className={FIELD + " w-28 text-right"}
           />
         ) : (
-          <span className="shrink-0 text-sm font-semibold text-[#0F172A]">
-            {line.amount === null || !cat ? "—" : props.money(cat, line.amount)}
+          <span className="text-sm font-semibold text-[#0F172A]">
+            {line.amount === null || !cat
+              ? line.amount === null
+                ? t.noPrice
+                : props.money("otros", line.amount)
+              : props.money(cat, line.amount)}
           </span>
         )}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <select
-          value={line.category ?? ""}
-          aria-label={t.pickCategory}
-          onChange={(e) =>
-            props.onCommit({
-              category: (e.target.value || null) as FixedCostCategory | null,
-            })
-          }
-          className="h-8 max-w-full rounded-full border border-[#1B40C8] bg-[#E7EDFD] px-3 text-[13px] font-semibold text-[#1B40C8]"
-        >
-          <option value="">{t.pickCategory}</option>
-          {FIXED_COST_CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {categoryLabel(c, lang)}
-            </option>
-          ))}
-        </select>
+        {showChip ? (
+          <select
+            value={line.category ?? ""}
+            aria-label={t.pickCategory}
+            autoFocus={needs === "category"}
+            onChange={(e) =>
+              props.onCommit({
+                category: (e.target.value || null) as FixedCostCategory | null,
+              })
+            }
+            className="h-8 max-w-full rounded-full border border-[#1B40C8] bg-[#E7EDFD] px-3 text-[13px] font-semibold text-[#1B40C8]"
+          >
+            <option value="">{t.pickCategory}</option>
+            {FIXED_COST_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {categoryLabel(c, lang)}
+              </option>
+            ))}
+          </select>
+        ) : null}
         {line.from === "ai" ? <span className={AI_PILL}>{t.aiTag}</span> : null}
         {props.needsText ? (
           <span data-testid="falta-tag" className={ALERT_PILL}>
@@ -834,11 +939,70 @@ function LineRow(props: {
             {props.needsText}
           </span>
         ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
+          {status.kind === "ready" ? (
+            <button
+              type="button"
+              onClick={() => props.onApprove("auto")}
+              aria-label={t.approveLine}
+              className={BTN}
+            >
+              {t.approveBtn}
+            </button>
+          ) : null}
+          {status.kind === "diff" && cat ? (
+            <>
+              <button
+                type="button"
+                onClick={() => props.onApprove("replace")}
+                className={BTN}
+              >
+                {t.replaceBtn}
+              </button>
+              {status.sum !== null ? (
+                <button
+                  type="button"
+                  onClick={() => props.onApprove("add")}
+                  className={BTN_LIGHT}
+                >
+                  {fmt(t.addBtn, { sum: props.money(cat, status.sum) })}
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          {falta && needs !== "duplicate" ? (
+            <button
+              type="button"
+              onClick={() => setAssigning((a) => !a)}
+              aria-expanded={assigning}
+              className={BTN}
+            >
+              {t.assign}
+            </button>
+          ) : null}
+          {!falta ? (
+            <button
+              type="button"
+              onClick={() => setEditing((e) => !e)}
+              className={LINK}
+            >
+              {editing ? t.doneEditing : t.editBtn}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={props.onSkip}
+            className={falta ? BTN_LIGHT : LINK}
+          >
+            {t.skipBtn}
+          </button>
+        </div>
       </div>
-      {status.kind === "falta" && status.needs === "restaurant" ? (
+      {needs === "restaurant" && assigning ? (
         <select
           aria-label={t.needsRestaurant}
           value=""
+          autoFocus
           onChange={(e) => {
             const v = e.target.value;
             if (!v) return;
@@ -860,7 +1024,7 @@ function LineRow(props: {
           <option value="group">{t.group}</option>
         </select>
       ) : null}
-      {status.kind === "falta" && status.needs === "month" ? (
+      {needs === "month" && assigning ? (
         <input
           type="month"
           aria-label={t.needsMonth}
@@ -872,14 +1036,9 @@ function LineRow(props: {
           className={FIELD + " mt-2 w-full"}
         />
       ) : null}
-      {status.kind === "falta" && status.needs === "duplicate" ? (
+      {needs === "duplicate" ? (
         <p className="mt-1 text-[12px] text-[#4a5a85]">{t.dupTax}</p>
       ) : null}
-      <p className="mt-1 text-[12px] text-[#6b7385]">
-        {[props.vsText, props.monthText, props.where]
-          .filter(Boolean)
-          .join(" · ")}
-      </p>
       {status.kind === "diff" && cat ? (
         <p
           data-testid="line-diff"
@@ -892,55 +1051,18 @@ function LineRow(props: {
           })}
         </p>
       ) : null}
+      {[props.vsText, props.monthText, props.where].some(Boolean) ? (
+        <p className="mt-1 text-[12px] text-[#6b7385]">
+          {[props.vsText, props.monthText, props.where]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      ) : null}
       {props.error ? (
         <p role="alert" className="mt-1 text-[12px] text-[#0F172A]">
           <span aria-hidden="true">⚑</span> {props.error}
         </p>
       ) : null}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {status.kind === "ready" ? (
-          <button
-            type="button"
-            onClick={() => props.onApprove("auto")}
-            aria-label={t.approveLine}
-            className={BTN}
-          >
-            {t.approveBtn}
-          </button>
-        ) : null}
-        {status.kind === "diff" ? (
-          <>
-            <button
-              type="button"
-              onClick={() => props.onApprove("replace")}
-              className={BTN}
-            >
-              {t.replaceBtn}
-            </button>
-            {status.sum !== null ? (
-              <button
-                type="button"
-                onClick={() => props.onApprove("add")}
-                className={BTN_LIGHT}
-              >
-                {fmt(t.addBtn, {
-                  sum: cat ? props.money(cat, status.sum) : "",
-                })}
-              </button>
-            ) : null}
-          </>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => setEditing((e) => !e)}
-          className={LINK}
-        >
-          {editing && line.amount !== null ? t.doneEditing : t.editBtn}
-        </button>
-        <button type="button" onClick={props.onSkip} className={LINK}>
-          {t.skipBtn}
-        </button>
-      </div>
     </li>
   );
 }

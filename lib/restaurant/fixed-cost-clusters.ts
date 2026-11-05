@@ -37,22 +37,30 @@ export interface Confirmed {
   /** 'upload' | 'manual' | 'repeat' | 'estimate' | null */
   source: string | null;
   label: string | null;
+  /** «Se repite cada mes» for this cluster. */
+  repeats?: boolean;
 }
 
 export type ClusterMap = Partial<Record<FixedCostCategory, Confirmed>>;
 
 /** The saved lines of the screen's month and scope → confirmed clusters. */
 export function clustersFromLines(
-  lines: readonly Pick<
+  lines: readonly (Pick<
     FixedCostLine,
     "category" | "amount" | "pct_of_sales" | "source" | "label"
-  >[]
+  > &
+    Partial<Pick<FixedCostLine, "repeats">>)[]
 ): ClusterMap {
   const out: ClusterMap = {};
   for (const l of lines) {
     const value = l.category === "impuestos" ? l.pct_of_sales : l.amount;
     if (value === null || value === undefined) continue;
-    out[l.category] = { value, source: l.source ?? null, label: l.label };
+    out[l.category] = {
+      value,
+      source: l.source ?? null,
+      label: l.label,
+      repeats: l.repeats === true,
+    };
   }
   return out;
 }
@@ -315,3 +323,60 @@ export function vsLastMonth(
 }
 
 export type { DraftScope };
+
+// ---------------------------------------------------------------------------
+// What a cluster card says about where its amount came from
+// ---------------------------------------------------------------------------
+
+const LABEL_MAX = 120;
+
+/** «Agua + Seguro»: the concepts behind a cluster amount, as the server saves them. */
+export function conceptLabel(lines: readonly DraftLine[]): string | null {
+  const parts = lines.map((l) => l.raw).filter(Boolean);
+  return parts.length ? parts.join(" + ").slice(0, LABEL_MAX) : null;
+}
+
+export interface ClusterItem {
+  id: string;
+  raw: string;
+  amount: number;
+}
+
+/** The lines this upload approved into each amount cluster of the screen. */
+export function approvedItems(
+  lines: readonly DraftLine[],
+  screen: ScreenScope
+): Partial<Record<FixedCostCategory, ClusterItem[]>> {
+  const out: Partial<Record<FixedCostCategory, ClusterItem[]>> = {};
+  for (const l of lines) {
+    if (
+      l.status !== "approved" ||
+      !l.category ||
+      l.category === "impuestos" ||
+      l.amount === null ||
+      !isHere(l, screen)
+    )
+      continue;
+    (out[l.category] ??= []).push({ id: l.id, raw: l.raw, amount: l.amount });
+  }
+  return out;
+}
+
+/**
+ * The lines listed under a card: only when several lines make up the amount and
+ * they add up to it exactly (a hand edit since makes the list stale: hidden).
+ */
+export function itemsToShow(
+  items: readonly ClusterItem[] | undefined,
+  cluster: Confirmed | undefined
+): ClusterItem[] {
+  if (!items || items.length < 2 || !cluster || cluster.source !== "upload")
+    return [];
+  const sum = round2(items.reduce((n, i) => n + i.amount, 0));
+  return sum === round2(cluster.value) ? [...items] : [];
+}
+
+/** How many of the five clusters have a confirmed amount. */
+export function confirmedCount(clusters: ClusterMap): number {
+  return Object.keys(clusters).length;
+}

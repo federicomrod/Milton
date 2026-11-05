@@ -142,6 +142,8 @@ export interface SaveEntry {
   label?: string | null;
   repeats?: boolean;
   split_rule?: SplitRule | null;
+  /** Keep the saved row's source («desde factura») when only a flag changed. */
+  keepSource?: boolean;
 }
 
 /** A failed write: a role the database refuses is a 403 with the usual message, never raw text. */
@@ -249,7 +251,10 @@ export async function saveFixedCosts(
       amount: v.amount,
       pct_of_sales: v.pct_of_sales,
       currency,
-      source: "manual" as const,
+      source:
+        entry.keepSource && prev?.source
+          ? prev.source
+          : ("manual" as FixedCostSource),
       status: "confirmed" as const,
       repeats: v.repeats,
       split_rule: v.split_rule,

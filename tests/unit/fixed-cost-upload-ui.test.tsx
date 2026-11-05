@@ -90,10 +90,11 @@ const mk = (
 const withLines = (lines: unknown[]) => ({ ...draft, lines });
 
 describe("FixedCostUpload", () => {
-  it("shows the button right away, no tab or menu", () => {
+  it("shows the drop zone and its button right away, no tab or menu", () => {
     show(async () => ok({ draft: null }));
+    expect(screen.getByText("Suelta una factura o PDF")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "⇪ Subir archivo" })
+      screen.getByRole("button", { name: "⇪ Subir factura" })
     ).toBeTruthy();
   });
 
@@ -103,11 +104,17 @@ describe("FixedCostUpload", () => {
     expect(lines).toHaveLength(2);
     expect(lines[0].getAttribute("data-status")).toBe("falta");
     expect(within(lines[0]).getByTestId("falta-tag").textContent).toContain(
-      "Falta · ¿A qué grupo de costos?"
+      "Falta · ¿A qué grupo?"
     );
     expect(within(lines[0]).queryByRole("button", { name: "Aprobar" })).toBe(
       null
     );
+    expect(
+      within(lines[0]).getByRole("button", { name: "Asignar" })
+    ).toBeTruthy();
+    expect(
+      within(lines[0]).getByRole("button", { name: "Omitir" })
+    ).toBeTruthy();
     expect(within(lines[1]).getByText("Leído por Milton").className).toContain(
       "#DDD6FE"
     );
@@ -132,6 +139,7 @@ describe("FixedCostUpload", () => {
     const row = await screen.findByTestId("upload-line");
     expect(row.textContent).toContain("Falta · ¿A qué restaurante?");
     expect(within(row).queryByRole("button", { name: "Aprobar" })).toBe(null);
+    fireEvent.click(within(row).getByRole("button", { name: "Asignar" }));
     fireEvent.change(within(row).getByLabelText("¿A qué restaurante?"), {
       target: { value: LOC },
     });

@@ -79,56 +79,57 @@ function show(v: FixedCostsView, name: string | null = null) {
   );
 }
 
-const uploadButton = () =>
+const dropButton = () =>
+  screen.getByRole("button", { name: "⇪ Subir factura" });
+const headerButton = () =>
   screen.getByRole("button", { name: "⇪ Subir archivo" });
 
-describe("«Sube tus costos fijos» in Costos fijos", () => {
-  it("opens the same file picker as «⇪ Subir archivo»", () => {
+describe("opening the file picker in Costos fijos", () => {
+  it("the empty page's «⇪ Subir factura» and every card's «Subir» open the same picker", () => {
     show(view());
-    const cta = screen.getByTestId("falta-cta");
-    fireEvent.click(cta.querySelector("button")!);
+    fireEvent.click(dropButton());
     expect(clicked).toHaveBeenCalledTimes(1);
     expect(clicked).toHaveBeenCalledWith("file");
-    // it is the picker's own input, the one the upload button opens
-    fireEvent.click(uploadButton());
+    fireEvent.click(screen.getAllByRole("button", { name: "Subir" })[0]);
     expect(clicked).toHaveBeenCalledTimes(2);
   });
 
   it.each([
-    ["group view (empty month)", view(), null],
+    ["group view (empty month)", view(), null, "drop"],
     [
       "group view (some categories)",
       view({ lines: [line("alquiler", 5000)] as never }),
       null,
+      "header",
     ],
     [
       "restaurant view (empty month)",
       view({ locationId: LOC }),
       "Sucursal Demo Norte",
+      "drop",
     ],
     [
       "restaurant view (some categories)",
       view({ locationId: LOC, lines: [line("alquiler", 5000)] as never }),
       "Sucursal Demo Norte",
+      "header",
     ],
-  ])("«⇪ Subir archivo» is above the categories: %s", (_n, v, name) => {
+  ])("the upload button is above the categories: %s", (_n, v, name, kind) => {
     show(v, name);
-    const button = uploadButton();
+    const button = kind === "drop" ? dropButton() : headerButton();
     const firstRow = screen.getByTestId("fixed-row-planilla");
     expect(
       button.compareDocumentPosition(firstRow) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
-    // an empty cluster always offers the same picker right on its card
-    const link = screen.getAllByRole("button", { name: "subir factura" })[0];
-    fireEvent.click(link);
+    fireEvent.click(button);
     expect(clicked).toHaveBeenCalledWith("file");
   });
 
   it("the group view still says it is the group's shared costs", () => {
     show(view());
     expect(screen.getByText("Costos compartidos del grupo")).toBeTruthy();
-    expect(uploadButton()).toBeTruthy();
+    expect(dropButton()).toBeTruthy();
   });
 
   it("?subir=1 opens the picker once and leaves the other params", () => {

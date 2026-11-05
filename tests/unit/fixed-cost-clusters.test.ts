@@ -124,7 +124,11 @@ describe("figuresOf: everything derives from the confirmed clusters", () => {
       },
     ]);
     expect(m.planilla?.value).toBe(100);
-    expect(m.impuestos).toEqual({ value: 13, source: "upload", label: "IVA" });
+    expect(m.impuestos).toMatchObject({
+      value: 13,
+      source: "upload",
+      label: "IVA",
+    });
   });
 });
 

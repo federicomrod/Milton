@@ -1,18 +1,25 @@
 // components/restaurant/costs/FixedCostsTab.tsx
 //
-// Costos › Costos fijos. One simple page: each cluster (Planilla, Alquiler,
-// Servicios, Otros and Impuestos as a tax rate) is a card that shows either its
-// confirmed amount for the month («Planilla $21,400 · desde factura · Editar»)
-// or ONE field with «Sin dato · subir factura o escribir». Never both. The
-// «Costos fijos» total and the break-even are derived from the confirmed
-// amounts only (lib/restaurant/fixed-cost-clusters.ts), so approving an
-// uploaded line, typing an amount or editing a card all move the same numbers.
-// With nothing confirmed there is no break-even, only «Añade costos fijos…».
+// Costos › Costos fijos (Sofia's mocks, v3). One card with the five clusters
+// (Planilla, Alquiler, Servicios, Otros and Impuestos as a tax rate): each is
+// either its confirmed amount («Planilla $21,400 · Nómina · desde factura ·
+// Editar») or «Sin dato · subir factura o escribir» with Subir / Escribir. The
+// side card shows the break-even and «Total costos fijos». Everything on screen
+// derives from the confirmed amounts (lib/restaurant/fixed-cost-clusters.ts):
+// with nothing confirmed there is no break-even, only «Añade costos fijos…».
+// Moving between months swaps the content in place (skeleton while it loads).
 
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   AMOUNT_CATEGORIES,
@@ -26,8 +33,12 @@ import {
 } from "@/lib/restaurant/fixed-costs";
 import {
   clustersFromLines,
+  confirmedCount,
   figuresOf,
+  itemsToShow,
+  type ClusterItem,
   type ClusterMap,
+  type Confirmed,
 } from "@/lib/restaurant/fixed-cost-clusters";
 import type {
   FixedCostHistoryItem,
@@ -35,6 +46,7 @@ import type {
 } from "@/lib/restaurant/fixed-costs-server";
 import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
+import { RENTABILIDAD_HREF } from "@/lib/restaurant/navigation";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
@@ -65,6 +77,14 @@ export function parseTyped(
 }
 
 const FLAG = "⚑";
+const TOTAL_CLUSTERS = FIXED_COST_CATEGORIES.length;
+
+const BTN =
+  "inline-flex h-11 items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const BTN_LIGHT =
+  "inline-flex h-11 items-center justify-center rounded-lg border border-[#c9cfdb] bg-white px-4 text-sm font-semibold text-[#151c2c] hover:bg-[#F1F3F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:opacity-50";
+const TEXT_BTN =
+  "inline-flex min-h-[44px] items-center px-1 text-sm font-semibold text-[#1B40C8] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
 
 function describeValue(
   v: { amount: number | null; pct_of_sales: number | null } | null,
@@ -107,12 +127,9 @@ export function FixedCostsTab({
   const uploadInput = useRef<HTMLInputElement>(null);
   const { d, lang, locale, fmt } = useT();
   const f = d.costs.fixed;
-  // Spanish and English write a category inside a sentence in lower case;
-  // German nouns keep their capital.
-  const inText = (c: FixedCostCategory) =>
-    lang === "de"
-      ? categoryLabel(c, lang)
-      : categoryLabel(c, lang).toLowerCase();
+  // Spanish and English write a month inside a sentence in lower case; German
+  // nouns keep their capital.
+  const lower = (s: string) => (lang === "de" ? s : s.toLowerCase());
   const actionText: Record<string, string> = {
     create: f.historyCreate,
     update: f.historyUpdate,
@@ -120,16 +137,30 @@ export function FixedCostsTab({
     repeat: f.historyRepeat,
   };
   const sourceText: Record<string, string> = {
-    manual: f.sourceManual,
+    manual: f.byHand,
     repeat: f.sourceRepeat,
     estimate: f.sourceEstimate,
-    upload: f.sourceUpload,
+    upload: f.fromInvoice,
   };
   const isGroup = view.locationId === null;
 
   // The ONE source of truth on screen: what is confirmed for the month.
   const [clusters, setClusters] = useState<ClusterMap>(() =>
     clustersFromLines(view.lines)
+  );
+  const [items, setItems] = useState<
+    Partial<Record<FixedCostCategory, ClusterItem[]>>
+  >({});
+  const [falta, setFalta] = useState<string[]>([]);
+  const onReview = useCallback(
+    (info: {
+      items: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+      falta: string[];
+    }) => {
+      setItems(info.items);
+      setFalta(info.falta);
+    },
+    []
   );
   const [flash, setFlash] = useState<FixedCostCategory[] | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -140,9 +171,6 @@ export function FixedCostsTab({
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
     },
     []
-  );
-  const [repeats, setRepeats] = useState(
-    view.lines.length > 0 && view.lines.every((l) => l.repeats)
   );
   const [splitRule, setSplitRule] = useState<SplitRule>(
     view.lines.find((l) => l.split_rule)?.split_rule ?? "sales"
@@ -155,23 +183,18 @@ export function FixedCostsTab({
     null
   );
 
-  // Live: pure and cheap, derived from the confirmed amounts only.
+  // Live: pure and cheap, derived from the confirmed amounts ONLY. The total on
+  // screen is exactly the sum of the cluster amounts shown, nothing hidden.
   const live = useMemo(
     () =>
       figuresOf({
         clusters,
-        groupShares: view.groupShares,
-        groupImpuestosPct: view.groupImpuestosPct,
+        groupShares: {},
+        groupImpuestosPct: null,
         margin: view.margin,
         openDays: view.openDays,
       }),
-    [
-      clusters,
-      view.groupShares,
-      view.groupImpuestosPct,
-      view.margin,
-      view.openDays,
-    ]
+    [clusters, view.margin, view.openDays]
   );
   const splitPreview = useMemo(
     () =>
@@ -209,6 +232,7 @@ export function FixedCostsTab({
             value: c.total,
             source: c.source,
             label: c.label,
+            repeats: false,
           };
       }
       return next;
@@ -221,15 +245,21 @@ export function FixedCostsTab({
     refreshTimer.current = setTimeout(() => router.refresh(), 2500);
   }
 
-  /** Saves ONE cluster (typed on a card). Others are left exactly as they are. */
+  /** Saves ONE cluster (typed on a card, or its repeat switch). Others are left as they are. */
   async function saveCluster(
     category: FixedCostCategory,
-    value: number
+    next: { value: number; repeats: boolean; keepSource?: boolean }
   ): Promise<string | null> {
     const before = clusters;
+    const prev = clusters[category];
     setClusters((cur) => ({
       ...cur,
-      [category]: { value, source: "manual", label: null },
+      [category]: {
+        value: next.value,
+        source: next.keepSource ? (prev?.source ?? "manual") : "manual",
+        label: next.keepSource ? (prev?.label ?? null) : null,
+        repeats: next.repeats,
+      },
     }));
     highlight([category]);
     try {
@@ -242,8 +272,10 @@ export function FixedCostsTab({
           entries: [
             {
               category,
-              value,
-              repeats,
+              value: next.value,
+              label: next.keepSource ? (prev?.label ?? null) : null,
+              repeats: next.repeats,
+              keepSource: next.keepSource === true,
               split_rule: isGroup ? splitRule : null,
             },
           ],
@@ -262,8 +294,8 @@ export function FixedCostsTab({
     }
   }
 
-  /** «Repetir cada mes» / «Repartir»: applied to what is already confirmed. */
-  async function saveOptions(next: { repeats: boolean; split: SplitRule }) {
+  /** «Repartir» (group view): applied to what is already confirmed. */
+  async function saveSplit(next: SplitRule) {
     const cats = FIXED_COST_CATEGORIES.filter((c) => clusters[c]);
     if (cats.length === 0) return;
     setMessage(null);
@@ -276,10 +308,11 @@ export function FixedCostsTab({
           location_id: view.locationId,
           entries: cats.map((category) => ({
             category,
-            value: (clusters[category] as { value: number }).value,
+            value: (clusters[category] as Confirmed).value,
             label: clusters[category]?.label ?? null,
-            repeats: next.repeats,
-            split_rule: isGroup ? next.split : null,
+            repeats: clusters[category]?.repeats === true,
+            keepSource: true,
+            split_rule: next,
           })),
         }),
       });
@@ -291,376 +324,509 @@ export function FixedCostsTab({
     }
   }
 
-  function goMonth(month: string) {
-    const params: Record<string, string | string[] | undefined> = {
-      ...shellParams,
-      month: month.slice(0, 7),
-    };
-    router.push(costsTabHref("costos-fijos", params));
+  const prevMonth = previousMonthStart(view.month);
+  const nextMonth = nextMonthStart(view.month);
+  const prevName = lower(
+    getDictionary(lang).rentabilidad.months[Number(prevMonth.split("-")[1]) - 1]
+  );
+  const [copying, setCopying] = useState(false);
+  /** «Copiar octubre»: brings last month's «se repite» costs in (idempotent). */
+  async function copyPrevious() {
+    setCopying(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/restaurant/fixed-costs/repeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: view.month }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        created?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        setMessage({ ok: false, text: body.error ?? f.saveFailed });
+      } else {
+        const n = body.created ?? 0;
+        setMessage({
+          ok: true,
+          text: n
+            ? fmt(f.copied, { n, month: prevName })
+            : fmt(f.copyNone, { month: prevName }),
+        });
+        if (n) router.refresh();
+      }
+    } catch {
+      setMessage({ ok: false, text: f.saveFailed });
+    } finally {
+      setCopying(false);
+    }
   }
 
+  // ---- month switcher: instant press feedback, skeleton while it loads -------
+  const [navigating, startNav] = useTransition();
+  const [pendingMonth, setPendingMonth] = useState<string | null>(null);
+  const shownMonth = navigating && pendingMonth ? pendingMonth : view.month;
+  const monthHref = (month: string) =>
+    costsTabHref("costos-fijos", { ...shellParams, month: month.slice(0, 7) });
+  useEffect(() => {
+    // The neighbours are fetched ahead so a click feels instant.
+    const r = router as { prefetch?: (href: string) => void };
+    r.prefetch?.(monthHref(prevMonth));
+    if (nextMonth <= currentMonth) r.prefetch?.(monthHref(nextMonth));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.month]);
+  function goMonth(month: string) {
+    if (month > currentMonth) return;
+    setPendingMonth(month);
+    startNav(() => router.push(monthHref(month)));
+  }
+
+  const shownText = monthLabelEs(shownMonth, lang);
+  const confirmed = confirmedCount(clusters);
   const breakEvenText =
     live.breakEven !== null
       ? formatMoney(live.breakEven, view.currency, lang)
       : null;
-  const partialNote =
-    live.partial && live.missingAmounts.length > 0
-      ? fmt(f.partialBreakEven, {
-          list: live.missingAmounts.map(inText).join(", "),
-        })
-      : null;
-  const flagReason = live.empty
+  // Nothing confirmed is «—», never $0.
+  const totalText =
+    live.fixed.total === null
+      ? "—"
+      : formatMoney(live.fixed.total, view.currency, lang);
+  const rentabilidadHref = (() => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(shellParams)) {
+      if (k === "tab" || k === "month" || v === undefined) continue;
+      for (const x of Array.isArray(v) ? v : [v]) q.append(k, x);
+    }
+    q.set("month", view.month.slice(0, 7));
+    return `${RENTABILIDAD_HREF}?${q.toString()}`;
+  })();
+  const detailText = live.empty
     ? f.addCostsFirst
-    : view.marginReason
-      ? view.marginReason
-      : live.missingAmounts.length > 0
-        ? fmt(f.reasonMissing, {
-            list: live.missingAmounts.map(inText).join(", "),
-          })
-        : f.reasonNoMargin;
+    : breakEvenText
+      ? fmt(f.beDetail, { total: totalText, days: view.openDays })
+      : (view.marginReason ?? f.reasonNoMargin);
 
-  const breakEvenBlock = (compact: boolean) => (
+  const chevron =
+    "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#dfe3ea] bg-white text-lg text-[#6b7385] transition-[background-color,color,transform] duration-100 hover:bg-[#F1F3F7] hover:text-[#151c2c] active:scale-95 active:bg-[#E3E7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
+  const futureBlocked = nextMonth > currentMonth;
+
+  const breakEvenCard = (
     <div
       data-testid="break-even"
       className={
-        "rounded-lg transition-colors duration-300 " +
-        (flash ? "bg-[#E7EDFD] ring-2 ring-[#1B40C8]" : "")
+        "rounded-2xl border bg-white p-5 transition-colors duration-300 " +
+        (flash ? "border-[#1B40C8] bg-[#E7EDFD]" : "border-[#dfe3ea]")
       }
     >
-      <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
-      {breakEvenText ? (
-        <>
-          <p className="text-base font-semibold text-[#151c2c]">
-            {f.needSellBefore}{" "}
-            <span className="text-[#1B40C8]" data-testid="break-even-value">
-              {breakEvenText}
-            </span>{" "}
-            {f.needSellAfter}
-          </p>
-          {partialNote && !compact ? (
-            <p className="mt-1 text-sm text-[#6b7385]">
-              <span aria-hidden="true">{FLAG}</span> {partialNote}
-            </p>
-          ) : null}
-        </>
-      ) : live.empty ? (
-        <p
-          data-testid="break-even-empty"
-          className="text-base font-semibold text-[#151c2c]"
+      <p className="text-sm text-[#6b7385]">
+        {live.empty ? f.beIntroEmpty : f.beSell}
+      </p>
+      <p className="mt-1 flex items-baseline gap-2">
+        <span
+          data-testid={breakEvenText ? "break-even-value" : undefined}
+          className={
+            "text-3xl font-bold " +
+            (breakEvenText ? "text-[#151c2c]" : "text-[#9aa3b5]")
+          }
         >
-          {f.addCostsFirst}
-        </p>
-      ) : (
-        <>
-          <p className="text-base font-semibold text-[#151c2c]">
-            <span aria-hidden="true">{FLAG}</span> {f.missing}
-            <span className="sr-only">{f.missingDataSr}</span>
-          </p>
-          {!compact ? (
-            <p className="mt-1 text-sm text-[#6b7385]">{flagReason}</p>
-          ) : null}
-        </>
-      )}
+          {breakEvenText ?? "—"}
+        </span>
+        <span className="text-base font-semibold text-[#6b7385]">
+          {f.perDay}
+        </span>
+      </p>
+      <p
+        data-testid={live.empty ? "break-even-empty" : "break-even-detail"}
+        className="mt-1 text-sm text-[#6b7385]"
+      >
+        {detailText}
+      </p>
+      <dl className="mt-4 space-y-1 border-t border-[#eef0f4] pt-3 text-sm text-[#151c2c]">
+        <div
+          data-testid="fixed-total"
+          className="flex items-baseline justify-between gap-3"
+        >
+          <dt className="text-[#6b7385]">{f.totalLabel}</dt>
+          <dd className="font-bold">{totalText}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-[#6b7385]">{f.confirmedLabel}</dt>
+          <dd data-testid="confirmed-count" className="font-bold">
+            {fmt(f.confirmedOf, { n: confirmed, total: TOTAL_CLUSTERS })}
+          </dd>
+        </div>
+      </dl>
+      <a
+        href={rentabilidadHref}
+        className="mt-4 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#1B40C8] hover:underline"
+      >
+        {f.seeRentabilidad}
+      </a>
     </div>
   );
 
-  const prevMonth = previousMonthStart(view.month);
-  const nextMonth = nextMonthStart(view.month);
+  const skeleton = (
+    <div
+      data-testid="fixed-skeleton"
+      role="status"
+      aria-label={fmt(f.loadingMonth, { month: shownText })}
+      className="animate-pulse space-y-4"
+    >
+      {FIXED_COST_CATEGORIES.map((c) => (
+        <div key={c} className="flex items-center justify-between gap-4 py-2">
+          <div className="space-y-2">
+            <div className="h-4 w-24 rounded bg-[#E7EAF0]" />
+            <div className="h-3 w-48 rounded bg-[#EEF0F4]" />
+          </div>
+          <div className="h-8 w-28 rounded bg-[#E7EAF0]" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <section
-      className="space-y-4 pb-28 lg:pb-0"
+      className="space-y-4 pb-24 lg:pb-0"
       aria-label={f.sectionAria}
       data-testid="fixed-costs-tab"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[#151c2c]">
-            {isGroup ? f.groupTitle : (locationName ?? f.restaurant)}
-          </h2>
-          <p className="text-sm text-[#6b7385]">
-            {isGroup ? f.groupHint : f.locationHint}
-          </p>
-        </div>
-        <div
-          className="flex items-center gap-2"
-          role="group"
-          aria-label={f.monthGroup}
+      <div
+        className="flex items-center gap-2"
+        role="group"
+        aria-label={f.monthGroup}
+      >
+        <button
+          type="button"
+          onClick={() => goMonth(prevMonth)}
+          aria-label={f.prevMonth}
+          aria-busy={navigating || undefined}
+          className={chevron}
+        >
+          ‹
+        </button>
+        <span
+          className="min-w-[10rem] text-center text-base font-semibold text-[#151c2c]"
+          data-testid="fixed-costs-month"
+        >
+          {shownText.charAt(0).toUpperCase() + shownText.slice(1)}
+        </span>
+        <span
+          title={futureBlocked ? f.futureMonth : undefined}
+          className="inline-flex"
         >
           <button
             type="button"
-            onClick={() => goMonth(prevMonth)}
-            aria-label={f.prevMonth}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-          >
-            ‹
-          </button>
-          <span
-            className="min-w-[8.5rem] text-center text-sm font-semibold capitalize text-[#151c2c]"
-            data-testid="fixed-costs-month"
-          >
-            {monthLabelEs(view.month, lang)}
-          </span>
-          <button
-            type="button"
             onClick={() => goMonth(nextMonth)}
-            disabled={view.month >= currentMonth}
             aria-label={f.nextMonth}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-disabled={futureBlocked || undefined}
+            aria-busy={navigating || undefined}
+            className={
+              chevron +
+              (futureBlocked
+                ? " cursor-not-allowed opacity-40 hover:bg-white hover:text-[#6b7385] active:scale-100 active:bg-white"
+                : "")
+            }
           >
             ›
           </button>
-        </div>
+        </span>
       </div>
 
       <div className="lg:flex lg:items-start lg:gap-6">
-        <div className="min-w-0 space-y-4 lg:flex-1">
-          <FixedCostUpload
-            inputRef={uploadInput}
-            lastMonth={view.lastMonth ?? {}}
-            clusters={clusters}
-            onConfirm={applyChanges}
-            onSettled={settle}
-            month={view.month}
-            locationId={view.locationId}
-            currency={view.currency}
-            restaurants={restaurants}
-          />
-
-          {live.empty ? (
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#1B40C8] bg-[#E7EDFD] p-4"
-              data-testid="falta-cta"
-            >
-              <p className="text-sm font-medium text-[#151c2c]">
-                <span aria-hidden="true">{FLAG}</span> {f.missingCta}
+        <div className="min-w-0 lg:flex-1">
+          <div className="space-y-4 rounded-2xl border border-[#dfe3ea] bg-white p-4 sm:p-5">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-[#6b7385]">
+                {isGroup ? f.groupTitle : (locationName ?? f.restaurant)}
               </p>
-              <button
-                type="button"
-                onClick={() => uploadInput.current?.click()}
-                className="inline-flex h-11 items-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
-              >
-                {f.uploadFixed}
-              </button>
-            </div>
-          ) : null}
-
-          <p
-            data-testid="fixed-total"
-            className={
-              "flex flex-wrap items-baseline justify-between gap-2 rounded-xl border px-4 py-3 text-sm font-semibold text-[#151c2c] transition-colors duration-300 " +
-              (flash
-                ? "border-[#1B40C8] bg-[#E7EDFD]"
-                : "border-[#dfe3ea] bg-white")
-            }
-          >
-            <span>{f.totalFixed}</span>
-            <span>
-              {live.fixed.total !== null
-                ? formatMoney(live.fixed.total, view.currency, lang)
-                : "—"}
-              {live.fixed.missingCount > 0 ? (
-                <span className="ml-2 rounded-full bg-[#FDE68A] px-2 py-0.5 text-xs font-semibold">
-                  <span aria-hidden="true">{FLAG}</span>{" "}
-                  {fmt(f.totalMissing, { n: live.fixed.missingCount })}
-                </span>
-              ) : null}
-            </span>
-          </p>
-
-          <div className="divide-y divide-[#dfe3ea] rounded-xl border border-[#dfe3ea] bg-white">
-            {FIXED_COST_CATEGORIES.map((category) => (
-              <ClusterCard
-                key={category}
-                category={category}
-                confirmed={clusters[category] ?? null}
-                share={
-                  category === "impuestos"
-                    ? null
-                    : (view.groupShares[
-                        category as (typeof AMOUNT_CATEGORIES)[number]
-                      ] ?? null)
-                }
-                currency={view.currency}
-                flashing={flash?.includes(category) ?? false}
-                onUpload={() => uploadInput.current?.click()}
-                onSave={(value) => saveCluster(category, value)}
-              />
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-[#dfe3ea] bg-white p-4">
-            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-medium text-[#151c2c]">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={repeats}
-                onChange={(e) => {
-                  setRepeats(e.target.checked);
-                  void saveOptions({
-                    repeats: e.target.checked,
-                    split: splitRule,
-                  });
-                }}
-                className="h-5 w-5 accent-[#1B40C8]"
-              />
-              {f.repeatMonthly}
-            </label>
-            {isGroup ? (
-              <label className="flex items-center gap-2 text-sm font-medium text-[#151c2c]">
-                {f.split}
-                <select
-                  value={splitRule}
-                  onChange={(e) => {
-                    setSplitRule(e.target.value as SplitRule);
-                    void saveOptions({
-                      repeats,
-                      split: e.target.value as SplitRule,
-                    });
-                  }}
-                  className="h-11 rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm"
-                >
-                  <option value="sales">{f.splitSales}</option>
-                  <option value="equal">{f.splitEqual}</option>
-                </select>
-              </label>
-            ) : null}
-            {isGroup && splitPreview.kind !== "single" ? (
-              <div className="basis-full text-xs text-[#6b7385]">
-                {splitPreview.kind === "empty" ? (
-                  <p data-testid="split-preview">{f.splitEmpty}</p>
-                ) : (
-                  <>
-                    <p
-                      data-testid="split-preview"
-                      className="font-medium text-[#151c2c]"
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <h2 className="text-lg font-bold text-[#151c2c]">
+                  {fmt(f.cardTitle, { month: lower(shownText) })}
+                </h2>
+                {!navigating && confirmed > 0 ? (
+                  <span
+                    data-testid="confirmed-pill"
+                    className="rounded-full bg-[#E7EDFD] px-2.5 py-0.5 text-xs font-semibold text-[#1B40C8]"
+                  >
+                    {fmt(f.confirmedPill, {
+                      n: confirmed,
+                      total: TOTAL_CLUSTERS,
+                    })}
+                  </span>
+                ) : null}
+                {!navigating && falta.length > 0 ? (
+                  <span
+                    data-testid="falta-pill"
+                    className="rounded-full bg-[#FDE68A] px-2.5 py-0.5 text-xs font-semibold text-[#0F172A]"
+                  >
+                    <span aria-hidden="true">{FLAG}</span>{" "}
+                    {fmt(f.faltaPill, { names: falta.join(", ") })}
+                  </span>
+                ) : null}
+                {!navigating && !live.empty ? (
+                  <span className="ml-auto flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => uploadInput.current?.click()}
+                      className={BTN_LIGHT}
                     >
-                      {splitPreview.shares
-                        .map(
-                          (sh) =>
-                            `${nameOf.get(sh.location_id) ?? f.restaurant} ${formatMoney(sh.amount, view.currency, lang)}`
-                        )
-                        .join(" · ")}
-                    </p>
-                    {splitPreview.fellBackToEqual ? (
-                      <p>{f.splitNoSales}</p>
-                    ) : null}
-                  </>
-                )}
+                      {d.costs.fixedUpload.button}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={copying}
+                      onClick={() => void copyPrevious()}
+                      className={BTN_LIGHT}
+                    >
+                      {fmt(f.copyMonth, { month: prevName })}
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-sm text-[#6b7385]">
+                {live.empty ? f.cardSubEmpty : f.cardSubFilled}
+              </p>
+              {isGroup ? (
+                <p className="text-sm text-[#6b7385]">{f.groupHint}</p>
+              ) : null}
+            </div>
+
+            <FixedCostUpload
+              inputRef={uploadInput}
+              lastMonth={view.lastMonth ?? {}}
+              clusters={clusters}
+              showDrop={!navigating && live.empty}
+              onReview={onReview}
+              onConfirm={applyChanges}
+              onSettled={settle}
+              month={view.month}
+              locationId={view.locationId}
+              currency={view.currency}
+              restaurants={restaurants}
+            />
+
+            {message ? (
+              <p
+                role="status"
+                className="inline-block rounded-lg border border-[#1B40C8] bg-[#E7EDFD] px-2.5 py-1 text-sm font-medium text-[#0F172A]"
+              >
+                {message.text}
+              </p>
+            ) : null}
+
+            {navigating ? (
+              skeleton
+            ) : (
+              <div className="divide-y divide-[#eef0f4]">
+                {FIXED_COST_CATEGORIES.map((category) => (
+                  <ClusterRow
+                    key={category}
+                    category={category}
+                    confirmed={clusters[category] ?? null}
+                    items={itemsToShow(items[category], clusters[category])}
+                    currency={view.currency}
+                    flashing={flash?.includes(category) ?? false}
+                    onUpload={() => uploadInput.current?.click()}
+                    onSave={(value) =>
+                      saveCluster(category, {
+                        value,
+                        repeats: clusters[category]?.repeats === true,
+                      })
+                    }
+                    onRepeat={(repeats) =>
+                      saveCluster(category, {
+                        value: (clusters[category] as Confirmed).value,
+                        repeats,
+                        keepSource: true,
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            )}
+
+            {isGroup && !navigating ? (
+              <div className="space-y-2 border-t border-[#eef0f4] pt-3">
+                <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-[#151c2c]">
+                  {f.split}
+                  <select
+                    value={splitRule}
+                    onChange={(e) => {
+                      setSplitRule(e.target.value as SplitRule);
+                      void saveSplit(e.target.value as SplitRule);
+                    }}
+                    className="h-11 rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm"
+                  >
+                    <option value="sales">{f.splitSales}</option>
+                    <option value="equal">{f.splitEqual}</option>
+                  </select>
+                </label>
+                {splitPreview.kind !== "single" ? (
+                  <div className="text-xs text-[#6b7385]">
+                    {splitPreview.kind === "empty" ? (
+                      <p data-testid="split-preview">{f.splitEmpty}</p>
+                    ) : (
+                      <>
+                        <p
+                          data-testid="split-preview"
+                          className="font-medium text-[#151c2c]"
+                        >
+                          {splitPreview.shares
+                            .map(
+                              (sh) =>
+                                `${nameOf.get(sh.location_id) ?? f.restaurant} ${formatMoney(sh.amount, view.currency, lang)}`
+                            )
+                            .join(" · ")}
+                        </p>
+                        {splitPreview.fellBackToEqual ? (
+                          <p>{f.splitNoSales}</p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
+        </div>
 
-          {message ? (
-            <p
-              role="status"
-              className="inline-block rounded-lg border border-[#1B40C8] bg-[#E7EDFD] px-2.5 py-1 text-sm font-medium text-[#0F172A]"
-            >
-              {message.text}
-            </p>
-          ) : null}
-
-          <div className="rounded-xl border border-[#dfe3ea] bg-white p-4">
-            <h3 className="text-sm font-semibold text-[#151c2c]">
-              {f.history}
-            </h3>
-            {history.length === 0 ? (
+        <aside className="mt-4 hidden space-y-4 lg:mt-0 lg:block lg:w-[330px] lg:shrink-0 lg:sticky lg:top-[80px]">
+          {navigating ? (
+            <div
+              data-testid="fixed-skeleton-aside"
+              className="h-56 animate-pulse rounded-2xl border border-[#dfe3ea] bg-[#F5F6F9]"
+            />
+          ) : (
+            breakEvenCard
+          )}
+          <div className="rounded-2xl border border-[#dfe3ea] bg-white p-5">
+            <h3 className="text-sm font-bold text-[#151c2c]">{f.history}</h3>
+            {navigating ? (
+              <div className="mt-3 h-16 animate-pulse rounded bg-[#F5F6F9]" />
+            ) : history.length === 0 ? (
               <p className="mt-2 text-sm text-[#6b7385]">{f.historyEmpty}</p>
             ) : (
               <ul
-                className="mt-2 divide-y divide-[#dfe3ea]"
+                className="mt-2 divide-y divide-[#eef0f4]"
                 data-testid="history"
               >
                 {history.map((h) => (
                   <li key={h.id} className="py-2 text-sm text-[#151c2c]">
-                    <span className="font-medium">
-                      {actionText[h.action]
+                    <span className="font-semibold">
+                      {h.action === "delete" || h.action === "repeat"
                         ? fmt(actionText[h.action], {
-                            category: inText(h.category),
+                            category: categoryLabel(h.category, lang),
                           })
-                        : h.action}
-                    </span>{" "}
-                    <span className="text-[#6b7385]">
-                      · {monthLabelEs(h.month.slice(0, 10), lang)} ·{" "}
-                      {describeValue(h.old_value, view.currency, lang)} →{" "}
-                      {describeValue(h.new_value, view.currency, lang)} ·{" "}
-                      {sourceText[h.source] ?? h.source} ·{" "}
-                      {new Date(h.created_at).toLocaleDateString(locale)}
+                        : fmt(f.historyLine, {
+                            category: categoryLabel(h.category, lang),
+                            value: describeValue(
+                              h.new_value,
+                              view.currency,
+                              lang
+                            ),
+                            source: sourceText[h.source] ?? h.source,
+                          })}
+                    </span>
+                    <span className="block text-xs text-[#6b7385]">
+                      {new Date(h.created_at).toLocaleString(locale, {
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-        </div>
-
-        {/* Desktop: side panel with the live break-even. */}
-        <aside className="hidden lg:block lg:w-[320px] lg:shrink-0 lg:sticky lg:top-[80px]">
-          <div className="space-y-4 rounded-xl border border-[#dfe3ea] bg-white p-4">
-            {breakEvenBlock(false)}
-            {live.breakEven !== null && view.margin ? (
-              <p className="text-sm text-[#6b7385]">
-                {fmt(
-                  live.costs.impuestosPct === null
-                    ? f.openDaysNoTax
-                    : f.openDays,
-                  { days: view.openDays }
-                )}
-              </p>
-            ) : null}
-          </div>
         </aside>
       </div>
 
-      {/* Phone: fixed bar at the bottom, the break-even always in view. */}
+      {/* Phone: the break-even stays in view at the bottom. */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#dfe3ea] bg-white px-4 py-3 lg:hidden">
-        {breakEvenBlock(true)}
+        {navigating ? (
+          <div className="h-10 animate-pulse rounded bg-[#F5F6F9]" />
+        ) : (
+          <div
+            data-testid="break-even"
+            className={
+              "rounded-lg transition-colors duration-300 " +
+              (flash ? "bg-[#E7EDFD] ring-2 ring-[#1B40C8]" : "")
+            }
+          >
+            <p className="flex items-baseline gap-2">
+              <span className="text-sm text-[#6b7385]">
+                {live.empty ? f.beIntroEmpty : f.beSell}
+              </span>
+              <span
+                data-testid={breakEvenText ? "break-even-value" : undefined}
+                className="text-lg font-bold text-[#151c2c]"
+              >
+                {breakEvenText ?? "—"}
+              </span>
+              <span className="text-sm font-semibold text-[#6b7385]">
+                {f.perDay}
+              </span>
+            </p>
+            {live.empty ? (
+              <p className="text-xs text-[#6b7385]">{f.addCostsFirst}</p>
+            ) : null}
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
 /**
- * One cluster. Confirmed → the amount, where it came from and «Editar» (inline).
- * Not confirmed → ONE field: «Sin dato · subir factura o escribir». Never both.
+ * One cluster. Confirmed → title left, amount right, «{concepto} · desde
+ * factura» or «escrito a mano», «Editar» and «Se repite cada mes». Several lines
+ * (Servicios) are listed under it. Not confirmed → «Sin dato · subir factura o
+ * escribir» with Subir / Escribir, no amount, no second field.
  */
-function ClusterCard({
+function ClusterRow({
   category,
   confirmed,
-  share,
+  items,
   currency,
   flashing,
   onUpload,
   onSave,
+  onRepeat,
 }: {
   category: FixedCostCategory;
-  confirmed: { value: number; source: string | null } | null;
-  share: number | null;
+  confirmed: Confirmed | null;
+  items: ClusterItem[];
   currency: string;
   flashing: boolean;
   onUpload: () => void;
-  /** Resolves to an error message, or null when it saved. */
+  /** Resolve to an error message, or null when it saved. */
   onSave: (value: number) => Promise<string | null>;
+  onRepeat: (repeats: boolean) => Promise<string | null>;
 }) {
   const { d, lang, fmt } = useT();
   const f = d.costs.fixed;
   const isTax = category === "impuestos";
-  const [editing, setEditing] = useState(false);
+  const [writing, setWriting] = useState(false);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const parsed = parseLocaleNumber(text, lang);
   const valid = text.trim() !== "" && parsed.ok && parsed.value !== null;
-  const showField = confirmed === null || editing;
   const id = `fixed-${category}`;
   const label = categoryLabel(category, lang);
-  const from =
+  const subline =
     confirmed?.source === "upload"
-      ? f.fromInvoice
+      ? confirmed.label
+        ? fmt(f.fromConcept, { concept: confirmed.label })
+        : f.fromInvoice
       : confirmed?.source === "repeat"
-        ? f.fromRepeat
+        ? f.sourceRepeat
         : confirmed?.source === "estimate"
-          ? f.fromEstimate
+          ? f.sourceEstimate
           : f.byHand;
 
   async function commit() {
@@ -671,126 +837,173 @@ function ClusterCard({
     setSaving(false);
     if (err) setError(err);
     else {
-      setEditing(false);
+      setWriting(false);
       setText("");
     }
   }
 
+  const field = (
+    <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+      <div className="flex items-center gap-1">
+        {!isTax ? (
+          <span className="text-sm text-[#6b7385]" aria-hidden="true">
+            {currency === "MXN" || currency === "USD" ? "$" : currency}
+          </span>
+        ) : null}
+        <input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          autoFocus
+          value={text}
+          aria-label={fmt(isTax ? f.cardRate : f.cardAmount, {
+            category: label,
+          })}
+          aria-invalid={(text.trim() !== "" && !parsed.ok) || undefined}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void commit();
+            if (e.key === "Escape") setWriting(false);
+          }}
+          placeholder={isTax ? "0" : "0.00"}
+          className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+        />
+        {isTax ? (
+          <span className="text-sm text-[#6b7385]" aria-hidden="true">
+            %
+          </span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        disabled={!valid || saving}
+        aria-label={`${f.cardSave} ${label}`}
+        onClick={() => void commit()}
+        className={BTN}
+      >
+        {saving ? f.saving : f.cardSave}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setWriting(false);
+          setError(null);
+        }}
+        className={TEXT_BTN}
+      >
+        {f.cardCancel}
+      </button>
+    </div>
+  );
+
   return (
     <div
       className={
-        "flex flex-wrap items-center gap-x-4 gap-y-2 p-4 transition-colors duration-300 " +
-        (flashing ? "bg-[#E7EDFD]" : "")
+        "flex flex-wrap items-start gap-x-4 gap-y-2 py-4 transition-colors duration-300 " +
+        (flashing ? "rounded-lg bg-[#E7EDFD]" : "")
       }
       data-testid={`fixed-row-${category}`}
       data-state={confirmed ? "confirmed" : "empty"}
     >
-      <div className="min-w-0 flex-1 basis-32">
-        <label htmlFor={id} className="text-sm font-semibold text-[#151c2c]">
-          {label}
-        </label>
-        {isTax ? (
-          <p className="text-sm text-[#6b7385]">{f.taxHint}</p>
-        ) : share !== null ? (
-          <p className="text-sm text-[#6b7385]">
-            {fmt(f.groupShare, { amount: formatMoney(share, currency, lang) })}
-          </p>
+      <div className="min-w-0 flex-1 basis-40">
+        <p className="text-sm font-semibold text-[#151c2c]">{label}</p>
+        <p className="text-sm text-[#6b7385]">
+          {confirmed ? subline : f.emptyBody}
+        </p>
+        {isTax && confirmed ? (
+          <>
+            <p className="mt-1 text-xs text-[#6b7385]">
+              {fmt(f.taxIncluded, {
+                rate: String(confirmed.value),
+                sum: String(Math.round((100 + confirmed.value) * 100) / 100),
+              })}
+            </p>
+            <p className="text-xs text-[#6b7385]">{f.taxNotFixed}</p>
+          </>
         ) : null}
       </div>
 
-      {confirmed && !editing ? (
-        <div className="text-right" data-testid={`fixed-value-${category}`}>
-          <p id={id} className="text-base font-semibold text-[#151c2c]">
+      {confirmed && !writing ? (
+        <div
+          data-testid={`fixed-value-${category}`}
+          className="flex flex-wrap items-center justify-end gap-x-3"
+        >
+          <p className="text-lg font-bold text-[#151c2c]">
             {isTax
-              ? `${confirmed.value}%`
+              ? `${confirmed.value} %`
               : formatMoney(confirmed.value, currency, lang)}
           </p>
-          <p className="text-xs text-[#6b7385]">
-            {from} ·{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setText(formatTypedNumber(confirmed.value, lang));
-                setEditing(true);
-              }}
-              aria-label={`${f.edit} ${label}`}
-              className="inline-flex min-h-[44px] items-center px-1 font-semibold text-[#1B40C8] underline"
-            >
-              {f.edit}
-            </button>
-          </p>
-        </div>
-      ) : null}
-
-      {showField ? (
-        <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-          {confirmed === null ? (
-            <p className="mr-auto text-sm text-[#6b7385] sm:mr-0">
-              {f.noDataLead}{" "}
-              <button
-                type="button"
-                onClick={onUpload}
-                className="font-semibold text-[#1B40C8] underline"
-              >
-                {f.uploadLink}
-              </button>{" "}
-              {f.orType}
-            </p>
-          ) : null}
-          <div className="flex items-center gap-1">
-            {!isTax ? (
-              <span className="text-sm text-[#6b7385]" aria-hidden="true">
-                {currency === "MXN" || currency === "USD" ? "$" : currency}
-              </span>
-            ) : null}
-            <input
-              id={confirmed === null ? id : `${id}-edit`}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value={text}
-              aria-label={fmt(isTax ? f.cardRate : f.cardAmount, {
-                category: label,
-              })}
-              aria-invalid={(text.trim() !== "" && !parsed.ok) || undefined}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void commit();
-              }}
-              placeholder={isTax ? "0" : "0.00"}
-              className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-            />
-            {isTax ? (
-              <span className="text-sm text-[#6b7385]" aria-hidden="true">
-                %
-              </span>
-            ) : null}
-          </div>
           <button
             type="button"
-            disabled={!valid || saving}
-            aria-label={`${f.cardSave} ${label}`}
-            onClick={() => void commit()}
-            className="inline-flex h-11 items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => {
+              setText(formatTypedNumber(confirmed.value, lang));
+              setWriting(true);
+            }}
+            aria-label={`${f.edit} ${label}`}
+            className={TEXT_BTN}
           >
-            {saving ? f.saving : f.cardSave}
+            {f.edit}
           </button>
-          {editing ? (
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false);
-                setError(null);
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-xs text-[#6b7385]">
+            {f.repeatsRow}
+            <input
+              type="checkbox"
+              role="switch"
+              checked={confirmed.repeats === true}
+              aria-label={`${f.repeatsRow}: ${label}`}
+              onChange={(e) => {
+                void onRepeat(e.target.checked).then((err) =>
+                  err ? setError(err) : null
+                );
               }}
-              className="inline-flex min-h-[44px] items-center text-sm font-semibold text-[#1B40C8] underline"
-            >
-              {f.cardCancel}
-            </button>
-          ) : null}
+              className="h-5 w-9 accent-[#1B40C8]"
+            />
+          </label>
         </div>
       ) : null}
 
-      {text.trim() !== "" && !parsed.ok && showField ? (
+      {!confirmed && !writing ? (
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onUpload} className={TEXT_BTN}>
+            {f.upload}
+          </button>
+          <button
+            type="button"
+            onClick={() => setWriting(true)}
+            aria-label={`${f.write} ${label}`}
+            className={BTN_LIGHT}
+          >
+            {f.write}
+          </button>
+        </div>
+      ) : null}
+
+      {writing ? field : null}
+
+      {items.length > 0 && !writing ? (
+        <ul
+          data-testid={`fixed-items-${category}`}
+          className="w-full space-y-1 rounded-lg bg-[#F7F8FB] px-4 py-2"
+        >
+          {items.map((i) => (
+            <li
+              key={i.id}
+              className="flex items-baseline justify-between gap-3 text-sm text-[#151c2c]"
+            >
+              <span className="min-w-0 break-words">{i.raw || "—"}</span>
+              <span className="flex shrink-0 items-baseline gap-4">
+                <span className="text-xs text-[#6b7385]">{f.fromInvoice}</span>
+                <span className="font-semibold">
+                  {formatMoney(i.amount, currency, lang)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {text.trim() !== "" && !parsed.ok && writing ? (
         <p role="alert" className="w-full text-right text-sm text-[#151c2c]">
           <span aria-hidden="true">{FLAG}</span> {f.invalidNumber}
         </p>

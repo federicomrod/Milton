@@ -395,6 +395,14 @@ export function FixedCostUpload({
         (a) =>
           a.month === month && (a.locationId ?? null) === (locationId ?? null)
       );
+      // Optimistically confirmed but not actually applied (a line the server
+      // refused, or left pending): the card goes back to what it was.
+      if (optimistic) {
+        const landed = new Set(here.map((a) => a.category));
+        const restore = undoChanges().filter((c) => !landed.has(c.category));
+        if (restore.length) onConfirm?.(restore);
+        if (applied.length === 0) setToast(null);
+      }
       onConfirm?.(
         here.map((a) => ({
           category: a.category,

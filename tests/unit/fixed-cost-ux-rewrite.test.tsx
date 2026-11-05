@@ -55,6 +55,8 @@ interface Server {
   puts: any[];
   patches: any[];
   failApprove: boolean;
+  /** Line ids the server refuses to save (they stay pending, with an issue). */
+  refuse: string[];
   confirmed: Record<string, number>;
 }
 let server: Server;
@@ -69,9 +71,12 @@ function installFetch() {
       server.calls.push("approve");
       if (server.failApprove) return json({ error: "boom" }, 500);
       const ids: string[] = body.lineIds;
-      const picked = ids.map((id) =>
-        server.draft.lines.find((x) => x.id === id)
-      );
+      const issues = ids
+        .filter((id) => server.refuse.includes(id))
+        .map((lineId) => ({ lineId, error: "no se pudo" }));
+      const picked = ids
+        .filter((id) => !server.refuse.includes(id))
+        .map((id) => server.draft.lines.find((x) => x.id === id));
       const applied: any[] = [];
       for (const l of picked) l.status = "approved";
       const cats = [...new Set(picked.map((l) => l.category))];
@@ -107,7 +112,7 @@ function installFetch() {
       }
       return json({
         approved: applied.length,
-        issues: [],
+        issues,
         applied,
         draft: structuredClone(server.draft),
       });
@@ -184,6 +189,7 @@ function show(lines = FIVE, v = view()) {
     puts: [],
     patches: [],
     failApprove: false,
+    refuse: [],
     confirmed: {},
   };
   for (const l of (v as any).lines)
@@ -549,5 +555,43 @@ describe("Falta copy always says what is missing", () => {
     // Answered: now it is an ordinary line that can be approved.
     const fixed = await lineRow("Sucursal Inventada");
     expect(fixed.getAttribute("data-status")).toBe("ready");
+  });
+});
+
+describe("a batch where the server saves only some lines", () => {
+  it("only the saved cluster is confirmed; the refused one goes back and says so on its line", async () => {
+    show([FIVE[0], FIVE[1]]);
+    server.refuse = ["l2"]; // Renta demo is refused
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Aprobar todo/ })
+    );
+    await waitFor(() =>
+      expect(card("planilla").getAttribute("data-state")).toBe("confirmed")
+    );
+    // The refused cluster is back to its pre-approve state, never a confirmed
+    // card next to a pending line.
+    await waitFor(() =>
+      expect(card("alquiler").getAttribute("data-state")).toBe("empty")
+    );
+    expect(card("alquiler").querySelectorAll("input")).toHaveLength(1);
+    expect(card("planilla").textContent).toContain("$20,000");
+    expect(screen.getByTestId("fixed-total").textContent).toContain("$20,000");
+    const left = await lineRow("Renta demo");
+    expect(within(left).getByRole("alert").textContent).toContain("no se pudo");
+  });
+
+  it("a refused line in a cluster that already had a value restores that value", async () => {
+    show([FIVE[1]], view({ lines: [saved("alquiler", 7000, "upload")] }));
+    // the same amount is not a diff; the server still refuses it
+    server.refuse = ["l2"];
+    fireEvent.click(await approveBtn("Renta demo"));
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("upload-line")).getByRole("alert")
+      ).toBeTruthy()
+    );
+    expect(card("alquiler").textContent).toContain("$7,000");
+    expect(card("alquiler").getAttribute("data-state")).toBe("confirmed");
+    expect(screen.queryByTestId("approve-toast")).toBeNull();
   });
 });

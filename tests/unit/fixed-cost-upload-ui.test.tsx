@@ -74,20 +74,21 @@ describe("FixedCostUpload", () => {
     ).toBeTruthy();
   });
 
+  // ⚑ Falta lines stay at the top, so the unreadable line is first.
   it("review: AI tag, ⚑ Falta, «Sin precio»; the unreadable line cannot be approved", async () => {
     show(async () => ok({ draft }));
     const lines = await screen.findAllByTestId("upload-line");
     expect(lines).toHaveLength(2);
-    expect(within(lines[0]).getByText("Leído por Milton").className).toContain(
+    expect(within(lines[1]).getByText("Leído por Milton").className).toContain(
       "#DDD6FE"
     );
-    expect(within(lines[1]).getAllByText(/Falta/).length).toBeGreaterThan(0);
-    expect(within(lines[1]).getAllByText("Sin precio").length).toBeGreaterThan(
+    expect(within(lines[0]).getAllByText(/Falta/).length).toBeGreaterThan(0);
+    expect(within(lines[0]).getAllByText("Sin precio").length).toBeGreaterThan(
       0
     );
     expect(
       (
-        within(lines[1]).getByRole("button", {
+        within(lines[0]).getByRole("button", {
           name: "Aprobar",
         }) as HTMLButtonElement
       ).disabled
@@ -124,7 +125,7 @@ describe("FixedCostUpload", () => {
       return ok({ draft });
     });
     await screen.findAllByTestId("upload-line");
-    fireEvent.click(screen.getByRole("button", { name: "Aprobar todo" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Aprobar todo/ }));
     const panel = await screen.findByTestId("overwrite-confirm");
     expect(panel.textContent).toContain("$6,500 → $7,000");
     fireEvent.click(
@@ -147,7 +148,7 @@ describe("lines of one category", () => {
     status: "pending",
   });
 
-  it("shows «Servicios: 3 líneas · total» before approving", async () => {
+  it("shows the cluster with its lines and total before approving", async () => {
     show(async () =>
       ok({
         draft: {
@@ -160,10 +161,12 @@ describe("lines of one category", () => {
         },
       })
     );
-    const totals = await screen.findByTestId("category-totals");
-    expect(totals.textContent).toMatch(/Servicios/);
-    expect(totals.textContent).toContain("3 líneas");
-    expect(totals.textContent).toContain("$180");
+    const head = await screen.findByTestId("cluster-head-servicios");
+    expect(head.textContent).toContain("Por aprobar (3)");
+    expect(head.textContent).toContain("$180");
+    expect(
+      screen.getByRole("button", { name: /^Aprobar todo \(3 · \$180/ })
+    ).toBeTruthy();
   });
 
   it("two impuestos lines of one key are ⚑ Falta with a message and cannot be approved", async () => {
@@ -190,6 +193,6 @@ describe("lines of one category", () => {
         ).disabled
       ).toBe(true);
     }
-    expect(screen.queryByTestId("category-totals")).toBeNull();
+    expect(screen.getByTestId("fix-first")).toBeTruthy();
   });
 });

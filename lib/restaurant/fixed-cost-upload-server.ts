@@ -312,6 +312,23 @@ export async function discardDraft(
 // Approve
 // ---------------------------------------------------------------------------
 
+export interface AppliedRow {
+  category: FixedCostCategory;
+  month: string;
+  locationId: string | null;
+  /** The cluster's total after this approval (the rate for impuestos). */
+  total: number;
+  /** The row's value before, null when this approval created it. */
+  previous: {
+    amount: number | null;
+    pct_of_sales: number | null;
+    label: string | null;
+    source: string | null;
+  } | null;
+  /** Every draft line this row stands for. */
+  lineIds: string[];
+}
+
 export type ApproveResult =
   | {
       ok: true;
@@ -319,6 +336,8 @@ export type ApproveResult =
       approved: number;
       /** Lines left pending because their row could not be saved. */
       issues: Array<{ lineId: string; error: string }>;
+      /** One entry per saved row: what the cluster is now, and how to undo it. */
+      applied: AppliedRow[];
       draft: UploadDraft;
     }
   | { ok: false; conflicts: OverwriteConflict[] }
@@ -345,7 +364,9 @@ export async function approveDraft(
   if (months.length) {
     const { data, error } = await ctx.supabase
       .from("restaurant_fixed_costs")
-      .select("id, location_id, month, category, amount, pct_of_sales, source")
+      .select(
+        "id, location_id, month, category, amount, pct_of_sales, source, label"
+      )
       .eq("company_id", ctx.companyId)
       .in("month", months);
     if (error) return { ok: false, error: "failed" };
@@ -357,6 +378,7 @@ export async function approveDraft(
       amount: number | string | null;
       pct_of_sales: number | string | null;
       source: string | null;
+      label: string | null;
     }>)
       existing.set(
         keyOfLine({
@@ -371,6 +393,7 @@ export async function approveDraft(
           amount: r.amount === null ? null : Number(r.amount),
           pct_of_sales: r.pct_of_sales === null ? null : Number(r.pct_of_sales),
           source: r.source,
+          label: r.label,
         }
       );
   }
@@ -383,6 +406,7 @@ export async function approveDraft(
   const done = new Set<string>();
   const issues: Array<{ lineId: string; error: string }> = [];
   let written = 0;
+  const applied: AppliedRow[] = [];
   for (const { line, members, previous } of plan.writes) {
     const checked = validateLine({
       location_id:
@@ -453,6 +477,21 @@ export async function approveDraft(
     if (logged.error) return { ok: false, error: "failed" };
     for (const m of members) done.add(m.id);
     written += 1;
+    applied.push({
+      category: v.category,
+      month: v.month,
+      locationId: v.location_id,
+      total: (v.category === "impuestos" ? v.pct_of_sales : v.amount) ?? 0,
+      previous: previous
+        ? {
+            amount: previous.amount,
+            pct_of_sales: previous.pct_of_sales,
+            label: previous.label ?? null,
+            source: previous.source ?? null,
+          }
+        : null,
+      lineIds: members.map((m) => m.id),
+    });
   }
   for (const l of plan.unchanged) done.add(l.id); // already in Costos fijos with this value
   const lines = draft.lines.map((l) =>
@@ -460,5 +499,130 @@ export async function approveDraft(
   );
   const saved = await saveLines(ctx, draft, lines);
   if (!saved) return { ok: false, error: "failed" };
-  return { ok: true, approved: written, issues, draft: saved };
+  return { ok: true, approved: written, issues, applied, draft: saved };
+}
+
+// ---------------------------------------------------------------------------
+// Undo (the «Deshacer» of an inline approval)
+// ---------------------------------------------------------------------------
+
+export type UndoResult =
+  | { ok: true; draft: UploadDraft }
+  | { ok: false; error: "changed" | "failed" | "forbidden" };
+
+/**
+ * Puts the rows an approval wrote back to what they were and returns the lines
+ * to the draft as pending. A row that changed since (its value is no longer the
+ * total this approval wrote, or it is no longer an upload value) is NOT touched:
+ * the undo is refused with «changed», never clobbering a later edit.
+ */
+export async function undoApproval(
+  ctx: FixedCostsContext,
+  draft: UploadDraft,
+  entries: readonly AppliedRow[]
+): Promise<UndoResult> {
+  // Phase 1: read and check EVERY entry before writing anything, so a refused
+  // undo changes nothing at all.
+  type Found = { e: AppliedRow; row: Record<string, unknown> | null };
+  const found: Found[] = [];
+  for (const e of entries) {
+    let q = ctx.supabase
+      .from("restaurant_fixed_costs")
+      .select("id, amount, pct_of_sales, source")
+      .eq("company_id", ctx.companyId)
+      .eq("month", e.month)
+      .eq("category", e.category);
+    q = e.locationId
+      ? q.eq("location_id", e.locationId)
+      : q.is("location_id", null);
+    const { data: row, error } = await q.maybeSingle();
+    if (error) return { ok: false, error: "failed" };
+    if (row) {
+      const now =
+        e.category === "impuestos"
+          ? Number(row.pct_of_sales)
+          : Number(row.amount);
+      if (row.source !== "upload" || now !== e.total)
+        return { ok: false, error: "changed" };
+    }
+    // No row: already gone, the lines just go back to the draft.
+    found.push({ e, row: row as Record<string, unknown> | null });
+  }
+
+  // Phase 2: write. If one fails, the entries actually undone still return to
+  // pending before the error is reported, so no line says «approved» for a
+  // value that is no longer there.
+  const undone = new Set<string>();
+  let failure: "failed" | "forbidden" | null = null;
+  for (const { e, row } of found) {
+    if (!row) {
+      e.lineIds.forEach((id) => undone.add(id));
+      continue;
+    }
+    const oldValue = { amount: row.amount, pct_of_sales: row.pct_of_sales };
+    let newValue: Record<string, unknown> | null;
+    if (e.previous) {
+      const back = await ctx.supabase
+        .from("restaurant_fixed_costs")
+        .update({
+          amount: e.previous.amount,
+          pct_of_sales: e.previous.pct_of_sales,
+          label: e.previous.label,
+          source: e.previous.source ?? "manual",
+          updated_by: ctx.userId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("company_id", ctx.companyId)
+        .eq("id", row.id as string);
+      if (back.error) {
+        failure = isRlsDenied(back.error) ? "forbidden" : "failed";
+        break;
+      }
+      newValue = {
+        amount: e.previous.amount,
+        pct_of_sales: e.previous.pct_of_sales,
+      };
+    } else {
+      const gone = await ctx.supabase
+        .from("restaurant_fixed_costs")
+        .delete()
+        .eq("company_id", ctx.companyId)
+        .eq("id", row.id as string);
+      if (gone.error) {
+        failure = isRlsDenied(gone.error) ? "forbidden" : "failed";
+        break;
+      }
+      newValue = null;
+    }
+    // The row is already back: its lines are undone even if the log fails.
+    e.lineIds.forEach((id) => undone.add(id));
+    const logged = await ctx.supabase
+      .from("restaurant_fixed_costs_log")
+      .insert({
+        company_id: ctx.companyId,
+        fixed_cost_id: row.id as string,
+        location_id: e.locationId,
+        month: e.month,
+        category: e.category,
+        actor: ctx.userId,
+        action: e.previous ? "update" : "delete",
+        old_value: oldValue,
+        new_value: newValue,
+        source: "upload",
+      });
+    if (logged.error) {
+      failure = "failed";
+      break;
+    }
+  }
+  const lines = draft.lines.map((l) =>
+    undone.has(l.id) ? { ...l, status: "pending" as const } : l
+  );
+  const saved = await saveLines(ctx, draft, lines, {
+    approved_by: null,
+    approved_at: null,
+  });
+  if (failure) return { ok: false, error: failure };
+  if (!saved) return { ok: false, error: "failed" };
+  return { ok: true, draft: saved };
 }

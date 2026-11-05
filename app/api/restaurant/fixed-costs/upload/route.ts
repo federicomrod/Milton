@@ -7,7 +7,7 @@
 //
 // GET   → { draft | null }       the company's newest open draft
 // POST  multipart { file, month, location_id? } → { draft }
-// PATCH { draftId, edits?: [{ lineId, category?, amount?, discard? }],
+// PATCH { draftId, edits?: [{ lineId, category?, amount?, scope?, discard? }],
 //         discardAll?: true } → { draft }   (edits only touch the draft)
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -153,6 +153,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ draft: saved });
   }
   const edits: LineEdit[] = [];
+  // A restaurant can only be one of this company's (never taken on trust).
+  let companyLocations: Set<string> | null = null;
   for (const raw of Array.isArray(body.edits) ? body.edits : []) {
     if (!raw || typeof raw !== "object") continue;
     const e = raw as Record<string, unknown>;
@@ -168,6 +170,32 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       if (n !== null && (!Number.isFinite(n) || n <= 0))
         return NextResponse.json({ error: t.noPrice }, { status: 400 });
       edit.amount = n;
+    }
+    if (e.month !== undefined) {
+      const m = typeof e.month === "string" ? monthStartOf(e.month) : null;
+      if (!m) return NextResponse.json({ error: t.errSave }, { status: 400 });
+      edit.month = m;
+    }
+    if (e.scope !== undefined) {
+      const sc = e.scope as { kind?: unknown; locationId?: unknown } | null;
+      if (sc && sc.kind === "group") edit.scope = { kind: "group" };
+      else if (
+        sc &&
+        sc.kind === "restaurant" &&
+        typeof sc.locationId === "string"
+      ) {
+        if (!companyLocations) {
+          const context = await resolveRestaurantContext(
+            g.auth.supabase,
+            g.auth.companyId,
+            null
+          );
+          companyLocations = new Set(context.locations.map((l) => l.id));
+        }
+        if (!companyLocations.has(sc.locationId))
+          return NextResponse.json({ error: t.errSave }, { status: 400 });
+        edit.scope = { kind: "restaurant", locationId: sc.locationId };
+      } else return NextResponse.json({ error: t.errSave }, { status: 400 });
     }
     if (e.discard === true) edit.discard = true;
     edits.push(edit);

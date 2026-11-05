@@ -476,7 +476,12 @@ export function categoryTotals(lines: readonly DraftLine[]): CategoryTotal[] {
 export function planApproval(
   selected: readonly DraftLine[],
   existing: ReadonlyMap<string, ExistingValue>,
-  approved: readonly DraftLine[] = []
+  approved: readonly DraftLine[] = [],
+  /**
+   * Keys (see keyOfLine) where the person chose «Sumar»: the lines ADD to the
+   * saved value whatever its source. Never for a rate.
+   */
+  addKeys: ReadonlySet<string> = new Set()
 ): {
   writes: ApprovalWrite[];
   conflicts: OverwriteConflict[];
@@ -513,27 +518,32 @@ export function planApproval(
     const mineSum = round2(
       mine.reduce((sum, l) => sum + (l.amount as number), 0)
     );
-    const adds =
+    const ownAdds =
       category !== "impuestos" &&
       prev?.source === "upload" &&
       old !== null &&
       mine.length > 0 &&
       old === mineSum;
-    const parts = adds ? [...mine, ...members] : members;
+    // «Sumar» on a value from elsewhere: its label stays as the first part.
+    const chosenAdds =
+      !ownAdds && category !== "impuestos" && old !== null && addKeys.has(key);
+    const adds = ownAdds || chosenAdds;
+    const parts = ownAdds ? [...mine, ...members] : members;
     const amount = round2(
-      parts.reduce((sum, l) => sum + (l.amount as number), 0)
+      parts.reduce((sum, l) => sum + (l.amount as number), 0) +
+        (chosenAdds ? (old as number) : 0)
     );
+    const names = [
+      ...(chosenAdds && prev?.label ? [prev.label] : []),
+      ...parts.map((l) => l.raw),
+    ].filter(Boolean);
     const line: DraftLine =
-      parts.length === 1
+      parts.length === 1 && !chosenAdds
         ? first
         : {
             ...first,
             amount,
-            raw: parts
-              .map((l) => l.raw)
-              .filter(Boolean)
-              .join(" + ")
-              .slice(0, LABEL_MAX),
+            raw: names.join(" + ").slice(0, LABEL_MAX),
           };
     if (prev && old !== null && old === amount) {
       unchanged.push(...members);

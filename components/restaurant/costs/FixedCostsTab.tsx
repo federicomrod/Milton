@@ -20,6 +20,7 @@ import {
   breakEvenPerDay,
   effectiveFixedCosts,
   fixedCostCompleteness,
+  fixedCostTotal,
   previewGroupSplit,
   nextMonthStart,
   previousMonthStart,
@@ -238,7 +239,8 @@ export function FixedCostsTab({
       margin,
       openDays: view.openDays,
     });
-    return { costs, completeness, breakEven };
+    const fixed = fixedCostTotal(costs);
+    return { costs, completeness, breakEven, fixed };
   }, [
     values,
     view.groupShares,
@@ -311,10 +313,6 @@ export function FixedCostsTab({
   }
 
   const missingAmounts = live.completeness.missingAmounts;
-  const knownAmounts = AMOUNT_CATEGORIES.map(
-    (c) => live.costs.amounts[c]
-  ).filter((n): n is number => n !== null);
-  const fixedTotal = knownAmounts.reduce((a, b) => a + b, 0);
   const missingSet = new Set(live.completeness.missing);
 
   function goMonth(month: string) {
@@ -508,13 +506,13 @@ export function FixedCostsTab({
           >
             <span>{f.totalFixed}</span>
             <span>
-              {knownAmounts.length > 0
-                ? formatMoney(fixedTotal, view.currency, lang)
+              {live.fixed.total !== null
+                ? formatMoney(live.fixed.total, view.currency, lang)
                 : "—"}
-              {missingAmounts.length > 0 ? (
+              {live.fixed.missingCount > 0 ? (
                 <span className="ml-2 rounded-full bg-[#FDE68A] px-2 py-0.5 text-xs font-semibold">
                   <span aria-hidden="true">{FLAG}</span>{" "}
-                  {fmt(f.totalMissing, { n: missingAmounts.length })}
+                  {fmt(f.totalMissing, { n: live.fixed.missingCount })}
                 </span>
               ) : null}
             </span>

@@ -521,7 +521,10 @@ export async function undoApproval(
   draft: UploadDraft,
   entries: readonly AppliedRow[]
 ): Promise<UndoResult> {
-  const undone = new Set<string>();
+  // Phase 1: read and check EVERY entry before writing anything, so a refused
+  // undo changes nothing at all.
+  type Found = { e: AppliedRow; row: Record<string, unknown> | null };
+  const found: Found[] = [];
   for (const e of entries) {
     let q = ctx.supabase
       .from("restaurant_fixed_costs")
@@ -534,18 +537,28 @@ export async function undoApproval(
       : q.is("location_id", null);
     const { data: row, error } = await q.maybeSingle();
     if (error) return { ok: false, error: "failed" };
+    if (row) {
+      const now =
+        e.category === "impuestos"
+          ? Number(row.pct_of_sales)
+          : Number(row.amount);
+      if (row.source !== "upload" || now !== e.total)
+        return { ok: false, error: "changed" };
+    }
+    // No row: already gone, the lines just go back to the draft.
+    found.push({ e, row: row as Record<string, unknown> | null });
+  }
+
+  // Phase 2: write. If one fails, the entries actually undone still return to
+  // pending before the error is reported, so no line says «approved» for a
+  // value that is no longer there.
+  const undone = new Set<string>();
+  let failure: "failed" | "forbidden" | null = null;
+  for (const { e, row } of found) {
     if (!row) {
-      // Already gone: the lines just go back to the draft.
       e.lineIds.forEach((id) => undone.add(id));
       continue;
     }
-    const now =
-      e.category === "impuestos"
-        ? Number(row.pct_of_sales)
-        : Number(row.amount);
-    if (row.source !== "upload" || now !== e.total)
-      return { ok: false, error: "changed" };
-
     const oldValue = { amount: row.amount, pct_of_sales: row.pct_of_sales };
     let newValue: Record<string, unknown> | null;
     if (e.previous) {
@@ -561,11 +574,10 @@ export async function undoApproval(
         })
         .eq("company_id", ctx.companyId)
         .eq("id", row.id as string);
-      if (back.error)
-        return {
-          ok: false,
-          error: isRlsDenied(back.error) ? "forbidden" : "failed",
-        };
+      if (back.error) {
+        failure = isRlsDenied(back.error) ? "forbidden" : "failed";
+        break;
+      }
       newValue = {
         amount: e.previous.amount,
         pct_of_sales: e.previous.pct_of_sales,
@@ -576,13 +588,14 @@ export async function undoApproval(
         .delete()
         .eq("company_id", ctx.companyId)
         .eq("id", row.id as string);
-      if (gone.error)
-        return {
-          ok: false,
-          error: isRlsDenied(gone.error) ? "forbidden" : "failed",
-        };
+      if (gone.error) {
+        failure = isRlsDenied(gone.error) ? "forbidden" : "failed";
+        break;
+      }
       newValue = null;
     }
+    // The row is already back: its lines are undone even if the log fails.
+    e.lineIds.forEach((id) => undone.add(id));
     const logged = await ctx.supabase
       .from("restaurant_fixed_costs_log")
       .insert({
@@ -597,8 +610,10 @@ export async function undoApproval(
         new_value: newValue,
         source: "upload",
       });
-    if (logged.error) return { ok: false, error: "failed" };
-    e.lineIds.forEach((id) => undone.add(id));
+    if (logged.error) {
+      failure = "failed";
+      break;
+    }
   }
   const lines = draft.lines.map((l) =>
     undone.has(l.id) ? { ...l, status: "pending" as const } : l
@@ -607,6 +622,7 @@ export async function undoApproval(
     approved_by: null,
     approved_at: null,
   });
+  if (failure) return { ok: false, error: failure };
   if (!saved) return { ok: false, error: "failed" };
   return { ok: true, draft: saved };
 }

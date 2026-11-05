@@ -155,6 +155,84 @@ describe("undoApproval", () => {
   });
 });
 
+describe("undoApproval is all-or-nothing", () => {
+  // Two clusters approved at once: servicios 1,800 and otros 400.
+  async function twoEntries() {
+    const s = await setup([
+      line({}),
+      line({ id: "l2", raw: "Contador", category: "otros", amount: 400 }),
+    ]);
+    const res = await approveDraft(s.ctx, s.draft, {});
+    if (!res.ok) throw new Error("approve");
+    expect(res.applied).toHaveLength(2);
+    return { ...s, res };
+  }
+
+  it("refuses without writing anything when the second row was edited since", async () => {
+    const { db, ctx, res } = await twoEntries();
+    const second = res.applied[1];
+    const row = db.tables.restaurant_fixed_costs.find(
+      (r) => r.category === second.category
+    )!;
+    row.amount = 999;
+    row.source = "manual";
+    const logBefore = (db.tables.restaurant_fixed_costs_log ?? []).length;
+    const out = await undoApproval(ctx, res.draft, res.applied);
+    expect(out).toEqual({ ok: false, error: "changed" });
+    expect(db.tables.restaurant_fixed_costs).toHaveLength(2);
+    expect(
+      db.tables.restaurant_fixed_costs.find(
+        (r) => r.category === res.applied[0].category
+      )
+    ).toMatchObject({ amount: res.applied[0].total });
+    expect((db.tables.restaurant_fixed_costs_log ?? []).length).toBe(logBefore);
+    const after = (await getDraft(ctx, res.draft.id))!;
+    expect(after.lines.every((l) => l.status === "approved")).toBe(true);
+  });
+
+  it("a failing second write leaves entry 1's lines pending and entry 2's approved", async () => {
+    const { db, ctx, res } = await twoEntries();
+    let deletes = 0;
+    const real = ctx.supabase as unknown as {
+      from(table: string): object;
+    };
+    const flaky = {
+      ...ctx,
+      supabase: {
+        from(table: string) {
+          const t = real.from(table);
+          if (table !== "restaurant_fixed_costs") return t;
+          return new Proxy(t, {
+            get(target, prop, recv) {
+              if (prop === "delete")
+                return (...a: unknown[]) => {
+                  deletes++;
+                  if (deletes === 2)
+                    return {
+                      eq: () => ({
+                        eq: async () => ({ error: { message: "boom" } }),
+                      }),
+                    };
+                  return (
+                    target as { delete: (...x: unknown[]) => unknown }
+                  ).delete(...a);
+                };
+              return Reflect.get(target, prop, recv);
+            },
+          });
+        },
+      },
+    } as unknown as typeof ctx;
+    const out = await undoApproval(flaky, res.draft, res.applied);
+    expect(out).toEqual({ ok: false, error: "failed" });
+    expect(db.tables.restaurant_fixed_costs).toHaveLength(1);
+    const after = (await getDraft(ctx, res.draft.id))!;
+    const status = (id: string) => after.lines.find((l) => l.id === id)!.status;
+    expect(status(res.applied[0].lineIds[0])).toBe("pending");
+    expect(status(res.applied[1].lineIds[0])).toBe("approved");
+  });
+});
+
 describe("inline list helpers", () => {
   const lines = [
     line({}),

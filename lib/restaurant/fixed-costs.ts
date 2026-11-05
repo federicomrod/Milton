@@ -406,6 +406,27 @@ export function fixedCostCompleteness(
   return { complete: missing.length === 0, missing, missingAmounts };
 }
 
+export interface FixedCostTotal {
+  /** Sum of the known amount categories; null when none is known (never 0). */
+  total: number | null;
+  /** Amount categories still missing. */
+  missingCount: number;
+}
+
+/**
+ * «Total de costos fijos»: the known amounts added up. Impuestos is a % of
+ * sales, not an amount, so it is excluded. A missing category is not a $0.
+ */
+export function fixedCostTotal(costs: EffectiveFixedCosts): FixedCostTotal {
+  const known = AMOUNT_CATEGORIES.map((c) => costs.amounts[c]).filter(
+    (n): n is number => n !== null
+  );
+  return {
+    total: known.length > 0 ? known.reduce((a, b) => a + b, 0) : null,
+    missingCount: AMOUNT_CATEGORIES.length - known.length,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Break-even
 // ---------------------------------------------------------------------------

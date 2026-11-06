@@ -47,15 +47,14 @@ test.describe("Rentabilidad", () => {
       ["otros", "500"],
       ["impuestos", "10"],
     ]) {
-      // An empty cluster is ONE field + its own Guardar; once saved it becomes
-      // the confirmed amount and the field goes away.
-      const input = page.locator(`#fixed-${category}`);
-      if (await input.count()) {
-        await input.fill(value);
-        await input
-          .locator("xpath=ancestor::*[@data-testid][1]")
-          .getByRole("button", { name: /^guardar/i })
-          .click();
+      // An empty cluster offers Subir / Escribir; «Escribir» opens ONE field and
+      // its own Guardar, and once saved it becomes the confirmed amount.
+      const row = page.getByTestId(`fixed-row-${category}`);
+      const write = row.getByRole("button", { name: /^escribir/i });
+      if (await write.count()) {
+        await write.click();
+        await page.locator(`#fixed-${category}`).fill(value);
+        await row.getByRole("button", { name: /^guardar/i }).click();
       }
     }
     await expect(page.getByTestId("break-even").first()).toBeVisible();

@@ -63,6 +63,7 @@ import {
   repeatFixedCosts,
 } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+import { loadApprovedItems } from "@/lib/restaurant/fixed-cost-upload-server";
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
@@ -560,7 +561,7 @@ async function CostosFijosTab({
         lang,
       }),
     ]);
-    const [view, history] = await Promise.all([
+    const [view, history, savedItems] = await Promise.all([
       loadFixedCostsView(ctx, {
         month,
         locationId,
@@ -569,12 +570,14 @@ async function CostosFijosTab({
         marginRead,
       }),
       listFixedCostHistory(supabase, companyId, { locationId, month }),
+      loadApprovedItems(ctx, { month, locationId }).catch(() => ({})),
     ]);
     return (
       <FixedCostsTab
         key={`${month}|${locationId ?? "group"}`}
         view={view}
         history={history}
+        savedItems={savedItems}
         locationName={
           context.locations.find((l) => l.id === locationId)?.name ?? null
         }

@@ -124,6 +124,7 @@ export async function PUT(req: NextRequest) {
           : null,
       label: typeof raw.label === "string" ? raw.label : null,
       repeats: raw.repeats === true,
+      keepSource: raw.keepSource === true,
       split_rule:
         raw.split_rule === "sales" || raw.split_rule === "equal"
           ? raw.split_rule

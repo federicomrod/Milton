@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Fixed-cost upload UX rewrite (release blocker). One source of truth on
+// Fixed-cost upload UX v3 (Sofia's mocks; release blocker). One source of truth on
 // screen: the confirmed amount of each cluster card. ✓ Aprobar moves the amount
 // into its card at once (no accordion, no reload, no second empty field), the
 // Costos fijos total and the break-even move with it, «Deshacer» puts it back,
@@ -107,6 +107,7 @@ function installFetch() {
           locationId: LOC,
           total,
           previous,
+          repeats: !mine.some((l) => l.oneTime),
           lineIds: mine.map((l) => l.id),
         });
       }
@@ -177,7 +178,12 @@ function view(over: Record<string, unknown> = {}) {
     ...over,
   } as never;
 }
-function show(lines = FIVE, v = view()) {
+function show(
+  lines: any[] = FIVE,
+  v = view(),
+  savedItems?: Record<string, any[]>,
+  history: any[] = []
+) {
   server = {
     draft: {
       id: "d1",
@@ -198,7 +204,8 @@ function show(lines = FIVE, v = view()) {
   render(
     <FixedCostsTab
       view={v}
-      history={[]}
+      history={history}
+      savedItems={savedItems}
       locationName="Demo"
       shellParams={{}}
       currentMonth={MONTH}
@@ -222,8 +229,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("before any upload", () => {
-  it("every cluster is a card with ONE field and «Sin dato · subir factura o escribir»", () => {
+describe("before any upload (the empty mock)", () => {
+  it("every cluster is «Sin dato · subir factura o escribir» with Subir / Escribir; no amount, no field", () => {
     show();
     for (const c of [
       "planilla",
@@ -233,21 +240,46 @@ describe("before any upload", () => {
       "otros",
     ]) {
       expect(card(c).getAttribute("data-state")).toBe("empty");
-      expect(card(c).querySelectorAll("input")).toHaveLength(1);
-      expect(card(c).textContent).toContain("Sin dato");
-      expect(card(c).textContent).toContain("subir factura");
-      expect(card(c).textContent).toContain("o escribir");
+      expect(card(c).querySelectorAll("input")).toHaveLength(0);
+      expect(card(c).textContent).toContain(
+        "Sin dato · subir factura o escribir"
+      );
+      expect(
+        within(card(c)).getByRole("button", { name: "Subir" })
+      ).toBeTruthy();
+      expect(
+        within(card(c)).getByRole("button", { name: /^Escribir/ })
+      ).toBeTruthy();
+      expect(card(c).textContent).not.toMatch(/\$\d/);
     }
   });
 
-  it("no confirmed cost: no break-even number, only the invitation (no fake figure)", () => {
+  it("the wide drop zone: «Suelta una factura o PDF» + «Subir factura»", () => {
+    show();
+    expect(screen.getByText("Suelta una factura o PDF")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "⇪ Subir factura" })
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Sube una factura o escribe el monto/)
+    ).toBeTruthy();
+  });
+
+  it("no confirmed cost: no break-even dollars, only the invitation; nothing confirmed", () => {
     show();
     expect(beValue()).toBeNull();
-    expect(screen.getAllByTestId("break-even")[0].textContent).toContain(
+    const be = screen.getAllByTestId("break-even")[0];
+    expect(be.textContent).toContain("Con estos costos, necesitas vender");
+    expect(be.textContent).toContain("—");
+    expect(be.textContent).toContain("al día");
+    expect(screen.getByTestId("break-even-empty").textContent).toBe(
       "Añade costos fijos para ver el punto de equilibrio"
     );
-    expect(screen.getByTestId("fixed-total").textContent).toContain("—");
-    expect(screen.getByTestId("fixed-total").textContent).not.toContain("$0");
+    expect(screen.getByTestId("confirmed-count").textContent).toBe("0 de 5");
+    // «Total costos fijos» is «—» with nothing confirmed, never $0
+    expect(screen.getByTestId("fixed-total").textContent).not.toContain("$");
+    expect(screen.queryByTestId("confirmed-pill")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Aprobar todo/ })).toBeNull();
   });
 });
 
@@ -260,9 +292,9 @@ describe("root cause: one source of truth", () => {
     );
     const c = card("servicios");
     expect(c.textContent).toContain("$650");
-    expect(c.textContent).toContain("desde factura");
+    expect(c.textContent).toContain("Agua demo · desde factura");
     expect(c.textContent).toContain("Editar");
-    expect(c.querySelectorAll("input")).toHaveLength(0);
+    expect(c.querySelectorAll("input[type=text]")).toHaveLength(0);
     expect(c.textContent).not.toContain("Sin dato");
     expect(screen.getByTestId("fixed-total").textContent).toContain("$650");
   });
@@ -282,14 +314,14 @@ describe("root cause: one source of truth", () => {
     expect(screen.getByTestId("fixed-total").textContent).toContain("$29,450");
   });
 
-  it("with some clusters still missing it says so, but still moves", async () => {
+  it("with some clusters still missing it still moves, and says how many are confirmed", async () => {
     show([FIVE[0]]);
     fireEvent.click(await approveBtn("Nómina demo"));
     await waitFor(() => expect(beValue()).not.toBeNull());
-    expect(screen.getAllByTestId("break-even")[0].textContent).toContain(
-      "Falta: alquiler, servicios, otros"
+    expect(screen.getByTestId("confirmed-count").textContent).toBe("1 de 5");
+    expect(screen.getByTestId("confirmed-pill").textContent).toBe(
+      "1 de 5 confirmados"
     );
-    expect(screen.getByTestId("fixed-total").textContent).toContain("faltan 3");
   });
 });
 
@@ -315,9 +347,21 @@ describe("5 lines → Aprobar todo", () => {
     expect(card("otros").textContent).toContain("$500");
     expect(screen.getByTestId("fixed-total").textContent).toContain("$29,950");
     expect(beValue()).toMatch(/\$/);
+    // «desde $29,950 costos fijos · 30 días abiertos»: the exact sum of the cards
+    expect(screen.getByTestId("break-even-detail").textContent).toBe(
+      "desde $29,950 costos fijos · 30 días abiertos"
+    );
+    // Servicios lists its lines under the card; the card is their sum
+    const items = screen.getByTestId("fixed-items-servicios");
+    expect(items.textContent).toContain("Luz demo");
+    expect(items.textContent).toContain("$650");
+    expect(items.textContent).toContain("$1,800");
     expect(clicks).toBeLessThanOrEqual(3);
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("confirmed-pill").textContent).toBe(
+      "4 de 5 confirmados"
+    );
     // No accordion, no «Aprobadas (n)», nothing to expand; the review is done.
     expect(document.querySelectorAll("details")).toHaveLength(0);
     expect(screen.queryByText(/Aprobadas/)).toBeNull();
@@ -335,7 +379,7 @@ describe("5 lines → Aprobar todo", () => {
     show([...FIVE, mk("l6", "Cosa rara", null, null)]);
     const rows = await screen.findAllByTestId("upload-line");
     expect(rows[0].textContent).toContain("Cosa rara");
-    expect(rows[0].textContent).toContain("Falta · ¿A qué grupo de costos?");
+    expect(rows[0].textContent).toContain("Falta · ¿A qué grupo?");
     const allBtn = screen.getByRole("button", { name: /^Aprobar todo/ });
     expect(allBtn.textContent).toBe("Aprobar todo (5 · $29,950)");
     fireEvent.click(allBtn);
@@ -437,17 +481,21 @@ describe("«vs mes pasado»", () => {
 });
 
 describe("manual entry and editing on the card", () => {
-  it("typing in the one empty field and saving makes it the card; the field goes away", async () => {
+  it("«Escribir» opens ONE field; saving makes it the card and the field goes away", async () => {
     show([]);
-    const field = screen.getByLabelText("Monto de Alquiler");
-    fireEvent.change(field, { target: { value: "1200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Escribir Alquiler" }));
+    fireEvent.change(screen.getByLabelText("Monto de Alquiler"), {
+      target: { value: "1200" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Guardar Alquiler" }));
     await waitFor(() =>
       expect(card("alquiler").getAttribute("data-state")).toBe("confirmed")
     );
     expect(card("alquiler").textContent).toContain("$1,200");
     expect(card("alquiler").textContent).toContain("escrito a mano");
-    expect(card("alquiler").querySelectorAll("input")).toHaveLength(0);
+    expect(card("alquiler").querySelectorAll("input[type=text]")).toHaveLength(
+      0
+    );
     // One entry only: the other clusters are never touched by this save.
     expect(server.puts).toHaveLength(1);
     expect(server.puts[0].entries).toHaveLength(1);
@@ -456,10 +504,13 @@ describe("manual entry and editing on the card", () => {
       value: 1200,
     });
     expect(screen.getByTestId("fixed-total").textContent).toContain("$1,200");
+    // the drop zone is gone: something is confirmed now
+    expect(screen.queryByText("Suelta una factura o PDF")).toBeNull();
   });
 
   it("an amount that is not a number is not saved", () => {
     show([]);
+    fireEvent.click(screen.getByRole("button", { name: "Escribir Alquiler" }));
     fireEvent.change(screen.getByLabelText("Monto de Alquiler"), {
       target: { value: "12x" },
     });
@@ -492,6 +543,173 @@ describe("manual entry and editing on the card", () => {
       category: "planilla",
       value: 22000,
     });
+  });
+
+  it("«Se repite cada mes» saves that cluster only and keeps «desde factura»", async () => {
+    show([], view({ lines: [saved("planilla", 21400)] }));
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Se repite cada mes: Planilla" })
+    );
+    await waitFor(() => expect(server.puts).toHaveLength(1));
+    expect(server.puts[0].entries).toHaveLength(1);
+    expect(server.puts[0].entries[0]).toMatchObject({
+      category: "planilla",
+      value: 21400,
+      repeats: true,
+      keepSource: true,
+    });
+    expect(card("planilla").textContent).toContain("desde factura");
+  });
+});
+
+describe("Copiar mes", () => {
+  it("only when something is confirmed; says what it did", async () => {
+    show([]);
+    expect(screen.queryByRole("button", { name: /^Copiar/ })).toBeNull();
+    cleanup();
+    show([], view({ lines: [saved("planilla", 21400)] }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copiar recurrentes de septiembre" })
+    );
+    expect(
+      await screen.findByText(
+        /No hay costos recurrentes que copiar de septiembre/
+      )
+    ).toBeTruthy();
+  });
+});
+
+describe("group share on a restaurant", () => {
+  const withShare = () =>
+    view({
+      lines: [saved("planilla", 1000)],
+      groupShares: { servicios: 500, otros: 50 },
+      groupImpuestosPct: 10,
+    });
+
+  it("one read-only row «Compartidos del grupo · $550»; Total = cards + share; «desde $Y» = Total", () => {
+    show([], withShare());
+    const row = screen.getByTestId("fixed-shared-row");
+    expect(row.textContent).toContain("Compartidos del grupo · $550");
+    expect(row.textContent).toContain("tu parte · no se edita aquí");
+    expect(row.querySelectorAll("input,button")).toHaveLength(0);
+    expect(screen.getByTestId("fixed-total").textContent).toContain("$1,550");
+    expect(screen.getByTestId("break-even-detail").textContent).toContain(
+      "desde $1,550 costos fijos"
+    );
+    // «Más $X del grupo» never comes back under an empty field
+    expect(document.body.textContent).not.toMatch(/Más .* del grupo/);
+    expect(card("servicios").getAttribute("data-state")).toBe("empty");
+    expect(card("servicios").textContent).not.toContain("$500");
+  });
+
+  it("the break-even includes the group share and the inherited tax rate (same as Rentabilidad)", () => {
+    show([], withShare());
+    const cm = (100000 - (100000 * 0.1) / 1.1 - 30000) / 100000;
+    const expected = (1550 / (cm * 30)).toLocaleString("en-US", {
+      maximumFractionDigits: 0,
+    });
+    expect(beValue()).toBe(`$${expected}`);
+  });
+
+  it("without a share there is no row; and the group view never has one", () => {
+    show([], view({ lines: [saved("planilla", 1000)] }));
+    expect(screen.queryByTestId("fixed-shared-row")).toBeNull();
+    cleanup();
+    show(
+      [],
+      view({
+        locationId: null,
+        lines: [],
+        groupShares: { servicios: 500 },
+      })
+    );
+    expect(screen.queryByTestId("fixed-shared-row")).toBeNull();
+  });
+});
+
+describe("v3 answers from Sofia", () => {
+  it("«N de M confirmados» is mint with Ink text", async () => {
+    show([FIVE[0]]);
+    fireEvent.click(await approveBtn("Nómina demo"));
+    const pill = await screen.findByTestId("confirmed-pill");
+    expect(pill.className).toContain("bg-[#A7F3D0]");
+    expect(pill.className).toContain("text-[#0F172A]");
+  });
+
+  it("an approved bill's «Se repite cada mes» is ON; a one-off's is OFF", async () => {
+    show([FIVE[0], { ...FIVE[1], oneTime: true }]);
+    fireEvent.click(await approveBtn("Nómina demo"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("switch", {
+            name: "Se repite cada mes: Planilla",
+          }) as HTMLInputElement
+        ).checked
+      ).toBe(true)
+    );
+    fireEvent.click(await approveBtn("Renta demo"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("switch", {
+            name: "Se repite cada mes: Alquiler",
+          }) as HTMLInputElement
+        ).checked
+      ).toBe(false)
+    );
+  });
+
+  it("after a reload the lines saved by an earlier upload still list under the card", () => {
+    show(
+      [],
+      view({
+        lines: [{ ...saved("servicios", 3900), label: "Agua + Seguro" }],
+      }),
+      {
+        servicios: [
+          { id: "a", raw: "Agua", amount: 650 },
+          { id: "b", raw: "Seguro", amount: 3250 },
+        ],
+      }
+    );
+    const items = screen.getByTestId("fixed-items-servicios");
+    expect(items.textContent).toContain("Agua");
+    expect(items.textContent).toContain("$650");
+    expect(items.textContent).toContain("Seguro");
+    expect(items.textContent).toContain("$3,250");
+  });
+
+  it("saved lines that no longer add up to the card are not shown", () => {
+    show([], view({ lines: [saved("servicios", 4000)] }), {
+      servicios: [
+        { id: "a", raw: "Agua", amount: 650 },
+        { id: "b", raw: "Seguro", amount: 3250 },
+      ],
+    });
+    expect(screen.queryByTestId("fixed-items-servicios")).toBeNull();
+  });
+
+  it("Historial: category · change · source, with a relative time", () => {
+    const now = new Date().toISOString();
+    show([], view({ lines: [saved("servicios", 650)] }), undefined, [
+      {
+        id: "h1",
+        created_at: now,
+        actor: null,
+        action: "update",
+        category: "servicios",
+        month: MONTH,
+        location_id: LOC,
+        old_value: { amount: 0, pct_of_sales: null },
+        new_value: { amount: 650, pct_of_sales: null },
+        source: "upload",
+      },
+    ]);
+    const h = screen.getByTestId("history");
+    expect(h.textContent).toContain("Servicios · +$650 · desde factura");
+    expect(h.textContent).toMatch(/minuto|hace/);
   });
 });
 
@@ -544,6 +762,10 @@ describe("Falta copy always says what is missing", () => {
     show([mk("g", "Gas · Sucursal Inventada", "otros", 900, null)]);
     const row = await lineRow("Sucursal Inventada");
     expect(row.textContent).toContain("Falta · ¿A qué restaurante?");
+    expect((await screen.findByTestId("falta-pill")).textContent).toContain(
+      "Falta · Gas"
+    );
+    fireEvent.click(within(row).getByRole("button", { name: "Asignar" }));
     fireEvent.change(within(row).getByLabelText("¿A qué restaurante?"), {
       target: { value: LOC },
     });
@@ -573,7 +795,10 @@ describe("a batch where the server saves only some lines", () => {
     await waitFor(() =>
       expect(card("alquiler").getAttribute("data-state")).toBe("empty")
     );
-    expect(card("alquiler").querySelectorAll("input")).toHaveLength(1);
+    expect(card("alquiler").querySelectorAll("input")).toHaveLength(0);
+    expect(
+      within(card("alquiler")).getByRole("button", { name: /^Escribir/ })
+    ).toBeTruthy();
     expect(card("planilla").textContent).toContain("$20,000");
     expect(screen.getByTestId("fixed-total").textContent).toContain("$20,000");
     const left = await lineRow("Renta demo");

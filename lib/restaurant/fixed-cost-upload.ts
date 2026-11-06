@@ -34,6 +34,8 @@ export interface DraftLine {
   /** «ai» lines come from reading a PDF or photo: lavender tag. */
   from: "file" | "ai";
   status: "pending" | "approved" | "discarded";
+  /** A one-off charge (repair, deposit…): «Se repite cada mes» defaults OFF for it. */
+  oneTime?: boolean;
 }
 
 export interface KnownLocation {
@@ -53,6 +55,16 @@ const fold = (s: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+
+/**
+ * Concepts that are paid once, not every month: «Se repite cada mes» starts OFF
+ * for them (a repair, a deposit, an installation, a fine).
+ */
+const ONE_TIME =
+  /reparaci|repair|reparatur|dep[oó]sito|deposit|kaution|fianza|instalaci|installation|einmalig|one[- ]?time|[uú]nica vez|extraordinari|multa|\bfine\b|\bstrafe\b/;
+export function isOneTimeText(text: string): boolean {
+  return ONE_TIME.test(fold(text));
+}
 
 // ---------------------------------------------------------------------------
 // Cells
@@ -304,6 +316,7 @@ export function parseGrid(
       scope: place ? scopeFromText(place, defaults.locations) : defaults.scope,
       from: "file",
       status: "pending",
+      ...(isOneTimeText(concept) ? { oneTime: true } : {}),
     });
   }
   return out;
@@ -346,6 +359,7 @@ export function normalizeAiLines(
       scope: place ? scopeFromText(place, defaults.locations) : defaults.scope,
       from: "ai",
       status: "pending",
+      ...(r.oneTime === true || isOneTimeText(label) ? { oneTime: true } : {}),
     });
   }
   return out;
@@ -353,8 +367,8 @@ export function normalizeAiLines(
 
 export const FIXED_COST_AI_PROMPT =
   "You read a restaurant's monthly fixed costs (a PDF's text or a photo of a statement) in Spanish, English or German. " +
-  'Answer ONLY JSON: {"lines":[{"label":string,"category":"planilla"|"alquiler"|"servicios"|"otros"|"impuestos"|null,"amount":number|null,"month":"YYYY-MM"|null,"restaurant":string|null}]}. ' +
-  "label is the concept as written. amount is the number printed (for impuestos the tax rate in %); null when unreadable, never invent one. month only when the document states it. restaurant only when it names one. Keep every line, even ones you cannot classify (category null).";
+  'Answer ONLY JSON: {"lines":[{"label":string,"category":"planilla"|"alquiler"|"servicios"|"otros"|"impuestos"|null,"amount":number|null,"month":"YYYY-MM"|null,"restaurant":string|null,"oneTime":boolean}]}. ' +
+  "label is the concept as written. amount is the number printed (for impuestos the tax rate in %); null when unreadable, never invent one. month only when the document states it. restaurant only when it names one. oneTime is true only for a charge paid once (a repair, a deposit, an installation, a fine), false for a regular monthly bill. Keep every line, even ones you cannot classify (category null).";
 
 // ---------------------------------------------------------------------------
 // Approval
@@ -366,6 +380,8 @@ export interface ExistingValue {
   /** Where the saved value came from ('upload', 'manual', …), when known. */
   source?: string | null;
   label?: string | null;
+  /** «Se repite cada mes» of the saved row. */
+  repeats?: boolean | null;
 }
 
 export interface ApprovalWrite {
@@ -378,6 +394,8 @@ export interface ApprovalWrite {
   members: DraftLine[];
   /** The row's current value, when the month already has one. */
   previous: ExistingValue | null;
+  /** The lines add to the saved value (this upload's own, or «Sumar»). */
+  adds: boolean;
 }
 
 export interface OverwriteConflict {
@@ -558,7 +576,7 @@ export function planApproval(
         old,
         new: amount,
       });
-    writes.push({ line, members, previous: prev });
+    writes.push({ line, members, previous: prev, adds });
   }
   return { writes, conflicts, unchanged, blocked };
 }
@@ -669,4 +687,18 @@ export function clusterTotalAfter(
   const sum = round2(adding.reduce((s, l) => s + (l.amount ?? 0), 0));
   if (category === "impuestos") return adding[adding.length - 1]?.amount ?? 0;
   return round2((current ?? 0) + sum);
+}
+
+/**
+ * «Se repite cada mes» for a row an approval writes: ON for ordinary monthly
+ * bills, OFF when any line is a one-off. Adding to a saved row keeps the
+ * person's choice for it (OFF stays OFF) and a one-off line turns it OFF.
+ */
+export function nextRepeats(
+  lines: readonly Pick<DraftLine, "oneTime">[],
+  adding: boolean,
+  priorRepeats: boolean | null | undefined
+): boolean {
+  const recurring = lines.every((l) => !l.oneTime);
+  return adding ? recurring && priorRepeats === true : recurring;
 }

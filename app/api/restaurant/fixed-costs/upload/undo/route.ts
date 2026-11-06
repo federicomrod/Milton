@@ -57,6 +57,7 @@ function parseApplied(raw: unknown): AppliedRow[] | null {
         pct_of_sales: num(p.pct_of_sales),
         label: typeof p.label === "string" ? p.label.slice(0, 120) : null,
         source: typeof p.source === "string" ? p.source : null,
+        repeats: typeof p.repeats === "boolean" ? p.repeats : null,
       };
     }
     out.push({
@@ -65,6 +66,7 @@ function parseApplied(raw: unknown): AppliedRow[] | null {
       locationId: loc as string | null,
       total,
       previous,
+      repeats: e.repeats === true,
       lineIds,
     });
   }

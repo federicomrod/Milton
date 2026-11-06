@@ -12,9 +12,14 @@ import Papa from "papaparse";
 import { runChat } from "@/lib/ai/call";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
 import {
+  approvedItems,
+  type ClusterItem,
+} from "@/lib/restaurant/fixed-cost-clusters";
+import {
   FIXED_COST_AI_PROMPT,
   isApprovable,
   keyOfLine,
+  nextRepeats,
   normalizeAiLines,
   parseGrid,
   planApproval,
@@ -331,7 +336,10 @@ export interface AppliedRow {
     pct_of_sales: number | null;
     label: string | null;
     source: string | null;
+    repeats?: boolean | null;
   } | null;
+  /** «Se repite cada mes» of the row after this approval. */
+  repeats: boolean;
   /** Every draft line this row stands for. */
   lineIds: string[];
 }
@@ -377,7 +385,7 @@ export async function approveDraft(
     const { data, error } = await ctx.supabase
       .from("restaurant_fixed_costs")
       .select(
-        "id, location_id, month, category, amount, pct_of_sales, source, label"
+        "id, location_id, month, category, amount, pct_of_sales, source, label, repeats"
       )
       .eq("company_id", ctx.companyId)
       .in("month", months);
@@ -391,6 +399,7 @@ export async function approveDraft(
       pct_of_sales: number | string | null;
       source: string | null;
       label: string | null;
+      repeats: boolean | null;
     }>)
       existing.set(
         keyOfLine({
@@ -406,6 +415,7 @@ export async function approveDraft(
           pct_of_sales: r.pct_of_sales === null ? null : Number(r.pct_of_sales),
           source: r.source,
           label: r.label,
+          repeats: r.repeats,
         }
       );
   }
@@ -423,7 +433,7 @@ export async function approveDraft(
   const issues: Array<{ lineId: string; error: string }> = [];
   let written = 0;
   const applied: AppliedRow[] = [];
-  for (const { line, members, previous } of plan.writes) {
+  for (const { line, members, previous, adds } of plan.writes) {
     const checked = validateLine({
       location_id:
         line.scope?.kind === "restaurant" ? line.scope.locationId : null,
@@ -440,6 +450,7 @@ export async function approveDraft(
     }
     const v = checked.value;
     const prevRow = existing.get(keyOfLine(line));
+    const repeats = nextRepeats(members, adds, prevRow?.repeats);
     const row = {
       company_id: ctx.companyId,
       location_id: v.location_id,
@@ -451,7 +462,7 @@ export async function approveDraft(
       currency,
       source: "upload" as const,
       status: "confirmed" as const,
-      repeats: false,
+      repeats,
       split_rule: v.split_rule,
       updated_by: ctx.userId,
       updated_at: new Date().toISOString(),
@@ -504,8 +515,10 @@ export async function approveDraft(
             pct_of_sales: previous.pct_of_sales,
             label: previous.label ?? null,
             source: previous.source ?? null,
+            repeats: previous.repeats ?? null,
           }
         : null,
+      repeats,
       lineIds: members.map((m) => m.id),
     });
   }
@@ -585,6 +598,7 @@ export async function undoApproval(
           pct_of_sales: e.previous.pct_of_sales,
           label: e.previous.label,
           source: e.previous.source ?? "manual",
+          repeats: e.previous.repeats ?? false,
           updated_by: ctx.userId,
           updated_at: new Date().toISOString(),
         })
@@ -641,4 +655,30 @@ export async function undoApproval(
   if (failure) return { ok: false, error: failure };
   if (!saved) return { ok: false, error: "failed" };
   return { ok: true, draft: saved };
+}
+
+/**
+ * The lines an upload approved into each cluster of a month and scope, so the
+ * card still lists them after a reload (Agua $650 / Seguro $3,250). Newest
+ * upload first; the page only shows a list that adds up to the card.
+ */
+export async function loadApprovedItems(
+  ctx: FixedCostsContext,
+  screen: { month: string; locationId: string | null }
+): Promise<Partial<Record<FixedCostCategory, ClusterItem[]>>> {
+  const { data, error } = await ctx.supabase
+    .from("fixed_cost_upload_drafts")
+    .select(DRAFT_COLUMNS)
+    .eq("company_id", ctx.companyId)
+    .in("status", ["draft", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error || !data) return {};
+  const out: Partial<Record<FixedCostCategory, ClusterItem[]>> = {};
+  for (const row of data as DraftRow[]) {
+    const found = approvedItems(toDraft(row).lines, screen);
+    for (const c of Object.keys(found) as FixedCostCategory[])
+      if (!out[c]) out[c] = found[c];
+  }
+  return out;
 }

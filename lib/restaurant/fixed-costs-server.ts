@@ -142,7 +142,7 @@ export interface SaveEntry {
   label?: string | null;
   repeats?: boolean;
   split_rule?: SplitRule | null;
-  /** Keep the saved row's source («desde factura») when only a flag changed. */
+  /** Keep the saved row's source («desde factura») when only a flag changed (the amount is the same). */
   keepSource?: boolean;
 }
 
@@ -251,8 +251,13 @@ export async function saveFixedCosts(
       amount: v.amount,
       pct_of_sales: v.pct_of_sales,
       currency,
+      // «desde factura» survives a flag change (the repeat switch) only while
+      // the value itself is untouched; a different amount is the person's.
       source:
-        entry.keepSource && prev?.source
+        entry.keepSource &&
+        prev?.source &&
+        prev.amount === v.amount &&
+        prev.pct_of_sales === v.pct_of_sales
           ? prev.source
           : ("manual" as FixedCostSource),
       status: "confirmed" as const,

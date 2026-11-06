@@ -47,6 +47,7 @@ import type {
 import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { RENTABILIDAD_HREF } from "@/lib/restaurant/navigation";
+import { historyDelta, relativeTimeText } from "@/lib/restaurant/relative-time";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
@@ -104,6 +105,8 @@ export interface FixedCostsTabProps {
   shellParams: Record<string, string | string[] | undefined>;
   /** The current month (YYYY-MM-01), the latest the picker goes to. */
   currentMonth: string;
+  /** The lines an earlier upload approved per cluster, so a reload still lists them. */
+  savedItems?: Partial<Record<FixedCostCategory, ClusterItem[]>>;
   /** The company's restaurants (the review list asks «¿A qué restaurante?»). */
   restaurants?: Array<{ id: string; name: string }>;
   /** Group view only: the restaurants and their month sales, for the «Repartir» preview. */
@@ -121,6 +124,7 @@ export function FixedCostsTab({
   shellParams,
   currentMonth,
   restaurants = [],
+  savedItems = {},
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
@@ -183,19 +187,36 @@ export function FixedCostsTab({
     null
   );
 
-  // Live: pure and cheap, derived from the confirmed amounts ONLY. The total on
-  // screen is exactly the sum of the cluster amounts shown, nothing hidden.
+  // Live: pure and cheap. The total on screen is the cards plus (on a restaurant)
+  // its read-only group share: exactly what the row below the cards shows.
   const live = useMemo(
     () =>
       figuresOf({
         clusters,
-        groupShares: {},
-        groupImpuestosPct: null,
+        groupShares: view.groupShares,
+        groupImpuestosPct: view.groupImpuestosPct,
         margin: view.margin,
         openDays: view.openDays,
       }),
-    [clusters, view.margin, view.openDays]
+    [
+      clusters,
+      view.groupShares,
+      view.groupImpuestosPct,
+      view.margin,
+      view.openDays,
+    ]
   );
+  // A restaurant's part of the costs the group shares: read-only here, but part
+  // of the total and the break-even. Never shown in the group view.
+  const sharedTotal =
+    view.locationId === null
+      ? 0
+      : Math.round(
+          AMOUNT_CATEGORIES.reduce(
+            (n, c) => n + (view.groupShares[c] ?? 0),
+            0
+          ) * 100
+        ) / 100;
   const splitPreview = useMemo(
     () =>
       previewGroupSplit(
@@ -232,7 +253,7 @@ export function FixedCostsTab({
             value: c.total,
             source: c.source,
             label: c.label,
-            repeats: false,
+            repeats: c.repeats,
           };
       }
       return next;
@@ -384,6 +405,8 @@ export function FixedCostsTab({
 
   const shownText = monthLabelEs(shownMonth, lang);
   const confirmed = confirmedCount(clusters);
+  // Nothing of the restaurant's own is confirmed: the first-visit page.
+  const ownEmpty = confirmed === 0 && sharedTotal === 0;
   const breakEvenText =
     live.breakEven !== null
       ? formatMoney(live.breakEven, view.currency, lang)
@@ -407,6 +430,19 @@ export function FixedCostsTab({
     : breakEvenText
       ? fmt(f.beDetail, { total: totalText, days: view.openDays })
       : (view.marginReason ?? f.reasonNoMargin);
+
+  /** «+$650» for an amount that moved, the amount itself otherwise, the rate for a tax. */
+  const historyValue = (h: FixedCostHistoryItem) => {
+    if (h.new_value?.pct_of_sales != null)
+      return describeValue(h.new_value, view.currency, lang);
+    const delta = historyDelta(
+      h.action === "create" ? 0 : (h.old_value?.amount ?? null),
+      h.new_value?.amount ?? null
+    );
+    return delta.kind === "delta"
+      ? `${delta.sign}${formatMoney(delta.abs, view.currency, lang)}`
+      : describeValue(h.new_value, view.currency, lang);
+  };
 
   const chevron =
     "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#dfe3ea] bg-white text-lg text-[#6b7385] transition-[background-color,color,transform] duration-100 hover:bg-[#F1F3F7] hover:text-[#151c2c] active:scale-95 active:bg-[#E3E7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
@@ -548,7 +584,7 @@ export function FixedCostsTab({
                 {!navigating && confirmed > 0 ? (
                   <span
                     data-testid="confirmed-pill"
-                    className="rounded-full bg-[#E7EDFD] px-2.5 py-0.5 text-xs font-semibold text-[#1B40C8]"
+                    className="rounded-full bg-[#A7F3D0] px-2.5 py-0.5 text-xs font-semibold text-[#0F172A]"
                   >
                     {fmt(f.confirmedPill, {
                       n: confirmed,
@@ -565,7 +601,7 @@ export function FixedCostsTab({
                     {fmt(f.faltaPill, { names: falta.join(", ") })}
                   </span>
                 ) : null}
-                {!navigating && !live.empty ? (
+                {!navigating && !ownEmpty ? (
                   <span className="ml-auto flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -586,7 +622,7 @@ export function FixedCostsTab({
                 ) : null}
               </div>
               <p className="text-sm text-[#6b7385]">
-                {live.empty ? f.cardSubEmpty : f.cardSubFilled}
+                {ownEmpty ? f.cardSubEmpty : f.cardSubFilled}
               </p>
               {isGroup ? (
                 <p className="text-sm text-[#6b7385]">{f.groupHint}</p>
@@ -597,7 +633,7 @@ export function FixedCostsTab({
               inputRef={uploadInput}
               lastMonth={view.lastMonth ?? {}}
               clusters={clusters}
-              showDrop={!navigating && live.empty}
+              showDrop={!navigating && ownEmpty}
               onReview={onReview}
               onConfirm={applyChanges}
               onSettled={settle}
@@ -625,7 +661,12 @@ export function FixedCostsTab({
                     key={category}
                     category={category}
                     confirmed={clusters[category] ?? null}
-                    items={itemsToShow(items[category], clusters[category])}
+                    items={itemsToShow(
+                      items[category]?.length
+                        ? items[category]
+                        : savedItems[category],
+                      clusters[category]
+                    )}
                     currency={view.currency}
                     flashing={flash?.includes(category) ?? false}
                     onUpload={() => uploadInput.current?.click()}
@@ -644,6 +685,16 @@ export function FixedCostsTab({
                     }
                   />
                 ))}
+                {sharedTotal > 0 ? (
+                  <div data-testid="fixed-shared-row" className="py-4">
+                    <p className="text-sm font-semibold text-[#151c2c]">
+                      {fmt(f.sharedRow, {
+                        amount: formatMoney(sharedTotal, view.currency, lang),
+                      })}
+                    </p>
+                    <p className="text-sm text-[#6b7385]">{f.sharedSub}</p>
+                  </div>
+                ) : null}
               </div>
             )}
 
@@ -721,21 +772,12 @@ export function FixedCostsTab({
                           })
                         : fmt(f.historyLine, {
                             category: categoryLabel(h.category, lang),
-                            value: describeValue(
-                              h.new_value,
-                              view.currency,
-                              lang
-                            ),
+                            value: historyValue(h),
                             source: sourceText[h.source] ?? h.source,
                           })}
                     </span>
                     <span className="block text-xs text-[#6b7385]">
-                      {new Date(h.created_at).toLocaleString(locale, {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {relativeTimeText(h.created_at, Date.now(), locale)}
                     </span>
                   </li>
                 ))}

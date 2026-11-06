@@ -107,6 +107,7 @@ function installFetch() {
           locationId: LOC,
           total,
           previous,
+          repeats: !mine.some((l) => l.oneTime),
           lineIds: mine.map((l) => l.id),
         });
       }
@@ -177,7 +178,12 @@ function view(over: Record<string, unknown> = {}) {
     ...over,
   } as never;
 }
-function show(lines = FIVE, v = view()) {
+function show(
+  lines: any[] = FIVE,
+  v = view(),
+  savedItems?: Record<string, any[]>,
+  history: any[] = []
+) {
   server = {
     draft: {
       id: "d1",
@@ -198,7 +204,8 @@ function show(lines = FIVE, v = view()) {
   render(
     <FixedCostsTab
       view={v}
-      history={[]}
+      history={history}
+      savedItems={savedItems}
       locationName="Demo"
       shellParams={{}}
       currentMonth={MONTH}
@@ -561,27 +568,148 @@ describe("Copiar mes", () => {
     expect(screen.queryByRole("button", { name: /^Copiar/ })).toBeNull();
     cleanup();
     show([], view({ lines: [saved("planilla", 21400)] }));
-    fireEvent.click(screen.getByRole("button", { name: "Copiar septiembre" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copiar recurrentes de septiembre" })
+    );
     expect(
-      await screen.findByText(/No hay costos que repetir de septiembre/)
+      await screen.findByText(
+        /No hay costos recurrentes que copiar de septiembre/
+      )
     ).toBeTruthy();
   });
 });
 
-describe("no group-share caption, total = the cards", () => {
-  it("a group share never shows as «Más $X del grupo»; the total is the sum of the cards", () => {
+describe("group share on a restaurant", () => {
+  const withShare = () =>
+    view({
+      lines: [saved("planilla", 1000)],
+      groupShares: { servicios: 500, otros: 50 },
+      groupImpuestosPct: 10,
+    });
+
+  it("one read-only row «Compartidos del grupo · $550»; Total = cards + share; «desde $Y» = Total", () => {
+    show([], withShare());
+    const row = screen.getByTestId("fixed-shared-row");
+    expect(row.textContent).toContain("Compartidos del grupo · $550");
+    expect(row.textContent).toContain("tu parte · no se edita aquí");
+    expect(row.querySelectorAll("input,button")).toHaveLength(0);
+    expect(screen.getByTestId("fixed-total").textContent).toContain("$1,550");
+    expect(screen.getByTestId("break-even-detail").textContent).toContain(
+      "desde $1,550 costos fijos"
+    );
+    // «Más $X del grupo» never comes back under an empty field
+    expect(document.body.textContent).not.toMatch(/Más .* del grupo/);
+    expect(card("servicios").getAttribute("data-state")).toBe("empty");
+    expect(card("servicios").textContent).not.toContain("$500");
+  });
+
+  it("the break-even includes the group share and the inherited tax rate (same as Rentabilidad)", () => {
+    show([], withShare());
+    const cm = (100000 - (100000 * 0.1) / 1.1 - 30000) / 100000;
+    const expected = (1550 / (cm * 30)).toLocaleString("en-US", {
+      maximumFractionDigits: 0,
+    });
+    expect(beValue()).toBe(`$${expected}`);
+  });
+
+  it("without a share there is no row; and the group view never has one", () => {
+    show([], view({ lines: [saved("planilla", 1000)] }));
+    expect(screen.queryByTestId("fixed-shared-row")).toBeNull();
+    cleanup();
     show(
       [],
       view({
-        lines: [saved("planilla", 1000)],
+        locationId: null,
+        lines: [],
         groupShares: { servicios: 500 },
-        groupImpuestosPct: 10,
       })
     );
-    expect(document.body.textContent).not.toMatch(/Más .* del grupo/);
-    expect(screen.getByTestId("fixed-total").textContent).toContain("$1,000");
-    expect(card("servicios").getAttribute("data-state")).toBe("empty");
-    expect(card("impuestos").getAttribute("data-state")).toBe("empty");
+    expect(screen.queryByTestId("fixed-shared-row")).toBeNull();
+  });
+});
+
+describe("v3 answers from Sofia", () => {
+  it("«N de M confirmados» is mint with Ink text", async () => {
+    show([FIVE[0]]);
+    fireEvent.click(await approveBtn("Nómina demo"));
+    const pill = await screen.findByTestId("confirmed-pill");
+    expect(pill.className).toContain("bg-[#A7F3D0]");
+    expect(pill.className).toContain("text-[#0F172A]");
+  });
+
+  it("an approved bill's «Se repite cada mes» is ON; a one-off's is OFF", async () => {
+    show([FIVE[0], { ...FIVE[1], oneTime: true }]);
+    fireEvent.click(await approveBtn("Nómina demo"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("switch", {
+            name: "Se repite cada mes: Planilla",
+          }) as HTMLInputElement
+        ).checked
+      ).toBe(true)
+    );
+    fireEvent.click(await approveBtn("Renta demo"));
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("switch", {
+            name: "Se repite cada mes: Alquiler",
+          }) as HTMLInputElement
+        ).checked
+      ).toBe(false)
+    );
+  });
+
+  it("after a reload the lines saved by an earlier upload still list under the card", () => {
+    show(
+      [],
+      view({
+        lines: [{ ...saved("servicios", 3900), label: "Agua + Seguro" }],
+      }),
+      {
+        servicios: [
+          { id: "a", raw: "Agua", amount: 650 },
+          { id: "b", raw: "Seguro", amount: 3250 },
+        ],
+      }
+    );
+    const items = screen.getByTestId("fixed-items-servicios");
+    expect(items.textContent).toContain("Agua");
+    expect(items.textContent).toContain("$650");
+    expect(items.textContent).toContain("Seguro");
+    expect(items.textContent).toContain("$3,250");
+  });
+
+  it("saved lines that no longer add up to the card are not shown", () => {
+    show([], view({ lines: [saved("servicios", 4000)] }), {
+      servicios: [
+        { id: "a", raw: "Agua", amount: 650 },
+        { id: "b", raw: "Seguro", amount: 3250 },
+      ],
+    });
+    expect(screen.queryByTestId("fixed-items-servicios")).toBeNull();
+  });
+
+  it("Historial: category · change · source, with a relative time", () => {
+    const now = new Date().toISOString();
+    show([], view({ lines: [saved("servicios", 650)] }), undefined, [
+      {
+        id: "h1",
+        created_at: now,
+        actor: null,
+        action: "update",
+        category: "servicios",
+        month: MONTH,
+        location_id: LOC,
+        old_value: { amount: 0, pct_of_sales: null },
+        new_value: { amount: 650, pct_of_sales: null },
+        source: "upload",
+      },
+    ]);
+    const h = screen.getByTestId("history");
+    expect(h.textContent).toContain("Servicios · +$650 · desde factura");
+    expect(h.textContent).toMatch(/minuto|hace/);
   });
 });
 

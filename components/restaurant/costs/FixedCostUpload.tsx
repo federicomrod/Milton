@@ -26,6 +26,7 @@ import {
   type FixedCostCategory,
 } from "@/lib/restaurant/fixed-costs";
 import {
+  nextRepeats,
   type DraftLine,
   type OverwriteConflict,
 } from "@/lib/restaurant/fixed-cost-upload";
@@ -78,6 +79,8 @@ export interface ClusterChange {
   total: number | null;
   source: string | null;
   label: string | null;
+  /** «Se repite cada mes» of the row after the change. */
+  repeats: boolean;
 }
 
 interface AppliedRow {
@@ -90,7 +93,9 @@ interface AppliedRow {
     pct_of_sales: number | null;
     label: string | null;
     source: string | null;
+    repeats?: boolean | null;
   } | null;
+  repeats: boolean;
   lineIds: string[];
 }
 
@@ -341,6 +346,20 @@ export function FixedCostUpload({
         return `${prior} + ${parts ?? ""}`.slice(0, 120);
       return c === "impuestos" ? (parts?.split(" + ").pop() ?? null) : parts;
     };
+    // ON for ordinary bills, OFF for one-offs; adding keeps the person's choice.
+    const repeatsFor = (c: FixedCostCategory): boolean => {
+      const adding =
+        c !== "impuestos" &&
+        !!clusters[c] &&
+        (mode === "add" ||
+          (mode !== "replace" &&
+            isOwnTotal(c, clusters[c], draft.lines, screen)));
+      return nextRepeats(
+        ready.filter((l) => l.category === c),
+        adding,
+        clusters[c]?.repeats
+      );
+    };
     const change = (c: FixedCostCategory): ClusterChange => ({
       category: c,
       total: clusterAfter(
@@ -351,6 +370,7 @@ export function FixedCostUpload({
       ),
       source: "upload",
       label: labelFor(c),
+      repeats: repeatsFor(c),
     });
     const undoChanges = () =>
       cats.map(
@@ -359,6 +379,7 @@ export function FixedCostUpload({
           total: clusters[c]?.value ?? null,
           source: clusters[c]?.source ?? null,
           label: clusters[c]?.label ?? null,
+          repeats: clusters[c]?.repeats === true,
         })
       );
 
@@ -447,6 +468,7 @@ export function FixedCostUpload({
           category: a.category,
           total: a.total,
           source: "upload",
+          repeats: a.repeats === true,
           label:
             a.category === "impuestos"
               ? (conceptLabel(
@@ -562,6 +584,7 @@ export function FixedCostUpload({
               : null,
             source: a.previous?.source ?? null,
             label: a.previous?.label ?? null,
+            repeats: a.previous?.repeats === true,
           }))
       );
       showToast({ text: t.undone, applied: null }, 2000);

@@ -27,6 +27,7 @@ import {
   getProfile,
   getToken,
   readToken,
+  accessibilityMove,
   setProfile,
   setToken,
   type Profile,
@@ -36,6 +37,7 @@ import {
   pinGate,
   readTokenPatiently,
   startupStatus,
+  upgradeTokenAccessibility,
   type PinGate,
 } from "./stay-signed-in";
 
@@ -118,6 +120,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       createApiClient({
         baseUrl: apiBaseUrl(),
         getToken,
+        readToken,
         language: currentLanguage,
         unauthorizedPolicy: "device",
         onUnauthorized: () => void endSession("revoked"),
@@ -187,8 +190,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setStatus("signedOut");
         return;
       }
-      // Existing installs saved the token as «when unlocked»: save it again once.
-      if (read.kind === "found") void setToken(read.token).catch(() => {});
+      // Existing installs saved the token as «when unlocked»: move it once, safely.
+      void upgradeTokenAccessibility(accessibilityMove);
       setCurrentLanguage(cached?.language);
       setProfileState(cached);
       setStatus("signedIn");

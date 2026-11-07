@@ -65,3 +65,40 @@ export function startupStatus(
   if (read.kind === "unreadable" && hasProfile) return "signedIn";
   return "signedOut";
 }
+
+/**
+ * One-time move of an existing login to «readable after first unlock»
+ * (expo-secure-store 58 re-saves an existing item with SecItemUpdate, which sets
+ * the new accessibility in place; a failed update leaves the old item as it
+ * was). Rules, so a valid login is never lost:
+ *   - only a FOUND token is touched; absent or unreadable do nothing and are
+ *     tried again next launch;
+ *   - a failed write changes nothing and is tried again next launch;
+ *   - after a write the token is read back and must be the same; if not, the
+ *     original is saved again (best effort) and the move is not marked done;
+ *   - nothing is ever deleted or cleared here.
+ */
+export async function upgradeTokenAccessibility(deps: {
+  done: () => Promise<boolean>;
+  markDone: () => Promise<void>;
+  read: () => Promise<import("../storage/token").TokenRead>;
+  write: (token: string) => Promise<void>;
+  /** Saves the token the way it was saved before (used only to put it back). */
+  restore: (token: string) => Promise<void>;
+}): Promise<"skipped" | "upgraded" | "retry-later"> {
+  if (await deps.done().catch(() => false)) return "skipped";
+  const before = await deps.read();
+  if (before.kind !== "found") return "retry-later";
+  try {
+    await deps.write(before.token);
+  } catch {
+    return "retry-later";
+  }
+  const after = await deps.read();
+  if (after.kind === "found" && after.token === before.token) {
+    await deps.markDone().catch(() => {});
+    return "upgraded";
+  }
+  await deps.restore(before.token).catch(() => {});
+  return "retry-later";
+}

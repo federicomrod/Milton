@@ -44,9 +44,26 @@ const ACCESS = {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
 };
 
+const ACCESS_FLAG = "milton.token.access.v1";
+
 export async function setToken(token: string): Promise<void> {
   await SecureStore.setItemAsync(TOKEN_KEY, token, ACCESS);
+  // A token saved now is already «after first unlock»: nothing to move later.
+  try {
+    await AsyncStorage.setItem(ACCESS_FLAG, "1");
+  } catch {
+    // The one-time move will simply check it once.
+  }
 }
+
+/** The plumbing for the one-time accessibility move (see stay-signed-in.ts). */
+export const accessibilityMove = {
+  done: async () => (await AsyncStorage.getItem(ACCESS_FLAG)) === "1",
+  markDone: () => AsyncStorage.setItem(ACCESS_FLAG, "1"),
+  read: readToken,
+  write: (token: string) => SecureStore.setItemAsync(TOKEN_KEY, token, ACCESS),
+  restore: (token: string) => SecureStore.setItemAsync(TOKEN_KEY, token),
+};
 
 export async function clearToken(): Promise<void> {
   try {

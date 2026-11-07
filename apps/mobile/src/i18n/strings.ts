@@ -111,6 +111,8 @@ export const es = {
     timeout: "Tardó demasiado. Inténtalo otra vez.",
     unreachable: "No pude conectar con Milton. Inténtalo en un momento.",
     signIn: "Vuelve a entrar con tu invitación.",
+    credentialsUnreadable:
+      "No pude abrir tu sesión guardada ahora. Espera un momento e inténtalo otra vez.",
     server: "Milton no responde ahora. Inténtalo en un momento.",
     generic: "Algo salió mal. Inténtalo otra vez.",
     failed: "No se pudo completar. Inténtalo otra vez.",
@@ -324,6 +326,8 @@ export const en: Strings = {
     timeout: "It took too long. Try again.",
     unreachable: "I couldn't reach Milton. Try again in a moment.",
     signIn: "Sign in again with your invite.",
+    credentialsUnreadable:
+      "I could not open your saved session right now. Wait a moment and try again.",
     server: "Milton isn't answering right now. Try again in a moment.",
     generic: "Something went wrong. Try again.",
     failed: "It couldn't be completed. Try again.",
@@ -537,6 +541,8 @@ export const de: Strings = {
     unreachable:
       "Ich konnte Milton nicht erreichen. Versuche es gleich noch einmal.",
     signIn: "Melde dich noch einmal mit deiner Einladung an.",
+    credentialsUnreadable:
+      "Deine gespeicherte Anmeldung konnte gerade nicht gelesen werden. Warte einen Moment und versuche es erneut.",
     server: "Milton antwortet gerade nicht. Versuche es gleich noch einmal.",
     generic: "Etwas ist schiefgegangen. Versuche es noch einmal.",
     failed: "Das ging nicht. Versuche es noch einmal.",

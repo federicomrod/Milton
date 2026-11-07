@@ -11,7 +11,6 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { can } from "@/lib/auth/permissions";
-import { isOwnerRole } from "@/lib/auth/capabilities";
 import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server";
 import { getDictionary } from "@/lib/i18n";
 import { TeamPanel } from "../team/TeamPanel";
@@ -22,6 +21,7 @@ import {
   type TeamMember,
 } from "../team/types";
 import { KitchenAppInviteCard } from "@/components/restaurant/kitchen/KitchenAppInviteCard";
+import { KitchenTeamCard } from "@/components/restaurant/kitchen/KitchenTeamCard";
 import { KitchenQrCard } from "@/components/restaurant/kitchen/KitchenQrCard";
 
 const MEMBER_LIMIT = 50;
@@ -50,13 +50,18 @@ export async function EquipoSection() {
   const canManage = can(actor, "team.manage");
   const admin = createAdminClient();
 
-  const [membersRes, invitesRes, cooksRes] = await Promise.all([
+  // is_support is migration 072; before it the column does not exist.
+  const readMembers = async (columns: string) =>
     admin
       .from("company_memberships")
-      .select("id, user_id, role, created_at")
+      .select(columns)
       .eq("company_id", companyId)
       .order("created_at", { ascending: true })
-      .limit(MEMBER_LIMIT),
+      .limit(MEMBER_LIMIT);
+  const [membersRes, invitesRes, cooksRes] = await Promise.all([
+    readMembers("id, user_id, role, created_at, is_support").then((res) =>
+      res.error ? readMembers("id, user_id, role, created_at") : res
+    ),
     admin
       .from("workspace_invites")
       // token_hash is never selected.
@@ -75,35 +80,43 @@ export async function EquipoSection() {
   ]);
 
   const members: TeamMember[] = await Promise.all(
-    (membersRes.data ?? []).map(async (row) => {
-      let name: string | null = null;
-      let email: string | null = null;
-      try {
-        const { data } = await admin.auth.admin.getUserById(
-          String(row.user_id)
-        );
-        const u = data?.user;
-        email = cleanText(u?.email);
-        name =
-          cleanText(u?.user_metadata?.full_name) ??
-          cleanText(u?.user_metadata?.name);
-      } catch {
-        // Show the row without a name rather than failing the card.
+    ((membersRes.data ?? []) as unknown as Array<Record<string, unknown>>).map(
+      async (row) => {
+        const isSupport = row.is_support === true;
+        let name: string | null = null;
+        let email: string | null = null;
+        // Milton staff: never look the person up, so their name and email
+        // cannot reach the client payload (the UI shows «Soporte Milton»).
+        if (!isSupport) {
+          try {
+            const { data } = await admin.auth.admin.getUserById(
+              String(row.user_id)
+            );
+            const u = data?.user;
+            email = cleanText(u?.email);
+            name =
+              cleanText(u?.user_metadata?.full_name) ??
+              cleanText(u?.user_metadata?.name);
+          } catch {
+            // Show the row without a name rather than failing the card.
+          }
+        }
+        return {
+          id: String(row.id),
+          name,
+          email,
+          role: roleKind(row.role as string | null),
+          isSelf: row.user_id === user.id,
+          isSupport,
+        };
       }
-      return {
-        id: String(row.id),
-        name,
-        email,
-        role: roleKind(row.role as string | null),
-        isSelf: row.user_id === user.id,
-      };
-    })
+    )
   );
 
   const invites: TeamInvite[] = (invitesRes.data ?? []).map((row) => ({
     id: String(row.id),
     email: String(row.email),
-    role: isOwnerRole(row.role) ? "owner" : "member",
+    role: roleKind(row.role as string | null),
     expiresAt: String(row.expires_at),
   }));
 
@@ -122,8 +135,13 @@ export async function EquipoSection() {
         invites={invites}
         cooks={cooks}
         canManage={canManage}
+        actorRole={actor.role}
+        actorIsStaff={actor.isMiltonStaff}
       />
-      {canManage ? (
+      {can(actor, "kitchen.team") ? (
+        <KitchenTeamCard locations={chrome.locations} />
+      ) : null}
+      {can(actor, "kitchen.qr") ? (
         <div className="space-y-4">
           <KitchenAppInviteCard locations={chrome.locations} />
           <KitchenQrCard canManage />

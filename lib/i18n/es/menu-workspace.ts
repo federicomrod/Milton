@@ -398,6 +398,13 @@ export const menuWorkspace = {
     chipDrafts: "{n} por aprobar",
     chipApproved: "{n} aprobadas",
     yieldToConfirmSuffix: " · rendimiento por confirmar",
+    filterMissingYield: "Falta rendimiento ({n})",
+    confirmOneUnit: "Confirmar 1 unidad",
+    undoConfirmOne: "Deshacer confirmación",
+    yieldHistoryTitle: "Historial del rendimiento",
+    historyConfirmed: "{who} confirmó 1 unidad · {date}",
+    historyRevoked: "{who} deshizo la confirmación · {date}",
+    historyUnknownWho: "alguien",
     backToDish: "← Volver al plato",
     title: "Preparaciones de tu cocina",
     titleHint:

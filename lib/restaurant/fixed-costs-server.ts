@@ -11,6 +11,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
+import type { ClusterItem } from "@/lib/restaurant/fixed-cost-clusters";
+import { loadApprovedItems } from "@/lib/restaurant/fixed-cost-upload-server";
 import {
   fetchAllRows,
   succeededRows,
@@ -21,6 +23,7 @@ import {
   effectiveFixedCosts,
   fixedCostCompleteness,
   isFixedCostCategory,
+  isRlsDenied,
   lineKey,
   monthStartOf,
   nextMonthStart,
@@ -141,6 +144,23 @@ export interface SaveEntry {
   label?: string | null;
   repeats?: boolean;
   split_rule?: SplitRule | null;
+  /** Keep the saved row's source («desde factura») when only a flag changed (the amount is the same). */
+  keepSource?: boolean;
+}
+
+/** A failed write: a role the database refuses is a 403 with the usual message, never raw text. */
+function writeFailure(
+  error: { code?: string; message: string },
+  lang: PreferredLanguage | undefined
+): { ok: false; error: string; forbidden?: true } {
+  if (isRlsDenied(error)) {
+    return {
+      ok: false,
+      error: getDictionary(lang ?? "es").costs.fixed.roleDenied,
+      forbidden: true,
+    };
+  }
+  return { ok: false, error: error.message };
 }
 
 /**
@@ -158,7 +178,8 @@ export async function saveFixedCosts(
     lang?: PreferredLanguage;
   }
 ): Promise<
-  { ok: true; lines: FixedCostLine[] } | { ok: false; error: string }
+  | { ok: true; lines: FixedCostLine[] }
+  | { ok: false; error: string; forbidden?: true }
 > {
   const month = monthStartOf(args.month);
   if (!month)
@@ -186,7 +207,7 @@ export async function saveFixedCosts(
         .delete()
         .eq("company_id", ctx.companyId)
         .eq("id", prev.id);
-      if (error) return { ok: false, error: error.message };
+      if (error) return writeFailure(error, args.lang);
       await writeLog(ctx, [
         {
           fixed_cost_id: prev.id,
@@ -232,7 +253,15 @@ export async function saveFixedCosts(
       amount: v.amount,
       pct_of_sales: v.pct_of_sales,
       currency,
-      source: "manual" as const,
+      // «desde factura» survives a flag change (the repeat switch) only while
+      // the value itself is untouched; a different amount is the person's.
+      source:
+        entry.keepSource &&
+        prev?.source &&
+        prev.amount === v.amount &&
+        prev.pct_of_sales === v.pct_of_sales
+          ? prev.source
+          : ("manual" as FixedCostSource),
       status: "confirmed" as const,
       repeats: v.repeats,
       split_rule: v.split_rule,
@@ -252,7 +281,7 @@ export async function saveFixedCosts(
           .insert({ ...row, created_by: ctx.userId })
           .select("id")
           .single();
-    if (result.error) return { ok: false, error: result.error.message };
+    if (result.error) return writeFailure(result.error, args.lang);
     await writeLog(ctx, [
       {
         fixed_cost_id: (result.data as { id: string }).id,
@@ -300,6 +329,8 @@ export async function repeatFixedCosts(
   const planned = planRepeat(source, target, month, touched);
   if (planned.length === 0) return [];
   const currency = await resolveCompanyCurrency(ctx.supabase, ctx.companyId);
+  const fromMonth = previousMonthStart(month);
+  const detailCache = new Map<string, CopyDetailSource>();
   // One insert per line: the unique index is on an expression (a NULL
   // location is the group), so PostgREST cannot upsert on it. A unique
   // violation (23505) means the value already exists — keep it, never overwrite.
@@ -332,20 +363,134 @@ export async function repeatFixedCosts(
     const line = toLine(data as unknown as LineRow);
     if (line) created.push(line);
   }
-  await writeLog(
-    ctx,
-    created.map((l) => ({
+  // The log keeps where each copy came from and, when the source month had a
+  // breakdown that adds up to the copied amount, the breakdown itself.
+  const logRows = [];
+  for (const l of created) {
+    const items = await copiedItems(ctx, detailCache, fromMonth, l);
+    logRows.push({
       fixed_cost_id: l.id ?? null,
       location_id: l.location_id,
       month: l.month,
       category: l.category,
       action: "repeat" as const,
       old_value: null,
-      new_value: { amount: l.amount, pct_of_sales: l.pct_of_sales },
+      new_value: {
+        amount: l.amount,
+        pct_of_sales: l.pct_of_sales,
+        from_month: fromMonth,
+        ...(items ? { items } : {}),
+      },
       source: "repeat" as const,
-    }))
-  );
+    });
+  }
+  await writeLog(ctx, logRows);
   return created;
+}
+
+type CopyDetailSource = {
+  drafts: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+};
+
+const sameMoney = (a: number, b: number) =>
+  Math.round(a * 100) === Math.round(b * 100);
+
+/** Items that really make up `amount`: two or more, adding up to it exactly. */
+function itemsThatAddUp(
+  items: readonly { raw: string; amount: number }[] | undefined,
+  amount: number | null
+): { raw: string; amount: number }[] | null {
+  if (!items || items.length < 2 || amount === null) return null;
+  const sum = items.reduce((n, i) => n + i.amount, 0);
+  return sameMoney(sum, amount)
+    ? items.map((i) => ({ raw: i.raw, amount: i.amount }))
+    : null;
+}
+
+/**
+ * The breakdown behind a copied line, taken from the SOURCE month of the same
+ * restaurant/group: the approved upload lines, or (for a copy of a copy) the
+ * breakdown its own copy log row kept. Nothing is invented: no match, no detail.
+ */
+async function copiedItems(
+  ctx: FixedCostsContext,
+  cache: Map<string, CopyDetailSource>,
+  fromMonth: string,
+  line: FixedCostLine
+): Promise<{ raw: string; amount: number }[] | null> {
+  if (line.category === "impuestos") return null;
+  const key = `${fromMonth}|${line.location_id ?? "group"}`;
+  let src = cache.get(key);
+  if (!src) {
+    src = {
+      drafts: await loadApprovedItems(ctx, {
+        month: fromMonth,
+        locationId: line.location_id,
+      }).catch(() => ({})),
+    };
+    cache.set(key, src);
+  }
+  const fromDrafts = itemsThatAddUp(src.drafts[line.category], line.amount);
+  if (fromDrafts) return fromDrafts;
+  const priorAll: Partial<Record<FixedCostCategory, RepeatDetail>> =
+    await loadRepeatDetail(ctx, {
+      month: fromMonth,
+      locationId: line.location_id,
+    }).catch(() => ({}));
+  return itemsThatAddUp(priorAll[line.category]?.items, line.amount);
+}
+
+export interface RepeatDetail {
+  /** The month the copy was taken from (YYYY-MM-01), as the log stored it. */
+  fromMonth: string | null;
+  /** The breakdown the copy kept; undefined when none was available. */
+  items?: { raw: string; amount: number }[];
+}
+
+/**
+ * What the copy log says about each copied cluster of a month and restaurant (or
+ * the group): the source month and the breakdown. Company- and scope-bound; the
+ * newest copy row of a category wins.
+ */
+export async function loadRepeatDetail(
+  ctx: FixedCostsContext,
+  screen: { month: string; locationId: string | null }
+): Promise<Partial<Record<FixedCostCategory, RepeatDetail>>> {
+  let q = ctx.supabase
+    .from("restaurant_fixed_costs_log")
+    .select("category, new_value, created_at")
+    .eq("company_id", ctx.companyId)
+    .eq("month", screen.month)
+    .eq("action", "repeat");
+  q = screen.locationId
+    ? q.eq("location_id", screen.locationId)
+    : q.is("location_id", null);
+  const { data, error } = await q.order("created_at", { ascending: false });
+  if (error || !data) return {};
+  const out: Partial<Record<FixedCostCategory, RepeatDetail>> = {};
+  for (const r of data as Array<{
+    category: string;
+    new_value: {
+      from_month?: unknown;
+      items?: unknown;
+    } | null;
+  }>) {
+    if (!isFixedCostCategory(r.category) || out[r.category]) continue;
+    const nv = r.new_value ?? {};
+    const items = Array.isArray(nv.items)
+      ? (nv.items as Array<{ raw?: unknown; amount?: unknown }>)
+          .filter(
+            (i) => typeof i.raw === "string" && typeof i.amount === "number"
+          )
+          .map((i) => ({ raw: i.raw as string, amount: i.amount as number }))
+      : [];
+    out[r.category] = {
+      fromMonth:
+        typeof nv.from_month === "string" ? nv.from_month.slice(0, 10) : null,
+      ...(items.length ? { items } : {}),
+    };
+  }
+  return out;
 }
 
 /** lineKey of every (scope, category) with a history row in `month`. */
@@ -401,7 +546,12 @@ export interface FixedCostHistoryItem {
   month: string;
   location_id: string | null;
   old_value: { amount: number | null; pct_of_sales: number | null } | null;
-  new_value: { amount: number | null; pct_of_sales: number | null } | null;
+  /** `from_month` / `items` are written by a repeat (the month it was copied from). */
+  new_value: {
+    amount: number | null;
+    pct_of_sales: number | null;
+    from_month?: string;
+  } | null;
   source: FixedCostSource;
 }
 
@@ -538,6 +688,8 @@ export interface FixedCostsView {
   marginReason: string | null;
   /** null = no number (a category is missing, or no margin). */
   breakEven: number | null;
+  /** The previous month's value per category in the same scope (small grey text, ±20% flag). */
+  lastMonth: Partial<Record<FixedCostCategory, number>>;
 }
 
 export async function loadFixedCostsView(
@@ -553,7 +705,7 @@ export async function loadFixedCostsView(
 ): Promise<FixedCostsView> {
   const { supabase, companyId } = ctx;
   const marginRead = args.marginRead;
-  const [currency, lines, shiftRows, group] = await Promise.all([
+  const [currency, lines, shiftRows, group, lastLines] = await Promise.all([
     resolveCompanyCurrency(supabase, companyId),
     listFixedCosts(supabase, companyId, args.month, args.locationId),
     args.locationId
@@ -576,7 +728,19 @@ export async function loadFixedCostsView(
           impuestosPct: null,
           hasEstimate: false,
         }),
+    // A hiccup here only hides the small grey «Mes pasado» text.
+    listFixedCosts(
+      supabase,
+      companyId,
+      previousMonthStart(args.month),
+      args.locationId
+    ).catch(() => [] as FixedCostLine[]),
   ]);
+  const lastMonth: Partial<Record<FixedCostCategory, number>> = {};
+  for (const l of lastLines) {
+    const v = l.category === "impuestos" ? l.pct_of_sales : l.amount;
+    if (v !== null) lastMonth[l.category] = v;
+  }
   // Before migration 054 the table is missing: no shifts → every day is open.
   const weekdays = (
     (shiftRows.data ?? []) as Array<{ weekdays: number[]; active: boolean }>
@@ -607,5 +771,6 @@ export async function loadFixedCostsView(
       margin,
       openDays,
     }),
+    lastMonth,
   };
 }

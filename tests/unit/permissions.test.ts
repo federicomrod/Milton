@@ -44,6 +44,7 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "recipes.submit": [true, true, true, false, false, false],
   "recipes.approve": [true, true, false, false, false, false],
   "prices.edit": [true, true, true, false, false, false],
+  "prices.view": [true, true, true, false, true, false],
   "links.confirm": [true, true, true, false, false, false],
   "ingredients.manage": [true, true, true, false, false, false],
   "menu.manage": [true, true, true, false, false, false],
@@ -53,13 +54,15 @@ const EXPECTED: Record<Capability, boolean[]> = {
   "shifts.edit": [true, true, true, false, false, false],
   "kitchen.drafts": [true, true, true, false, false, false],
   "kitchen.qr": [true, false, false, false, false, false],
+  "kitchen.team": [true, true, true, false, false, false],
   "costs.reset": [true, true, false, false, false, false],
   "costs.fixed": [true, true, true, false, false, false],
+  "costs.buffer": [true, true, true, false, false, false],
   "odoo.sync": [false, false, false, false, false, false],
   "odoo.diagnostics": [true, true, false, false, false, false],
   "imports.run": [true, true, true, false, false, false],
   "company.edit": [true, true, false, false, false, false],
-  "team.manage": [true, false, false, false, false, false],
+  "team.manage": [true, true, false, false, false, false],
 };
 const ROLES = ["owner", "admin", "manager", "member", "viewer", null];
 

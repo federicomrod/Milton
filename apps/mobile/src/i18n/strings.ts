@@ -4,7 +4,7 @@
 // do not see them.
 
 export const es = {
-  appName: "Milton Cocina",
+  appName: "Milton",
   tabs: { send: "Enviar", history: "Historial" },
   hello: "Hola, {name}",
   helloPlain: "Hola",
@@ -16,7 +16,18 @@ export const es = {
     location: "Local",
     company: "Empresa",
     logout: "Cerrar sesión",
-    version: "Milton Cocina {version}",
+    version: "Milton {version}",
+    kitchenCode: "Código de cocina",
+    security: "Seguridad",
+    changePin: "Cambiar mi PIN",
+    biometric: "Entrar con Face ID / huella",
+    biometricHint:
+      "Guarda tu PIN solo en este teléfono para entrar más rápido.",
+    appLock: "Pedir al abrir la app",
+    appLockHint: "Te pide Face ID, huella o tu PIN cuando abres Milton.",
+    biometricPin: "Escribe tu PIN para guardarlo en este teléfono",
+    biometricSave: "Activar",
+    biometricWrongPin: "Ese no es tu PIN. Revísalo.",
   },
   offline: {
     banner: "Sin conexión",
@@ -35,12 +46,73 @@ export const es = {
     codeUnknown:
       "No reconozco ese código. Pega el código o el enlace completo.",
     nameMissing: "Escribe tu nombre.",
+    pinLabel: "Crea tu PIN",
+    pinHint:
+      "De 4 a 6 números. Con tu nombre y tu PIN vuelves a entrar si pierdes la sesión.",
+    pinConfirmLabel: "Repite tu PIN",
+    haveAccount: "Ya tengo cuenta · Entrar con PIN",
+  },
+  pin: {
+    createTitle: "Crea tu PIN",
+    changeTitle: "Cambia tu PIN",
+    createIntro:
+      "Con tu nombre y tu PIN puedes volver a entrar si pierdes la sesión.",
+    tempIntro:
+      "Tu encargado te dio un PIN temporal. Elige uno tuyo para seguir.",
+    currentLabel: "PIN actual",
+    newLabel: "PIN nuevo",
+    confirmLabel: "Repite el PIN nuevo",
+    hint: "De 4 a 6 números.",
+    save: "Guardar PIN",
+    format: "El PIN debe tener de 4 a 6 números.",
+    weak: "Ese PIN es muy fácil de adivinar. Evita cosas como 1234 o 0000.",
+    mismatch: "Los dos PIN no son iguales.",
+    wrong: "El PIN actual no es correcto.",
+    locked: "Demasiados intentos. Prueba otra vez en {minutes} min.",
+  },
+  login: {
+    title: "Entrar con tu PIN",
+    intro: "Escribe el código de cocina, tu nombre y tu PIN.",
+    codeLabel: "Código de cocina",
+    codePlaceholder: "Por ejemplo: K7M2QX",
+    pinLabel: "PIN",
+    enter: "Entrar",
+    missing: "Escribe el código, tu nombre y tu PIN.",
+    failed:
+      "No pude entrar con esos datos. Revisa el código, tu nombre y tu PIN.",
+    askBoss: "Pide a tu encargado un PIN o un nuevo enlace.",
+    locked: "Demasiados intentos. Espera {minutes} min y prueba otra vez.",
+    biometric: "Entrar con Face ID / huella",
+    biometricPrompt: "Confirma que eres tú para entrar a Milton",
+    cancel: "Cancelar",
+    useInvite: "Tengo un enlace de invitación",
+  },
+  welcome: {
+    title: "Ya estás dentro",
+    codeTitle: "Tu código de cocina",
+    codeHelp:
+      "Con tu nombre, tu PIN y este código puedes entrar en otro teléfono.",
+    useBiometric: "Usar Face ID / huella",
+    biometricHelp:
+      "Entra más rápido con tu cara o tu dedo. Tu PIN se guarda solo en este teléfono.",
+    continue: "Continuar",
+  },
+  lock: {
+    title: "Milton está bloqueado",
+    prompt: "Confirma que eres tú para abrir Milton",
+    cancel: "Cancelar",
+    biometric: "Usar Face ID / huella",
+    pinLabel: "O escribe tu PIN",
+    unlock: "Desbloquear",
+    wrong: "Ese PIN no es correcto.",
   },
   errors: {
     offline: "Sin conexión. Revisa tu internet.",
     timeout: "Tardó demasiado. Inténtalo otra vez.",
     unreachable: "No pude conectar con Milton. Inténtalo en un momento.",
     signIn: "Vuelve a entrar con tu invitación.",
+    credentialsUnreadable:
+      "No pude abrir tu sesión guardada ahora. Espera un momento e inténtalo otra vez.",
     server: "Milton no responde ahora. Inténtalo en un momento.",
     generic: "Algo salió mal. Inténtalo otra vez.",
     failed: "No se pudo completar. Inténtalo otra vez.",
@@ -148,7 +220,7 @@ type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
 export type Strings = Shape<typeof es>;
 
 export const en: Strings = {
-  appName: "Milton Kitchen",
+  appName: "Milton",
   tabs: { send: "Send", history: "History" },
   hello: "Hi, {name}",
   helloPlain: "Hi",
@@ -160,7 +232,18 @@ export const en: Strings = {
     location: "Location",
     company: "Company",
     logout: "Sign out",
-    version: "Milton Kitchen {version}",
+    version: "Milton {version}",
+    kitchenCode: "Kitchen code",
+    security: "Security",
+    changePin: "Change my PIN",
+    biometric: "Sign in with Face ID / fingerprint",
+    biometricHint: "Keeps your PIN only on this phone so you sign in faster.",
+    appLock: "Ask when opening the app",
+    appLockHint:
+      "Asks for Face ID, fingerprint or your PIN when you open Milton.",
+    biometricPin: "Type your PIN to save it on this phone",
+    biometricSave: "Turn on",
+    biometricWrongPin: "That is not your PIN. Check it.",
   },
   offline: {
     banner: "No connection",
@@ -178,12 +261,73 @@ export const en: Strings = {
     enter: "Enter",
     codeUnknown: "I don't recognize that code. Paste the whole code or link.",
     nameMissing: "Type your name.",
+    pinLabel: "Create your PIN",
+    pinHint:
+      "4 to 6 numbers. With your name and PIN you sign back in if you lose the session.",
+    pinConfirmLabel: "Repeat your PIN",
+    haveAccount: "I already have an account · Sign in with PIN",
+  },
+  pin: {
+    createTitle: "Create your PIN",
+    changeTitle: "Change your PIN",
+    createIntro:
+      "With your name and your PIN you can sign back in if you lose the session.",
+    tempIntro:
+      "Your manager gave you a temporary PIN. Pick your own to continue.",
+    currentLabel: "Current PIN",
+    newLabel: "New PIN",
+    confirmLabel: "Repeat the new PIN",
+    hint: "4 to 6 numbers.",
+    save: "Save PIN",
+    format: "The PIN must have 4 to 6 numbers.",
+    weak: "That PIN is too easy to guess. Avoid things like 1234 or 0000.",
+    mismatch: "The two PINs are not the same.",
+    wrong: "The current PIN is not correct.",
+    locked: "Too many tries. Try again in {minutes} min.",
+  },
+  login: {
+    title: "Sign in with your PIN",
+    intro: "Type the kitchen code, your name and your PIN.",
+    codeLabel: "Kitchen code",
+    codePlaceholder: "For example: K7M2QX",
+    pinLabel: "PIN",
+    enter: "Sign in",
+    missing: "Type the code, your name and your PIN.",
+    failed:
+      "I couldn't sign you in with those details. Check the code, your name and your PIN.",
+    askBoss: "Ask your manager for a PIN or a new link.",
+    locked: "Too many tries. Wait {minutes} min and try again.",
+    biometric: "Sign in with Face ID / fingerprint",
+    biometricPrompt: "Confirm it's you to sign in to Milton",
+    cancel: "Cancel",
+    useInvite: "I have an invite link",
+  },
+  welcome: {
+    title: "You're in",
+    codeTitle: "Your kitchen code",
+    codeHelp:
+      "With your name, your PIN and this code you can sign in on another phone.",
+    useBiometric: "Use Face ID / fingerprint",
+    biometricHelp:
+      "Sign in faster with your face or finger. Your PIN is kept only on this phone.",
+    continue: "Continue",
+  },
+  lock: {
+    title: "Milton is locked",
+    prompt: "Confirm it's you to open Milton",
+    cancel: "Cancel",
+    biometric: "Use Face ID / fingerprint",
+    pinLabel: "Or type your PIN",
+    unlock: "Unlock",
+    wrong: "That PIN is not correct.",
   },
   errors: {
     offline: "No connection. Check your internet.",
     timeout: "It took too long. Try again.",
     unreachable: "I couldn't reach Milton. Try again in a moment.",
     signIn: "Sign in again with your invite.",
+    credentialsUnreadable:
+      "I could not open your saved session right now. Wait a moment and try again.",
     server: "Milton isn't answering right now. Try again in a moment.",
     generic: "Something went wrong. Try again.",
     failed: "It couldn't be completed. Try again.",
@@ -286,7 +430,7 @@ export const en: Strings = {
 };
 
 export const de: Strings = {
-  appName: "Milton Küche",
+  appName: "Milton",
   tabs: { send: "Senden", history: "Verlauf" },
   hello: "Hallo, {name}",
   helloPlain: "Hallo",
@@ -298,7 +442,19 @@ export const de: Strings = {
     location: "Standort",
     company: "Unternehmen",
     logout: "Abmelden",
-    version: "Milton Küche {version}",
+    version: "Milton {version}",
+    kitchenCode: "Küchencode",
+    security: "Sicherheit",
+    changePin: "Meine PIN ändern",
+    biometric: "Mit Face ID / Fingerabdruck anmelden",
+    biometricHint:
+      "Speichert deine PIN nur auf diesem Telefon, damit du schneller hineinkommst.",
+    appLock: "Beim Öffnen der App fragen",
+    appLockHint:
+      "Fragt nach Face ID, Fingerabdruck oder deiner PIN, wenn du Milton öffnest.",
+    biometricPin: "Gib deine PIN ein, um sie auf diesem Telefon zu speichern",
+    biometricSave: "Einschalten",
+    biometricWrongPin: "Das ist nicht deine PIN. Prüfe sie.",
   },
   offline: {
     banner: "Keine Verbindung",
@@ -317,6 +473,67 @@ export const de: Strings = {
     codeUnknown:
       "Diesen Code kenne ich nicht. Füge den ganzen Code oder Link ein.",
     nameMissing: "Gib deinen Namen ein.",
+    pinLabel: "Lege deine PIN fest",
+    pinHint:
+      "4 bis 6 Ziffern. Mit deinem Namen und deiner PIN meldest du dich wieder an, wenn du die Sitzung verlierst.",
+    pinConfirmLabel: "PIN wiederholen",
+    haveAccount: "Ich habe schon ein Konto · Mit PIN anmelden",
+  },
+  pin: {
+    createTitle: "Lege deine PIN fest",
+    changeTitle: "Ändere deine PIN",
+    createIntro:
+      "Mit deinem Namen und deiner PIN meldest du dich wieder an, wenn du die Sitzung verlierst.",
+    tempIntro:
+      "Dein Chef hat dir eine vorläufige PIN gegeben. Wähle deine eigene, um weiterzumachen.",
+    currentLabel: "Aktuelle PIN",
+    newLabel: "Neue PIN",
+    confirmLabel: "Neue PIN wiederholen",
+    hint: "4 bis 6 Ziffern.",
+    save: "PIN speichern",
+    format: "Die PIN muss aus 4 bis 6 Ziffern bestehen.",
+    weak: "Diese PIN ist zu leicht zu erraten. Vermeide Dinge wie 1234 oder 0000.",
+    mismatch: "Die beiden PINs sind nicht gleich.",
+    wrong: "Die aktuelle PIN stimmt nicht.",
+    locked: "Zu viele Versuche. Versuche es in {minutes} Min. noch einmal.",
+  },
+  login: {
+    title: "Mit deiner PIN anmelden",
+    intro: "Gib den Küchencode, deinen Namen und deine PIN ein.",
+    codeLabel: "Küchencode",
+    codePlaceholder: "Zum Beispiel: K7M2QX",
+    pinLabel: "PIN",
+    enter: "Anmelden",
+    missing: "Gib den Code, deinen Namen und deine PIN ein.",
+    failed:
+      "Mit diesen Angaben konnte ich dich nicht anmelden. Prüfe den Code, deinen Namen und deine PIN.",
+    askBoss: "Bitte deinen Chef um eine PIN oder einen neuen Link.",
+    locked:
+      "Zu viele Versuche. Warte {minutes} Min. und versuche es noch einmal.",
+    biometric: "Mit Face ID / Fingerabdruck anmelden",
+    biometricPrompt:
+      "Bestätige, dass du es bist, um dich bei Milton anzumelden",
+    cancel: "Abbrechen",
+    useInvite: "Ich habe einen Einladungslink",
+  },
+  welcome: {
+    title: "Du bist drin",
+    codeTitle: "Dein Küchencode",
+    codeHelp:
+      "Mit deinem Namen, deiner PIN und diesem Code kannst du dich auf einem anderen Telefon anmelden.",
+    useBiometric: "Face ID / Fingerabdruck nutzen",
+    biometricHelp:
+      "Melde dich schneller mit Gesicht oder Finger an. Deine PIN bleibt nur auf diesem Telefon.",
+    continue: "Weiter",
+  },
+  lock: {
+    title: "Milton ist gesperrt",
+    prompt: "Bestätige, dass du es bist, um Milton zu öffnen",
+    cancel: "Abbrechen",
+    biometric: "Face ID / Fingerabdruck nutzen",
+    pinLabel: "Oder gib deine PIN ein",
+    unlock: "Entsperren",
+    wrong: "Diese PIN stimmt nicht.",
   },
   errors: {
     offline: "Keine Verbindung. Prüfe dein Internet.",
@@ -324,6 +541,8 @@ export const de: Strings = {
     unreachable:
       "Ich konnte Milton nicht erreichen. Versuche es gleich noch einmal.",
     signIn: "Melde dich noch einmal mit deiner Einladung an.",
+    credentialsUnreadable:
+      "Deine gespeicherte Anmeldung konnte gerade nicht gelesen werden. Warte einen Moment und versuche es erneut.",
     server: "Milton antwortet gerade nicht. Versuche es gleich noch einmal.",
     generic: "Etwas ist schiefgegangen. Versuche es noch einmal.",
     failed: "Das ging nicht. Versuche es noch einmal.",

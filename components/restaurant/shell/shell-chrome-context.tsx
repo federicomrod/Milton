@@ -10,6 +10,11 @@ export interface RestaurantShellChromeValue {
   isAdmin: boolean;
   lastSyncedAt: string | null;
   userName?: string | null;
+  /** Every company the person belongs to (the switcher shows 2+). */
+  companies?: Array<{ id: string; name: string; isSupport: boolean }>;
+  activeCompanyId?: string | null;
+  /** Set while the active company is a Milton support membership. */
+  supportCompanyName?: string | null;
   /**
    * What this person may do, as answered by the SERVER (capabilityFlags).
    * Absent outside the shell layout (onboarding): the controls then show and

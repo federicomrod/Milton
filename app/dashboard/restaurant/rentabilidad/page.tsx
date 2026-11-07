@@ -4,6 +4,8 @@
 // restaurant and one calendar month, computed by lib/restaurant/rentabilidad.ts.
 // Visible only with the `costs.fixed` capability (owner, admin, manager).
 
+import { redirect } from "next/navigation";
+import { RentabilidadGroupPage } from "@/components/restaurant/rentabilidad/RentabilidadGroupPage";
 import { RentabilidadPage } from "@/components/restaurant/rentabilidad/RentabilidadPage";
 import { capabilityFlags } from "@/lib/auth/permissions";
 import {
@@ -12,9 +14,11 @@ import {
   getCachedCompanyId,
 } from "@/lib/restaurant/auth-user";
 import { monthStartOf, previousMonthStart } from "@/lib/restaurant/fixed-costs";
-import { COSTS_HREF } from "@/lib/restaurant/navigation";
+import { COCKPIT_HREF, COSTS_HREF } from "@/lib/restaurant/navigation";
 import {
-  loadRentabilidadPage,
+  loadRentabilidadGroups,
+  loadRentabilidadPages,
+  type RentabilidadGroupData,
   type RentabilidadPageData,
 } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -62,28 +66,69 @@ export default async function RentabilidadRoute({
     getCachedActor(user.id, companyId),
     resolveRestaurantContext(supabase, companyId, first(params.location)),
   ]);
-  if (!capabilityFlags(actor)["costs.fixed"])
-    return <Note title={d.title}>{d.roleDenied}</Note>;
+  // Checked here on the server, never only in the menu: analyst, viewer and
+  // every other role go back to the cockpit.
+  if (!capabilityFlags(actor)["costs.fixed"]) redirect(COCKPIT_HREF);
   // One restaurant: the selected one, or the only one the company has.
   const selected =
     context.selected?.locationId ??
     (context.locations.length === 1 ? context.locations[0].id : null);
-  if (!selected) return <Note title={d.title}>{d.pickRestaurant}</Note>;
-
   const currentMonth = monthStartOf(new Date()) as string;
   const requested = first(params.month)
     ? monthStartOf(first(params.month)!)
     : null;
   const month =
     requested && requested <= currentMonth ? requested : currentMonth;
-  let data: RentabilidadPageData;
+  // The picker's three months are loaded together (one shared read), so the
+  // page switches between them without another request.
+  const pickerMonths = [
+    previousMonthStart(previousMonthStart(currentMonth)),
+    previousMonthStart(currentMonth),
+    currentMonth,
+  ];
+  const wantedMonths = [...new Set([...pickerMonths, month])];
+  if (!selected) {
+    // «Todos los restaurantes»: one line per restaurant plus the total.
+    if (context.locations.length < 2)
+      return <Note title={d.title}>{d.pickRestaurant}</Note>;
+    let groups: Record<string, RentabilidadGroupData>;
+    try {
+      groups = await loadRentabilidadGroups({
+        supabase,
+        companyId,
+        locations: context.locations.map((l) => ({ id: l.id, name: l.name })),
+        months: wantedMonths,
+      });
+    } catch (err) {
+      console.error("[rentabilidad] group load failed:", err);
+      return (
+        <Note title={d.title}>
+          {d.loadFailedBefore}{" "}
+          <a className="underline" href={COSTS_HREF}>
+            {d.loadFailedLink}
+          </a>
+          .
+        </Note>
+      );
+    }
+    return (
+      <RentabilidadGroupPage
+        key="group"
+        data={groups[month]}
+        pages={groups}
+        months={pickerMonths}
+        currentMonth={currentMonth}
+      />
+    );
+  }
+  let pages: Record<string, RentabilidadPageData>;
   try {
-    data = await loadRentabilidadPage({
+    pages = await loadRentabilidadPages({
       supabase,
       companyId,
       locationId: selected,
       restaurantIds: context.locations.map((l) => l.id),
-      month,
+      months: wantedMonths,
     });
   } catch (err) {
     console.error("[rentabilidad] load failed:", err);
@@ -97,17 +142,16 @@ export default async function RentabilidadRoute({
       </Note>
     );
   }
-  const prev = previousMonthStart(currentMonth);
-  const months = [previousMonthStart(prev), prev, currentMonth];
   return (
     <RentabilidadPage
       key={`${selected}|${month}`}
-      data={data}
+      data={pages[month]}
+      pages={pages}
       locationId={selected}
       locationName={
         context.locations.find((l) => l.id === selected)?.name ?? null
       }
-      months={months}
+      months={pickerMonths}
       currentMonth={currentMonth}
     />
   );

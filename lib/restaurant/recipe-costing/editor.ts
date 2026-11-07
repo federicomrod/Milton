@@ -132,6 +132,21 @@ export interface EditorLine {
    * approval stays blocked until a real price is registered.
    */
   milton_price_estimate?: { unit_price: number; unit: string };
+  /**
+   * A preparation line whose batch output is missing or only the import's
+   * assumed «1 orden»: shown inline as ⚑ «falta rendimiento» (#407).
+   */
+  yield_missing?: boolean;
+  /**
+   * «Costo efectivo»: the raw `amount` after the ONE loss factor that applies
+   * (merma propia / preparación medida / merma de cocina). Display only,
+   * attached when the editor is read; never stored.
+   */
+  effective?: {
+    effective: number | null;
+    factor: "own_yield" | "measured_prep" | "kitchen_buffer" | "none";
+    pct: number | null;
+  };
 }
 
 /** A row of ingredient_price_estimates, as the editor view needs it. */

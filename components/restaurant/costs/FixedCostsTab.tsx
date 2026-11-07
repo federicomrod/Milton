@@ -1,38 +1,55 @@
 // components/restaurant/costs/FixedCostsTab.tsx
 //
-// Costos › Costos fijos (#398). One row per category (Planilla, Alquiler,
-// Servicios, Otros and Impuestos as a tax rate), the month picker, «repetir
-// cada mes», the history and a live break-even: «Necesitas vender $X al día».
-// The break-even is recomputed on the client on every keystroke from the pure
-// helpers in lib/restaurant/fixed-costs.ts. A missing cost shows ⚑ Falta and
-// never a number; a typed 0 counts as filled. Side panel on desktop, a fixed
-// bar at the bottom on a phone — Guardar cambios is always visible.
+// Costos › Costos fijos (Sofia's mocks, v3). One card with the five clusters
+// (Planilla, Alquiler, Servicios, Otros and Impuestos as a tax rate): each is
+// either its confirmed amount («Planilla $21,400 · Nómina · desde factura ·
+// Editar») or «Sin dato · subir factura o escribir» with Subir / Escribir. The
+// side card shows the break-even and «Total costos fijos». Everything on screen
+// derives from the confirmed amounts (lib/restaurant/fixed-cost-clusters.ts):
+// with nothing confirmed there is no break-even, only «Añade costos fijos…».
+// Moving between months swaps the content in place (skeleton while it loads).
 
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
 import {
   AMOUNT_CATEGORIES,
   categoryLabel,
   FIXED_COST_CATEGORIES,
-  breakEvenPerDay,
-  effectiveFixedCosts,
-  fixedCostCompleteness,
   previewGroupSplit,
   nextMonthStart,
   previousMonthStart,
   type FixedCostCategory,
-  type FixedCostLine,
-  type MarginInputs,
   type SplitRule,
 } from "@/lib/restaurant/fixed-costs";
+import {
+  clustersFromLines,
+  confirmedCount,
+  figuresOf,
+  detailUnavailable,
+  itemsToShow,
+  type ClusterItem,
+  type ClusterMap,
+  type Confirmed,
+} from "@/lib/restaurant/fixed-cost-clusters";
 import type {
   FixedCostHistoryItem,
   FixedCostsView,
+  RepeatDetail,
 } from "@/lib/restaurant/fixed-costs-server";
+import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
+import { RENTABILIDAD_HREF } from "@/lib/restaurant/navigation";
+import { historyDelta, relativeTimeText } from "@/lib/restaurant/relative-time";
 import { getDictionary } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/client";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
@@ -62,10 +79,15 @@ export function parseTyped(
   return typedNumber(text, lang);
 }
 
-const toText = (v: number | null, lang: PreferredLanguage) =>
-  v === null ? "" : formatTypedNumber(v, lang);
-
 const FLAG = "⚑";
+const TOTAL_CLUSTERS = FIXED_COST_CATEGORIES.length;
+
+const BTN =
+  "inline-flex h-11 items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+const BTN_LIGHT =
+  "inline-flex h-11 items-center justify-center rounded-lg border border-[#c9cfdb] bg-white px-4 text-sm font-semibold text-[#151c2c] hover:bg-[#F1F3F7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:opacity-50";
+const TEXT_BTN =
+  "inline-flex min-h-[44px] items-center px-1 text-sm font-semibold text-[#1B40C8] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
 
 function describeValue(
   v: { amount: number | null; pct_of_sales: number | null } | null,
@@ -85,6 +107,12 @@ export interface FixedCostsTabProps {
   shellParams: Record<string, string | string[] | undefined>;
   /** The current month (YYYY-MM-01), the latest the picker goes to. */
   currentMonth: string;
+  /** The lines an earlier upload approved per cluster, so a reload still lists them. */
+  savedItems?: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+  /** What the copy log kept for the month: the source month and the breakdown. */
+  repeatDetail?: Partial<Record<FixedCostCategory, RepeatDetail>>;
+  /** The company's restaurants (the review list asks «¿A qué restaurante?»). */
+  restaurants?: Array<{ id: string; name: string }>;
   /** Group view only: the restaurants and their month sales, for the «Repartir» preview. */
   splitTargets?: Array<{
     location_id: string;
@@ -99,17 +127,18 @@ export function FixedCostsTab({
   locationName,
   shellParams,
   currentMonth,
+  restaurants = [],
+  savedItems = {},
+  repeatDetail = {},
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
+  const uploadInput = useRef<HTMLInputElement>(null);
   const { d, lang, locale, fmt } = useT();
   const f = d.costs.fixed;
-  // Spanish and English write a category inside a sentence in lower case;
-  // German nouns keep their capital.
-  const inText = (c: FixedCostCategory) =>
-    lang === "de"
-      ? categoryLabel(c, lang)
-      : categoryLabel(c, lang).toLowerCase();
+  // Spanish and English write a month inside a sentence in lower case; German
+  // nouns keep their capital.
+  const lower = (s: string) => (lang === "de" ? s : s.toLowerCase());
   const actionText: Record<string, string> = {
     create: f.historyCreate,
     update: f.historyUpdate,
@@ -117,33 +146,47 @@ export function FixedCostsTab({
     repeat: f.historyRepeat,
   };
   const sourceText: Record<string, string> = {
-    manual: f.sourceManual,
+    manual: f.byHand,
     repeat: f.sourceRepeat,
     estimate: f.sourceEstimate,
-    upload: f.sourceUpload,
+    upload: f.fromInvoice,
   };
   const isGroup = view.locationId === null;
-  const byCategory = useMemo(() => {
-    const map = new Map<FixedCostCategory, FixedCostLine>();
-    for (const l of view.lines) map.set(l.category, l);
-    return map;
-  }, [view.lines]);
+  /** «octubre de 2026» / «October 2026»: a stored month, written out in full. */
+  const longMonth = (iso: string) =>
+    new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString(locale, {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
 
-  const [values, setValues] = useState<Record<FixedCostCategory, string>>(
-    () => {
-      const out = {} as Record<FixedCostCategory, string>;
-      for (const c of FIXED_COST_CATEGORIES) {
-        const l = byCategory.get(c);
-        out[c] = toText(
-          c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
-          lang
-        );
-      }
-      return out;
-    }
+  // The ONE source of truth on screen: what is confirmed for the month.
+  const [clusters, setClusters] = useState<ClusterMap>(() =>
+    clustersFromLines(view.lines)
   );
-  const [repeats, setRepeats] = useState(
-    view.lines.length > 0 && view.lines.every((l) => l.repeats)
+  const [items, setItems] = useState<
+    Partial<Record<FixedCostCategory, ClusterItem[]>>
+  >({});
+  const [falta, setFalta] = useState<string[]>([]);
+  const onReview = useCallback(
+    (info: {
+      items: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+      falta: string[];
+    }) => {
+      setItems(info.items);
+      setFalta(info.falta);
+    },
+    []
+  );
+  const [flash, setFlash] = useState<FixedCostCategory[] | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    []
   );
   const [splitRule, setSplitRule] = useState<SplitRule>(
     view.lines.find((l) => l.split_rule)?.split_rule ?? "sales"
@@ -152,85 +195,158 @@ export function FixedCostsTab({
     () => new Map(splitTargets.map((t) => [t.location_id, t.name])),
     [splitTargets]
   );
-  const splitPreview = useMemo(
-    () =>
-      previewGroupSplit(
-        AMOUNT_CATEGORIES.map((c) => parseTyped(values[c], lang)),
-        splitRule,
-        splitTargets
-      ),
-    [values, splitRule, splitTargets]
-  );
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(
     null
   );
 
-  const dirty =
-    FIXED_COST_CATEGORIES.some((c) => {
-      const l = byCategory.get(c);
-      const saved = toText(
-        c === "impuestos" ? (l?.pct_of_sales ?? null) : (l?.amount ?? null),
-        lang
-      );
-      return values[c].trim() !== saved;
-    }) ||
-    (view.lines.length > 0 && repeats !== view.lines.every((l) => l.repeats));
-
-  // Live: pure and cheap, recomputed on every keystroke.
-  const live = useMemo(() => {
-    const typed = FIXED_COST_CATEGORIES.map((c) => {
-      const n = parseTyped(values[c], lang);
-      return {
-        category: c,
-        amount: c === "impuestos" ? null : n,
-        pct_of_sales: c === "impuestos" ? n : null,
-      };
-    }).filter((l) =>
-      l.category === "impuestos" ? l.pct_of_sales !== null : l.amount !== null
-    );
-    const costs = effectiveFixedCosts(
-      typed,
+  // Live: pure and cheap. The total on screen is the cards plus (on a restaurant)
+  // its read-only group share: exactly what the row below the cards shows.
+  const live = useMemo(
+    () =>
+      figuresOf({
+        clusters,
+        groupShares: view.groupShares,
+        groupImpuestosPct: view.groupImpuestosPct,
+        margin: view.margin,
+        openDays: view.openDays,
+      }),
+    [
+      clusters,
       view.groupShares,
-      view.groupImpuestosPct
-    );
-    const completeness = fixedCostCompleteness(costs);
-    const margin: MarginInputs | null = view.margin;
-    const breakEven = breakEvenPerDay({
-      amounts: costs.amounts,
-      impuestosPct: costs.impuestosPct,
-      margin,
-      openDays: view.openDays,
-    });
-    return { costs, completeness, breakEven };
-  }, [
-    values,
-    view.groupShares,
-    view.groupImpuestosPct,
-    view.margin,
-    view.openDays,
-  ]);
-
-  const missingAmounts = live.completeness.missingAmounts;
-  const missingSet = new Set(live.completeness.missing);
-
-  function goMonth(month: string) {
-    const params: Record<string, string | string[] | undefined> = {
-      ...shellParams,
-      month: month.slice(0, 7),
-    };
-    router.push(costsTabHref("costos-fijos", params));
-  }
-
-  // Text that does not fit the language's number format is shown as an error
-  // on its field and blocks saving: never saved as a different number.
-  const invalid = new Set(
-    FIXED_COST_CATEGORIES.filter((c) => !parseLocaleNumber(values[c], lang).ok)
+      view.groupImpuestosPct,
+      view.margin,
+      view.openDays,
+    ]
+  );
+  // A restaurant's part of the costs the group shares: read-only here, but part
+  // of the total and the break-even. Never shown in the group view.
+  const sharedTotal =
+    view.locationId === null
+      ? 0
+      : Math.round(
+          AMOUNT_CATEGORIES.reduce(
+            (n, c) => n + (view.groupShares[c] ?? 0),
+            0
+          ) * 100
+        ) / 100;
+  const splitPreview = useMemo(
+    () =>
+      previewGroupSplit(
+        AMOUNT_CATEGORIES.map((c) => clusters[c]?.value ?? null),
+        splitRule,
+        splitTargets
+      ),
+    [clusters, splitRule, splitTargets]
   );
 
-  async function save() {
-    if (invalid.size > 0) return;
-    setSaving(true);
+  // The page re-reads the month after a change (quietly). What comes back is
+  // taken only if nothing changed on this screen since that read was asked for:
+  // an older read must never overwrite a newer local change (the next quiet
+  // read, scheduled by that change, brings the matching numbers).
+  const [seenLines, setSeenLines] = useState(view.lines);
+  const [dirty, setDirty] = useState(0);
+  const [askedAt, setAskedAt] = useState(0);
+  const dirtyRef = useRef(0);
+  const [recalc, setRecalc] = useState(false);
+  if (seenLines !== view.lines) {
+    setSeenLines(view.lines);
+    if (askedAt === dirty) setClusters(clustersFromLines(view.lines));
+  }
+  function touch() {
+    dirtyRef.current += 1;
+    setDirty(dirtyRef.current);
+  }
+  function refreshNow() {
+    setAskedAt(dirtyRef.current);
+    router.refresh();
+  }
+
+  function highlight(cats: FixedCostCategory[]) {
+    setFlash(cats);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1600);
+  }
+
+  /** Approve / undo from the review list: the cards follow at once. */
+  function applyChanges(changes: ClusterChange[]) {
+    if (changes.length === 0) return;
+    touch();
+    setClusters((cur) => {
+      const next = { ...cur };
+      for (const c of changes) {
+        if (c.total === null) delete next[c.category];
+        else
+          next[c.category] = {
+            value: c.total,
+            source: c.source,
+            label: c.label,
+            repeats: c.repeats,
+          };
+      }
+      return next;
+    });
+    highlight(changes.map((c) => c.category));
+  }
+
+  function settle() {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(refreshNow, 2500);
+  }
+
+  /** Saves ONE cluster (typed on a card, or its repeat switch). Others are left as they are. */
+  async function saveCluster(
+    category: FixedCostCategory,
+    next: { value: number; repeats: boolean; keepSource?: boolean }
+  ): Promise<string | null> {
+    const before = clusters;
+    const prev = clusters[category];
+    touch();
+    setClusters((cur) => ({
+      ...cur,
+      [category]: {
+        value: next.value,
+        source: next.keepSource ? (prev?.source ?? "manual") : "manual",
+        label: next.keepSource ? (prev?.label ?? null) : null,
+        repeats: next.repeats,
+      },
+    }));
+    highlight([category]);
+    try {
+      const res = await fetch("/api/restaurant/fixed-costs", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          month: view.month,
+          location_id: view.locationId,
+          entries: [
+            {
+              category,
+              value: next.value,
+              label: next.keepSource ? (prev?.label ?? null) : null,
+              repeats: next.repeats,
+              keepSource: next.keepSource === true,
+              split_rule: isGroup ? splitRule : null,
+            },
+          ],
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setClusters(before);
+        return body.error ?? f.saveFailed;
+      }
+      settle();
+      return null;
+    } catch {
+      setClusters(before);
+      return f.saveFailed;
+    }
+  }
+
+  /** «Repartir» (group view): applied to what is already confirmed. */
+  async function saveSplit(next: SplitRule) {
+    const cats = FIXED_COST_CATEGORIES.filter((c) => clusters[c]);
+    if (cats.length === 0) return;
     setMessage(null);
     try {
       const res = await fetch("/api/restaurant/fixed-costs", {
@@ -239,363 +355,815 @@ export function FixedCostsTab({
         body: JSON.stringify({
           month: view.month,
           location_id: view.locationId,
-          entries: FIXED_COST_CATEGORIES.map((category) => ({
+          entries: cats.map((category) => ({
             category,
-            value: parseTyped(values[category], lang),
-            repeats,
-            split_rule: isGroup ? splitRule : null,
+            value: (clusters[category] as Confirmed).value,
+            label: clusters[category]?.label ?? null,
+            repeats: clusters[category]?.repeats === true,
+            keepSource: true,
+            split_rule: next,
           })),
         }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) setMessage({ ok: false, text: body.error ?? f.saveFailed });
+      else settle();
+    } catch {
+      setMessage({ ok: false, text: f.saveFailed });
+    }
+  }
+
+  const prevMonth = previousMonthStart(view.month);
+  const nextMonth = nextMonthStart(view.month);
+  const prevName = lower(
+    getDictionary(lang).rentabilidad.months[Number(prevMonth.split("-")[1]) - 1]
+  );
+  const [copying, setCopying] = useState(false);
+  /** «Copiar octubre»: brings last month's «se repite» costs in (idempotent). */
+  async function copyPrevious() {
+    setCopying(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/restaurant/fixed-costs/repeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: view.month }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        created?: number;
+        error?: string;
+      };
       if (!res.ok) {
-        setMessage({
-          ok: false,
-          text: body.error ?? f.saveFailed,
-        });
+        setMessage({ ok: false, text: body.error ?? f.saveFailed });
       } else {
-        setMessage({ ok: true, text: f.saved });
-        router.refresh();
+        const n = body.created ?? 0;
+        setMessage({
+          ok: true,
+          text: n
+            ? fmt(f.copied, { n, month: prevName })
+            : fmt(f.copyNone, { month: prevName }),
+        });
+        if (n) refreshNow();
       }
     } catch {
       setMessage({ ok: false, text: f.saveFailed });
     } finally {
-      setSaving(false);
+      setCopying(false);
     }
   }
 
+  // ---- month switcher: instant press feedback, skeleton while it loads -------
+  const [navigating, startNav] = useTransition();
+  const [pendingMonth, setPendingMonth] = useState<string | null>(null);
+  const shownMonth = navigating && pendingMonth ? pendingMonth : view.month;
+  const monthHref = (month: string) =>
+    costsTabHref("costos-fijos", { ...shellParams, month: month.slice(0, 7) });
+  useEffect(() => {
+    // The neighbours are fetched ahead so a click feels instant.
+    const r = router as { prefetch?: (href: string) => void };
+    r.prefetch?.(monthHref(prevMonth));
+    if (nextMonth <= currentMonth) r.prefetch?.(monthHref(nextMonth));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.month]);
+  function goMonth(month: string) {
+    if (month > currentMonth) return;
+    setPendingMonth(month);
+    startNav(() => router.push(monthHref(month)));
+  }
+
+  const shownText = monthLabelEs(shownMonth, lang);
+  // The breakdown behind each card: this session's approvals, the lines an
+  // earlier upload approved, or what the copy log kept. Only when it adds up.
+  const shownItems = Object.fromEntries(
+    FIXED_COST_CATEGORIES.map((c) => {
+      const fromLog: ClusterItem[] | undefined = repeatDetail[c]?.items?.map(
+        (i, n) => ({ id: `log-${c}-${n}`, raw: i.raw, amount: i.amount })
+      );
+      const pick = items[c]?.length
+        ? items[c]
+        : savedItems[c]?.length
+          ? savedItems[c]
+          : fromLog;
+      return [c, itemsToShow(pick, clusters[c])];
+    })
+  ) as Partial<Record<FixedCostCategory, ClusterItem[]>>;
+  const confirmed = confirmedCount(clusters);
+  // Nothing of the restaurant's own is confirmed: the first-visit page.
+  const ownEmpty = confirmed === 0 && sharedTotal === 0;
   const breakEvenText =
     live.breakEven !== null
       ? formatMoney(live.breakEven, view.currency, lang)
       : null;
-  const flagReason =
-    missingAmounts.length > 0
-      ? fmt(f.reasonMissing, { list: missingAmounts.map(inText).join(", ") })
-      : view.marginReason
-        ? view.marginReason
-        : f.reasonNoMargin;
+  // Nothing confirmed is «—», never $0.
+  const totalText =
+    live.fixed.total === null
+      ? "—"
+      : formatMoney(live.fixed.total, view.currency, lang);
+  const rentabilidadHref = (() => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(shellParams)) {
+      if (k === "tab" || k === "month" || v === undefined) continue;
+      for (const x of Array.isArray(v) ? v : [v]) q.append(k, x);
+    }
+    q.set("month", view.month.slice(0, 7));
+    return `${RENTABILIDAD_HREF}?${q.toString()}`;
+  })();
+  // Some category has no figure: say the number is a partial one.
+  const partialBreakEven = live.breakEven !== null && live.incomplete;
+  const detailText = live.empty
+    ? f.addCostsFirst
+    : breakEvenText
+      ? fmt(f.beDetail, { total: totalText, days: view.openDays })
+      : (view.marginReason ?? f.reasonNoMargin);
 
-  const saveButton = (
-    <button
-      type="button"
-      onClick={save}
-      disabled={saving || !dirty || invalid.size > 0}
-      className="inline-flex h-11 min-w-[9rem] items-center justify-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+  /** «+$650» for an amount that moved, the amount itself otherwise, the rate for a tax. */
+  const historyValue = (h: FixedCostHistoryItem) => {
+    if (h.new_value?.pct_of_sales != null)
+      return describeValue(h.new_value, view.currency, lang);
+    const delta = historyDelta(
+      h.action === "create" ? 0 : (h.old_value?.amount ?? null),
+      h.new_value?.amount ?? null
+    );
+    return delta.kind === "delta"
+      ? `${delta.sign}${formatMoney(delta.abs, view.currency, lang)}`
+      : describeValue(h.new_value, view.currency, lang);
+  };
+
+  const chevron =
+    "inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#dfe3ea] bg-white text-lg text-[#6b7385] transition-[background-color,color,transform] duration-100 hover:bg-[#F1F3F7] hover:text-[#151c2c] active:scale-95 active:bg-[#E3E7EF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]";
+  const futureBlocked = nextMonth > currentMonth;
+
+  const breakEvenCard = (
+    <div
+      data-testid="break-even"
+      className={
+        "rounded-2xl border bg-white p-5 transition-colors duration-300 " +
+        (flash ? "border-[#1B40C8] bg-[#E7EDFD]" : "border-[#dfe3ea]")
+      }
     >
-      {saving ? f.saving : f.save}
-    </button>
+      {partialBreakEven ? (
+        <p
+          data-testid="break-even-partial-title"
+          className="mb-1 text-sm font-bold text-[#151c2c]"
+        >
+          {f.bePartialTitle}
+        </p>
+      ) : null}
+      <p className="text-sm text-[#6b7385]">
+        {live.empty ? f.beIntroEmpty : f.beSell}
+      </p>
+      <p
+        className="mt-1 flex items-baseline gap-2"
+        aria-busy={recalc || undefined}
+      >
+        <span
+          data-testid={breakEvenText ? "break-even-value" : undefined}
+          className={
+            (recalc ? "opacity-40 " : "") +
+            "text-3xl font-bold " +
+            (breakEvenText ? "text-[#151c2c]" : "text-[#9aa3b5]")
+          }
+        >
+          {breakEvenText ?? "—"}
+        </span>
+        <span className="text-base font-semibold text-[#6b7385]">
+          {f.perDay}
+        </span>
+      </p>
+      <p
+        data-testid={live.empty ? "break-even-empty" : "break-even-detail"}
+        className="mt-1 text-sm text-[#6b7385]"
+      >
+        {recalc ? f.recalculating : detailText}
+      </p>
+      {partialBreakEven ? (
+        <p
+          data-testid="break-even-partial-note"
+          className="mt-1 text-xs text-[#6b7385]"
+        >
+          {f.bePartialNote}
+        </p>
+      ) : null}
+      <dl className="mt-4 space-y-1 border-t border-[#eef0f4] pt-3 text-sm text-[#151c2c]">
+        <div
+          data-testid="fixed-total"
+          className="flex items-baseline justify-between gap-3"
+        >
+          <dt className="text-[#6b7385]">{f.totalLabel}</dt>
+          <dd className="font-bold">{totalText}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <dt className="text-[#6b7385]">{f.confirmedLabel}</dt>
+          <dd data-testid="confirmed-count" className="font-bold">
+            {fmt(f.confirmedOf, { n: confirmed, total: TOTAL_CLUSTERS })}
+          </dd>
+        </div>
+      </dl>
+      <a
+        href={rentabilidadHref}
+        className="mt-4 inline-flex min-h-[44px] items-center text-sm font-semibold text-[#1B40C8] hover:underline"
+      >
+        {f.seeRentabilidad}
+      </a>
+    </div>
   );
 
-  const breakEvenBlock = (compact: boolean) =>
-    breakEvenText ? (
-      <div data-testid="break-even">
-        <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
-        <p className="text-base font-semibold text-[#151c2c]">
-          {f.needSellBefore}{" "}
-          <span className="text-[#1B40C8]" data-testid="break-even-value">
-            {breakEvenText}
-          </span>{" "}
-          {f.needSellAfter}
-        </p>
-      </div>
-    ) : (
-      <div data-testid="break-even">
-        <p className="text-sm font-medium text-[#6b7385]">{f.breakEven}</p>
-        <p className="text-base font-semibold text-[#151c2c]">
-          <span aria-hidden="true">{FLAG}</span> {f.missing}
-          <span className="sr-only">{f.missingDataSr}</span>
-        </p>
-        {!compact ? (
-          <p className="mt-1 text-sm text-[#6b7385]">{flagReason}</p>
-        ) : null}
-      </div>
-    );
-
-  const prevMonth = previousMonthStart(view.month);
-  const nextMonth = nextMonthStart(view.month);
+  const skeleton = (
+    <div
+      data-testid="fixed-skeleton"
+      role="status"
+      aria-label={fmt(f.loadingMonth, { month: shownText })}
+      className="animate-pulse space-y-4"
+    >
+      {FIXED_COST_CATEGORIES.map((c) => (
+        <div key={c} className="flex items-center justify-between gap-4 py-2">
+          <div className="space-y-2">
+            <div className="h-4 w-24 rounded bg-[#E7EAF0]" />
+            <div className="h-3 w-48 rounded bg-[#EEF0F4]" />
+          </div>
+          <div className="h-8 w-28 rounded bg-[#E7EAF0]" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <section
-      className="space-y-4 pb-28 lg:pb-0"
+      className="space-y-4 pb-24 lg:pb-0"
       aria-label={f.sectionAria}
       data-testid="fixed-costs-tab"
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-[#151c2c]">
-            {isGroup ? f.groupTitle : (locationName ?? f.restaurant)}
-          </h2>
-          <p className="text-sm text-[#6b7385]">
-            {isGroup ? f.groupHint : f.locationHint}
-          </p>
-        </div>
-        <div
-          className="flex items-center gap-2"
-          role="group"
-          aria-label={f.monthGroup}
+      <div
+        className="flex items-center gap-2"
+        role="group"
+        aria-label={f.monthGroup}
+      >
+        <button
+          type="button"
+          onClick={() => goMonth(prevMonth)}
+          aria-label={f.prevMonth}
+          aria-busy={navigating || undefined}
+          className={chevron}
+        >
+          ‹
+        </button>
+        <span
+          className="min-w-[10rem] text-center text-base font-semibold text-[#151c2c]"
+          data-testid="fixed-costs-month"
+        >
+          {shownText.charAt(0).toUpperCase() + shownText.slice(1)}
+        </span>
+        <span
+          title={futureBlocked ? f.futureMonth : undefined}
+          className="inline-flex"
         >
           <button
             type="button"
-            onClick={() => goMonth(prevMonth)}
-            aria-label={f.prevMonth}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-          >
-            ‹
-          </button>
-          <span
-            className="min-w-[8.5rem] text-center text-sm font-semibold capitalize text-[#151c2c]"
-            data-testid="fixed-costs-month"
-          >
-            {monthLabelEs(view.month, lang)}
-          </span>
-          <button
-            type="button"
             onClick={() => goMonth(nextMonth)}
-            disabled={view.month >= currentMonth}
             aria-label={f.nextMonth}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[#1B40C8] bg-white text-[#1B40C8] hover:bg-[#E7EDFD] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:cursor-not-allowed disabled:opacity-40"
+            aria-disabled={futureBlocked || undefined}
+            aria-busy={navigating || undefined}
+            className={
+              chevron +
+              (futureBlocked
+                ? " cursor-not-allowed opacity-40 hover:bg-white hover:text-[#6b7385] active:scale-100 active:bg-white"
+                : "")
+            }
           >
             ›
           </button>
-        </div>
+        </span>
       </div>
 
       <div className="lg:flex lg:items-start lg:gap-6">
-        <div className="min-w-0 space-y-4 lg:flex-1">
-          <div className="divide-y divide-[#dfe3ea] rounded-xl border border-[#dfe3ea] bg-white">
-            {FIXED_COST_CATEGORIES.map((category) => {
-              const isTax = category === "impuestos";
-              const missing = missingSet.has(category);
-              const share = isTax
-                ? null
-                : (view.groupShares[
-                    category as (typeof AMOUNT_CATEGORIES)[number]
-                  ] ?? null);
-              const id = `fixed-${category}`;
-              return (
-                <div
-                  key={category}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4"
-                  data-testid={`fixed-row-${category}`}
-                >
-                  <div className="min-w-0 flex-1 basis-32">
-                    <label
-                      htmlFor={id}
-                      className="text-sm font-semibold text-[#151c2c]"
-                    >
-                      {categoryLabel(category, lang)}
-                    </label>
-                    {isTax ? (
-                      <p className="text-sm text-[#6b7385]">{f.taxHint}</p>
-                    ) : share !== null ? (
-                      <p className="text-sm text-[#6b7385]">
-                        {fmt(f.groupShare, {
-                          amount: formatMoney(share, view.currency, lang),
-                        })}
-                      </p>
-                    ) : null}
-                  </div>
-                  {missing ? (
-                    <span
-                      className="rounded-full bg-[#FDE68A] px-2 py-0.5 text-sm font-semibold text-[#0F172A]"
-                      data-testid={`falta-${category}`}
-                    >
-                      <span aria-hidden="true">{FLAG}</span> {f.missing}
-                    </span>
-                  ) : null}
-                  <div className="flex items-center gap-1">
-                    {!isTax ? (
-                      <span
-                        className="text-sm text-[#6b7385]"
-                        aria-hidden="true"
-                      >
-                        {view.currency === "MXN" || view.currency === "USD"
-                          ? "$"
-                          : view.currency}
-                      </span>
-                    ) : null}
-                    <input
-                      id={id}
-                      type="text"
-                      inputMode="decimal"
-                      autoComplete="off"
-                      value={values[category]}
-                      aria-invalid={invalid.has(category) || undefined}
-                      aria-describedby={
-                        invalid.has(category) ? `${id}-error` : undefined
-                      }
-                      onChange={(e) =>
-                        setValues((v) => ({ ...v, [category]: e.target.value }))
-                      }
-                      placeholder={isTax ? "0" : f.noData}
-                      className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
-                    />
-                    {isTax ? (
-                      <span
-                        className="text-sm text-[#6b7385]"
-                        aria-hidden="true"
-                      >
-                        %
-                      </span>
-                    ) : null}
-                  </div>
-                  {invalid.has(category) ? (
-                    <p
-                      id={`${id}-error`}
-                      role="alert"
-                      className="w-full text-right text-sm text-[#151c2c]"
-                    >
-                      <span aria-hidden="true">{FLAG}</span> {f.invalidNumber}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-
-          {missingAmounts.length > 0 ? (
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#1B40C8] bg-[#E7EDFD] p-4"
-              data-testid="falta-cta"
-            >
-              <p className="text-sm font-medium text-[#151c2c]">
-                <span aria-hidden="true">{FLAG}</span> {f.missingCta}
+        <div className="min-w-0 lg:flex-1">
+          <div className="space-y-4 rounded-2xl border border-[#dfe3ea] bg-white p-4 sm:p-5">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-[#6b7385]">
+                {isGroup ? f.groupTitle : (locationName ?? f.restaurant)}
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  const first = missingAmounts[0];
-                  if (first) document.getElementById(`fixed-${first}`)?.focus();
-                }}
-                className="inline-flex h-11 items-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2"
-              >
-                {f.uploadFixed}
-              </button>
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border border-[#dfe3ea] bg-white p-4">
-            <label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-medium text-[#151c2c]">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={repeats}
-                onChange={(e) => setRepeats(e.target.checked)}
-                className="h-5 w-5 accent-[#1B40C8]"
-              />
-              {f.repeatMonthly}
-            </label>
-            {isGroup ? (
-              <label className="flex items-center gap-2 text-sm font-medium text-[#151c2c]">
-                {f.split}
-                <select
-                  value={splitRule}
-                  onChange={(e) => setSplitRule(e.target.value as SplitRule)}
-                  className="h-11 rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm"
-                >
-                  <option value="sales">{f.splitSales}</option>
-                  <option value="equal">{f.splitEqual}</option>
-                </select>
-              </label>
-            ) : null}
-            {isGroup && splitPreview.kind !== "single" ? (
-              <div className="basis-full text-xs text-[#6b7385]">
-                {splitPreview.kind === "empty" ? (
-                  <p data-testid="split-preview">{f.splitEmpty}</p>
-                ) : (
-                  <>
-                    <p
-                      data-testid="split-preview"
-                      className="font-medium text-[#151c2c]"
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <h2 className="text-lg font-bold text-[#151c2c]">
+                  {fmt(f.cardTitle, { month: lower(shownText) })}
+                </h2>
+                {!navigating && confirmed > 0 ? (
+                  <span
+                    data-testid="confirmed-pill"
+                    className="rounded-full bg-[#A7F3D0] px-2.5 py-0.5 text-xs font-semibold text-[#0F172A]"
+                  >
+                    {fmt(f.confirmedPill, {
+                      n: confirmed,
+                      total: TOTAL_CLUSTERS,
+                    })}
+                  </span>
+                ) : null}
+                {!navigating && falta.length > 0 ? (
+                  <span
+                    data-testid="falta-pill"
+                    className="rounded-full bg-[#FDE68A] px-2.5 py-0.5 text-xs font-semibold text-[#0F172A]"
+                  >
+                    <span aria-hidden="true">{FLAG}</span>{" "}
+                    {fmt(f.faltaPill, { names: falta.join(", ") })}
+                  </span>
+                ) : null}
+                {!navigating && !ownEmpty ? (
+                  <span className="ml-auto flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => uploadInput.current?.click()}
+                      className={BTN_LIGHT}
                     >
-                      {splitPreview.shares
-                        .map(
-                          (sh) =>
-                            `${nameOf.get(sh.location_id) ?? f.restaurant} ${formatMoney(sh.amount, view.currency, lang)}`
-                        )
-                        .join(" · ")}
+                      {d.costs.fixedUpload.button}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={copying}
+                      onClick={() => void copyPrevious()}
+                      className={BTN_LIGHT}
+                    >
+                      {fmt(f.copyMonth, { month: prevName })}
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-sm text-[#6b7385]">
+                {ownEmpty ? f.cardSubEmpty : f.cardSubFilled}
+              </p>
+              {isGroup ? (
+                <p className="text-sm text-[#6b7385]">{f.groupHint}</p>
+              ) : null}
+            </div>
+
+            <FixedCostUpload
+              inputRef={uploadInput}
+              lastMonth={view.lastMonth ?? {}}
+              clusters={clusters}
+              showDrop={!navigating && ownEmpty}
+              onReview={onReview}
+              onConfirm={applyChanges}
+              onSettled={settle}
+              onViewMonth={goMonth}
+              onRecalc={setRecalc}
+              month={view.month}
+              locationId={view.locationId}
+              currency={view.currency}
+              restaurants={restaurants}
+            />
+
+            {message ? (
+              <p
+                role="status"
+                className="inline-block rounded-lg border border-[#1B40C8] bg-[#E7EDFD] px-2.5 py-1 text-sm font-medium text-[#0F172A]"
+              >
+                {message.text}
+              </p>
+            ) : null}
+
+            {navigating ? (
+              skeleton
+            ) : (
+              <div className="divide-y divide-[#eef0f4]">
+                {FIXED_COST_CATEGORIES.map((category) => (
+                  <ClusterRow
+                    key={category}
+                    category={category}
+                    confirmed={clusters[category] ?? null}
+                    items={shownItems[category] ?? []}
+                    copiedFrom={
+                      clusters[category]?.source === "repeat" &&
+                      repeatDetail[category]?.fromMonth
+                        ? longMonth(repeatDetail[category]!.fromMonth as string)
+                        : null
+                    }
+                    detailMissing={detailUnavailable(
+                      clusters[category],
+                      shownItems[category] ?? []
+                    )}
+                    currency={view.currency}
+                    flashing={flash?.includes(category) ?? false}
+                    onUpload={() => uploadInput.current?.click()}
+                    onSave={(value) =>
+                      saveCluster(category, {
+                        value,
+                        repeats: clusters[category]?.repeats === true,
+                      })
+                    }
+                    onRepeat={(repeats) =>
+                      saveCluster(category, {
+                        value: (clusters[category] as Confirmed).value,
+                        repeats,
+                        keepSource: true,
+                      })
+                    }
+                  />
+                ))}
+                {sharedTotal > 0 ? (
+                  <div data-testid="fixed-shared-row" className="py-4">
+                    <p className="text-sm font-semibold text-[#151c2c]">
+                      {fmt(f.sharedRow, {
+                        amount: formatMoney(sharedTotal, view.currency, lang),
+                      })}
                     </p>
-                    {splitPreview.fellBackToEqual ? (
-                      <p>{f.splitNoSales}</p>
-                    ) : null}
-                  </>
-                )}
+                    <p className="text-sm text-[#6b7385]">{f.sharedSub}</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {isGroup && !navigating ? (
+              <div className="space-y-2 border-t border-[#eef0f4] pt-3">
+                <label className="flex flex-wrap items-center gap-2 text-sm font-medium text-[#151c2c]">
+                  {f.split}
+                  <select
+                    value={splitRule}
+                    onChange={(e) => {
+                      setSplitRule(e.target.value as SplitRule);
+                      void saveSplit(e.target.value as SplitRule);
+                    }}
+                    className="h-11 rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm"
+                  >
+                    <option value="sales">{f.splitSales}</option>
+                    <option value="equal">{f.splitEqual}</option>
+                  </select>
+                </label>
+                {splitPreview.kind !== "single" ? (
+                  <div className="text-xs text-[#6b7385]">
+                    {splitPreview.kind === "empty" ? (
+                      <p data-testid="split-preview">{f.splitEmpty}</p>
+                    ) : (
+                      <>
+                        <p
+                          data-testid="split-preview"
+                          className="font-medium text-[#151c2c]"
+                        >
+                          {splitPreview.shares
+                            .map(
+                              (sh) =>
+                                `${nameOf.get(sh.location_id) ?? f.restaurant} ${formatMoney(sh.amount, view.currency, lang)}`
+                            )
+                            .join(" · ")}
+                        </p>
+                        {splitPreview.fellBackToEqual ? (
+                          <p>{f.splitNoSales}</p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>
+        </div>
 
-          {message ? (
-            <p
-              role="status"
-              className={
-                "text-sm font-medium " +
-                (message.ok
-                  ? "text-[#151c2c]"
-                  : "inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[#0F172A]")
-              }
-            >
-              {message.text}
-            </p>
-          ) : null}
-
-          <div className="rounded-xl border border-[#dfe3ea] bg-white p-4">
-            <h3 className="text-sm font-semibold text-[#151c2c]">
-              {f.history}
-            </h3>
-            {history.length === 0 ? (
+        <aside className="mt-4 hidden space-y-4 lg:mt-0 lg:block lg:w-[330px] lg:shrink-0 lg:sticky lg:top-[80px]">
+          {navigating ? (
+            <div
+              data-testid="fixed-skeleton-aside"
+              className="h-56 animate-pulse rounded-2xl border border-[#dfe3ea] bg-[#F5F6F9]"
+            />
+          ) : (
+            breakEvenCard
+          )}
+          <div className="rounded-2xl border border-[#dfe3ea] bg-white p-5">
+            <h3 className="text-sm font-bold text-[#151c2c]">{f.history}</h3>
+            {navigating ? (
+              <div className="mt-3 h-16 animate-pulse rounded bg-[#F5F6F9]" />
+            ) : history.length === 0 ? (
               <p className="mt-2 text-sm text-[#6b7385]">{f.historyEmpty}</p>
             ) : (
               <ul
-                className="mt-2 divide-y divide-[#dfe3ea]"
+                className="mt-2 divide-y divide-[#eef0f4]"
                 data-testid="history"
               >
                 {history.map((h) => (
                   <li key={h.id} className="py-2 text-sm text-[#151c2c]">
-                    <span className="font-medium">
-                      {actionText[h.action]
+                    <span className="font-semibold">
+                      {h.action === "delete"
                         ? fmt(actionText[h.action], {
-                            category: inText(h.category),
+                            category: categoryLabel(h.category, lang),
                           })
-                        : h.action}
-                    </span>{" "}
-                    <span className="text-[#6b7385]">
-                      · {monthLabelEs(h.month.slice(0, 10), lang)} ·{" "}
-                      {describeValue(h.old_value, view.currency, lang)} →{" "}
-                      {describeValue(h.new_value, view.currency, lang)} ·{" "}
-                      {sourceText[h.source] ?? h.source} ·{" "}
-                      {new Date(h.created_at).toLocaleDateString(locale)}
+                        : h.action === "repeat"
+                          ? fmt(f.historyLine, {
+                              category: categoryLabel(h.category, lang),
+                              value: describeValue(
+                                h.new_value,
+                                view.currency,
+                                lang
+                              ),
+                              // Only the month the log stored; otherwise just
+                              // that it was repeated, never a guessed month.
+                              source: h.new_value?.from_month
+                                ? fmt(f.copiedFrom, {
+                                    month: longMonth(h.new_value.from_month),
+                                  })
+                                : f.historyRepeatAuto,
+                            })
+                          : fmt(f.historyLine, {
+                              category: categoryLabel(h.category, lang),
+                              value: historyValue(h),
+                              source: sourceText[h.source] ?? h.source,
+                            })}
+                    </span>
+                    <span className="block text-xs text-[#6b7385]">
+                      {relativeTimeText(h.created_at, Date.now(), locale)}
                     </span>
                   </li>
                 ))}
               </ul>
             )}
           </div>
-        </div>
-
-        {/* Desktop: side panel with the live break-even and Guardar. */}
-        <aside className="hidden lg:block lg:w-[320px] lg:shrink-0 lg:sticky lg:top-[80px]">
-          <div className="space-y-4 rounded-xl border border-[#dfe3ea] bg-white p-4">
-            {breakEvenBlock(false)}
-            {live.breakEven !== null && view.margin ? (
-              <p className="text-sm text-[#6b7385]">
-                {fmt(
-                  live.costs.impuestosPct === null
-                    ? f.openDaysNoTax
-                    : f.openDays,
-                  { days: view.openDays }
-                )}
-              </p>
-            ) : null}
-            {saveButton}
-          </div>
         </aside>
       </div>
 
-      {/* Phone: fixed bar at the bottom, Guardar always in view. */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t border-[#dfe3ea] bg-white px-4 py-3 lg:hidden">
-        <div className="min-w-0">{breakEvenBlock(true)}</div>
-        <div className="shrink-0">{saveButton}</div>
+      {/* Phone: the break-even stays in view at the bottom. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#dfe3ea] bg-white px-4 py-3 lg:hidden">
+        {navigating ? (
+          <div className="h-10 animate-pulse rounded bg-[#F5F6F9]" />
+        ) : (
+          <div
+            data-testid="break-even"
+            className={
+              "rounded-lg transition-colors duration-300 " +
+              (flash ? "bg-[#E7EDFD] ring-2 ring-[#1B40C8]" : "")
+            }
+          >
+            <p className="flex items-baseline gap-2">
+              <span className="text-sm text-[#6b7385]">
+                {live.empty ? f.beIntroEmpty : f.beSell}
+              </span>
+              <span
+                data-testid={breakEvenText ? "break-even-value" : undefined}
+                className="text-lg font-bold text-[#151c2c]"
+              >
+                {breakEvenText ?? "—"}
+              </span>
+              <span className="text-sm font-semibold text-[#6b7385]">
+                {f.perDay}
+              </span>
+            </p>
+            {live.empty ? (
+              <p className="text-xs text-[#6b7385]">{f.addCostsFirst}</p>
+            ) : null}
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+/**
+ * One cluster. Confirmed → title left, amount right, «{concepto} · desde
+ * factura» or «escrito a mano», «Editar» and «Se repite cada mes». Several lines
+ * (Servicios) are listed under it. Not confirmed → «Sin dato · subir factura o
+ * escribir» with Subir / Escribir, no amount, no second field.
+ */
+function ClusterRow({
+  category,
+  confirmed,
+  items,
+  copiedFrom,
+  detailMissing,
+  currency,
+  flashing,
+  onUpload,
+  onSave,
+  onRepeat,
+}: {
+  category: FixedCostCategory;
+  confirmed: Confirmed | null;
+  items: ClusterItem[];
+  /** «octubre de 2026»: the month a copied amount came from, when the log says. */
+  copiedFrom: string | null;
+  /** A copied total that once held several concepts and has no breakdown left. */
+  detailMissing: boolean;
+  currency: string;
+  flashing: boolean;
+  onUpload: () => void;
+  /** Resolve to an error message, or null when it saved. */
+  onSave: (value: number) => Promise<string | null>;
+  onRepeat: (repeats: boolean) => Promise<string | null>;
+}) {
+  const { d, lang, fmt } = useT();
+  const f = d.costs.fixed;
+  const isTax = category === "impuestos";
+  const [writing, setWriting] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const parsed = parseLocaleNumber(text, lang);
+  const valid = text.trim() !== "" && parsed.ok && parsed.value !== null;
+  const id = `fixed-${category}`;
+  const label = categoryLabel(category, lang);
+  const subline =
+    confirmed?.source === "upload"
+      ? confirmed.label
+        ? fmt(f.fromConcept, { concept: confirmed.label })
+        : f.fromInvoice
+      : confirmed?.source === "repeat"
+        ? copiedFrom
+          ? fmt(f.copiedFrom, { month: copiedFrom })
+          : f.sourceRepeat
+        : confirmed?.source === "estimate"
+          ? f.sourceEstimate
+          : f.byHand;
+
+  async function commit() {
+    if (!valid || parsed.value === null) return;
+    setSaving(true);
+    setError(null);
+    const err = await onSave(parsed.value);
+    setSaving(false);
+    if (err) setError(err);
+    else {
+      setWriting(false);
+      setText("");
+    }
+  }
+
+  const field = (
+    <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+      <div className="flex items-center gap-1">
+        {!isTax ? (
+          <span className="text-sm text-[#6b7385]" aria-hidden="true">
+            {currency === "MXN" || currency === "USD" ? "$" : currency}
+          </span>
+        ) : null}
+        <input
+          id={id}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          autoFocus
+          value={text}
+          aria-label={fmt(isTax ? f.cardRate : f.cardAmount, {
+            category: label,
+          })}
+          aria-invalid={(text.trim() !== "" && !parsed.ok) || undefined}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void commit();
+            if (e.key === "Escape") setWriting(false);
+          }}
+          placeholder={isTax ? "0" : "0.00"}
+          className="h-11 w-32 rounded-lg border border-[#c9cfdb] bg-white px-3 text-right text-sm text-[#151c2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+        />
+        {isTax ? (
+          <span className="text-sm text-[#6b7385]" aria-hidden="true">
+            %
+          </span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        disabled={!valid || saving}
+        aria-label={`${f.cardSave} ${label}`}
+        onClick={() => void commit()}
+        className={BTN}
+      >
+        {saving ? f.saving : f.cardSave}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setWriting(false);
+          setError(null);
+        }}
+        className={TEXT_BTN}
+      >
+        {f.cardCancel}
+      </button>
+    </div>
+  );
+
+  return (
+    <div
+      className={
+        "flex flex-wrap items-start gap-x-4 gap-y-2 py-4 transition-colors duration-300 " +
+        (flashing ? "rounded-lg bg-[#E7EDFD]" : "")
+      }
+      data-testid={`fixed-row-${category}`}
+      data-state={confirmed ? "confirmed" : "empty"}
+    >
+      <div className="min-w-0 flex-1 basis-40">
+        <p className="text-sm font-semibold text-[#151c2c]">{label}</p>
+        <p className="text-sm text-[#6b7385]">
+          {confirmed ? subline : f.emptyBody}
+        </p>
+        {isTax && confirmed ? (
+          <>
+            <p className="mt-1 text-xs text-[#6b7385]">
+              {fmt(f.taxIncluded, {
+                rate: String(confirmed.value),
+                sum: String(Math.round((100 + confirmed.value) * 100) / 100),
+              })}
+            </p>
+            <p className="text-xs text-[#6b7385]">{f.taxNotFixed}</p>
+          </>
+        ) : null}
+      </div>
+
+      {confirmed && !writing ? (
+        <div
+          data-testid={`fixed-value-${category}`}
+          className="flex flex-wrap items-center justify-end gap-x-3"
+        >
+          <p className="text-lg font-bold text-[#151c2c]">
+            {isTax
+              ? `${confirmed.value} %`
+              : formatMoney(confirmed.value, currency, lang)}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setText(formatTypedNumber(confirmed.value, lang));
+              setWriting(true);
+            }}
+            aria-label={`${f.edit} ${label}`}
+            className={TEXT_BTN}
+          >
+            {f.edit}
+          </button>
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-2 text-xs text-[#6b7385]">
+            {f.repeatsRow}
+            <input
+              type="checkbox"
+              role="switch"
+              checked={confirmed.repeats === true}
+              aria-label={`${f.repeatsRow}: ${label}`}
+              onChange={(e) => {
+                void onRepeat(e.target.checked).then((err) =>
+                  err ? setError(err) : null
+                );
+              }}
+              className="h-5 w-9 accent-[#1B40C8]"
+            />
+          </label>
+        </div>
+      ) : null}
+
+      {!confirmed && !writing ? (
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={onUpload} className={TEXT_BTN}>
+            {f.upload}
+          </button>
+          <button
+            type="button"
+            onClick={() => setWriting(true)}
+            aria-label={`${f.write} ${label}`}
+            className={BTN_LIGHT}
+          >
+            {f.write}
+          </button>
+        </div>
+      ) : null}
+
+      {writing ? field : null}
+
+      {items.length > 0 && !writing ? (
+        <ul
+          data-testid={`fixed-items-${category}`}
+          className="w-full space-y-1 rounded-lg bg-[#F7F8FB] px-4 py-2"
+        >
+          {items.map((i) => (
+            <li
+              key={i.id}
+              className="flex items-baseline justify-between gap-3 text-sm text-[#151c2c]"
+            >
+              <span className="min-w-0 break-words">{i.raw || "—"}</span>
+              <span className="flex shrink-0 items-baseline gap-4">
+                <span className="text-xs text-[#6b7385]">
+                  {confirmed?.source === "repeat" && copiedFrom
+                    ? fmt(f.copiedFrom, { month: copiedFrom })
+                    : f.fromInvoice}
+                </span>
+                <span className="font-semibold">
+                  {formatMoney(i.amount, currency, lang)}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {detailMissing && !writing ? (
+        <p
+          data-testid={`fixed-detail-missing-${category}`}
+          className="w-full text-xs text-[#6b7385]"
+        >
+          {f.detailUnavailable}
+        </p>
+      ) : null}
+
+      {text.trim() !== "" && !parsed.ok && writing ? (
+        <p role="alert" className="w-full text-right text-sm text-[#151c2c]">
+          <span aria-hidden="true">{FLAG}</span> {f.invalidNumber}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="w-full text-right text-sm text-[#151c2c]">
+          <span aria-hidden="true">{FLAG}</span> {error}
+        </p>
+      ) : null}
+    </div>
   );
 }

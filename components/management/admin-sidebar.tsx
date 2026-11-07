@@ -12,7 +12,9 @@ import {
   QrCode,
   ChevronLeft,
   Database,
+  Building2,
 } from "lucide-react";
+import { useT } from "@/lib/i18n/client";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
@@ -55,6 +57,16 @@ const navigation = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
+  const { d } = useT();
+  // «Clientes» (support access): the one item written in all three languages.
+  const items = [
+    {
+      name: d.support.clients.nav,
+      href: "/management/clients",
+      icon: Building2,
+    },
+    ...navigation,
+  ];
 
   return (
     <aside className="w-64 border-r bg-card">
@@ -76,7 +88,7 @@ export function AdminSidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {navigation.map((item) => {
+          {items.map((item) => {
             const isActive = pathname === item.href;
             return (
               <Link

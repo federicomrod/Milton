@@ -43,6 +43,7 @@ import {
   type KitchenReportType,
 } from "./kitchen-reports";
 import type { KitchenLink } from "./kitchen-links";
+import { draftWasteLines } from "@/lib/restaurant/waste-drafts-server";
 import {
   deterministicReply,
   looksPriceLike,
@@ -352,6 +353,19 @@ async function setReportType(
     if (error) {
       console.error("[kitchen-ai-handler] stock report not stored");
       return false;
+    }
+    // #408: a waste report becomes DRAFT lines for a manager to confirm. Best
+    // effort: it never fails the report and never values anything.
+    if (type === "waste") {
+      await draftWasteLines({
+        admin: ctx.admin,
+        companyId: ctx.staff.company_id,
+        locationId: ctx.staff.location_id,
+        text: ctx.text,
+        reportId: inAppPipeline() ? ctx.reportId : null,
+        chatId: ctx.chatId,
+        messageId: ctx.messageId,
+      });
     }
     return true;
   } catch {

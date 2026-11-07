@@ -20,6 +20,12 @@ export const tint = {
   blue08: "rgba(27, 64, 200, 0.08)",
   blue14: "rgba(27, 64, 200, 0.14)",
   ink45: "rgba(15, 23, 42, 0.45)",
+  ink20: "rgba(15, 23, 42, 0.2)",
+  ink06: "rgba(15, 23, 42, 0.06)",
+  blue30: "rgba(27, 64, 200, 0.3)",
+  blue60: "rgba(27, 64, 200, 0.6)",
+  white30: "rgba(255, 255, 255, 0.3)",
+  white70: "rgba(255, 255, 255, 0.7)",
 } as const;
 
 /** Inter, loaded in the root layout (one family per weight on React Native). */

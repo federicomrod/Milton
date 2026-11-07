@@ -14,19 +14,56 @@ export interface Profile {
   company: string | null;
   /** The company language, cached so the first screen is already in it. */
   language?: string;
+  /** A manager's own kitchen phone: signs in with their account, no PIN asked. */
+  selfDevice?: boolean;
 }
 
-export async function getToken(): Promise<string | null> {
+/** What the secure store said: «absent» means nobody is signed in; «unreadable» means it could not answer (a locked Keychain on a cold start), which is NOT a lost session. */
+export type TokenRead =
+  | { kind: "found"; token: string }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+export async function readToken(): Promise<TokenRead> {
   try {
-    return await SecureStore.getItemAsync(TOKEN_KEY);
+    const token = await SecureStore.getItemAsync(TOKEN_KEY);
+    return token ? { kind: "found", token } : { kind: "absent" };
   } catch {
-    return null;
+    return { kind: "unreadable" };
   }
 }
 
-export async function setToken(token: string): Promise<void> {
-  await SecureStore.setItemAsync(TOKEN_KEY, token);
+export async function getToken(): Promise<string | null> {
+  const read = await readToken();
+  return read.kind === "found" ? read.token : null;
 }
+
+// Readable after the first unlock since boot, so a background or cold launch of
+// an already signed-in phone still finds it. Never leaves this device.
+const ACCESS = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
+
+const ACCESS_FLAG = "milton.token.access.v1";
+
+export async function setToken(token: string): Promise<void> {
+  await SecureStore.setItemAsync(TOKEN_KEY, token, ACCESS);
+  // A token saved now is already «after first unlock»: nothing to move later.
+  try {
+    await AsyncStorage.setItem(ACCESS_FLAG, "1");
+  } catch {
+    // The one-time move will simply check it once.
+  }
+}
+
+/** The plumbing for the one-time accessibility move (see stay-signed-in.ts). */
+export const accessibilityMove = {
+  done: async () => (await AsyncStorage.getItem(ACCESS_FLAG)) === "1",
+  markDone: () => AsyncStorage.setItem(ACCESS_FLAG, "1"),
+  read: readToken,
+  write: (token: string) => SecureStore.setItemAsync(TOKEN_KEY, token, ACCESS),
+  restore: (token: string) => SecureStore.setItemAsync(TOKEN_KEY, token),
+};
 
 export async function clearToken(): Promise<void> {
   try {

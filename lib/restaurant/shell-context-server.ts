@@ -6,6 +6,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { listUserCompanies } from "@/lib/support/support-access";
 import { cache } from "react";
 import {
   RESTAURANT_COCKPIT_DEFAULT_LANGUAGE,
@@ -23,6 +25,13 @@ import {
 import { timeCockpitStep } from "@/lib/restaurant/cockpit-timing";
 import type { RestaurantLocationOption } from "@/lib/restaurant/restaurant-context-server";
 
+/** One company of the switcher (a Milton admin can belong to several). */
+export interface ShellCompany {
+  id: string;
+  name: string;
+  isSupport: boolean;
+}
+
 export interface RestaurantShellChrome {
   locations: RestaurantLocationOption[];
   lang: PreferredLanguage;
@@ -30,6 +39,11 @@ export interface RestaurantShellChrome {
   lastSyncedAt: string | null;
   /** First name (or email name) for "Fede · Cerrar sesión". */
   userName?: string | null;
+  /** Every company the person belongs to; the switcher shows them when there are 2+. */
+  companies?: ShellCompany[];
+  activeCompanyId?: string | null;
+  /** Set while the active company is a Milton support membership. */
+  supportCompanyName?: string | null;
 }
 
 function displayNameOf(user: {
@@ -70,16 +84,18 @@ async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrom
       }
 
       const companyId = await getCachedCompanyId(user.id);
-      const [isAdmin, lang, lastSyncedAt, locations] = await Promise.all([
-        getCachedIsMiltonAdmin(user.id),
-        companyId
-          ? loadPreferredLanguage(supabase, companyId)
-          : Promise.resolve(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE),
-        companyId
-          ? loadLastSyncedAt(supabase, companyId)
-          : Promise.resolve(null),
-        listRestaurantLocationsForCurrentUser(supabase),
-      ]);
+      const [isAdmin, lang, lastSyncedAt, locations, companies] =
+        await Promise.all([
+          getCachedIsMiltonAdmin(user.id),
+          companyId
+            ? loadPreferredLanguage(supabase, companyId)
+            : Promise.resolve(RESTAURANT_COCKPIT_DEFAULT_LANGUAGE),
+          companyId
+            ? loadLastSyncedAt(supabase, companyId)
+            : Promise.resolve(null),
+          listRestaurantLocationsForCurrentUser(supabase),
+          listUserCompanies(createAdminClient(), user.id),
+        ]);
 
       if (!companyId) {
         return { ...empty, locations, isAdmin };
@@ -91,6 +107,11 @@ async function loadRestaurantShellChromeUncached(): Promise<RestaurantShellChrom
         isAdmin,
         lastSyncedAt,
         userName: displayNameOf(user),
+        companies,
+        activeCompanyId: companyId,
+        supportCompanyName:
+          companies.find((c) => c.id === companyId && c.isSupport)?.name ??
+          null,
       };
     });
   } catch (err) {

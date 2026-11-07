@@ -10,6 +10,13 @@ import { loadRestaurantShellChrome } from "@/lib/restaurant/shell-context-server
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
 import { MenuAreaTabs } from "@/components/restaurant/recipes-costing/MenuAreaTabs";
 import { getDictionary } from "@/lib/i18n";
+import { canSeeIngredientes } from "@/lib/restaurant/ingredientes-screen";
+import { capabilityFlags } from "@/lib/auth/permissions";
+import {
+  getCachedActor,
+  getCachedAuthUser,
+  getCachedCompanyId,
+} from "@/lib/restaurant/auth-user";
 import { StickyMenuHeader } from "@/components/restaurant/ui/StickyPanel";
 
 export default async function MenuLayout({
@@ -19,6 +26,18 @@ export default async function MenuLayout({
 }) {
   const { lang } = await loadRestaurantShellChrome();
   const d = getDictionary(lang).menu.screens;
+  // Kitchen roles do not get the Ingredientes tab (the page redirects them too).
+  let showIngredientes = true;
+  try {
+    const user = await getCachedAuthUser();
+    const companyId = user ? await getCachedCompanyId(user.id) : null;
+    if (user && companyId)
+      showIngredientes = canSeeIngredientes(
+        capabilityFlags(await getCachedActor(user.id, companyId))
+      );
+  } catch {
+    // The page itself decides; the tab stays.
+  }
   return (
     <div className="w-full px-[26px] pb-10">
       {/* R1-15h: header and tabs stay fixed while a long table scrolls. */}
@@ -29,7 +48,7 @@ export default async function MenuLayout({
           showDateRange={false}
         />
         <Suspense fallback={<div className="mt-2 mb-2 h-[42px]" />}>
-          <MenuAreaTabs lang={lang} />
+          <MenuAreaTabs lang={lang} showIngredientes={showIngredientes} />
         </Suspense>
       </StickyMenuHeader>
       <div className="pt-3">{children}</div>

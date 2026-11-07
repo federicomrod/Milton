@@ -403,6 +403,13 @@ export const menuWorkspace: Dictionary["menu"]["workspace"] = {
     chipDrafts: "{n} to approve",
     chipApproved: "{n} approved",
     yieldToConfirmSuffix: " · yield to confirm",
+    filterMissingYield: "Yield missing ({n})",
+    confirmOneUnit: "Confirm 1 unit",
+    undoConfirmOne: "Undo confirmation",
+    yieldHistoryTitle: "Yield history",
+    historyConfirmed: "{who} confirmed 1 unit · {date}",
+    historyRevoked: "{who} undid the confirmation · {date}",
+    historyUnknownWho: "someone",
     backToDish: "← Back to the dish",
     title: "Your kitchen's preparations",
     titleHint:

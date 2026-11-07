@@ -502,6 +502,9 @@ export function RecipeLinesEditor({
   }
 
   const editable = state.editable && !busy && !forceLocked;
+  // Roles without prices.view get quantities only: no price, amount or total.
+  const hideMoney = state.money_hidden === true;
+  const roleReadOnly = state.role_read_only === true;
 
   return (
     <div>
@@ -510,7 +513,7 @@ export function RecipeLinesEditor({
         <span className="text-[12px] text-[#8a92a3]">
           {state.editable
             ? d.lines.hintEditable
-            : state.version_id
+            : state.version_id && !roleReadOnly
               ? d.lines.hintApproved
               : (state.locked_reason ?? "")}
         </span>
@@ -527,7 +530,10 @@ export function RecipeLinesEditor({
             ) : null}
           </div>
         ) : null}
-        {!state.editable && state.version_id && !forceLocked ? (
+        {!state.editable &&
+        state.version_id &&
+        !forceLocked &&
+        !roleReadOnly ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -655,15 +661,22 @@ export function RecipeLinesEditor({
             <th className="pb-1.5">{d.lines.colIngredient}</th>
             <th className="pb-1.5 text-right">{d.lines.colQuantity}</th>
             <th className="pb-1.5">{d.lines.colUnit}</th>
-            <th className="pb-1.5 text-right">{d.lines.colPrice}</th>
-            <th className="pb-1.5 text-right">{d.lines.colContribution}</th>
+            {hideMoney ? null : (
+              <>
+                <th className="pb-1.5 text-right">{d.lines.colPrice}</th>
+                <th className="pb-1.5 text-right">{d.lines.colContribution}</th>
+              </>
+            )}
             <th className="pb-1.5" />
           </tr>
         </thead>
         <tbody>
           {state.lines.length === 0 ? (
             <tr>
-              <td colSpan={6} className="py-4 text-sm text-[#5b6476]">
+              <td
+                colSpan={hideMoney ? 4 : 6}
+                className="py-4 text-sm text-[#5b6476]"
+              >
                 {d.lines.empty}
               </td>
             </tr>
@@ -673,6 +686,7 @@ export function RecipeLinesEditor({
               key={line.key}
               line={line}
               currency={currency}
+              hideMoney={hideMoney}
               editable={editable && !line.key.startsWith(SAVING_LINE_PREFIX)}
               saveNote={
                 line.key.startsWith(SAVING_LINE_PREFIX)
@@ -800,10 +814,10 @@ export function RecipeLinesEditor({
               }
             />
           ))}
-          {componentId && state.lines.length > 0 ? (
+          {componentId && state.lines.length > 0 && !hideMoney ? (
             <PreparationTotalRow lines={state.lines} />
           ) : null}
-          {!componentId && state.lines.length > 0 ? (
+          {!componentId && state.lines.length > 0 && !hideMoney ? (
             <DishTotalRow lines={state.lines} />
           ) : null}
         </tbody>
@@ -870,6 +884,7 @@ function PreparationTotalRow({ lines }: { lines: EditorLine[] }) {
 function Row({
   line,
   currency = "USD",
+  hideMoney = false,
   editable,
   saveNote,
   onResolve,
@@ -893,6 +908,8 @@ function Row({
 }: {
   line: EditorLine;
   currency?: string;
+  /** No price or amount cells: the role has no prices.view. */
+  hideMoney?: boolean;
   editable: boolean;
   /** "guardando…" while a just-added line saves, then "✓ guardado". */
   saveNote?: string | null;
@@ -1155,6 +1172,17 @@ function Row({
               {line.kind === "component" ? (
                 <>
                   {d.lines.preparation}
+                  {line.yield_missing ? (
+                    <>
+                      {" · "}
+                      <span
+                        data-testid="yield-missing"
+                        className="inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
+                      >
+                        {d.lines.yieldMissing}
+                      </span>
+                    </>
+                  ) : null}
                   {onOpenPreparation && !waitingPrep ? (
                     <>
                       {" · "}
@@ -1346,352 +1374,394 @@ function Row({
           </select>
         )}
       </td>
-      <td className="py-1.5 text-right align-top">
-        {!unresolved && editingPrice ? (
-          <div className="flex items-center justify-end gap-1">
-            <input
-              value={linePrice}
-              autoFocus
-              placeholder={d.lines.price}
-              onChange={(event) => setLinePrice(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setEditingPrice(false);
-              }}
-              className="w-16 rounded-md border border-[#d5dae3] px-1.5 py-0.5 text-right"
-            />
-            {line.kind === "ingredient" ? (
-              <PriceUnitSelect
-                value={priceUnit}
-                options={priceUnitOptions}
-                onChange={setPriceUnit}
-              />
+      {hideMoney ? null : (
+        <>
+          <td className="py-1.5 text-right align-top">
+            {!unresolved && editingPrice ? (
+              <div className="flex items-center justify-end gap-1">
+                <input
+                  value={linePrice}
+                  autoFocus
+                  placeholder={d.lines.price}
+                  onChange={(event) => setLinePrice(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setEditingPrice(false);
+                  }}
+                  className="w-16 rounded-md border border-[#d5dae3] px-1.5 py-0.5 text-right"
+                />
+                {line.kind === "ingredient" ? (
+                  <PriceUnitSelect
+                    value={priceUnit}
+                    options={priceUnitOptions}
+                    onChange={setPriceUnit}
+                  />
+                ) : (
+                  <span className="text-[12px] text-[#8a92a3]">
+                    /{UNIT_LABEL[line.unit] ?? line.unit}
+                  </span>
+                )}
+                <GhostBtn
+                  onClick={() => {
+                    const n = Number(linePrice);
+                    // Empty is not zero: only a typed 0 is a $0 price.
+                    if (
+                      linePrice.trim() !== "" &&
+                      Number.isFinite(n) &&
+                      n >= 0
+                    ) {
+                      setEditingPrice(false);
+                      // An ingredient's price is the ingredient's (one price,
+                      // everywhere); a preparation line keeps its own cost.
+                      if (line.kind === "ingredient") onPrice(priceUnit, n);
+                      else onLineCost(n);
+                    }
+                  }}
+                >
+                  {d.lines.save}
+                </GhostBtn>
+                {line.own_cost ? (
+                  <button
+                    type="button"
+                    className="text-[12px] font-semibold text-[#3557c9]"
+                    onClick={() => {
+                      setEditingPrice(false);
+                      onLineCost(null);
+                    }}
+                  >
+                    {d.lines.useList}
+                  </button>
+                ) : null}
+              </div>
+            ) : unresolved ? (
+              "—"
+            ) : line.own_cost && line.unit_cost !== null ? (
+              editPrice(
+                <span>
+                  {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
+                  <div className="text-[12px] text-[#8a92a3]">
+                    {line.cost_source === "manual"
+                      ? d.lines.lineOwnPrice
+                      : d.lines.fromExcelShort}
+                  </div>
+                </span>
+              )
+            ) : line.kind === "ingredient" &&
+              !line.price &&
+              line.catalog_question ? (
+              <div className="text-left text-[12px]">
+                <div className="text-[#6b7280]">{d.lines.listUnclear}</div>
+                <div className="mt-1 flex flex-wrap justify-end gap-1">
+                  {line.catalog_question.options.map((option) => (
+                    <GhostBtn
+                      key={option.unit}
+                      disabled={!canFixPrice}
+                      onClick={() =>
+                        onCatalogUnit(
+                          line.catalog_question!.item_id,
+                          option.unit
+                        )
+                      }
+                    >
+                      {fmt(d.lines.catalogOption, {
+                        price: money(option.unit_cost),
+                        unit: UNIT_LABEL[option.unit] ?? option.unit,
+                      })}
+                    </GhostBtn>
+                  ))}
+                  <GhostBtn
+                    disabled={!canFixPrice}
+                    onClick={() =>
+                      onCatalogUnit(line.catalog_question!.item_id, NO_PRICE)
+                    }
+                  >
+                    {d.lines.catalogNone}
+                  </GhostBtn>
+                </div>
+              </div>
+            ) : line.kind === "ingredient" && !line.price ? (
+              <div className="flex items-center justify-end gap-1">
+                <input
+                  value={price}
+                  placeholder={d.lines.price}
+                  disabled={!canFixPrice}
+                  onChange={(event) => setPrice(event.target.value)}
+                  className="w-16 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right font-bold"
+                />
+                <PriceUnitSelect
+                  value={priceUnit}
+                  options={priceUnitOptions}
+                  disabled={!canFixPrice}
+                  onChange={setPriceUnit}
+                />
+                <GhostBtn
+                  disabled={!canFixPrice}
+                  onClick={() => {
+                    const n = inputNumber(price, lang);
+                    if (Number.isFinite(n) && n > 0) onPrice(priceUnit, n);
+                  }}
+                >
+                  {d.lines.addPrice}
+                </GhostBtn>
+              </div>
+            ) : line.price ? (
+              editPrice(
+                <span
+                  title={priceLabel(
+                    {
+                      ...line.price,
+                      unit: line.price.unit,
+                      unit_cost: line.price.unit_cost,
+                      price_date: line.price.date,
+                      price_source: line.price.source,
+                    },
+                    d,
+                    locale
+                  )}
+                >
+                  {money(line.price.unit_cost)}/
+                  {UNIT_LABEL[line.price.unit] ?? line.price.unit}
+                  {line.ingredient_id ? (
+                    // Source and date link to the ingredient's one price record.
+                    <Link
+                      href={ingredientHref(line.ingredient_id)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="block text-[12px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
+                    >
+                      {[
+                        sourceLabel(line.price.source, d),
+                        monthLabel(line.price.date, locale),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </Link>
+                  ) : (
+                    <div className="text-[12px] text-[#8a92a3]">
+                      {[
+                        sourceLabel(line.price.source, d),
+                        monthLabel(line.price.date, locale),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
+                  {line.excel_unit_cost !== null ? (
+                    <div className="text-[12px] text-[#8a92a3]">
+                      {fmt(d.lines.inYourExcel, {
+                        price: money(line.excel_unit_cost),
+                      })}
+                    </div>
+                  ) : null}
+                </span>
+              )
+            ) : line.unit_cost !== null ? (
+              editPrice(
+                `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`
+              )
             ) : (
-              <span className="text-[12px] text-[#8a92a3]">
-                /{UNIT_LABEL[line.unit] ?? line.unit}
+              editPrice(d.lines.pending)
+            )}
+          </td>
+          <td className="py-1.5 text-right align-top font-semibold">
+            {line.amount !== null ? (
+              money(line.amount)
+            ) : priceUnitMismatch ? (
+              <span
+                title={fmt(d.lines.unitMismatchHint, {
+                  priceUnit: UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
+                  lineUnit: UNIT_LABEL[line.unit] ?? line.unit,
+                })}
+                className="text-[#6b7280]"
+              >
+                {d.lines.reasonDifferentUnit}
+              </span>
+            ) : (
+              <span
+                className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
+                data-testid="pending-reason"
+              >
+                {line.milton_price_estimate &&
+                pendingReasonOf(line, prepUnitProblem, lang) ===
+                  d.lines.reasonMissingPrice
+                  ? d.lines.noPrice
+                  : pendingReasonOf(line, prepUnitProblem, lang)}
               </span>
             )}
-            <GhostBtn
-              onClick={() => {
-                const n = Number(linePrice);
-                // Empty is not zero: only a typed 0 is a $0 price.
-                if (linePrice.trim() !== "" && Number.isFinite(n) && n >= 0) {
-                  setEditingPrice(false);
-                  // An ingredient's price is the ingredient's (one price,
-                  // everywhere); a preparation line keeps its own cost.
-                  if (line.kind === "ingredient") onPrice(priceUnit, n);
-                  else onLineCost(n);
-                }
-              }}
-            >
-              {d.lines.save}
-            </GhostBtn>
-            {line.own_cost ? (
-              <button
-                type="button"
-                className="text-[12px] font-semibold text-[#3557c9]"
-                onClick={() => {
-                  setEditingPrice(false);
-                  onLineCost(null);
-                }}
+            {line.amount === null &&
+            line.unit_cost === null &&
+            line.milton_price_estimate ? (
+              <div
+                className="text-left text-[12px] font-normal text-[#6b7280]"
+                data-testid="milton-price-estimate"
               >
-                {d.lines.useList}
-              </button>
-            ) : null}
-          </div>
-        ) : unresolved ? (
-          "—"
-        ) : line.own_cost && line.unit_cost !== null ? (
-          editPrice(
-            <span>
-              {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit}
-              <div className="text-[12px] text-[#8a92a3]">
-                {line.cost_source === "manual"
-                  ? d.lines.lineOwnPrice
-                  : d.lines.fromExcelShort}
+                {estimatedPriceMessage(
+                  line.milton_price_estimate,
+                  currency,
+                  lang
+                )}
               </div>
-            </span>
-          )
-        ) : line.kind === "ingredient" &&
-          !line.price &&
-          line.catalog_question ? (
-          <div className="text-left text-[12px]">
-            <div className="text-[#6b7280]">{d.lines.listUnclear}</div>
-            <div className="mt-1 flex flex-wrap justify-end gap-1">
-              {line.catalog_question.options.map((option) => (
-                <GhostBtn
-                  key={option.unit}
-                  disabled={!canFixPrice}
-                  onClick={() =>
-                    onCatalogUnit(line.catalog_question!.item_id, option.unit)
-                  }
+            ) : null}
+            {line.amount !== null && line.unit_question ? (
+              <div>
+                <span
+                  className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
+                  data-testid="pending-reason"
                 >
-                  {fmt(d.lines.catalogOption, {
-                    price: money(option.unit_cost),
-                    unit: UNIT_LABEL[option.unit] ?? option.unit,
-                  })}
-                </GhostBtn>
-              ))}
-              <GhostBtn
-                disabled={!canFixPrice}
-                onClick={() =>
-                  onCatalogUnit(line.catalog_question!.item_id, NO_PRICE)
-                }
+                  {d.lines.reasonUnitToConfirm}
+                </span>
+              </div>
+            ) : null}
+            {line.legacy_price && line.ingredient_id ? (
+              <div
+                className="text-left text-[12px] font-normal text-[#6b7280]"
+                data-testid="legacy-line-price"
               >
-                {d.lines.catalogNone}
-              </GhostBtn>
-            </div>
-          </div>
-        ) : line.kind === "ingredient" && !line.price ? (
-          <div className="flex items-center justify-end gap-1">
-            <input
-              value={price}
-              placeholder={d.lines.price}
-              disabled={!canFixPrice}
-              onChange={(event) => setPrice(event.target.value)}
-              className="w-16 rounded-md border border-[#e5e7eb] bg-[#f9fafb] px-1.5 py-0.5 text-right font-bold"
-            />
-            <PriceUnitSelect
-              value={priceUnit}
-              options={priceUnitOptions}
-              disabled={!canFixPrice}
-              onChange={setPriceUnit}
-            />
-            <GhostBtn
-              disabled={!canFixPrice}
-              onClick={() => {
-                const n = inputNumber(price, lang);
-                if (Number.isFinite(n) && n > 0) onPrice(priceUnit, n);
-              }}
-            >
-              {d.lines.addPrice}
-            </GhostBtn>
-          </div>
-        ) : line.price ? (
-          editPrice(
-            <span
-              title={priceLabel(
-                {
-                  ...line.price,
-                  unit: line.price.unit,
-                  unit_cost: line.price.unit_cost,
-                  price_date: line.price.date,
-                  price_source: line.price.source,
-                },
-                d,
-                locale
-              )}
-            >
-              {money(line.price.unit_cost)}/
-              {UNIT_LABEL[line.price.unit] ?? line.price.unit}
-              {line.ingredient_id ? (
-                // Source and date link to the ingredient's one price record.
-                <Link
-                  href={ingredientHref(line.ingredient_id)}
-                  onClick={(event) => event.stopPropagation()}
-                  className="block text-[12px] text-[#8a92a3] hover:text-[#3557c9] hover:underline"
-                >
-                  {[
-                    sourceLabel(line.price.source, d),
-                    monthLabel(line.price.date, locale),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </Link>
-              ) : (
-                <div className="text-[12px] text-[#8a92a3]">
-                  {[
-                    sourceLabel(line.price.source, d),
-                    monthLabel(line.price.date, locale),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </div>
-              )}
-              {line.excel_unit_cost !== null ? (
-                <div className="text-[12px] text-[#8a92a3]">
-                  {fmt(d.lines.inYourExcel, {
-                    price: money(line.excel_unit_cost),
-                  })}
-                </div>
-              ) : null}
-            </span>
-          )
-        ) : line.unit_cost !== null ? (
-          editPrice(
-            `${money(line.unit_cost)}/${UNIT_LABEL[line.unit] ?? line.unit}`
-          )
-        ) : (
-          editPrice(d.lines.pending)
-        )}
-      </td>
-      <td className="py-1.5 text-right align-top font-semibold">
-        {line.amount !== null ? (
-          money(line.amount)
-        ) : priceUnitMismatch ? (
-          <span
-            title={fmt(d.lines.unitMismatchHint, {
-              priceUnit: UNIT_LABEL[line.price!.unit] ?? line.price!.unit,
-              lineUnit: UNIT_LABEL[line.unit] ?? line.unit,
-            })}
-            className="text-[#6b7280]"
-          >
-            {d.lines.reasonDifferentUnit}
-          </span>
-        ) : (
-          <span
-            className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
-            data-testid="pending-reason"
-          >
-            {line.milton_price_estimate &&
-            pendingReasonOf(line, prepUnitProblem, lang) ===
-              d.lines.reasonMissingPrice
-              ? d.lines.noPrice
-              : pendingReasonOf(line, prepUnitProblem, lang)}
-          </span>
-        )}
-        {line.amount === null &&
-        line.unit_cost === null &&
-        line.milton_price_estimate ? (
-          <div
-            className="text-left text-[12px] font-normal text-[#6b7280]"
-            data-testid="milton-price-estimate"
-          >
-            {estimatedPriceMessage(line.milton_price_estimate, currency, lang)}
-          </div>
-        ) : null}
-        {line.amount !== null && line.unit_question ? (
-          <div>
-            <span
-              className="rounded-md bg-[#f9fafb] px-1.5 py-0.5 text-[12px] font-semibold text-[#6b7280]"
-              data-testid="pending-reason"
-            >
-              {d.lines.reasonUnitToConfirm}
-            </span>
-          </div>
-        ) : null}
-        {line.legacy_price && line.ingredient_id ? (
-          <div
-            className="text-left text-[12px] font-normal text-[#6b7280]"
-            data-testid="legacy-line-price"
-          >
-            {fmt(d.lines.inYourExcelUnit, {
-              price: money(line.legacy_price.unit_cost),
-              unit:
-                UNIT_LABEL[line.legacy_price.unit] ?? line.legacy_price.unit,
-            })}
-            {canFixPrice ? (
-              <>
-                {" · "}
+                {fmt(d.lines.inYourExcelUnit, {
+                  price: money(line.legacy_price.unit_cost),
+                  unit:
+                    UNIT_LABEL[line.legacy_price.unit] ??
+                    line.legacy_price.unit,
+                })}
+                {canFixPrice ? (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAdoptLegacy(
+                          line.legacy_price!.unit,
+                          line.legacy_price!.unit_cost
+                        )
+                      }
+                      className="font-semibold text-[#1b40c8] underline"
+                    >
+                      {d.lines.adoptLegacy}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+            {priceUnitMismatch && canFixPrice && line.ingredient_id ? (
+              <div className="flex flex-col items-end gap-0.5">
                 <button
                   type="button"
-                  onClick={() =>
-                    onAdoptLegacy(
-                      line.legacy_price!.unit,
-                      line.legacy_price!.unit_cost
-                    )
-                  }
-                  className="font-semibold text-[#1b40c8] underline"
+                  onClick={() => {
+                    setCorrecting((v) => !v);
+                    setCorrectUnit(line.unit);
+                  }}
+                  className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
                 >
-                  {d.lines.adoptLegacy}
+                  {d.lines.correctPriceUnit}
                 </button>
-              </>
+              </div>
             ) : null}
-          </div>
-        ) : null}
-        {priceUnitMismatch && canFixPrice && line.ingredient_id ? (
-          <div className="flex flex-col items-end gap-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setCorrecting((v) => !v);
-                setCorrectUnit(line.unit);
-              }}
-              className="rounded-md border border-[#c6d3f5] bg-white px-2 py-0.5 text-[12px] font-semibold text-[#1B40C8] hover:bg-[#f6f8fe]"
-            >
-              {d.lines.correctPriceUnit}
-            </button>
-          </div>
-        ) : null}
-        {correcting && priceUnitMismatch && canFixPrice && line.price ? (
-          <div
-            className="mt-1 text-left text-[12px] font-normal"
-            data-testid="correct-price-unit"
-          >
-            {fmt(d.lines.pricePer, { price: money(line.price.unit_cost) })}{" "}
-            <select
-              value={correctUnit}
-              aria-label={d.lines.priceUnitLabel}
-              onChange={(e) => setCorrectUnit(e.target.value)}
-              className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
-            >
-              {unitOptions(unitValue(correctUnit || line.unit), d).map((u) => (
-                <option key={u.value} value={u.value}>
-                  {u.label}
-                </option>
-              ))}
-            </select>{" "}
-            <button
-              type="button"
-              disabled={!correctUnit}
-              onClick={() => {
-                setCorrecting(false);
-                onCorrectUnit(correctUnit, line.price!.unit_cost);
-              }}
-              className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white"
-            >
-              {d.lines.save}
-            </button>
-            <div className="text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</div>
-          </div>
-        ) : null}
-        {(priceUnitMismatch || questionForced) &&
-        canFixPrice &&
-        line.ingredient_id &&
-        line.price?.unit &&
-        !conversionQuestion ? (
-          <div className="text-left font-normal">
-            <UnitConversionForm
-              asQuestion
-              ingredientId={line.ingredient_id}
-              ingredientName={line.name ?? ""}
-              unitA={line.unit}
-              unitB={line.price.unit}
-              onSaved={() => {
-                setQuestionForced(false);
-                onConversionSaved();
-              }}
-            />
-          </div>
-        ) : null}
-        {conversionQuestion ? (
-          <div className="text-left font-normal">
-            <UnitConversionForm
-              asQuestion
-              ingredientId={conversionQuestion.ingredient_id}
-              ingredientName={conversionQuestion.ingredient_name}
-              unitA={conversionQuestion.from_unit}
-              unitB={conversionQuestion.to_unit}
-              onSaved={conversionQuestion.onSaved}
-            />
-          </div>
-        ) : null}
-        {line.amount !== null && line.unit_cost !== null && line.qty > 0 ? (
-          // The cost chain (do not remove): price × quantity = cost.
-          <div className="text-[12px] font-normal text-[#8a92a3]">
-            {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit} ×{" "}
-            {line.qty} {UNIT_LABEL[line.unit] ?? line.unit}
-          </div>
-        ) : null}
-        {priceEditable && !unresolved && !editingPrice ? (
-          <button
-            type="button"
-            className="block w-full text-right text-[12px] font-normal text-[#3557c9]"
-            onClick={() => setEditingPrice(true)}
-          >
-            {d.lines.editPrice}
-          </button>
-        ) : null}
-      </td>
+            {correcting && priceUnitMismatch && canFixPrice && line.price ? (
+              <div
+                className="mt-1 text-left text-[12px] font-normal"
+                data-testid="correct-price-unit"
+              >
+                {fmt(d.lines.pricePer, { price: money(line.price.unit_cost) })}{" "}
+                <select
+                  value={correctUnit}
+                  aria-label={d.lines.priceUnitLabel}
+                  onChange={(e) => setCorrectUnit(e.target.value)}
+                  className="rounded border border-[#c6d3f5] bg-white px-1 py-0.5"
+                >
+                  {unitOptions(unitValue(correctUnit || line.unit), d).map(
+                    (u) => (
+                      <option key={u.value} value={u.value}>
+                        {u.label}
+                      </option>
+                    )
+                  )}
+                </select>{" "}
+                <button
+                  type="button"
+                  disabled={!correctUnit}
+                  onClick={() => {
+                    setCorrecting(false);
+                    onCorrectUnit(correctUnit, line.price!.unit_cost);
+                  }}
+                  className="rounded bg-[#1b40c8] px-2 py-0.5 font-semibold text-white"
+                >
+                  {d.lines.save}
+                </button>
+                <div className="text-[#8a92a3]">{NEW_PRICE_KEEPS_HISTORY}</div>
+              </div>
+            ) : null}
+            {(priceUnitMismatch || questionForced) &&
+            canFixPrice &&
+            line.ingredient_id &&
+            line.price?.unit &&
+            !conversionQuestion ? (
+              <div className="text-left font-normal">
+                <UnitConversionForm
+                  asQuestion
+                  ingredientId={line.ingredient_id}
+                  ingredientName={line.name ?? ""}
+                  unitA={line.unit}
+                  unitB={line.price.unit}
+                  onSaved={() => {
+                    setQuestionForced(false);
+                    onConversionSaved();
+                  }}
+                />
+              </div>
+            ) : null}
+            {conversionQuestion ? (
+              <div className="text-left font-normal">
+                <UnitConversionForm
+                  asQuestion
+                  ingredientId={conversionQuestion.ingredient_id}
+                  ingredientName={conversionQuestion.ingredient_name}
+                  unitA={conversionQuestion.from_unit}
+                  unitB={conversionQuestion.to_unit}
+                  onSaved={conversionQuestion.onSaved}
+                />
+              </div>
+            ) : null}
+            {line.amount !== null && line.unit_cost !== null && line.qty > 0 ? (
+              // The cost chain (do not remove): price × quantity = cost.
+              <div className="text-[12px] font-normal text-[#8a92a3]">
+                {money(line.unit_cost)}/{UNIT_LABEL[line.unit] ?? line.unit} ×{" "}
+                {line.qty} {UNIT_LABEL[line.unit] ?? line.unit}
+              </div>
+            ) : null}
+            {line.amount !== null &&
+            line.effective &&
+            line.effective.effective !== null &&
+            line.effective.factor !== "none" ? (
+              <div
+                data-testid="effective-cost"
+                className="text-[12px] font-normal text-[#4a5a85]"
+              >
+                {d.lines.rawCost} {money(line.amount)} → {d.lines.effectiveCost}{" "}
+                <span className="font-semibold text-[#0F172A]">
+                  {money(line.effective.effective)}
+                </span>{" "}
+                ·{" "}
+                {line.effective.factor === "own_yield"
+                  ? fmt(d.lines.factorOwnYield, {
+                      pct: String(line.effective.pct),
+                    })
+                  : line.effective.factor === "measured_prep"
+                    ? d.lines.factorMeasuredPrep
+                    : fmt(d.lines.factorKitchenBuffer, {
+                        pct: String(line.effective.pct),
+                      })}
+              </div>
+            ) : null}
+            {priceEditable && !unresolved && !editingPrice ? (
+              <button
+                type="button"
+                className="block w-full text-right text-[12px] font-normal text-[#3557c9]"
+                onClick={() => setEditingPrice(true)}
+              >
+                {d.lines.editPrice}
+              </button>
+            ) : null}
+          </td>
+        </>
+      )}
       <td className="py-1.5 pl-2 text-right align-top">
         {editable ? (
           <div className="flex justify-end gap-2 text-[12px]">

@@ -16,6 +16,11 @@ import {
   clientIp,
   isRedeemRateLimited,
 } from "@/lib/restaurant/kitchen/redeem-limit";
+import { isValidPin, isWeakPin } from "@/lib/restaurant/kitchen/pin";
+import {
+  ensureKitchenCode,
+  getKitchenPinStatus,
+} from "@/lib/restaurant/kitchen/pin-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -52,8 +57,22 @@ export async function POST(request: NextRequest) {
     return kitchenJson({ error: d.kitchen.api.inviteMissing }, 400);
   }
 
+  // The PIN is checked BEFORE the invite is spent. Older app builds send none:
+  // those cooks join without a PIN and are asked to set one in the app.
+  let pin: string | null = null;
+  if (body.pin !== undefined && body.pin !== null) {
+    if (!isValidPin(body.pin)) {
+      return kitchenJson({ error: d.kitchen.api.pinInvalid }, 400);
+    }
+    if (isWeakPin(body.pin)) {
+      return kitchenJson({ error: d.kitchen.api.pinWeak }, 400);
+    }
+    pin = body.pin;
+  }
+
   try {
     const result = await redeemKitchenInvite(createAdminClient(), {
+      pin,
       secret: body.secret,
       name: typeof body.name === "string" ? body.name : null,
       platform: typeof body.platform === "string" ? body.platform : null,
@@ -84,8 +103,15 @@ export async function POST(request: NextRequest) {
     } catch {
       language = null;
     }
+    const statusAdmin = createAdminClient();
+    const [pinStatus, kitchenCode] = await Promise.all([
+      getKitchenPinStatus(statusAdmin, result.companyId, result.staffId),
+      ensureKitchenCode(statusAdmin, result.companyId),
+    ]);
     return kitchenJson(
       serializeKitchenRedeem({
+        pin: pinStatus,
+        kitchenCode,
         language,
         deviceToken: result.deviceToken,
         staffId: result.staffId,

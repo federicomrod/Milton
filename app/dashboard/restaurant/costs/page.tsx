@@ -49,14 +49,22 @@ import { InvoicesPage } from "@/components/restaurant/InvoicesPage";
 import { SuppliersPage } from "@/components/restaurant/SuppliersPage";
 import { t, type PreferredLanguage } from "@/lib/restaurant/language";
 import { getDictionary } from "@/lib/i18n";
+import { KitchenBufferCard } from "@/components/restaurant/costs/KitchenBufferCard";
+import {
+  loadBufferHistory,
+  loadBusinessToday,
+  loadRestaurantBuffers,
+} from "@/lib/restaurant/kitchen-buffer-server";
 import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
 import {
   listFixedCostHistory,
   loadFixedCostsView,
   monthSalesByLocation,
+  loadRepeatDetail,
   repeatFixedCosts,
 } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+import { loadApprovedItems } from "@/lib/restaurant/fixed-cost-upload-server";
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
@@ -325,6 +333,10 @@ export default async function CostsAreaPage({
 
           <CostsMobileBannerHost locationId={location ?? null} />
 
+          <Suspense fallback={null}>
+            <KitchenBufferSection location={location} />
+          </Suspense>
+
           <CostsAreaTabs active={tab} lang={lang} shellParams={shellParams} />
 
           {tab === "costos-fijos" ? null : (
@@ -422,6 +434,49 @@ function SignInNote({ lang }: { lang: PreferredLanguage }) {
   );
 }
 
+/** «Merma de cocina» per restaurant; read-only unless the role may change it. */
+async function KitchenBufferSection({
+  location,
+}: {
+  location: string | undefined;
+}) {
+  try {
+    const user = await getCachedAuthUser();
+    const companyId = user?.id ? await getCachedCompanyId(user.id) : null;
+    if (!user?.id || !companyId) return null;
+    const supabase = await createClient();
+    const [actor, context] = await Promise.all([
+      getCachedActor(user.id, companyId),
+      resolveRestaurantContext(supabase, companyId, location),
+    ]);
+    const shown = context.selected
+      ? context.locations.filter((l) => l.id === context.selected?.locationId)
+      : context.locations;
+    if (shown.length === 0) return null;
+    const today = await loadBusinessToday(supabase, companyId, shown[0].id);
+    const buffers = await loadRestaurantBuffers(
+      supabase,
+      companyId,
+      shown.map((l) => ({ id: l.id, name: l.name })),
+      today
+    );
+    const histories = await Promise.all(
+      buffers.map((b) =>
+        loadBufferHistory(supabase, companyId, b.locationId).catch(() => [])
+      )
+    );
+    return (
+      <KitchenBufferCard
+        lines={buffers.map((b, i) => ({ ...b, history: histories[i] }))}
+        canEdit={capabilityFlags(actor)["costs.buffer"]}
+      />
+    );
+  } catch (err) {
+    console.error("[costs page] kitchen buffer read failed:", err);
+    return null;
+  }
+}
+
 async function ComprasTab({ lang }: { lang: PreferredLanguage }) {
   // The permission read does not depend on the tab data: run both together.
   const [data, canEditPrices] = await Promise.all([
@@ -507,7 +562,7 @@ async function CostosFijosTab({
         lang,
       }),
     ]);
-    const [view, history] = await Promise.all([
+    const [view, history, savedItems, repeatDetail] = await Promise.all([
       loadFixedCostsView(ctx, {
         month,
         locationId,
@@ -516,17 +571,25 @@ async function CostosFijosTab({
         marginRead,
       }),
       listFixedCostHistory(supabase, companyId, { locationId, month }),
+      loadApprovedItems(ctx, { month, locationId }).catch(() => ({})),
+      loadRepeatDetail(ctx, { month, locationId }).catch(() => ({})),
     ]);
     return (
       <FixedCostsTab
         key={`${month}|${locationId ?? "group"}`}
         view={view}
         history={history}
+        savedItems={savedItems}
+        repeatDetail={repeatDetail}
         locationName={
           context.locations.find((l) => l.id === locationId)?.name ?? null
         }
         shellParams={shellParams}
         currentMonth={currentMonth}
+        restaurants={context.locations.map((l) => ({
+          id: l.id,
+          name: l.name,
+        }))}
         splitTargets={
           splitSales
             ? context.locations.map((l) => ({

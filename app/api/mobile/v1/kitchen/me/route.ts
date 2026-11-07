@@ -9,6 +9,10 @@ import { NextRequest } from "next/server";
 import { authKitchenDevice } from "@/lib/restaurant/kitchen/kitchen-auth";
 import { serializeKitchenMe } from "@/lib/restaurant/kitchen/kitchen-serializer";
 import { kitchenJson } from "@/lib/restaurant/kitchen/mobile-response";
+import {
+  ensureKitchenCode,
+  getKitchenPinStatus,
+} from "@/lib/restaurant/kitchen/pin-store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -34,11 +38,17 @@ export async function GET(request: NextRequest) {
     if (company.error || locations.error) {
       return kitchenJson({ error: d.kitchen.api.accountLoadFailed }, 500);
     }
+    const [pin, kitchenCode] = await Promise.all([
+      getKitchenPinStatus(admin, companyId, staff.id),
+      ensureKitchenCode(admin, companyId),
+    ]);
     return kitchenJson(
       serializeKitchenMe({
         staff: { id: staff.id, display_name: staff.displayName },
         company: (company.data as Record<string, unknown> | null) ?? null,
         locations: (locations.data ?? []) as Record<string, unknown>[],
+        pin,
+        kitchenCode,
       })
     );
   } catch (err) {

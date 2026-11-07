@@ -6,6 +6,7 @@ import {
   contributionMarginPct,
   effectiveFixedCosts,
   fixedCostCompleteness,
+  fixedCostTotal,
   openDaysInMonth,
   planRepeat,
   splitGroupAmount,
@@ -214,6 +215,36 @@ describe("completeness", () => {
     );
     expect(costs.amounts.servicios).toBe(133.34);
     expect(costs.amounts.otros).toBe(10);
+  });
+});
+
+describe("fixedCostTotal", () => {
+  it("all known: the sum of the four amounts, nothing missing", () => {
+    const costs = effectiveFixedCosts([
+      { category: "planilla", amount: 5000, pct_of_sales: null },
+      { category: "alquiler", amount: 2500, pct_of_sales: null },
+      { category: "servicios", amount: 2450, pct_of_sales: null },
+      { category: "otros", amount: 0, pct_of_sales: null },
+    ]);
+    expect(fixedCostTotal(costs)).toEqual({ total: 9950, missingCount: 0 });
+  });
+  it("some missing: sums the known ones and counts the rest, never 0", () => {
+    const costs = effectiveFixedCosts([
+      { category: "alquiler", amount: 2500, pct_of_sales: null },
+    ]);
+    expect(fixedCostTotal(costs)).toEqual({ total: 2500, missingCount: 3 });
+  });
+  it("nothing known: no total (null, not $0) and every amount missing", () => {
+    const costs = effectiveFixedCosts([]);
+    expect(fixedCostTotal(costs)).toEqual({ total: null, missingCount: 4 });
+  });
+  it("impuestos is a % of sales and is left out", () => {
+    const costs = effectiveFixedCosts([
+      { category: "planilla", amount: 1000, pct_of_sales: null },
+      { category: "impuestos", amount: null, pct_of_sales: 13 },
+    ]);
+    expect(fixedCostTotal(costs).total).toBe(1000);
+    expect(fixedCostTotal(costs).missingCount).toBe(3);
   });
 });
 

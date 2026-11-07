@@ -42,7 +42,24 @@ WITH allowlist (schema_name, func_name, arg_types, allowed_roles, reason) AS (
        'RLS helper for admin-only policies, evaluated for signed-in users (migration 020)'),
     ('public', 'current_user_was_invited', '',
        ARRAY['authenticated'],
-       'called from the logged-in login redirect; reads only auth.uid() (migration 020)')
+       'called from the logged-in login redirect; reads only auth.uid() (migration 020)'),
+    -- Fixed-cost command API (migration 079). Each one re-checks auth.uid() and the
+    -- caller's WRITER role of the company inside the function; anon and service_role
+    -- are not granted (a call without a signed-in user is refused).
+    ('public', 'fixed_cost_preview_upload', 'uuid',
+       ARRAY['authenticated'], 'read-only upload review; checks writer role of the draft company (079)'),
+    ('public', 'fixed_cost_approve_upload', 'text, uuid, integer, jsonb, text[], jsonb, text',
+       ARRAY['authenticated'], 'transactional upload approval; checks writer role (079)'),
+    ('public', 'fixed_cost_save_totals', 'text, uuid, date, uuid, jsonb, text',
+       ARRAY['authenticated'], 'transactional manual save; checks writer role (079)'),
+    ('public', 'fixed_cost_item_command', 'text, uuid, text, uuid, date, text, uuid, text, bigint, integer, integer, text',
+       ARRAY['authenticated'], 'add/edit/delete one item; checks writer role (079)'),
+    ('public', 'fixed_cost_preview_copy', 'uuid, uuid, date, date',
+       ARRAY['authenticated'], 'read-only copy preview; checks writer role (079)'),
+    ('public', 'fixed_cost_copy', 'text, uuid, uuid, date, date, text[], jsonb, jsonb, text',
+       ARRAY['authenticated'], 'explicit month copy; checks writer role (079)'),
+    ('public', 'fixed_cost_undo', 'text, uuid',
+       ARRAY['authenticated'], 'server-derived undo; checks writer role of the original command company (079)')
 ),
 managed_schemas (name) AS (
   VALUES ('auth'), ('storage'), ('realtime'), ('_realtime'), ('vault'),

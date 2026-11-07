@@ -63,6 +63,29 @@ export const costs: Dictionary["costs"] = {
     undo: "Rückgängig",
     undone: "Rückgängig gemacht",
     rollback: "Speichern fehlgeschlagen. Die Änderung wurde zurückgenommen.",
+    destTitle: "Wo es gespeichert wird",
+    destLine: "{n} Zeilen → {where} · {month}",
+    destLineOne: "1 Zeile → {where} · {month}",
+    destChange: "Monat ändern",
+    destViewing:
+      "Du siehst {screen}. Diese Datei wird in {dest} gespeichert; {screen} bleibt unverändert.",
+    destSame: "Sie wird im Monat gespeichert, den du gerade siehst.",
+    destMixed:
+      "Diese Datei hat mehrere Monate: Jede Zeile geht in ihren eigenen.",
+    savedInMonth: "In {month} gespeichert. {screen} hat sich nicht geändert.",
+    alreadyApproved: "waren schon bestätigt",
+    countsLine: "{n} Zeilen bestätigt",
+    countsLineOne: "1 Zeile bestätigt",
+    countsAlready: "{n} Zeilen bestätigt · {m} waren schon bestätigt",
+    nothingNew: "Nichts Neues: Alles war mit diesen Werten schon bestätigt.",
+    staleDraft:
+      "Die Datei hat sich während deiner Prüfung geändert. Ich habe die Prüfung neu geladen; sieh sie dir noch einmal an.",
+    duplicateNote:
+      "In {category} gibt es schon eine gleiche Zeile. Wenn es eine andere Rechnung ist, addiere sie trotzdem.",
+    addAnyway: "Trotzdem addieren",
+    sameFileSeen:
+      "Du hast schon einmal eine gleiche Datei hochgeladen. Prüfe genau: Es kann dieselbe Rechnung sein.",
+    existingHere: "Heute in {category}: {amount}",
     undoChanged:
       "Dieser Wert wurde danach geändert, deshalb habe ich ihn nicht angefasst.",
     skipHint: "Übersprungen",
@@ -174,6 +197,35 @@ export const costs: Dictionary["costs"] = {
     historyRepeatAuto: "automatisch wiederholt",
     detailUnavailable: "Aufschlüsselung für diesen Eintrag nicht verfügbar.",
     recalculating: "Berechne neu…",
+    staleReload:
+      "Während deiner Prüfung hat sich etwas geändert. Lade neu und prüfe noch einmal; es wurde nichts gespeichert.",
+    hasItems:
+      "Diese Kosten haben eine Aufschlüsselung. Bestätige, dass du sie durch einen einzigen Betrag ersetzen willst.",
+    copyButton: "Aus {month} kopieren",
+    copyTitle: "Von {from} nach {to} kopieren",
+    copyHint:
+      "Das ist eine Kopie von heute: Wenn du {from} später änderst, bleibt {to} unverändert.",
+    copyKeep: "Was {to} hat, behalten",
+    copyReplace: "Durch {from} ersetzen",
+    copyAlready: "Schon gleich",
+    copyNoSource: "Keine Daten in {from}",
+    copySourceChanged: "{from} hat sich seit dem Kopieren geändert.",
+    copyConfirm: "Kopieren",
+    copyCancel: "Abbrechen",
+    copyDone: "Du hast {n} Kategorien von {from} nach {to} kopiert.",
+    copyNothing: "Aus {from} gibt es nichts zu kopieren.",
+    copyApplyHint: "Ersetzen kopiert {from} erneut.",
+    taxLocal: "Steuersatz: {rate} (dieses Restaurant, {month})",
+    taxGroup: "Steuersatz: {rate} (von der Gruppe übernommen, {month})",
+    taxMissing: "Kein Steuersatz: Die Berechnung nimmt 0 %.",
+    missingInputs: "Es fehlt: {names}",
+    missingMargin: "Umsatz des Monats",
+    missingDays: "Öffnungstage",
+    historyRepeatUnknown:
+      "aus einem früheren Monat kopiert (Quelle nicht erfasst)",
+    historyUndo: "rückgängig gemacht",
+    itemsLegacy: "Aufschlüsselung für diesen Eintrag nicht verfügbar.",
+    oldKept: "Vor dieser Änderung: {amount}",
     seeRentabilidad: "Rentabilität ansehen →",
     taxIncluded:
       "Deine Umsätze enthalten MwSt.: Milton zieht {rate} ÷ {sum} von jedem Verkauf ab",

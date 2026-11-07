@@ -30,12 +30,25 @@ export interface RentabilidadPayload {
   profitPct: number | null;
   breakEven: {
     perDay: number | null;
+    /**
+     * A per-day figure from only the confirmed categories (status "partial").
+     * Separate from `perDay` so an older app build never shows it unlabelled.
+     */
+    partialPerDay: number | null;
     /** Sales the month needs to cover its costs: the web's per-day figure × its open days. */
     monthSales: number | null;
     avgSalesPerDay: number | null;
     day: number | null;
     daysInMonth: number;
     actualDays: number;
+    /**
+     * "complete" | "partial" | "unavailable" from the shared fixed-cost engine.
+     * A partial per-day figure uses only the confirmed categories: label it as
+     * such. Added field; older app builds ignore it.
+     */
+    status: "complete" | "partial" | "unavailable";
+    /** What keeps it from being complete (category names, "impuestos", "margin", "open_days"). */
+    missing: string[];
   };
   cada100: Array<{ key: string; pct: number }> | null;
   cada100Loss: boolean;
@@ -71,15 +84,26 @@ export function shapeRentabilidad(
     profit: m.profit,
     profitPct: m.profitPct,
     breakEven: {
-      perDay: m.breakEvenPerDay,
+      perDay: m.figures.status === "complete" ? m.breakEvenPerDay : null,
+      partialPerDay: m.figures.status === "partial" ? m.breakEvenPerDay : null,
       monthSales:
-        m.breakEvenPerDay === null
+        m.figures.status !== "complete" || m.breakEvenPerDay === null
           ? null
           : Math.round(m.breakEvenPerDay * m.openDays),
       avgSalesPerDay: m.avgSalesPerDay,
       day: m.breakEvenDay ? m.breakEvenDay.day : null,
       daysInMonth: m.daysInMonth,
       actualDays: m.actualDays,
+      status: m.figures.status,
+      missing: m.figures.missing.map((x) =>
+        x.kind === "category"
+          ? x.category
+          : x.kind === "tax"
+            ? "impuestos"
+            : x.kind === "margin"
+              ? "margin"
+              : "open_days"
+      ),
     },
     cada100: m.cada100
       ? m.cada100.map((p) => ({ key: p.key, pct: p.pct }))

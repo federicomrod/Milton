@@ -5,11 +5,13 @@
 // become a DRAFT that changes nothing until it is approved
 // (…/upload/approve).
 //
-// GET   → { draft | null }       the company's newest open draft
-// POST  multipart { file, month, location_id? } → { draft }
-// PATCH { draftId, edits?: [{ lineId, category?, amount?, scope?, discard? }],
-//         discardAll?: true } → { draft }   (edits only touch the draft)
+// GET   → { draft | null, preview }   the company's newest open draft + its review
+// POST  multipart { file, month, location_id? } → { draft, preview }
+// PATCH { draftId, edits?: [{ lineId, category?, amount?, scope?, month?, discard? }],
+//         discardAll?: true } → { draft, preview }   (edits only touch the draft)
+// `preview` is the database's read-only review of the draft (see …/upload/preview).
 
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { apiLanguage } from "@/lib/restaurant/api-lang";
@@ -21,8 +23,10 @@ import {
   isFixedCostCategory,
   monthStartOf,
 } from "@/lib/restaurant/fixed-costs";
+import { previewUpload } from "@/lib/restaurant/fixed-cost-commands";
 import {
   MAX_UPLOAD_BYTES,
+  type UploadDraft,
   createDraft,
   discardDraft,
   editDraft,
@@ -67,10 +71,22 @@ async function guard(): Promise<Guard> {
   };
 }
 
+/** The draft plus its review. A failed review only hides the hints, never the draft. */
+async function withPreview(
+  ctx: { supabase: SupabaseClient; companyId: string; userId: string },
+  draft: UploadDraft | null
+) {
+  if (!draft || draft.status !== "draft") return { draft, preview: null };
+  const p = await previewUpload(ctx, draft.id);
+  return { draft, preview: p.ok ? p.value : null };
+}
+
 export async function GET(): Promise<NextResponse> {
   const g = await guard();
   if ("response" in g) return g.response;
-  return NextResponse.json({ draft: await latestOpenDraft(g.ctx) });
+  return NextResponse.json(
+    await withPreview(g.ctx, await latestOpenDraft(g.ctx))
+  );
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -97,11 +113,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (wanted && !locationId)
     return NextResponse.json({ error: t.errUnreadable }, { status: 400 });
 
+  const buffer = Buffer.from(await file.arrayBuffer());
   const read = await readUploadedFile(
     {
       name: file.name,
       type: file.type,
-      buffer: Buffer.from(await file.arrayBuffer()),
+      buffer,
     },
     {
       month,
@@ -127,9 +144,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     month,
     locationId,
     lines: read.lines,
+    fileSha256: createHash("sha256").update(buffer).digest("hex"),
   });
   if (!draft) return NextResponse.json({ error: t.errSave }, { status: 500 });
-  return NextResponse.json({ draft });
+  return NextResponse.json(await withPreview(ctx, draft));
 }
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
@@ -150,7 +168,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   if (body.discardAll === true) {
     const saved = await discardDraft(ctx, draft);
     if (!saved) return NextResponse.json({ error: t.errSave }, { status: 500 });
-    return NextResponse.json({ draft: saved });
+    return NextResponse.json(await withPreview(ctx, saved));
   }
   const edits: LineEdit[] = [];
   // A restaurant can only be one of this company's (never taken on trust).
@@ -202,5 +220,5 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   }
   const saved = await editDraft(ctx, draft, edits);
   if (!saved) return NextResponse.json({ error: t.errSave }, { status: 500 });
-  return NextResponse.json({ draft: saved });
+  return NextResponse.json(await withPreview(ctx, saved));
 }

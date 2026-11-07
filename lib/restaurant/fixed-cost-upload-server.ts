@@ -2,44 +2,32 @@
 //
 // #409 · server side of «⇪ Subir archivo» in Costos fijos. A file is parsed on
 // the server and NOT stored (storage_path stays null): its lines go to
-// fixed_cost_upload_drafts.parsed_lines as DRAFTS. Nothing touches
-// restaurant_fixed_costs until `approveDraft`, which saves with source
-// 'upload' and writes the history (restaurant_fixed_costs_log). A value already
-// in the month is never overwritten without a confirmation (old → new).
+// fixed_cost_upload_drafts.parsed_lines as DRAFTS. A draft is a work area:
+// reading, editing and discarding it never touches restaurant_fixed_costs.
+// Approving (and undoing) is a database command (lib/restaurant/
+// fixed-cost-commands.ts, migration 079): items, aggregate, history and draft
+// change together or not at all.
 
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { runChat } from "@/lib/ai/call";
-import { resolveCompanyCurrency } from "@/lib/restaurant/currency";
-import {
-  approvedItems,
-  type ClusterItem,
-} from "@/lib/restaurant/fixed-cost-clusters";
 import {
   FIXED_COST_AI_PROMPT,
-  isApprovable,
-  keyOfLine,
-  nextRepeats,
   normalizeAiLines,
   parseGrid,
-  planApproval,
   type DraftLine,
   type DraftScope,
-  type ExistingValue,
-  type OverwriteConflict,
   type ReadDefaults,
 } from "@/lib/restaurant/fixed-cost-upload";
-import {
-  isRlsDenied,
-  validateLine,
-  type FixedCostCategory,
-} from "@/lib/restaurant/fixed-costs";
+import type { FixedCostCategory } from "@/lib/restaurant/fixed-costs";
 import type { FixedCostsContext } from "@/lib/restaurant/fixed-costs-server";
 
 export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 export interface UploadDraft {
   id: string;
+  /** Moves on every content change; an approval must send the one it reviewed. */
+  version: number;
   fileName: string | null;
   lines: DraftLine[];
   status: "draft" | "approved" | "discarded";
@@ -172,17 +160,19 @@ export async function readUploadedFile(
 // Drafts
 // ---------------------------------------------------------------------------
 
-const DRAFT_COLUMNS = "id, file_name, parsed_lines, status";
+const DRAFT_COLUMNS = "id, file_name, parsed_lines, status, version";
 
 type DraftRow = {
   id: string;
   file_name: string | null;
   parsed_lines: unknown;
   status: UploadDraft["status"];
+  version: number;
 };
 
 const toDraft = (r: DraftRow): UploadDraft => ({
   id: r.id,
+  version: r.version ?? 1,
   fileName: r.file_name,
   lines: Array.isArray(r.parsed_lines) ? (r.parsed_lines as DraftLine[]) : [],
   status: r.status,
@@ -195,6 +185,8 @@ export async function createDraft(
     month: string;
     locationId: string | null;
     lines: DraftLine[];
+    /** Hash of the uploaded bytes: evidence of file identity, never the sole identity. */
+    fileSha256?: string | null;
   }
 ): Promise<UploadDraft | null> {
   const { data, error } = await ctx.supabase
@@ -205,6 +197,7 @@ export async function createDraft(
       month: args.month,
       file_name: args.fileName.slice(0, 200),
       storage_path: null, // the file itself is not kept
+      file_sha256: args.fileSha256 ?? null,
       parsed_lines: args.lines,
       status: "draft",
       created_by: ctx.userId,
@@ -318,367 +311,4 @@ export async function discardDraft(
       l.status === "pending" ? { ...l, status: "discarded" as const } : l
     )
   );
-}
-
-// ---------------------------------------------------------------------------
-// Approve
-// ---------------------------------------------------------------------------
-
-export interface AppliedRow {
-  category: FixedCostCategory;
-  month: string;
-  locationId: string | null;
-  /** The cluster's total after this approval (the rate for impuestos). */
-  total: number;
-  /** The row's value before, null when this approval created it. */
-  previous: {
-    amount: number | null;
-    pct_of_sales: number | null;
-    label: string | null;
-    source: string | null;
-    repeats?: boolean | null;
-  } | null;
-  /** «Se repite cada mes» of the row after this approval. */
-  repeats: boolean;
-  /** Every draft line this row stands for. */
-  lineIds: string[];
-}
-
-export type ApproveResult =
-  | {
-      ok: true;
-      /** Rows actually written to Costos fijos (a group of lines is one row). */
-      approved: number;
-      /** Lines left pending because their row could not be saved. */
-      issues: Array<{ lineId: string; error: string }>;
-      /** One entry per saved row: what the cluster is now, and how to undo it. */
-      applied: AppliedRow[];
-      draft: UploadDraft;
-    }
-  | { ok: false; conflicts: OverwriteConflict[] }
-  | { ok: false; error: "forbidden" | "failed" };
-
-/**
- * Saves the selected lines (default: every approvable one) with source 'upload'
- * and logs each change. Lines of one category/month/scope are saved as ONE row
- * (their sum); all of them are approved together. If any of them would replace a DIFFERENT value already
- * in the month and was not confirmed (`confirmed` = line ids), nothing is
- * written and the conflicts (old → new) come back.
- */
-export async function approveDraft(
-  ctx: FixedCostsContext,
-  draft: UploadDraft,
-  args: {
-    lineIds?: readonly string[];
-    confirmed?: readonly string[];
-    /** Line ids whose cluster should ADD to the saved value («Sumar»). */
-    adds?: readonly string[];
-  }
-): Promise<ApproveResult> {
-  const wanted = args.lineIds ? new Set(args.lineIds) : null;
-  const selected = draft.lines.filter(
-    (l) => isApprovable(l) && (!wanted || wanted.has(l.id))
-  );
-  const months = [...new Set(selected.map((l) => l.month as string))];
-  const existing = new Map<string, ExistingValue & { id: string }>();
-  if (months.length) {
-    const { data, error } = await ctx.supabase
-      .from("restaurant_fixed_costs")
-      .select(
-        "id, location_id, month, category, amount, pct_of_sales, source, label, repeats"
-      )
-      .eq("company_id", ctx.companyId)
-      .in("month", months);
-    if (error) return { ok: false, error: "failed" };
-    for (const r of (data ?? []) as Array<{
-      id: string;
-      location_id: string | null;
-      month: string;
-      category: FixedCostCategory;
-      amount: number | string | null;
-      pct_of_sales: number | string | null;
-      source: string | null;
-      label: string | null;
-      repeats: boolean | null;
-    }>)
-      existing.set(
-        keyOfLine({
-          scope: r.location_id
-            ? { kind: "restaurant", locationId: r.location_id }
-            : { kind: "group" },
-          month: r.month,
-          category: r.category,
-        } as DraftLine),
-        {
-          id: r.id,
-          amount: r.amount === null ? null : Number(r.amount),
-          pct_of_sales: r.pct_of_sales === null ? null : Number(r.pct_of_sales),
-          source: r.source,
-          label: r.label,
-          repeats: r.repeats,
-        }
-      );
-  }
-  const addIds = new Set(args.adds ?? []);
-  const addKeys = new Set(
-    selected.filter((l) => addIds.has(l.id)).map((l) => keyOfLine(l))
-  );
-  const plan = planApproval(selected, existing, draft.lines, addKeys);
-  const confirmed = new Set(args.confirmed ?? []);
-  const open = plan.conflicts.filter((c) => !confirmed.has(c.lineId));
-  if (open.length) return { ok: false, conflicts: open };
-
-  const currency = await resolveCompanyCurrency(ctx.supabase, ctx.companyId);
-  const done = new Set<string>();
-  const issues: Array<{ lineId: string; error: string }> = [];
-  let written = 0;
-  const applied: AppliedRow[] = [];
-  for (const { line, members, previous, adds } of plan.writes) {
-    const checked = validateLine({
-      location_id:
-        line.scope?.kind === "restaurant" ? line.scope.locationId : null,
-      month: line.month,
-      category: line.category,
-      label: line.raw,
-      value: line.amount,
-    });
-    if (!checked.ok) {
-      // Not saved and not approved: it stays in the draft with the reason.
-      for (const m of members)
-        issues.push({ lineId: m.id, error: checked.error });
-      continue;
-    }
-    const v = checked.value;
-    const prevRow = existing.get(keyOfLine(line));
-    const repeats = nextRepeats(members, adds, prevRow?.repeats);
-    const row = {
-      company_id: ctx.companyId,
-      location_id: v.location_id,
-      month: v.month,
-      category: v.category,
-      label: v.label,
-      amount: v.amount,
-      pct_of_sales: v.pct_of_sales,
-      currency,
-      source: "upload" as const,
-      status: "confirmed" as const,
-      repeats,
-      split_rule: v.split_rule,
-      updated_by: ctx.userId,
-      updated_at: new Date().toISOString(),
-    };
-    const result = prevRow
-      ? await ctx.supabase
-          .from("restaurant_fixed_costs")
-          .update(row)
-          .eq("company_id", ctx.companyId)
-          .eq("id", prevRow.id)
-          .select("id")
-          .single()
-      : await ctx.supabase
-          .from("restaurant_fixed_costs")
-          .insert({ ...row, created_by: ctx.userId })
-          .select("id")
-          .single();
-    if (result.error)
-      return {
-        ok: false,
-        error: isRlsDenied(result.error) ? "forbidden" : "failed",
-      };
-    const logged = await ctx.supabase
-      .from("restaurant_fixed_costs_log")
-      .insert({
-        company_id: ctx.companyId,
-        fixed_cost_id: (result.data as { id: string }).id,
-        location_id: v.location_id,
-        month: v.month,
-        category: v.category,
-        actor: ctx.userId,
-        action: previous ? "update" : "create",
-        old_value: previous
-          ? { amount: previous.amount, pct_of_sales: previous.pct_of_sales }
-          : null,
-        new_value: { amount: v.amount, pct_of_sales: v.pct_of_sales },
-        source: "upload",
-      });
-    if (logged.error) return { ok: false, error: "failed" };
-    for (const m of members) done.add(m.id);
-    written += 1;
-    applied.push({
-      category: v.category,
-      month: v.month,
-      locationId: v.location_id,
-      total: (v.category === "impuestos" ? v.pct_of_sales : v.amount) ?? 0,
-      previous: previous
-        ? {
-            amount: previous.amount,
-            pct_of_sales: previous.pct_of_sales,
-            label: previous.label ?? null,
-            source: previous.source ?? null,
-            repeats: previous.repeats ?? null,
-          }
-        : null,
-      repeats,
-      lineIds: members.map((m) => m.id),
-    });
-  }
-  for (const l of plan.unchanged) done.add(l.id); // already in Costos fijos with this value
-  const lines = draft.lines.map((l) =>
-    done.has(l.id) ? { ...l, status: "approved" as const } : l
-  );
-  const saved = await saveLines(ctx, draft, lines);
-  if (!saved) return { ok: false, error: "failed" };
-  return { ok: true, approved: written, issues, applied, draft: saved };
-}
-
-// ---------------------------------------------------------------------------
-// Undo (the «Deshacer» of an inline approval)
-// ---------------------------------------------------------------------------
-
-export type UndoResult =
-  | { ok: true; draft: UploadDraft }
-  | { ok: false; error: "changed" | "failed" | "forbidden" };
-
-/**
- * Puts the rows an approval wrote back to what they were and returns the lines
- * to the draft as pending. A row that changed since (its value is no longer the
- * total this approval wrote, or it is no longer an upload value) is NOT touched:
- * the undo is refused with «changed», never clobbering a later edit.
- */
-export async function undoApproval(
-  ctx: FixedCostsContext,
-  draft: UploadDraft,
-  entries: readonly AppliedRow[]
-): Promise<UndoResult> {
-  // Phase 1: read and check EVERY entry before writing anything, so a refused
-  // undo changes nothing at all.
-  type Found = { e: AppliedRow; row: Record<string, unknown> | null };
-  const found: Found[] = [];
-  for (const e of entries) {
-    let q = ctx.supabase
-      .from("restaurant_fixed_costs")
-      .select("id, amount, pct_of_sales, source")
-      .eq("company_id", ctx.companyId)
-      .eq("month", e.month)
-      .eq("category", e.category);
-    q = e.locationId
-      ? q.eq("location_id", e.locationId)
-      : q.is("location_id", null);
-    const { data: row, error } = await q.maybeSingle();
-    if (error) return { ok: false, error: "failed" };
-    if (row) {
-      const now =
-        e.category === "impuestos"
-          ? Number(row.pct_of_sales)
-          : Number(row.amount);
-      if (row.source !== "upload" || now !== e.total)
-        return { ok: false, error: "changed" };
-    }
-    // No row: already gone, the lines just go back to the draft.
-    found.push({ e, row: row as Record<string, unknown> | null });
-  }
-
-  // Phase 2: write. If one fails, the entries actually undone still return to
-  // pending before the error is reported, so no line says «approved» for a
-  // value that is no longer there.
-  const undone = new Set<string>();
-  let failure: "failed" | "forbidden" | null = null;
-  for (const { e, row } of found) {
-    if (!row) {
-      e.lineIds.forEach((id) => undone.add(id));
-      continue;
-    }
-    const oldValue = { amount: row.amount, pct_of_sales: row.pct_of_sales };
-    let newValue: Record<string, unknown> | null;
-    if (e.previous) {
-      const back = await ctx.supabase
-        .from("restaurant_fixed_costs")
-        .update({
-          amount: e.previous.amount,
-          pct_of_sales: e.previous.pct_of_sales,
-          label: e.previous.label,
-          source: e.previous.source ?? "manual",
-          repeats: e.previous.repeats ?? false,
-          updated_by: ctx.userId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("company_id", ctx.companyId)
-        .eq("id", row.id as string);
-      if (back.error) {
-        failure = isRlsDenied(back.error) ? "forbidden" : "failed";
-        break;
-      }
-      newValue = {
-        amount: e.previous.amount,
-        pct_of_sales: e.previous.pct_of_sales,
-      };
-    } else {
-      const gone = await ctx.supabase
-        .from("restaurant_fixed_costs")
-        .delete()
-        .eq("company_id", ctx.companyId)
-        .eq("id", row.id as string);
-      if (gone.error) {
-        failure = isRlsDenied(gone.error) ? "forbidden" : "failed";
-        break;
-      }
-      newValue = null;
-    }
-    // The row is already back: its lines are undone even if the log fails.
-    e.lineIds.forEach((id) => undone.add(id));
-    const logged = await ctx.supabase
-      .from("restaurant_fixed_costs_log")
-      .insert({
-        company_id: ctx.companyId,
-        fixed_cost_id: row.id as string,
-        location_id: e.locationId,
-        month: e.month,
-        category: e.category,
-        actor: ctx.userId,
-        action: e.previous ? "update" : "delete",
-        old_value: oldValue,
-        new_value: newValue,
-        source: "upload",
-      });
-    if (logged.error) {
-      failure = "failed";
-      break;
-    }
-  }
-  const lines = draft.lines.map((l) =>
-    undone.has(l.id) ? { ...l, status: "pending" as const } : l
-  );
-  const saved = await saveLines(ctx, draft, lines, {
-    approved_by: null,
-    approved_at: null,
-  });
-  if (failure) return { ok: false, error: failure };
-  if (!saved) return { ok: false, error: "failed" };
-  return { ok: true, draft: saved };
-}
-
-/**
- * The lines an upload approved into each cluster of a month and scope, so the
- * card still lists them after a reload (Agua $650 / Seguro $3,250). Newest
- * upload first; the page only shows a list that adds up to the card.
- */
-export async function loadApprovedItems(
-  ctx: FixedCostsContext,
-  screen: { month: string; locationId: string | null }
-): Promise<Partial<Record<FixedCostCategory, ClusterItem[]>>> {
-  const { data, error } = await ctx.supabase
-    .from("fixed_cost_upload_drafts")
-    .select(DRAFT_COLUMNS)
-    .eq("company_id", ctx.companyId)
-    .in("status", ["draft", "approved"])
-    .order("created_at", { ascending: false })
-    .limit(20);
-  if (error || !data) return {};
-  const out: Partial<Record<FixedCostCategory, ClusterItem[]>> = {};
-  for (const row of data as DraftRow[]) {
-    const found = approvedItems(toDraft(row).lines, screen);
-    for (const c of Object.keys(found) as FixedCostCategory[])
-      if (!out[c]) out[c] = found[c];
-  }
-  return out;
 }

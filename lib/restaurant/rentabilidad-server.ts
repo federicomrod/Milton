@@ -191,8 +191,16 @@ export async function loadRentabilidad(args: {
       }),
     ]);
     const confirmed = own.filter((l) => l.status === "confirmed");
+    const localTax = confirmed.some(
+      (l) => l.category === "impuestos" && l.pct_of_sales !== null
+    );
     return {
       costs: effectiveFixedCosts(confirmed, group.shares, group.impuestosPct),
+      taxSource: localTax
+        ? ("local" as const)
+        : group.impuestosPct !== null
+          ? ("group" as const)
+          : null,
       hasEstimate:
         confirmed.some((l) => l.source === "estimate") || group.hasEstimate,
     };
@@ -266,6 +274,7 @@ export async function loadRentabilidad(args: {
             : { available: false, counted: 0, missing: 0 },
           wastePlan,
           fixed: fixed.costs,
+          fixedTaxSource: fixed.taxSource,
           fixedHasEstimate: fixed.hasEstimate,
           openWeekdays: weekdays.length ? weekdays : null,
           openDays: openDaysInMonth(

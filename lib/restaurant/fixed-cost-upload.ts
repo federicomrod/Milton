@@ -374,45 +374,10 @@ export const FIXED_COST_AI_PROMPT =
 // Approval
 // ---------------------------------------------------------------------------
 
-export interface ExistingValue {
-  amount: number | null;
-  pct_of_sales: number | null;
-  /** Where the saved value came from ('upload', 'manual', …), when known. */
-  source?: string | null;
-  label?: string | null;
-  /** «Se repite cada mes» of the saved row. */
-  repeats?: boolean | null;
-}
+// The overlap rules (new / already there / overlap / add / replace) live in the
+// database (fc_classify, migration 079): one implementation, tested on Postgres.
 
-export interface ApprovalWrite {
-  /**
-   * What is saved: the first line of the group with the SUMMED amount and the
-   * parts joined in `raw`. A lone line is itself.
-   */
-  line: DraftLine;
-  /** Every draft line that this one row stands for (all approved together). */
-  members: DraftLine[];
-  /** The row's current value, when the month already has one. */
-  previous: ExistingValue | null;
-  /** The lines add to the saved value (this upload's own, or «Sumar»). */
-  adds: boolean;
-}
-
-export interface OverwriteConflict {
-  /** The first line of the group: confirming it confirms the whole group. */
-  lineId: string;
-  category: FixedCostCategory;
-  month: string;
-  scope: DraftScope;
-  old: number;
-  new: number;
-}
-
-const valueOfExisting = (
-  e: ExistingValue,
-  category: FixedCostCategory
-): number | null => (category === "impuestos" ? e.pct_of_sales : e.amount);
-
+/** category / month / scope of a line: the review groups lines by it (the database uses the same key). */
 export const keyOfLine = (l: DraftLine): string =>
   lineKey({
     location_id: l.scope?.kind === "restaurant" ? l.scope.locationId : null,
@@ -420,7 +385,6 @@ export const keyOfLine = (l: DraftLine): string =>
     category: l.category as FixedCostCategory,
   });
 
-const LABEL_MAX = 120;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
@@ -473,112 +437,6 @@ export function categoryTotals(lines: readonly DraftLine[]): CategoryTotal[] {
       });
   }
   return [...by.values()];
-}
-
-/**
- * What approving `selected` would do. Lines of one category/month/scope are
- * ONE row (restaurant_fixed_costs allows one per key): their amounts are
- * summed and their labels joined with « + ». Two impuestos lines of the same
- * key are not summed: they are blocked. A value already in the month is never
- * overwritten silently: a different one (compared with the sum) is a conflict
- * (old → new) that needs a confirmation; an identical one changes nothing.
- * Lines with issues are left alone.
- *
- * One at a time: when the saved value is exactly what THIS upload already
- * approved for the key (`approved` = the draft's approved lines, saved with
- * source 'upload'), approving more lines of that key ADDS to it (Luz 1,800 +
- * Agua 650 = 2,450, label «Luz + Agua»), without a warning. A value from
- * anywhere else (typed by hand, an earlier file, edited since) is still a
- * conflict. A rate (impuestos) is never added up.
- */
-export function planApproval(
-  selected: readonly DraftLine[],
-  existing: ReadonlyMap<string, ExistingValue>,
-  approved: readonly DraftLine[] = [],
-  /**
-   * Keys (see keyOfLine) where the person chose «Sumar»: the lines ADD to the
-   * saved value whatever its source. Never for a rate.
-   */
-  addKeys: ReadonlySet<string> = new Set()
-): {
-  writes: ApprovalWrite[];
-  conflicts: OverwriteConflict[];
-  unchanged: DraftLine[];
-  blocked: DraftLine[];
-} {
-  const writes: ApprovalWrite[] = [];
-  const conflicts: OverwriteConflict[] = [];
-  const unchanged: DraftLine[] = [];
-  const blocked: DraftLine[] = [];
-  const dupTax = duplicateTaxIds(selected);
-  const groups = new Map<string, DraftLine[]>();
-  for (const line of selected) {
-    if (!isApprovable(line) || dupTax.has(line.id)) {
-      blocked.push(line);
-      continue;
-    }
-    const key = keyOfLine(line);
-    groups.set(key, [...(groups.get(key) ?? []), line]);
-  }
-  const before = new Map<string, DraftLine[]>();
-  for (const l of approved) {
-    if (l.status !== "approved" || !isApprovable({ ...l, status: "pending" }))
-      continue;
-    before.set(keyOfLine(l), [...(before.get(keyOfLine(l)) ?? []), l]);
-  }
-  for (const [key, members] of groups) {
-    const first = members[0];
-    const category = first.category as FixedCostCategory;
-    const prev = existing.get(key) ?? null;
-    const old = prev ? valueOfExisting(prev, category) : null;
-    // The saved value is this upload's own earlier approvals: add to it.
-    const mine = before.get(key) ?? [];
-    const mineSum = round2(
-      mine.reduce((sum, l) => sum + (l.amount as number), 0)
-    );
-    const ownAdds =
-      category !== "impuestos" &&
-      prev?.source === "upload" &&
-      old !== null &&
-      mine.length > 0 &&
-      old === mineSum;
-    // «Sumar» on a value from elsewhere: its label stays as the first part.
-    const chosenAdds =
-      !ownAdds && category !== "impuestos" && old !== null && addKeys.has(key);
-    const adds = ownAdds || chosenAdds;
-    const parts = ownAdds ? [...mine, ...members] : members;
-    const amount = round2(
-      parts.reduce((sum, l) => sum + (l.amount as number), 0) +
-        (chosenAdds ? (old as number) : 0)
-    );
-    const names = [
-      ...(chosenAdds && prev?.label ? [prev.label] : []),
-      ...parts.map((l) => l.raw),
-    ].filter(Boolean);
-    const line: DraftLine =
-      parts.length === 1 && !chosenAdds
-        ? first
-        : {
-            ...first,
-            amount,
-            raw: names.join(" + ").slice(0, LABEL_MAX),
-          };
-    if (prev && old !== null && old === amount) {
-      unchanged.push(...members);
-      continue;
-    }
-    if (prev && old !== null && !adds)
-      conflicts.push({
-        lineId: first.id,
-        category,
-        month: first.month as string,
-        scope: first.scope as DraftScope,
-        old,
-        new: amount,
-      });
-    writes.push({ line, members, previous: prev, adds });
-  }
-  return { writes, conflicts, unchanged, blocked };
 }
 
 // ---------------------------------------------------------------------------
@@ -676,29 +534,4 @@ export function changeVsLastMonth(
   if (last === undefined || last === 0) return null;
   const change = (total - last) / last;
   return Math.abs(change) > 0.2 ? change : null;
-}
-
-/** What a cluster is worth after approving `adding` on top of `current`. */
-export function clusterTotalAfter(
-  category: FixedCostCategory,
-  current: number | null,
-  adding: readonly DraftLine[]
-): number {
-  const sum = round2(adding.reduce((s, l) => s + (l.amount ?? 0), 0));
-  if (category === "impuestos") return adding[adding.length - 1]?.amount ?? 0;
-  return round2((current ?? 0) + sum);
-}
-
-/**
- * «Se repite cada mes» for a row an approval writes: ON for ordinary monthly
- * bills, OFF when any line is a one-off. Adding to a saved row keeps the
- * person's choice for it (OFF stays OFF) and a one-off line turns it OFF.
- */
-export function nextRepeats(
-  lines: readonly Pick<DraftLine, "oneTime">[],
-  adding: boolean,
-  priorRepeats: boolean | null | undefined
-): boolean {
-  const recurring = lines.every((l) => !l.oneTime);
-  return adding ? recurring && priorRepeats === true : recurring;
 }

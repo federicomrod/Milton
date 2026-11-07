@@ -191,12 +191,17 @@ describe("authorization of the command API (before 080)", () => {
     await e.c.query("ROLLBACK");
     await expect(
       asUser(e.c, e.w.owner, (cl) =>
-        cl.query("select public.fc_lock_keys($1::uuid, ARRAY['x'])", [e.w.A])
+        cl.query(
+          "select fixed_cost_private.fc_lock_keys($1::uuid, ARRAY['x'])",
+          [e.w.A]
+        )
       )
     ).rejects.toMatchObject({ code: "42501" });
     await expect(
       asUser(e.c, e.w.owner, (cl) =>
-        cl.query("select public.fc_assert_writer($1::uuid)", [e.w.A])
+        cl.query("select fixed_cost_private.fc_assert_writer($1::uuid)", [
+          e.w.A,
+        ])
       )
     ).rejects.toMatchObject({ code: "42501" });
   });

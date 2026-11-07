@@ -22,9 +22,18 @@ CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN BYPASSRLS;
 GRANT USAGE ON SCHEMA public, auth TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated, service_role;
--- Supabase's default privileges: new functions/tables are open to the API roles.
+-- STAGING-LIKE DEFAULT PRIVILEGES. Hosted Supabase (read from the live preflight,
+-- not assumed): objects created by the owner role are open to the API roles by
+-- default: tables get ALL (TRUNCATE, TRIGGER, REFERENCES, MAINTAIN included),
+-- sequences get SELECT/UPDATE/USAGE, functions get EXECUTE. Set both schema-wide
+-- and globally (the global form also reaches non-public schemas) so a new schema
+-- is exercised under the worst case too.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
 
 CREATE TABLE public.companies (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text);
 CREATE TABLE public.company_memberships (

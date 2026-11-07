@@ -41,7 +41,7 @@ export interface TestDb {
 }
 
 export async function startTestDb(
-  opts: { enforce?: boolean } = {}
+  opts: { enforce?: boolean; baselineOnly?: boolean } = {}
 ): Promise<TestDb> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milton-fc-pg-"));
   const port = await freePort();
@@ -84,7 +84,9 @@ export async function startTestDb(
     await admin.query(
       fs.readFileSync(path.join(__dirname, "bootstrap.sql"), "utf8")
     );
-    for (const f of MIGRATIONS)
+    // baselineOnly = the staging state BEFORE 079 (064 + 073 only), for the
+    // installation-package tests.
+    for (const f of opts.baselineOnly ? MIGRATIONS.slice(0, 2) : MIGRATIONS)
       await admin.query(
         fs.readFileSync(path.join(ROOT, "supabase/migrations", f), "utf8")
       );

@@ -507,7 +507,7 @@ describe("undo", () => {
     });
     // The function takes only a command id: there is no parameter to forge.
     const sig = await admin.query(
-      "select pg_get_function_identity_arguments(oid) a from pg_proc where proname='fixed_cost_undo'"
+      "select pg_get_function_identity_arguments(p.oid) a from pg_proc p join pg_namespace n on n.oid=p.pronamespace where p.proname='fixed_cost_undo' and n.nspname='public'"
     );
     expect(sig.rows[0].a).toBe("p_command_key text, p_target uuid");
   });

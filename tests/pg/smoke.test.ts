@@ -16,7 +16,7 @@ afterAll(async () => {
 describe("migrations apply on a fresh local database", () => {
   it("creates the command API", async () => {
     const r = await c.query(
-      "select proname from pg_proc where proname like 'fixed_cost_%' order by 1"
+      "select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname like 'fixed_cost_%' order by 1"
     );
     expect(r.rows.map((x) => x.proname)).toEqual([
       "fixed_cost_approve_upload",

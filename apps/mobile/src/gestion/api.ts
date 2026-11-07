@@ -5,6 +5,7 @@
 
 import { ApiError, createRequester } from "../api/client";
 import type { RedeemResponse } from "../api/types";
+import type { RefreshOutcome } from "./session-core";
 import { createSseReader, type AskEvent, type ChatTurn } from "./ask-core";
 import type {
   ApproveResult,
@@ -24,8 +25,8 @@ import type {
 export interface ManagerApiDeps {
   baseUrl: string;
   getToken: () => Promise<string | null>;
-  /** Renews the session. true = a new access token is ready. */
-  refreshSession: () => Promise<boolean>;
+  /** Renews the session (see RefreshOutcome: only «rejected» ends it). */
+  refreshSession: () => Promise<RefreshOutcome>;
   /** The session cannot be renewed: sign out. */
   onSignedOut: () => void | Promise<void>;
   language?: string | (() => string);
@@ -53,7 +54,13 @@ export function createManagerApi(deps: ManagerApiDeps) {
       return await run();
     } catch (err) {
       if (!(err instanceof ApiError) || err.kind !== "unauthorized") throw err;
-      if (await deps.refreshSession()) {
+      const outcome = await deps.refreshSession();
+      if (outcome === "unavailable") {
+        // Nothing was decided (offline, a timeout, server trouble): keep the
+        // login and let the screen offer «try again».
+        throw new ApiError("network");
+      }
+      if (outcome === "ok") {
         try {
           return await run();
         } catch (again) {

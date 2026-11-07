@@ -15,3 +15,19 @@ export function signedOutLanding(
   if (pathname === "/join" && hasSecret) return null;
   return SIGNED_OUT_HOME;
 }
+
+/**
+ * Has the signed-out landing done its one job? It has once the phone is on the
+ * screen it was sent to (or never needed to be sent). From then on it must never
+ * redirect again: the router's <Redirect> re-fires on EVERY render of the
+ * component that holds it, and that component re-renders on each path change, so
+ * a redirect left mounted would send «Iniciar sesión» (/login) straight back to
+ * /entrada.
+ */
+export function nextLanded(
+  landed: boolean,
+  target: string | null,
+  pathname: string
+): boolean {
+  return landed || target === null || pathname === target;
+}

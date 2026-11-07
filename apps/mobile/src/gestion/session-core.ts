@@ -1,7 +1,8 @@
 // Pure rules of the manager session (tested): when a token needs renewing and
 // which company the app opens. No storage, no network.
 
-import type { ManagerCompany } from "./types";
+import { ApiError } from "../api/client";
+import type { ManagerCompany, ManagerTokens } from "./types";
 
 /** Renew a little before the access token ends. */
 export const REFRESH_MARGIN_S = 60;
@@ -58,4 +59,73 @@ export function canManageKitchenTeam(company: ManagerCompany | null): boolean {
     !!company.role &&
     (MANAGER_ROLES as readonly string[]).includes(company.role)
   );
+}
+
+/**
+ * What happened when the session was renewed.
+ *  - "ok": a new session is ready.
+ *  - "rejected": the SERVER said no (revoked, expired or unknown refresh token):
+ *    the only case that ends the session.
+ *  - "unavailable": nothing was decided (no connection, a timeout, server
+ *    trouble, a locked store): the login is kept and the person is asked to
+ *    try again.
+ */
+export type RefreshOutcome = "ok" | "rejected" | "unavailable";
+
+export function refreshOutcomeOf(err: unknown): "rejected" | "unavailable" {
+  if (!(err instanceof ApiError)) return "unavailable";
+  if (err.kind === "unauthorized") return "rejected";
+  if (
+    err.kind === "client" &&
+    (err.status === 400 || err.status === 401 || err.status === 403)
+  ) {
+    return "rejected";
+  }
+  return "unavailable";
+}
+
+/** What the secure store said at launch. «unreadable» is NOT «signed out». */
+export type TokenLoad =
+  | { kind: "found"; tokens: ManagerTokens }
+  | { kind: "absent" }
+  | { kind: "unreadable" };
+
+export function tokenLoadOf(reads: {
+  access: string | null;
+  refresh: string | null;
+  meta: string | null;
+}): TokenLoad {
+  if (!reads.access || !reads.refresh || !reads.meta) return { kind: "absent" };
+  try {
+    const meta = JSON.parse(reads.meta) as {
+      expiresAt: number | null;
+      user: ManagerTokens["user"];
+    };
+    return {
+      kind: "found",
+      tokens: {
+        accessToken: reads.access,
+        refreshToken: reads.refresh,
+        expiresAt: meta.expiresAt,
+        user: meta.user,
+      },
+    };
+  } catch {
+    return { kind: "absent" };
+  }
+}
+
+/** Reads again a few times when the store is not ready (a locked Keychain on a cold start). */
+export async function loadTokensPatiently(
+  load: () => Promise<TokenLoad>,
+  wait: (ms: number) => Promise<void>,
+  attempts = 3,
+  delayMs = 300
+): Promise<TokenLoad> {
+  let last = await load();
+  for (let i = 1; i < attempts && last.kind === "unreadable"; i++) {
+    await wait(delayMs);
+    last = await load();
+  }
+  return last;
 }

@@ -10,10 +10,19 @@ const json = (body: unknown, status = 200) =>
 
 function setup(
   responses: Response[],
-  opts: { refresh?: boolean; token?: string | null } = {}
+  opts: {
+    refresh?: boolean | "ok" | "rejected" | "unavailable";
+    token?: string | null;
+  } = {}
 ) {
   const fetchImpl = vi.fn(async () => responses.shift() as Response);
-  const refreshSession = vi.fn(async () => opts.refresh ?? false);
+  const refreshSession = vi.fn(async () =>
+    opts.refresh === true
+      ? ("ok" as const)
+      : opts.refresh === false || opts.refresh === undefined
+        ? ("rejected" as const)
+        : opts.refresh
+  );
   const onSignedOut = vi.fn();
   const api = createManagerApi({
     baseUrl: "https://api.example.test/",
@@ -171,5 +180,60 @@ describe("Equipo de cocina and Cocina without a link", () => {
       kind: "unauthorized",
     });
     expect(onSignedOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a 401 and the token renewal (revoked vs temporary trouble)", () => {
+  const expired = () => json({ error: "x" }, 401);
+
+  it("a renewal the SERVER rejects (revoked / expired refresh token) signs out", async () => {
+    const { api, onSignedOut } = setup([expired()], { refresh: "rejected" });
+    await expect(api.home(null)).rejects.toMatchObject({
+      kind: "unauthorized",
+    });
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("a renewal that fails for NETWORK / server reasons keeps the login and says «try again»", async () => {
+    const { api, onSignedOut, refreshSession } = setup([expired()], {
+      refresh: "unavailable",
+    });
+    const err = await api.home(null).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.kind).toBe("network");
+    expect(err.offline).toBe(true);
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it("a renewal that works retries once with the new token and stays signed in", async () => {
+    const { api, onSignedOut, fetchImpl } = setup(
+      [expired(), json({ ok: 1 })],
+      {
+        refresh: "ok",
+      }
+    );
+    await expect(api.home(null)).resolves.toEqual({ ok: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(onSignedOut).not.toHaveBeenCalled();
+  });
+
+  it("a 401 right after a successful renewal means access really is gone: signs out", async () => {
+    const { api, onSignedOut } = setup([expired(), expired()], {
+      refresh: "ok",
+    });
+    await expect(api.home(null)).rejects.toMatchObject({
+      kind: "unauthorized",
+    });
+    expect(onSignedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("an ordinary network or server error never touches the session", async () => {
+    const { api, onSignedOut, refreshSession } = setup([
+      json({ error: "down" }, 503),
+    ]);
+    await expect(api.home(null)).rejects.toMatchObject({ kind: "server" });
+    expect(refreshSession).not.toHaveBeenCalled();
+    expect(onSignedOut).not.toHaveBeenCalled();
   });
 });

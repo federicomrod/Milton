@@ -10,6 +10,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { fetch as streamFetch } from "expo/fetch";
 import { apiBaseUrl } from "../config";
 import { currentLanguage, setCurrentLanguage } from "../i18n/language-store";
 import { createManagerApi, type ManagerApi } from "./api";
@@ -129,6 +130,7 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
         refreshSession,
         onSignedOut: () => void clearSession(),
         language: currentLanguage,
+        streamFetchImpl: streamFetch as unknown as typeof fetch,
       }),
     [refreshSession, clearSession]
   );

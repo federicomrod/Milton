@@ -10,6 +10,15 @@ export const kitchen: Dictionary["kitchen"] = {
     managerLoginFailed:
       "Die Anmeldung ist gerade nicht möglich. Versuchen Sie es erneut.",
     managerLoadFailed: "Diese Daten konnten gerade nicht geladen werden.",
+    managerAskEmpty: "Schreiben Sie Ihre Frage.",
+    managerAskTooLong: "Die Frage ist zu lang.",
+    managerAskClarifyLocation: "Welches Restaurant meinen Sie?",
+    managerAskAllRestaurants: "Alle Restaurants",
+    managerAskFailed:
+      "Ich konnte gerade nicht antworten. Versuchen Sie es erneut.",
+    managerVoiceFailed:
+      "Ich konnte das Audio nicht verstehen. Versuchen Sie es erneut oder schreiben Sie Ihre Frage.",
+    managerVoiceTooBig: "Das Audio ist zu lang.",
     managerPeriodInvalid: "Der Zeitraum ist ungültig.",
     managerMonthInvalid: "Der Monat ist ungültig.",
     managerPickRestaurant: "Wählen Sie ein Restaurant.",

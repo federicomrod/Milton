@@ -105,7 +105,7 @@ Expo Go cannot test push, Face ID as shipped, or universal links. A development
 build can. Nothing below creates or changes an Apple or Expo account resource
 by itself: where a step touches one, it says so.
 
-**Proposed bundle identifier:** `com.sendmilton.milton` (in `app.config.ts`,
+**Proposed bundle identifier:** `com.miltonlabs.milton` (in `app.config.ts`,
 `ios.bundleIdentifier`). It is not registered with Apple until you do step 6.
 
 ### Simulator (no Apple account needed)

@@ -32,7 +32,7 @@ const config: ExpoConfig = {
   ios: {
     // PROPOSED, not registered anywhere yet: confirm the Apple team and this
     // id before the first signed build (see README, «iOS development build»).
-    bundleIdentifier: "com.sendmilton.milton",
+    bundleIdentifier: "com.miltonlabs.milton",
     supportsTablet: false,
     infoPlist: {
       NSCameraUsageDescription: both(CAMERA_ES, CAMERA_EN),

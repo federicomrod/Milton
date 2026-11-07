@@ -42,7 +42,10 @@ export const costs: Dictionary["costs"] = {
     addBtn: "Addieren (→ {sum})",
     decide: "{n} Zeilen warten auf deine Wahl: ersetzen oder addieren.",
     notApproved: "Nicht bestätigt: {error}",
-    savedElsewhere: "{n} Zeilen gespeichert in {where}.",
+    savedElsewhere:
+      "{n} Zeilen bestätigt · gespeichert in {where} · {month}. Diese Ansicht ändert sich nicht.",
+    savedElsewhereOne:
+      "1 Zeile bestätigt · gespeichert in {where} · {month}. Diese Ansicht ändert sich nicht.",
     unrecognized:
       "Milton konnte diese Zeile nicht verstehen: korrigiere oder verwirf sie.",
     group: "Gruppe",
@@ -52,7 +55,11 @@ export const costs: Dictionary["costs"] = {
     doneEditing: "Fertig",
     approveAllN: "Alle bestätigen ({n} · {total})",
     toastApproved: "{concept} +{amount} → {category}",
-    toastApprovedMany: "{n} Positionen → {categories}",
+    toastApprovedMany: "{n} Positionen bestätigt → {categories}",
+    toastApprovedOne: "1 Position bestätigt → {categories}",
+    viewMonth: "{month} ansehen",
+    savesIn: "Wird in {month} gespeichert",
+    useMonth: "{month} verwenden",
     undo: "Rückgängig",
     undone: "Rückgängig gemacht",
     rollback: "Speichern fehlgeschlagen. Die Änderung wurde zurückgenommen.",
@@ -143,7 +150,7 @@ export const costs: Dictionary["costs"] = {
       "Was du jeden Monat zahlst, ob du verkaufst oder nicht. Lade eine Rechnung hoch oder tippe den Betrag.",
     cardSubFilled:
       "Was du jeden Monat zahlst, ob du verkaufst oder nicht. Bestätigte Beträge speisen den Break-even-Punkt.",
-    confirmedPill: "{n} von {total} bestätigt",
+    confirmedPill: "Bestätigte Kategorien: {n} von {total}",
     faltaPill: "Fehlt · {names}",
     copyMonth: "Wiederkehrende aus {month} kopieren",
     copied: "{n} wiederkehrende Kosten aus {month} kopiert.",
@@ -158,8 +165,15 @@ export const costs: Dictionary["costs"] = {
     perDay: "pro Tag",
     beDetail: "ab {total} Fixkosten · {days} Öffnungstage",
     totalLabel: "Fixkosten gesamt",
-    confirmedLabel: "Bestätigt",
+    confirmedLabel: "Bestätigte Kategorien",
     confirmedOf: "{n} von {total}",
+    bePartialTitle: "Teilweiser Break-even",
+    bePartialNote:
+      "Nur mit den bestätigten Kosten berechnet. Es fehlen noch Kategorien zum Bestätigen.",
+    copiedFrom: "aus {month} übernommen",
+    historyRepeatAuto: "automatisch wiederholt",
+    detailUnavailable: "Aufschlüsselung für diesen Eintrag nicht verfügbar.",
+    recalculating: "Berechne neu…",
     seeRentabilidad: "Rentabilität ansehen →",
     taxIncluded:
       "Deine Umsätze enthalten MwSt.: Milton zieht {rate} ÷ {sum} von jedem Verkauf ab",

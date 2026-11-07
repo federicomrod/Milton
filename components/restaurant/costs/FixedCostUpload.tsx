@@ -102,6 +102,8 @@ interface AppliedRow {
 interface Toast {
   text: string;
   applied: AppliedRow[] | null;
+  /** The month the lines were saved to, when it is not the one on screen. */
+  view?: { month: string; label: string };
 }
 
 const TOAST_MS = 5000;
@@ -118,6 +120,8 @@ export function FixedCostUpload({
   onReview,
   onConfirm,
   onSettled,
+  onViewMonth,
+  onRecalc,
 }: {
   /** The month on screen (YYYY-MM-01): the default for lines without one. */
   month: string;
@@ -143,6 +147,10 @@ export function FixedCostUpload({
   onConfirm?: (changes: ClusterChange[]) => void;
   /** Called a moment after the last change: the page may refresh quietly. */
   onSettled?: () => void;
+  /** «Ver octubre»: opens the month a line was saved to. */
+  onViewMonth?: (month: string) => void;
+  /** True while a save that is not shown ahead of time is on its way: the figures wait. */
+  onRecalc?: (recalculating: boolean) => void;
 }) {
   const { d, lang, locale, fmt } = useT();
   const t = d.costs.fixedUpload;
@@ -408,6 +416,7 @@ export function FixedCostUpload({
       });
     }
 
+    if (!optimistic) onRecalc?.(true);
     const { status, body } = await call(
       "/api/restaurant/fixed-costs/upload/approve",
       {
@@ -422,6 +431,7 @@ export function FixedCostUpload({
       },
       !optimistic
     );
+    onRecalc?.(false);
 
     const unwind = () => {
       setDraft(before);
@@ -499,10 +509,13 @@ export function FixedCostUpload({
       );
       const elsewhere = applied.filter((a) => !here.includes(a));
       if (!optimistic && applied.length) {
+        const total = applied.reduce((n, a) => n + a.lineIds.length, 0);
+        const months = [...new Set(elsewhere.map((a) => a.month))];
+        const elsewhereN = elsewhere.reduce((n, a) => n + a.lineIds.length, 0);
         showToast({
           text: elsewhere.length
-            ? fmt(t.savedElsewhere, {
-                n: elsewhere.reduce((n, a) => n + a.lineIds.length, 0),
+            ? fmt(elsewhereN === 1 ? t.savedElsewhereOne : t.savedElsewhere, {
+                n: elsewhereN,
                 where: [
                   ...new Set(
                     elsewhere.map((a) =>
@@ -510,14 +523,23 @@ export function FixedCostUpload({
                     )
                   ),
                 ].join(", "),
+                month: months.map((m) => monthText(m)).join(", "),
               })
-            : fmt(t.toastApprovedMany, {
-                n: applied.reduce((n, a) => n + a.lineIds.length, 0),
+            : fmt(total === 1 ? t.toastApprovedOne : t.toastApprovedMany, {
+                n: total,
                 categories: [...new Set(applied.map((a) => a.category))]
                   .map((c) => categoryLabel(c, lang))
                   .join(", "),
               }),
           applied,
+          view:
+            elsewhere.length > 0 &&
+            months.length === 1 &&
+            elsewhere.every(
+              (a) => (a.locationId ?? null) === (locationId ?? null)
+            )
+              ? { month: months[0], label: monthText(months[0]) }
+              : undefined,
         });
       } else if (applied.length) {
         setToast((cur) => (cur ? { ...cur, applied } : cur));
@@ -557,6 +579,7 @@ export function FixedCostUpload({
   async function undo() {
     if (!draft || !toast?.applied) return;
     const applied = toast.applied;
+    onRecalc?.(true);
     const { status, body } = await call(
       "/api/restaurant/fixed-costs/upload/undo",
       {
@@ -566,6 +589,7 @@ export function FixedCostUpload({
       },
       false
     );
+    onRecalc?.(false);
     if (status === 200 && body.draft) {
       setDraft(body.draft as Draft);
       onConfirm?.(
@@ -794,6 +818,15 @@ export function FixedCostUpload({
                   error={lineErrors[l.id]}
                   where={where(l)}
                   monthText={monthText(l.month)}
+                  elsewhere={
+                    l.month && l.month !== month
+                      ? {
+                          label: fmt(t.savesIn, { month: monthText(l.month) }),
+                          use: fmt(t.useMonth, { month: monthText(month) }),
+                        }
+                      : null
+                  }
+                  screenMonth={month}
                   vsText={
                     vs === null
                       ? null
@@ -840,6 +873,15 @@ export function FixedCostUpload({
           className="fixed bottom-20 left-4 right-4 z-40 flex max-w-sm items-center justify-between gap-3 rounded-xl border border-[#dfe3ea] bg-white px-4 py-3 text-sm font-medium text-[#151c2c] shadow-lg lg:bottom-6 lg:left-[256px] lg:right-auto"
         >
           <span className="min-w-0 break-words">{toast.text}</span>
+          {toast.view && onViewMonth ? (
+            <button
+              type="button"
+              onClick={() => onViewMonth(toast.view!.month)}
+              className="inline-flex min-h-[36px] shrink-0 items-center rounded-lg border border-[#c9cfdb] bg-white px-3 text-sm font-semibold text-[#1B40C8] hover:bg-[#F1F3F7]"
+            >
+              {fmt(t.viewMonth, { month: toast.view.label })}
+            </button>
+          ) : null}
           {toast.applied ? (
             <button
               type="button"
@@ -862,6 +904,10 @@ function LineRow(props: {
   error?: string;
   where: string;
   monthText: string;
+  /** Set when the line is dated another month than the one on screen. */
+  elsewhere: { label: string; use: string } | null;
+  /** The month on screen: what «Usar {mes}» moves the line to. */
+  screenMonth: string;
   vsText: string | null;
   needsText: string | null;
   restaurants: Array<{ id: string; name: string }>;
@@ -956,6 +1002,11 @@ function LineRow(props: {
           </select>
         ) : null}
         {line.from === "ai" ? <span className={AI_PILL}>{t.aiTag}</span> : null}
+        {props.elsewhere ? (
+          <span data-testid="month-tag" className={ALERT_PILL}>
+            <span aria-hidden="true">⚑</span> {props.elsewhere.label}
+          </span>
+        ) : null}
         {props.needsText ? (
           <span data-testid="falta-tag" className={ALERT_PILL}>
             <span aria-hidden="true">⚑</span> {d.costs.fixed.missing} ·{" "}
@@ -992,6 +1043,15 @@ function LineRow(props: {
                 </button>
               ) : null}
             </>
+          ) : null}
+          {props.elsewhere && !falta ? (
+            <button
+              type="button"
+              onClick={() => props.onCommit({ month: props.screenMonth })}
+              className={LINK}
+            >
+              {props.elsewhere.use}
+            </button>
           ) : null}
           {falta && needs !== "duplicate" ? (
             <button

@@ -60,6 +60,7 @@ import {
   listFixedCostHistory,
   loadFixedCostsView,
   monthSalesByLocation,
+  loadRepeatDetail,
   repeatFixedCosts,
 } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
@@ -561,7 +562,7 @@ async function CostosFijosTab({
         lang,
       }),
     ]);
-    const [view, history, savedItems] = await Promise.all([
+    const [view, history, savedItems, repeatDetail] = await Promise.all([
       loadFixedCostsView(ctx, {
         month,
         locationId,
@@ -571,6 +572,7 @@ async function CostosFijosTab({
       }),
       listFixedCostHistory(supabase, companyId, { locationId, month }),
       loadApprovedItems(ctx, { month, locationId }).catch(() => ({})),
+      loadRepeatDetail(ctx, { month, locationId }).catch(() => ({})),
     ]);
     return (
       <FixedCostsTab
@@ -578,6 +580,7 @@ async function CostosFijosTab({
         view={view}
         history={history}
         savedItems={savedItems}
+        repeatDetail={repeatDetail}
         locationName={
           context.locations.find((l) => l.id === locationId)?.name ?? null
         }

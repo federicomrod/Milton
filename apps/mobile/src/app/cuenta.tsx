@@ -6,6 +6,9 @@ import { ApiError, friendlyMessage } from "../api/client";
 import { Button, Card, Field, Muted, Screen, text } from "../components/ui";
 import { useStrings } from "../i18n";
 import { fmt } from "../i18n/strings";
+import { useG } from "../gestion/hooks";
+import { useManager } from "../gestion/ManagerProvider";
+import { switchTargets } from "../lib/entry";
 import { useSession } from "../session/SessionProvider";
 import {
   biometricAvailable,
@@ -30,6 +33,8 @@ function Value({ children }: { children: React.ReactNode }) {
 export default function Cuenta() {
   const s = useStrings();
   const { profile, api, signOut, kitchenCode } = useSession();
+  const g = useG();
+  const manager = useManager();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [flags, setFlags] = useState<BiometricFlags>({
@@ -205,6 +210,26 @@ export default function Cuenta() {
             ) : null}
           </Card>
         )}
+        {switchTargets({
+          managerIn: manager.status === "signedIn",
+          kitchenIn: true,
+          canSelfKitchen: false,
+        }).gestion ? (
+          <Card style={{ gap: space.s }}>
+            <Text style={text.body}>{g.profile.switchToManagement}</Text>
+            <Muted>{g.profile.switchToManagementHint}</Muted>
+            <Button
+              label={g.profile.switchToManagement}
+              icon="stats-chart-outline"
+              onPress={() => {
+                // Same phone, same sessions: only the mode changes.
+                manager.setMode("manager");
+                router.dismissAll?.();
+                router.replace("/");
+              }}
+            />
+          </Card>
+        ) : null}
         <Button
           label={s.account.logout}
           variant="secondary"

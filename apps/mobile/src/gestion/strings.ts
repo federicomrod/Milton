@@ -9,9 +9,10 @@ const es = {
   welcome: {
     title: "Milton",
     subtitle: "¿Cómo quieres entrar?",
-    kitchen: "Soy de cocina (invitación)",
-    manager: "Iniciar sesión",
-    managerLink: "Soy gerente · Iniciar sesión",
+    manager: "Gestión",
+    managerHint: "Para dueños y gerentes: ventas, costos y rentabilidad",
+    kitchen: "Cocina",
+    kitchenHint: "Para el equipo de cocina: voz, fotos y mensajes",
   },
   login: {
     title: "Iniciar sesión",
@@ -23,6 +24,8 @@ const es = {
     invalid: "Correo o contraseña incorrectos.",
     failed: "No pude iniciar sesión ahora. Inténtalo de nuevo.",
     missing: "Escribe tu correo y tu contraseña.",
+    forgot: "¿Olvidaste tu contraseña?",
+    createOnWeb: "Para crear la cuenta de tu restaurante, entra en la web.",
   },
   noAccess: {
     title: "Sin acceso",
@@ -215,6 +218,8 @@ const es = {
     close: "Cerrar",
     modeManagementHint: "Ventas, rentabilidad y costos",
     modeKitchenHint: "Voz, fotos y mensajes, como tu equipo",
+    switchToManagement: "Cambiar a Gestión",
+    switchToManagementHint: "Sigues con la sesión abierta en Cocina.",
     restaurantsCount: "{n} restaurantes",
     kitchenSelf: "Usar Cocina en este teléfono",
     team: {
@@ -328,9 +333,10 @@ const en: typeof es = {
   welcome: {
     title: "Milton",
     subtitle: "How do you want to sign in?",
-    kitchen: "I work in the kitchen (invite)",
-    manager: "Sign in",
-    managerLink: "I'm a manager · Sign in",
+    manager: "Management",
+    managerHint: "For owners and managers: sales, costs and profitability",
+    kitchen: "Kitchen",
+    kitchenHint: "For the kitchen team: voice, photos and messages",
   },
   login: {
     title: "Sign in",
@@ -342,6 +348,8 @@ const en: typeof es = {
     invalid: "Wrong email or password.",
     failed: "I could not sign you in right now. Try again.",
     missing: "Enter your email and your password.",
+    forgot: "Forgot your password?",
+    createOnWeb: "To create your restaurant account, go to the web.",
   },
   noAccess: {
     title: "No access",
@@ -535,6 +543,8 @@ const en: typeof es = {
     close: "Close",
     modeManagementHint: "Sales, profitability and costs",
     modeKitchenHint: "Voice, photos and messages, like your team",
+    switchToManagement: "Switch to Management",
+    switchToManagementHint: "You stay signed in to Kitchen.",
     restaurantsCount: "{n} restaurants",
     kitchenSelf: "Use Kitchen on this phone",
     team: {
@@ -648,9 +658,10 @@ const de: typeof es = {
   welcome: {
     title: "Milton",
     subtitle: "Wie möchten Sie sich anmelden?",
-    kitchen: "Ich arbeite in der Küche (Einladung)",
-    manager: "Anmelden",
-    managerLink: "Ich bin Manager · Anmelden",
+    manager: "Verwaltung",
+    managerHint: "Für Inhaber und Manager: Umsatz, Kosten und Rentabilität",
+    kitchen: "Küche",
+    kitchenHint: "Für das Küchenteam: Sprache, Fotos und Nachrichten",
   },
   login: {
     title: "Anmelden",
@@ -662,6 +673,8 @@ const de: typeof es = {
     invalid: "E-Mail oder Passwort ist falsch.",
     failed: "Die Anmeldung ist gerade nicht möglich. Versuchen Sie es erneut.",
     missing: "Geben Sie Ihre E-Mail und Ihr Passwort ein.",
+    forgot: "Passwort vergessen?",
+    createOnWeb: "Das Konto Ihres Restaurants legen Sie im Web an.",
   },
   noAccess: {
     title: "Kein Zugriff",
@@ -855,6 +868,8 @@ const de: typeof es = {
     close: "Schließen",
     modeManagementHint: "Umsatz, Rentabilität und Kosten",
     modeKitchenHint: "Sprache, Fotos und Nachrichten, wie Ihr Team",
+    switchToManagement: "Zur Verwaltung wechseln",
+    switchToManagementHint: "Sie bleiben in der Küche angemeldet.",
     restaurantsCount: "{n} Restaurants",
     kitchenSelf: "Küche auf diesem Telefon nutzen",
     team: {

@@ -29,6 +29,7 @@ import {
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import {
   resolveRestaurantContext,
+  type RestaurantContext,
   type RestaurantLocationOption,
 } from "@/lib/restaurant/restaurant-context-server";
 
@@ -52,6 +53,12 @@ export interface ManagerAuth {
   locationId: string | null;
   /** The restaurant to use when one is needed: the asked one, else the only one. */
   singleLocationId: string | null;
+  /**
+   * The restaurant asked for, exactly as the web resolves it: location AND its
+   * brand. Anything that scopes dishes by brand (Ask Milton, profitability)
+   * must take this, never build its own {locationId, brandId: null}.
+   */
+  selected: RestaurantContext["selected"];
 }
 
 export type ManagerAuthResult =
@@ -92,6 +99,7 @@ export async function authManager(
       lang,
       locations: context.locations,
       locationId,
+      selected: context.selected,
       singleLocationId:
         locationId ??
         (context.locations.length === 1 ? context.locations[0].id : null),

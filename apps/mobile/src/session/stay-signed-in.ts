@@ -36,3 +36,32 @@ export function pinGate(pin: PinStateLike | null | undefined): PinGate {
   if (!pin.set) return "create";
   return "none";
 }
+
+/** Reads the token, retrying an «unreadable» answer a few times (a Keychain that is not ready yet). */
+export async function readTokenPatiently(
+  read: () => Promise<import("../storage/token").TokenRead>,
+  wait: (ms: number) => Promise<void>,
+  attempts = 3,
+  delayMs = 300
+): Promise<import("../storage/token").TokenRead> {
+  let last = await read();
+  for (let i = 1; i < attempts && last.kind === "unreadable"; i++) {
+    await wait(delayMs);
+    last = await read();
+  }
+  return last;
+}
+
+/**
+ * Opening the app: signed in when a token exists; signed out only when the store
+ * clearly has none. An unreadable store with a remembered profile stays signed
+ * in (requests read the token again later); it is never treated as a lost session.
+ */
+export function startupStatus(
+  read: import("../storage/token").TokenRead,
+  hasProfile: boolean
+): "signedIn" | "signedOut" {
+  if (read.kind === "found") return "signedIn";
+  if (read.kind === "unreadable" && hasProfile) return "signedIn";
+  return "signedOut";
+}

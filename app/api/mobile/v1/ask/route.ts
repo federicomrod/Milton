@@ -70,9 +70,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const selected = auth.locationId
-    ? { locationId: auth.locationId, brandId: null }
-    : null;
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -84,7 +81,7 @@ export async function POST(request: NextRequest) {
           companyId: auth.companyId,
           message,
           conversation,
-          selected,
+          selected: auth.selected,
         });
         for (const text of chunkAnswer(payload.answer)) send("delta", { text });
         send("final", shapeFinal(payload));

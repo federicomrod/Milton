@@ -4,18 +4,65 @@ import {
   askNeedsLocation,
   chunkAnswer,
   clarifyTurn,
+  MAX_AUDIO_BYTES,
   sseEvent,
 } from "@/lib/restaurant/mobile-manager/ask";
+import { filterMenuItemsForSelection } from "@/lib/restaurant/profitability-server";
+import { resolveSelectedLocation } from "@/lib/restaurant/restaurant-context-server";
 
 const h = vi.hoisted(() => ({
   auth: null as unknown,
+  /** Run the REAL authManager (over a faked bearer login) instead of h.auth. */
+  useReal: false,
   run: vi.fn(),
   transcribe: vi.fn(),
 }));
 
-vi.mock("@/lib/restaurant/mobile-manager/auth", () => ({
-  authManager: vi.fn(async () => h.auth),
+vi.mock("@/lib/restaurant/mobile-manager/auth", async (orig) => {
+  const real =
+    await orig<typeof import("@/lib/restaurant/mobile-manager/auth")>();
+  return {
+    ...real,
+    authManager: vi.fn(async (...a: Parameters<typeof real.authManager>) =>
+      h.useReal ? real.authManager(...a) : h.auth
+    ),
+  };
+});
+// The real authManager needs a bearer login, a role and the restaurant list.
+vi.mock("@/lib/restaurant/api-auth", () => ({
+  authAndCompanyFromBearer: vi.fn(async () => ({
+    ok: true,
+    supabase: {},
+    companyId: "co",
+    userId: "u",
+    email: null,
+  })),
+  authAndCompany: vi.fn(async () => ({
+    ok: true,
+    supabase: {},
+    companyId: "co",
+    userId: "u",
+  })),
 }));
+vi.mock("@/lib/auth/permissions", async (orig) => ({
+  ...(await orig<typeof import("@/lib/auth/permissions")>()),
+  resolveActor: vi.fn(async () => ({ role: "owner" })),
+  can: vi.fn(() => true),
+}));
+vi.mock("@/lib/restaurant/restaurant-context-server", async (orig) => {
+  const real =
+    await orig<typeof import("@/lib/restaurant/restaurant-context-server")>();
+  return {
+    ...real,
+    // Same selection logic as production over a company with two brands.
+    resolveRestaurantContext: vi.fn(
+      async (_s: unknown, _c: unknown, requested: string | null) => ({
+        locations: BRAND_LOCATIONS,
+        selected: real.resolveSelectedLocation(BRAND_LOCATIONS, requested),
+      })
+    ),
+  };
+});
 vi.mock("@/lib/restaurant/ask-milton-run", async (orig) => ({
   ...(await orig<typeof import("@/lib/restaurant/ask-milton-run")>()),
   runAskMilton: (...a: unknown[]) => h.run(...a),
@@ -26,8 +73,14 @@ vi.mock("@/lib/ai/call", () => ({
 }));
 
 import { POST as ask } from "@/app/api/mobile/v1/ask/route";
+import { POST as webAsk } from "@/app/api/restaurant/ask-milton/route";
 import { POST as transcribe } from "@/app/api/mobile/v1/ask/transcribe/route";
 
+// Two restaurants of different brands.
+const BRAND_LOCATIONS = [
+  { id: "l1", name: "Centro", brand_id: "brand-a" },
+  { id: "l2", name: "Norte", brand_id: "brand-b" },
+];
 const LOCS = [
   { id: "l1", name: "Centro" },
   { id: "l2", name: "Norte" },
@@ -41,6 +94,9 @@ const okAuth = (over: Record<string, unknown> = {}) => ({
   locations: LOCS,
   locationId: null,
   singleLocationId: null,
+  selected: over.locationId
+    ? { locationId: over.locationId as string, brandId: "brand-a" }
+    : null,
   ...over,
 });
 const payload = {
@@ -71,6 +127,7 @@ const events = (text: string) =>
     }));
 
 beforeEach(() => {
+  h.useReal = false;
   h.auth = okAuth();
   h.run.mockReset().mockResolvedValue(payload);
   h.transcribe.mockReset();
@@ -168,7 +225,7 @@ describe("POST /api/mobile/v1/ask", () => {
     expect(fin.suggested_actions).toBeUndefined();
     expect(h.run.mock.calls[0][0].selected).toEqual({
       locationId: "l1",
-      brandId: null,
+      brandId: "brand-a",
     });
   });
 
@@ -223,7 +280,7 @@ describe("POST /api/mobile/v1/ask/transcribe", () => {
   });
   it("refuses an empty or oversized recording and a failed transcription", async () => {
     expect((await transcribe(audio(0))).status).toBe(400);
-    expect((await transcribe(audio(1_500_001))).status).toBe(413);
+    expect((await transcribe(audio(MAX_AUDIO_BYTES + 1))).status).toBe(413);
     h.transcribe.mockResolvedValue({ ok: false, kind: "error" });
     expect((await transcribe(audio(1000))).status).toBe(502);
     h.transcribe.mockResolvedValue({ ok: true, value: { text: "  " } });
@@ -233,5 +290,101 @@ describe("POST /api/mobile/v1/ask/transcribe", () => {
     h.auth = { ok: false, response: NextResponse.json({}, { status: 403 }) };
     expect((await transcribe(audio(1000))).status).toBe(403);
     expect(h.transcribe).not.toHaveBeenCalled();
+  });
+});
+
+describe("the restaurant's brand reaches the assistant (phone = web)", () => {
+  const MENU = [
+    { name: "Bowl A", brand_id: "brand-a", location_id: null },
+    { name: "Taco B", brand_id: "brand-b", location_id: null },
+    { name: "Café (shared)", brand_id: null, location_id: null },
+    { name: "Special at Centro", brand_id: "brand-a", location_id: "l1" },
+    { name: "Special at Norte", brand_id: "brand-b", location_id: "l2" },
+  ];
+  const names = (sel: { locationId: string; brandId: string | null } | null) =>
+    filterMenuItemsForSelection(MENU, sel)
+      .map((m) => m.name)
+      .sort();
+
+  async function phoneSelection(location: string) {
+    h.useReal = true;
+    h.run.mockClear();
+    await (
+      await ask(
+        new NextRequest(
+          `http://localhost/api/mobile/v1/ask?location=${location}`,
+          {
+            method: "POST",
+            body: JSON.stringify({ message: "¿qué platos dejan más margen?" }),
+          }
+        )
+      )
+    ).text();
+    return h.run.mock.calls[0][0].selected;
+  }
+  async function webSelection(location: string) {
+    h.run.mockClear();
+    await webAsk(
+      new NextRequest(
+        `http://localhost/api/restaurant/ask-milton?location=${location}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ message: "¿qué platos dejan más margen?" }),
+        }
+      )
+    );
+    return h.run.mock.calls[0][0].selected;
+  }
+
+  it("with ?location= set the phone passes that restaurant's own brandId", async () => {
+    expect(await phoneSelection("l1")).toEqual({
+      locationId: "l1",
+      brandId: "brand-a",
+    });
+    expect(await phoneSelection("l2")).toEqual({
+      locationId: "l2",
+      brandId: "brand-b",
+    });
+  });
+
+  it("phone and web build the same selection for the same restaurant", async () => {
+    for (const id of ["l1", "l2"]) {
+      expect(await phoneSelection(id)).toEqual(await webSelection(id));
+      expect(await phoneSelection(id)).toEqual(
+        resolveSelectedLocation(BRAND_LOCATIONS, id)
+      );
+    }
+  });
+
+  it("their dishes stay scoped: each restaurant sees its own brand + shared items, never the other brand's", async () => {
+    const a = await phoneSelection("l1");
+    const b = await phoneSelection("l2");
+    expect(names(a)).toEqual(["Bowl A", "Café (shared)", "Special at Centro"]);
+    expect(names(b)).toEqual(["Café (shared)", "Special at Norte", "Taco B"]);
+    expect(names(a)).not.toContain("Taco B");
+    expect(names(b)).not.toContain("Bowl A");
+    // Phone and web scope identically.
+    expect(names(a)).toEqual(names(await webSelection("l1")));
+    expect(names(b)).toEqual(names(await webSelection("l2")));
+  });
+
+  it("the old phone selection (brandId null) would have scoped wrongly", () => {
+    expect(names({ locationId: "l1", brandId: null })).not.toEqual(
+      names({ locationId: "l1", brandId: "brand-a" })
+    );
+  });
+
+  it("no location (company-wide) or an unknown one gives no selection, like the web", async () => {
+    h.useReal = true;
+    h.run.mockClear();
+    await (
+      await ask(
+        new NextRequest("http://localhost/api/mobile/v1/ask?location=nope", {
+          method: "POST",
+          body: JSON.stringify({ message: "hola", scope: "all" }),
+        })
+      )
+    ).text();
+    expect(h.run.mock.calls[0][0].selected).toBeNull();
   });
 });

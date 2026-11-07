@@ -7,6 +7,9 @@
 
 import type { AskMiltonPayload } from "@/lib/restaurant/ask-milton-run";
 
+/** Largest spoken question accepted (about a minute of m4a). */
+export const MAX_AUDIO_BYTES = 1_500_000;
+
 export interface AskLocation {
   id: string;
   name: string;

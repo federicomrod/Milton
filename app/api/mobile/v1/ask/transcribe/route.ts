@@ -7,13 +7,12 @@
 import { NextRequest } from "next/server";
 import { authManager } from "@/lib/restaurant/mobile-manager/auth";
 import { aiUnavailableFor, runTranscription } from "@/lib/ai/call";
+import { MAX_AUDIO_BYTES } from "@/lib/restaurant/mobile-manager/ask";
 import { mobileJson } from "@/lib/restaurant/kitchen/mobile-response";
 import { getDictionary } from "@/lib/i18n";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-export const MAX_AUDIO_BYTES = 1_500_000;
 
 export async function POST(request: NextRequest) {
   const auth = await authManager(request);

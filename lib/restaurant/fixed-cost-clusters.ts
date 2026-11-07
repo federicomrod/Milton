@@ -79,6 +79,12 @@ export interface Figures {
    */
   breakEven: number | null;
   partial: boolean;
+  /**
+   * Some category (an amount, or the tax rate) has no figure at all, own or from
+   * the group: whatever is shown is a partial picture. An explicit confirmed 0 is
+   * a figure; it is not missing.
+   */
+  incomplete: boolean;
 }
 
 export function figuresOf(args: {
@@ -102,7 +108,7 @@ export function figuresOf(args: {
     args.groupImpuestosPct
   );
   const fixed = fixedCostTotal(costs);
-  const { missingAmounts } = fixedCostCompleteness(costs);
+  const { missingAmounts, complete } = fixedCostCompleteness(costs);
   const empty = fixed.total === null && costs.impuestosPct === null;
 
   let breakEven: number | null = null;
@@ -117,6 +123,7 @@ export function figuresOf(args: {
     empty,
     breakEven,
     partial: breakEven !== null && missingAmounts.length > 0,
+    incomplete: !complete,
   };
 }
 
@@ -370,10 +377,32 @@ export function itemsToShow(
   items: readonly ClusterItem[] | undefined,
   cluster: Confirmed | undefined
 ): ClusterItem[] {
-  if (!items || items.length < 2 || !cluster || cluster.source !== "upload")
+  if (
+    !items ||
+    items.length < 2 ||
+    !cluster ||
+    (cluster.source !== "upload" && cluster.source !== "repeat")
+  )
     return [];
   const sum = round2(items.reduce((n, i) => n + i.amount, 0));
   return sum === round2(cluster.value) ? [...items] : [];
+}
+
+/**
+ * Categories whose breakdown is gone: copied from another month (source
+ * «repeat»), the label shows it once held several concepts («Luz + Agua»), and no
+ * breakdown could be read back. A copy of a single concept is NOT this case.
+ */
+export function detailUnavailable(
+  cluster: Confirmed | undefined,
+  shown: readonly ClusterItem[]
+): boolean {
+  return (
+    !!cluster &&
+    cluster.source === "repeat" &&
+    shown.length === 0 &&
+    (cluster.label ?? "").includes(" + ")
+  );
 }
 
 /** How many of the five clusters have a confirmed amount. */

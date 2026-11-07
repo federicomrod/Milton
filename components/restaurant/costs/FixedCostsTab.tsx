@@ -35,6 +35,7 @@ import {
   clustersFromLines,
   confirmedCount,
   figuresOf,
+  detailUnavailable,
   itemsToShow,
   type ClusterItem,
   type ClusterMap,
@@ -43,6 +44,7 @@ import {
 import type {
   FixedCostHistoryItem,
   FixedCostsView,
+  RepeatDetail,
 } from "@/lib/restaurant/fixed-costs-server";
 import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
@@ -107,6 +109,8 @@ export interface FixedCostsTabProps {
   currentMonth: string;
   /** The lines an earlier upload approved per cluster, so a reload still lists them. */
   savedItems?: Partial<Record<FixedCostCategory, ClusterItem[]>>;
+  /** What the copy log kept for the month: the source month and the breakdown. */
+  repeatDetail?: Partial<Record<FixedCostCategory, RepeatDetail>>;
   /** The company's restaurants (the review list asks «¿A qué restaurante?»). */
   restaurants?: Array<{ id: string; name: string }>;
   /** Group view only: the restaurants and their month sales, for the «Repartir» preview. */
@@ -125,6 +129,7 @@ export function FixedCostsTab({
   currentMonth,
   restaurants = [],
   savedItems = {},
+  repeatDetail = {},
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
@@ -147,6 +152,13 @@ export function FixedCostsTab({
     upload: f.fromInvoice,
   };
   const isGroup = view.locationId === null;
+  /** «octubre de 2026» / «October 2026»: a stored month, written out in full. */
+  const longMonth = (iso: string) =>
+    new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString(locale, {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
 
   // The ONE source of truth on screen: what is confirmed for the month.
   const [clusters, setClusters] = useState<ClusterMap>(() =>
@@ -227,12 +239,26 @@ export function FixedCostsTab({
     [clusters, splitRule, splitTargets]
   );
 
-  // The page re-reads the month after a change (quietly): take what the server
-  // now says.
+  // The page re-reads the month after a change (quietly). What comes back is
+  // taken only if nothing changed on this screen since that read was asked for:
+  // an older read must never overwrite a newer local change (the next quiet
+  // read, scheduled by that change, brings the matching numbers).
   const [seenLines, setSeenLines] = useState(view.lines);
+  const [dirty, setDirty] = useState(0);
+  const [askedAt, setAskedAt] = useState(0);
+  const dirtyRef = useRef(0);
+  const [recalc, setRecalc] = useState(false);
   if (seenLines !== view.lines) {
     setSeenLines(view.lines);
-    setClusters(clustersFromLines(view.lines));
+    if (askedAt === dirty) setClusters(clustersFromLines(view.lines));
+  }
+  function touch() {
+    dirtyRef.current += 1;
+    setDirty(dirtyRef.current);
+  }
+  function refreshNow() {
+    setAskedAt(dirtyRef.current);
+    router.refresh();
   }
 
   function highlight(cats: FixedCostCategory[]) {
@@ -244,6 +270,7 @@ export function FixedCostsTab({
   /** Approve / undo from the review list: the cards follow at once. */
   function applyChanges(changes: ClusterChange[]) {
     if (changes.length === 0) return;
+    touch();
     setClusters((cur) => {
       const next = { ...cur };
       for (const c of changes) {
@@ -263,7 +290,7 @@ export function FixedCostsTab({
 
   function settle() {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => router.refresh(), 2500);
+    refreshTimer.current = setTimeout(refreshNow, 2500);
   }
 
   /** Saves ONE cluster (typed on a card, or its repeat switch). Others are left as they are. */
@@ -273,6 +300,7 @@ export function FixedCostsTab({
   ): Promise<string | null> {
     const before = clusters;
     const prev = clusters[category];
+    touch();
     setClusters((cur) => ({
       ...cur,
       [category]: {
@@ -375,7 +403,7 @@ export function FixedCostsTab({
             ? fmt(f.copied, { n, month: prevName })
             : fmt(f.copyNone, { month: prevName }),
         });
-        if (n) router.refresh();
+        if (n) refreshNow();
       }
     } catch {
       setMessage({ ok: false, text: f.saveFailed });
@@ -404,6 +432,21 @@ export function FixedCostsTab({
   }
 
   const shownText = monthLabelEs(shownMonth, lang);
+  // The breakdown behind each card: this session's approvals, the lines an
+  // earlier upload approved, or what the copy log kept. Only when it adds up.
+  const shownItems = Object.fromEntries(
+    FIXED_COST_CATEGORIES.map((c) => {
+      const fromLog: ClusterItem[] | undefined = repeatDetail[c]?.items?.map(
+        (i, n) => ({ id: `log-${c}-${n}`, raw: i.raw, amount: i.amount })
+      );
+      const pick = items[c]?.length
+        ? items[c]
+        : savedItems[c]?.length
+          ? savedItems[c]
+          : fromLog;
+      return [c, itemsToShow(pick, clusters[c])];
+    })
+  ) as Partial<Record<FixedCostCategory, ClusterItem[]>>;
   const confirmed = confirmedCount(clusters);
   // Nothing of the restaurant's own is confirmed: the first-visit page.
   const ownEmpty = confirmed === 0 && sharedTotal === 0;
@@ -425,6 +468,8 @@ export function FixedCostsTab({
     q.set("month", view.month.slice(0, 7));
     return `${RENTABILIDAD_HREF}?${q.toString()}`;
   })();
+  // Some category has no figure: say the number is a partial one.
+  const partialBreakEven = live.breakEven !== null && live.incomplete;
   const detailText = live.empty
     ? f.addCostsFirst
     : breakEvenText
@@ -456,13 +501,25 @@ export function FixedCostsTab({
         (flash ? "border-[#1B40C8] bg-[#E7EDFD]" : "border-[#dfe3ea]")
       }
     >
+      {partialBreakEven ? (
+        <p
+          data-testid="break-even-partial-title"
+          className="mb-1 text-sm font-bold text-[#151c2c]"
+        >
+          {f.bePartialTitle}
+        </p>
+      ) : null}
       <p className="text-sm text-[#6b7385]">
         {live.empty ? f.beIntroEmpty : f.beSell}
       </p>
-      <p className="mt-1 flex items-baseline gap-2">
+      <p
+        className="mt-1 flex items-baseline gap-2"
+        aria-busy={recalc || undefined}
+      >
         <span
           data-testid={breakEvenText ? "break-even-value" : undefined}
           className={
+            (recalc ? "opacity-40 " : "") +
             "text-3xl font-bold " +
             (breakEvenText ? "text-[#151c2c]" : "text-[#9aa3b5]")
           }
@@ -477,8 +534,16 @@ export function FixedCostsTab({
         data-testid={live.empty ? "break-even-empty" : "break-even-detail"}
         className="mt-1 text-sm text-[#6b7385]"
       >
-        {detailText}
+        {recalc ? f.recalculating : detailText}
       </p>
+      {partialBreakEven ? (
+        <p
+          data-testid="break-even-partial-note"
+          className="mt-1 text-xs text-[#6b7385]"
+        >
+          {f.bePartialNote}
+        </p>
+      ) : null}
       <dl className="mt-4 space-y-1 border-t border-[#eef0f4] pt-3 text-sm text-[#151c2c]">
         <div
           data-testid="fixed-total"
@@ -637,6 +702,8 @@ export function FixedCostsTab({
               onReview={onReview}
               onConfirm={applyChanges}
               onSettled={settle}
+              onViewMonth={goMonth}
+              onRecalc={setRecalc}
               month={view.month}
               locationId={view.locationId}
               currency={view.currency}
@@ -661,11 +728,16 @@ export function FixedCostsTab({
                     key={category}
                     category={category}
                     confirmed={clusters[category] ?? null}
-                    items={itemsToShow(
-                      items[category]?.length
-                        ? items[category]
-                        : savedItems[category],
-                      clusters[category]
+                    items={shownItems[category] ?? []}
+                    copiedFrom={
+                      clusters[category]?.source === "repeat" &&
+                      repeatDetail[category]?.fromMonth
+                        ? longMonth(repeatDetail[category]!.fromMonth as string)
+                        : null
+                    }
+                    detailMissing={detailUnavailable(
+                      clusters[category],
+                      shownItems[category] ?? []
                     )}
                     currency={view.currency}
                     flashing={flash?.includes(category) ?? false}
@@ -766,15 +838,31 @@ export function FixedCostsTab({
                 {history.map((h) => (
                   <li key={h.id} className="py-2 text-sm text-[#151c2c]">
                     <span className="font-semibold">
-                      {h.action === "delete" || h.action === "repeat"
+                      {h.action === "delete"
                         ? fmt(actionText[h.action], {
                             category: categoryLabel(h.category, lang),
                           })
-                        : fmt(f.historyLine, {
-                            category: categoryLabel(h.category, lang),
-                            value: historyValue(h),
-                            source: sourceText[h.source] ?? h.source,
-                          })}
+                        : h.action === "repeat"
+                          ? fmt(f.historyLine, {
+                              category: categoryLabel(h.category, lang),
+                              value: describeValue(
+                                h.new_value,
+                                view.currency,
+                                lang
+                              ),
+                              // Only the month the log stored; otherwise just
+                              // that it was repeated, never a guessed month.
+                              source: h.new_value?.from_month
+                                ? fmt(f.copiedFrom, {
+                                    month: longMonth(h.new_value.from_month),
+                                  })
+                                : f.historyRepeatAuto,
+                            })
+                          : fmt(f.historyLine, {
+                              category: categoryLabel(h.category, lang),
+                              value: historyValue(h),
+                              source: sourceText[h.source] ?? h.source,
+                            })}
                     </span>
                     <span className="block text-xs text-[#6b7385]">
                       {relativeTimeText(h.created_at, Date.now(), locale)}
@@ -833,6 +921,8 @@ function ClusterRow({
   category,
   confirmed,
   items,
+  copiedFrom,
+  detailMissing,
   currency,
   flashing,
   onUpload,
@@ -842,6 +932,10 @@ function ClusterRow({
   category: FixedCostCategory;
   confirmed: Confirmed | null;
   items: ClusterItem[];
+  /** «octubre de 2026»: the month a copied amount came from, when the log says. */
+  copiedFrom: string | null;
+  /** A copied total that once held several concepts and has no breakdown left. */
+  detailMissing: boolean;
   currency: string;
   flashing: boolean;
   onUpload: () => void;
@@ -866,7 +960,9 @@ function ClusterRow({
         ? fmt(f.fromConcept, { concept: confirmed.label })
         : f.fromInvoice
       : confirmed?.source === "repeat"
-        ? f.sourceRepeat
+        ? copiedFrom
+          ? fmt(f.copiedFrom, { month: copiedFrom })
+          : f.sourceRepeat
         : confirmed?.source === "estimate"
           ? f.sourceEstimate
           : f.byHand;
@@ -1035,7 +1131,11 @@ function ClusterRow({
             >
               <span className="min-w-0 break-words">{i.raw || "—"}</span>
               <span className="flex shrink-0 items-baseline gap-4">
-                <span className="text-xs text-[#6b7385]">{f.fromInvoice}</span>
+                <span className="text-xs text-[#6b7385]">
+                  {confirmed?.source === "repeat" && copiedFrom
+                    ? fmt(f.copiedFrom, { month: copiedFrom })
+                    : f.fromInvoice}
+                </span>
                 <span className="font-semibold">
                   {formatMoney(i.amount, currency, lang)}
                 </span>
@@ -1043,6 +1143,15 @@ function ClusterRow({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {detailMissing && !writing ? (
+        <p
+          data-testid={`fixed-detail-missing-${category}`}
+          className="w-full text-xs text-[#6b7385]"
+        >
+          {f.detailUnavailable}
+        </p>
       ) : null}
 
       {text.trim() !== "" && !parsed.ok && writing ? (

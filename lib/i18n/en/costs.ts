@@ -42,7 +42,10 @@ export const costs: Dictionary["costs"] = {
     addBtn: "Add (→ {sum})",
     decide: "{n} lines are waiting for your choice: replace or add.",
     notApproved: "Not approved: {error}",
-    savedElsewhere: "{n} lines saved to {where}.",
+    savedElsewhere:
+      "{n} lines approved · saved to {where} · {month}. This screen does not change.",
+    savedElsewhereOne:
+      "1 line approved · saved to {where} · {month}. This screen does not change.",
     unrecognized:
       "Milton could not understand this line: fix it or discard it.",
     group: "Group",
@@ -52,7 +55,11 @@ export const costs: Dictionary["costs"] = {
     doneEditing: "Done",
     approveAllN: "Approve all ({n} · {total})",
     toastApproved: "{concept} +{amount} → {category}",
-    toastApprovedMany: "{n} lines → {categories}",
+    toastApprovedMany: "{n} lines approved → {categories}",
+    toastApprovedOne: "1 line approved → {categories}",
+    viewMonth: "View {month}",
+    savesIn: "Will be saved to {month}",
+    useMonth: "Use {month}",
     undo: "Undo",
     undone: "Undone",
     rollback: "Could not save. I undid the change.",
@@ -139,7 +146,7 @@ export const costs: Dictionary["costs"] = {
       "What you pay every month whether or not you sell. Upload an invoice or type the amount.",
     cardSubFilled:
       "What you pay every month whether or not you sell. Confirmed amounts feed the break-even point.",
-    confirmedPill: "{n} of {total} confirmed",
+    confirmedPill: "Categories confirmed: {n} of {total}",
     faltaPill: "Missing · {names}",
     copyMonth: "Copy recurring from {month}",
     copied: "Copied {n} recurring costs from {month}.",
@@ -154,8 +161,15 @@ export const costs: Dictionary["costs"] = {
     perDay: "a day",
     beDetail: "from {total} fixed costs · {days} open days",
     totalLabel: "Total fixed costs",
-    confirmedLabel: "Confirmed",
+    confirmedLabel: "Categories confirmed",
     confirmedOf: "{n} of {total}",
+    bePartialTitle: "Partial break-even",
+    bePartialNote:
+      "Calculated only from confirmed costs. Some categories are still to be confirmed.",
+    copiedFrom: "copied from {month}",
+    historyRepeatAuto: "repeated automatically",
+    detailUnavailable: "Breakdown not available for this record.",
+    recalculating: "Recalculating…",
     seeRentabilidad: "See Profitability →",
     taxIncluded:
       "Your sales include VAT: Milton subtracts {rate} ÷ {sum} of every sale",

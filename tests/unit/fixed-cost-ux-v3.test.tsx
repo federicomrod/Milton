@@ -320,7 +320,7 @@ describe("root cause: one source of truth", () => {
     await waitFor(() => expect(beValue()).not.toBeNull());
     expect(screen.getByTestId("confirmed-count").textContent).toBe("1 de 5");
     expect(screen.getByTestId("confirmed-pill").textContent).toBe(
-      "1 de 5 confirmados"
+      "Categorías confirmadas: 1 de 5"
     );
   });
 });
@@ -360,7 +360,7 @@ describe("5 lines → Aprobar todo", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByTestId("confirmed-pill").textContent).toBe(
-      "4 de 5 confirmados"
+      "Categorías confirmadas: 4 de 5"
     );
     // No accordion, no «Aprobadas (n)», nothing to expand; the review is done.
     expect(document.querySelectorAll("details")).toHaveLength(0);
@@ -629,7 +629,7 @@ describe("group share on a restaurant", () => {
 });
 
 describe("v3 answers from Sofia", () => {
-  it("«N de M confirmados» is mint with Ink text", async () => {
+  it("«Categorías confirmadas: N de M» is mint with Ink text", async () => {
     show([FIVE[0]]);
     fireEvent.click(await approveBtn("Nómina demo"));
     const pill = await screen.findByTestId("confirmed-pill");

@@ -4,7 +4,7 @@
 // do not see them.
 
 export const es = {
-  appName: "Milton Cocina",
+  appName: "Milton",
   tabs: { send: "Enviar", history: "Historial" },
   hello: "Hola, {name}",
   helloPlain: "Hola",
@@ -16,7 +16,7 @@ export const es = {
     location: "Local",
     company: "Empresa",
     logout: "Cerrar sesión",
-    version: "Milton Cocina {version}",
+    version: "Milton {version}",
     kitchenCode: "Código de cocina",
     security: "Seguridad",
     changePin: "Cambiar mi PIN",
@@ -218,7 +218,7 @@ type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
 export type Strings = Shape<typeof es>;
 
 export const en: Strings = {
-  appName: "Milton Kitchen",
+  appName: "Milton",
   tabs: { send: "Send", history: "History" },
   hello: "Hi, {name}",
   helloPlain: "Hi",
@@ -230,7 +230,7 @@ export const en: Strings = {
     location: "Location",
     company: "Company",
     logout: "Sign out",
-    version: "Milton Kitchen {version}",
+    version: "Milton {version}",
     kitchenCode: "Kitchen code",
     security: "Security",
     changePin: "Change my PIN",
@@ -426,7 +426,7 @@ export const en: Strings = {
 };
 
 export const de: Strings = {
-  appName: "Milton Küche",
+  appName: "Milton",
   tabs: { send: "Senden", history: "Verlauf" },
   hello: "Hallo, {name}",
   helloPlain: "Hallo",
@@ -438,7 +438,7 @@ export const de: Strings = {
     location: "Standort",
     company: "Unternehmen",
     logout: "Abmelden",
-    version: "Milton Küche {version}",
+    version: "Milton {version}",
     kitchenCode: "Küchencode",
     security: "Sicherheit",
     changePin: "Meine PIN ändern",

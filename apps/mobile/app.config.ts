@@ -53,6 +53,9 @@ const config: ExpoConfig = {
     "expo-router",
     "expo-dev-client",
     "expo-secure-store",
+    // Registers the iOS push entitlement; sending needs APNs credentials in the
+    // Expo project (an account-side step, see the notifications PR).
+    "expo-notifications",
     ["expo-local-authentication", { faceIDPermission: both(FACE_ES, FACE_EN) }],
     [
       "expo-image-picker",

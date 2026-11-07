@@ -16,6 +16,7 @@ export const kitchen: Dictionary["kitchen"] = {
     managerVoiceFailed:
       "I could not understand the audio. Try again or type your question.",
     managerVoiceTooBig: "The audio is too long.",
+    managerPushInvalid: "The notification settings are not valid.",
     managerPeriodInvalid: "The period is not valid.",
     managerMonthInvalid: "The month is not valid.",
     managerPickRestaurant: "Pick a restaurant.",
@@ -124,5 +125,14 @@ export const kitchen: Dictionary["kitchen"] = {
     ingredientExists: '"{name}" already exists. Use it?',
     ingredientArchived:
       '"{name}" is archived. Restore it in Ingredients or use another name.',
+  },
+  push: {
+    dailyTitle: "Your summary of yesterday",
+    dailySales: "Yesterday's sales: {amount}.",
+    dailyProfit: "Profit this month: {amount}.",
+    dailyReady: "Your summary of yesterday is ready in Milton.",
+    invoicesTitle: "Invoices to approve",
+    invoicesOne: "1 invoice is waiting for your approval.",
+    invoicesMany: "{count} invoices are waiting for your approval.",
   },
 };

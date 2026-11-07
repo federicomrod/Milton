@@ -234,6 +234,17 @@ function monthOf(over: Record<string, unknown> = {}) {
     profit: 1234.5,
     profitPct: 0.103,
     breakEvenPerDay: 310,
+    figures: {
+      status: "complete",
+      total: 5000,
+      known: [],
+      missing: [],
+      breakEven: 310,
+      confirmed: 5,
+      totalCategories: 5,
+      tax: { kind: "missing" },
+      basis: { openDays: 26, marginMonth: null },
+    },
     breakEvenDay: { date: "2026-10-18", day: 18, projected: false },
     avgSalesPerDay: 400,
     cada100: [

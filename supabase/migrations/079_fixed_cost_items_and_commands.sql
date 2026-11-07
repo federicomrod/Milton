@@ -289,8 +289,9 @@ CREATE CONSTRAINT TRIGGER restaurant_fixed_costs_invariant
 
 -- Versions come from ONE sequence, so a version number is never reused: a key
 -- deleted and re-created cannot come back with a version a stale client holds
--- (no ABA). Gaps after a rollback are harmless.
-CREATE SEQUENCE IF NOT EXISTS public.fixed_cost_version_seq;
+-- (no ABA). Gaps after a rollback are harmless. It starts at 1000 so a version it
+-- hands out never equals the column default (1) that untouched rows carry.
+CREATE SEQUENCE IF NOT EXISTS public.fixed_cost_version_seq START WITH 1000;
 
 -- A draft is a work area, not financial truth, so writers may keep editing it
 -- directly. What matters is that every content change moves its version, so an

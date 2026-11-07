@@ -6,9 +6,11 @@
 // into DRAFT lines that change nothing until approved. The review list sits at
 // the top of the page; the cluster cards below are the only place amounts live.
 //
-// One tap on ✓ Aprobar moves the amount into its cluster card at once
-// (optimistic, saved in the background, rolled back with a message on THAT line
-// if the save fails). No accordion, no reload, no modal. A line Milton could
+// One tap on ✓ Aprobar sends the lines to the database as ONE command (items +
+// aggregate + history + draft together, or nothing). The cards change when the
+// server answers — «Recalculando…» until then, never a final-looking number
+// from a guess. The review shows WHERE each line will be saved (month and
+// restaurant) before anything is written. No accordion, no reload, no modal. A line Milton could
 // not fully place says exactly what is missing — «⚑ Falta · ¿A qué
 // restaurante?» — with the control to answer it, never a bare flag. When the
 // cluster already has a confirmed amount that this upload did not write, the
@@ -25,20 +27,19 @@ import {
   categoryLabel,
   type FixedCostCategory,
 } from "@/lib/restaurant/fixed-costs";
-import {
-  nextRepeats,
-  type DraftLine,
-  type OverwriteConflict,
-} from "@/lib/restaurant/fixed-cost-upload";
+import type { DraftLine } from "@/lib/restaurant/fixed-cost-upload";
+import type {
+  ApprovedCategory,
+  DraftConflict,
+  UploadPreview,
+} from "@/lib/restaurant/fixed-cost-commands";
 import {
   approvableAll,
   approvedItems,
-  clusterAfter,
   conceptLabel,
   type ClusterItem,
   fileProposal,
   isHere,
-  isOwnTotal,
   lineStatuses,
   sortForReview,
   vsLastMonth,
@@ -67,6 +68,8 @@ const FIELD =
 
 interface Draft {
   id: string;
+  /** Moves on every change; the approval sends the one that was reviewed. */
+  version: number;
   fileName: string | null;
   lines: DraftLine[];
   status: string;
@@ -83,25 +86,10 @@ export interface ClusterChange {
   repeats: boolean;
 }
 
-interface AppliedRow {
-  category: FixedCostCategory;
-  month: string;
-  locationId: string | null;
-  total: number;
-  previous: {
-    amount: number | null;
-    pct_of_sales: number | null;
-    label: string | null;
-    source: string | null;
-    repeats?: boolean | null;
-  } | null;
-  repeats: boolean;
-  lineIds: string[];
-}
-
 interface Toast {
   text: string;
-  applied: AppliedRow[] | null;
+  /** The command that can be undone from the toast; null = nothing to undo. */
+  commandId: string | null;
   /** The month the lines were saved to, when it is not the one on screen. */
   view?: { month: string; label: string };
 }
@@ -120,6 +108,7 @@ export function FixedCostUpload({
   onReview,
   onConfirm,
   onSettled,
+  onRefresh,
   onViewMonth,
   onRecalc,
 }: {
@@ -147,6 +136,8 @@ export function FixedCostUpload({
   onConfirm?: (changes: ClusterChange[]) => void;
   /** Called a moment after the last change: the page may refresh quietly. */
   onSettled?: () => void;
+  /** Re-read the page now (after an undo, or a save into another month). */
+  onRefresh?: () => void;
   /** «Ver octubre»: opens the month a line was saved to. */
   onViewMonth?: (month: string) => void;
   /** True while a save that is not shown ahead of time is on its way: the figures wait. */
@@ -160,7 +151,8 @@ export function FixedCostUpload({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lineErrors, setLineErrors] = useState<Record<string, string>>({});
-  const [conflicts, setConflicts] = useState<OverwriteConflict[]>([]);
+  const [conflicts, setConflicts] = useState<DraftConflict[]>([]);
+  const [preview, setPreview] = useState<UploadPreview | null>(null);
   const [pending, setPending] = useState<string[] | undefined>(undefined);
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,7 +164,10 @@ export function FixedCostUpload({
     fetch("/api/restaurant/fixed-costs/upload")
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (live && j?.draft) setDraft(j.draft as Draft);
+        if (live && j?.draft) {
+          setDraft(j.draft as Draft);
+          setPreview((j.preview as UploadPreview | null) ?? null);
+        }
       })
       .catch(() => {});
     return () => {
@@ -254,8 +249,10 @@ export function FixedCostUpload({
       method: "POST",
       body: form,
     });
-    if (status === 200 && body.draft) setDraft(body.draft as Draft);
-    else setError(String(body.error ?? t.errSave));
+    if (status === 200 && body.draft) {
+      setDraft(body.draft as Draft);
+      setPreview((body.preview as UploadPreview | null) ?? null);
+    } else setError(String(body.error ?? t.errSave));
     if (input.current) input.current.value = "";
   }
 
@@ -284,6 +281,7 @@ export function FixedCostUpload({
     );
     if (status === 200 && body.draft) {
       setDraft(body.draft as Draft);
+      setPreview((body.preview as UploadPreview | null) ?? null);
     } else {
       setDraft(before);
       if (lineId) setLineErrors((e) => ({ ...e, [lineId]: t.rollback }));
@@ -299,13 +297,27 @@ export function FixedCostUpload({
   const list = sortForReview(all, statuses);
   const bulk = approvableAll(all, statuses);
 
+  /** Re-reads the draft and its review (after a stale answer). */
+  async function reload() {
+    const { status, body } = await call(
+      "/api/restaurant/fixed-costs/upload",
+      { method: "GET" },
+      false
+    );
+    if (status === 200 && body.draft) {
+      setDraft(body.draft as Draft);
+      setPreview((body.preview as UploadPreview | null) ?? null);
+    }
+  }
+
   /**
    * Approves `ids` (default: every line that needs no decision). `mode` is the
-   * person's choice on a diff: 'replace' confirms the overwrite, 'add' sums.
+   * person's choice on an overlap: 'replace' swaps the existing items for these
+   * lines, 'add' keeps them and adds, 'add_duplicate' also accepts an exact repeat.
+   * Nothing on screen changes until the server has committed.
    */
   async function approve(ids?: string[], mode: ApproveMode = "auto") {
     if (!draft) return;
-    const before = draft;
     const wanted = new Set(ids ?? bulk.ids);
     const ready = draft.lines.filter(
       (l) =>
@@ -329,94 +341,17 @@ export function FixedCostUpload({
       return next;
     });
     setConflicts([]);
-    const cats = [
-      ...new Set(ready.map((l) => l.category as FixedCostCategory)),
-    ];
-    const decided = (c: FixedCostCategory) =>
-      mode !== "auto" ||
-      !clusters[c] ||
-      isOwnTotal(c, clusters[c], draft.lines, screen);
-    const optimistic =
-      ready.every((l) => isHere(l, screen)) && cats.every(decided);
+    setError(null);
+    // The versions this review was built on: the database refuses a stale one.
+    const expected = Object.fromEntries(
+      (preview?.keys ?? []).map((k) => [k.key, k.version] as const)
+    );
+    const decisions =
+      mode === "auto"
+        ? {}
+        : Object.fromEntries(ready.map((l) => [l.id, mode] as const));
 
-    const labelFor = (c: FixedCostCategory): string | null => {
-      const mine = ready.filter((l) => l.category === c);
-      const own =
-        mode !== "replace" && isOwnTotal(c, clusters[c], draft.lines, screen)
-          ? draft.lines.filter(
-              (l) =>
-                l.status === "approved" && l.category === c && isHere(l, screen)
-            )
-          : [];
-      const parts = conceptLabel([...own, ...mine]);
-      const prior = clusters[c]?.label;
-      if (c !== "impuestos" && mode === "add" && !own.length && prior)
-        return `${prior} + ${parts ?? ""}`.slice(0, 120);
-      return c === "impuestos" ? (parts?.split(" + ").pop() ?? null) : parts;
-    };
-    // ON for ordinary bills, OFF for one-offs; adding keeps the person's choice.
-    const repeatsFor = (c: FixedCostCategory): boolean => {
-      const adding =
-        c !== "impuestos" &&
-        !!clusters[c] &&
-        (mode === "add" ||
-          (mode !== "replace" &&
-            isOwnTotal(c, clusters[c], draft.lines, screen)));
-      return nextRepeats(
-        ready.filter((l) => l.category === c),
-        adding,
-        clusters[c]?.repeats
-      );
-    };
-    const change = (c: FixedCostCategory): ClusterChange => ({
-      category: c,
-      total: clusterAfter(
-        c,
-        clusters[c]?.value ?? null,
-        ready.filter((l) => l.category === c),
-        mode
-      ),
-      source: "upload",
-      label: labelFor(c),
-      repeats: repeatsFor(c),
-    });
-    const undoChanges = () =>
-      cats.map(
-        (c): ClusterChange => ({
-          category: c,
-          total: clusters[c]?.value ?? null,
-          source: clusters[c]?.source ?? null,
-          label: clusters[c]?.label ?? null,
-          repeats: clusters[c]?.repeats === true,
-        })
-      );
-
-    if (optimistic) {
-      const set = new Set(ready.map((l) => l.id));
-      setDraft({
-        ...draft,
-        lines: draft.lines.map((l) =>
-          set.has(l.id) ? { ...l, status: "approved" as const } : l
-        ),
-      });
-      onConfirm?.(cats.map(change));
-      const one = ready.length === 1 ? ready[0] : null;
-      showToast({
-        text: one
-          ? fmt(t.toastApproved, {
-              concept: one.raw || "—",
-              amount: money(one.category as FixedCostCategory, one.amount ?? 0),
-              category: categoryLabel(one.category as FixedCostCategory, lang),
-            })
-          : fmt(t.toastApprovedMany, {
-              n: ready.length,
-              categories: cats.map((c) => categoryLabel(c, lang)).join(", "),
-            }),
-        applied: null,
-      });
-    }
-
-    if (!optimistic) onRecalc?.(true);
+    onRecalc?.(true);
     const { status, body } = await call(
       "/api/restaurant/fixed-costs/upload/approve",
       {
@@ -424,63 +359,64 @@ export function FixedCostUpload({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           draftId: draft.id,
+          draftVersion: draft.version,
+          expected,
+          commandKey: crypto.randomUUID(),
           lineIds: ready.map((l) => l.id),
-          confirmed: mode === "replace" ? ready.map((l) => l.id) : undefined,
-          adds: mode === "add" ? ready.map((l) => l.id) : undefined,
+          decisions,
         }),
       },
-      !optimistic
+      true
     );
     onRecalc?.(false);
 
-    const unwind = () => {
-      setDraft(before);
-      if (optimistic) {
-        onConfirm?.(undoChanges());
-        setToast(null);
-      }
-    };
-    const rollback = (message: string) => {
-      unwind();
+    if (status === 409 && Array.isArray(body.conflicts)) {
+      // An overlap with what is already saved: ask here, on the list. Nothing was written.
+      setConflicts(body.conflicts as DraftConflict[]);
+      setPending(ready.map((l) => l.id));
+      return;
+    }
+    if (status === 409 && body.stale) {
+      setError(String(body.error ?? t.staleDraft));
+      await reload();
+      return;
+    }
+    if (status !== 200 || !body.draft) {
+      const message = String(body.error ?? t.rollback);
       setLineErrors((e) => ({
         ...e,
         ...Object.fromEntries(ready.map((l) => [l.id, message] as const)),
       }));
-    };
-
-    if (status === 409 && Array.isArray(body.conflicts)) {
-      // The server found a value we did not foresee: ask here, on the list.
-      unwind();
-      setConflicts(body.conflicts as OverwriteConflict[]);
-      setPending(ready.map((l) => l.id));
       return;
     }
-    if (status === 200 && body.draft) {
-      const next = body.draft as Draft;
-      const applied = (
-        Array.isArray(body.applied) ? body.applied : []
-      ) as AppliedRow[];
-      setDraft(next);
-      const here = applied.filter(
-        (a) =>
-          a.month === month && (a.locationId ?? null) === (locationId ?? null)
-      );
-      // Optimistically confirmed but not actually applied (a line the server
-      // refused, or left pending): the card goes back to what it was.
-      if (optimistic) {
-        const landed = new Set(here.map((a) => a.category));
-        const restore = undoChanges().filter((c) => !landed.has(c.category));
-        if (restore.length) onConfirm?.(restore);
-        if (applied.length === 0) setToast(null);
-      }
-      onConfirm?.(
-        here.map((a) => ({
-          category: a.category,
-          total: a.total,
+
+    const next = body.draft as Draft;
+    setDraft(next);
+    setPreview((body.preview as UploadPreview | null) ?? null);
+    const cats = (
+      Array.isArray(body.categories) ? body.categories : []
+    ) as ApprovedCategory[];
+    const created = Number(body.lines_approved ?? 0);
+    const already = Number(body.lines_already_approved ?? 0);
+    const commandId =
+      typeof body.command_id === "string" && created > 0
+        ? body.command_id
+        : null;
+    const here = cats.filter(
+      (c) =>
+        c.month === month && (c.location_id ?? null) === (locationId ?? null)
+    );
+    // The cards follow what the server says it now holds.
+    onConfirm?.(
+      here
+        .filter((c) => c.outcome !== "unchanged")
+        .map((c) => ({
+          category: c.category,
+          total: c.total,
           source: "upload",
-          repeats: a.repeats === true,
+          repeats: c.repeats === true,
           label:
-            a.category === "impuestos"
+            c.category === "impuestos"
               ? (conceptLabel(
                   next.lines.filter(
                     (l) =>
@@ -491,129 +427,112 @@ export function FixedCostUpload({
                 )
                   ?.split(" + ")
                   .pop() ?? null)
-              : (() => {
-                  const names = conceptLabel(
-                    next.lines.filter(
-                      (l) =>
-                        l.status === "approved" &&
-                        l.category === a.category &&
-                        isHere(l, screen)
-                    )
-                  );
-                  const prior = a.previous?.label;
-                  return a.previous && a.previous.source !== "upload" && prior
-                    ? `${prior} + ${names ?? ""}`.slice(0, 120)
-                    : names;
-                })(),
+              : conceptLabel(
+                  next.lines.filter(
+                    (l) =>
+                      l.status === "approved" &&
+                      l.category === c.category &&
+                      isHere(l, screen)
+                  )
+                ),
         }))
-      );
-      const elsewhere = applied.filter((a) => !here.includes(a));
-      if (!optimistic && applied.length) {
-        const total = applied.reduce((n, a) => n + a.lineIds.length, 0);
-        const months = [...new Set(elsewhere.map((a) => a.month))];
-        const elsewhereN = elsewhere.reduce((n, a) => n + a.lineIds.length, 0);
-        showToast({
-          text: elsewhere.length
-            ? fmt(elsewhereN === 1 ? t.savedElsewhereOne : t.savedElsewhere, {
-                n: elsewhereN,
-                where: [
-                  ...new Set(
-                    elsewhere.map((a) =>
-                      a.locationId ? (names.get(a.locationId) ?? "") : t.group
-                    )
-                  ),
-                ].join(", "),
-                month: months.map((m) => monthText(m)).join(", "),
-              })
-            : fmt(total === 1 ? t.toastApprovedOne : t.toastApprovedMany, {
-                n: total,
-                categories: [...new Set(applied.map((a) => a.category))]
-                  .map((c) => categoryLabel(c, lang))
-                  .join(", "),
-              }),
-          applied,
-          view:
-            elsewhere.length > 0 &&
-            months.length === 1 &&
-            elsewhere.every(
-              (a) => (a.locationId ?? null) === (locationId ?? null)
-            )
-              ? { month: months[0], label: monthText(months[0]) }
-              : undefined,
-        });
-      } else if (applied.length) {
-        setToast((cur) => (cur ? { ...cur, applied } : cur));
-      }
-      const failed = Array.isArray(body.issues)
-        ? (body.issues as Array<{ lineId: string; error: string }>)
-        : [];
-      if (failed.length)
-        setLineErrors((e) => ({
-          ...e,
-          ...Object.fromEntries(
-            failed.map(
-              (i) => [i.lineId, fmt(t.notApproved, { error: i.error })] as const
-            )
+    );
+    const elsewhere = cats.filter(
+      (c) => !here.includes(c) && c.outcome !== "unchanged"
+    );
+    const months = [...new Set(elsewhere.map((c) => c.month))];
+    if (created === 0 && already > 0) {
+      showToast({ text: t.nothingNew, commandId: null });
+    } else if (elsewhere.length > 0 && months.length === 1) {
+      // Say where it went AND that the month on screen did not change.
+      showToast({
+        text:
+          fmt(t.savedInMonth, {
+            month: monthText(months[0]),
+            screen: monthText(month),
+          }) +
+          " " +
+          (already > 0
+            ? fmt(t.countsAlready, { n: created, m: already })
+            : fmt(created === 1 ? t.countsLineOne : t.countsLine, {
+                n: created,
+              })),
+        commandId,
+        view: elsewhere.every(
+          (c) => (c.location_id ?? null) === (locationId ?? null)
+        )
+          ? { month: months[0], label: monthText(months[0]) }
+          : undefined,
+      });
+    } else if (created > 0) {
+      showToast({
+        text:
+          (already > 0
+            ? fmt(t.countsAlready, { n: created, m: already })
+            : fmt(created === 1 ? t.countsLineOne : t.countsLine, {
+                n: created,
+              })) +
+          " → " +
+          [...new Set(cats.map((c) => categoryLabel(c.category, lang)))].join(
+            ", "
           ),
-        }));
-      // A line that was asked for and neither saved nor failed says so.
-      const stillPending = next.lines.filter(
-        (l) =>
-          l.status === "pending" &&
-          ready.some((r) => r.id === l.id) &&
-          !failed.some((f) => f.lineId === l.id)
-      );
-      if (stillPending.length)
-        setLineErrors((e) => ({
-          ...e,
-          ...Object.fromEntries(
-            stillPending.map((l) => [l.id, t.nothingApproved] as const)
-          ),
-        }));
-      onSettled?.();
-    } else {
-      rollback(String(body.error ?? t.rollback));
+        commandId,
+      });
     }
+    const failed = Array.isArray(body.issues)
+      ? (body.issues as Array<{ lineId: string; error: string }>)
+      : [];
+    if (failed.length)
+      setLineErrors((e) => ({
+        ...e,
+        ...Object.fromEntries(
+          failed.map(
+            (i) => [i.lineId, fmt(t.notApproved, { error: i.error })] as const
+          )
+        ),
+      }));
+    const stillPending = next.lines.filter(
+      (l) =>
+        l.status === "pending" &&
+        ready.some((r) => r.id === l.id) &&
+        !failed.some((f) => f.lineId === l.id)
+    );
+    if (stillPending.length)
+      setLineErrors((e) => ({
+        ...e,
+        ...Object.fromEntries(
+          stillPending.map((l) => [l.id, t.nothingApproved] as const)
+        ),
+      }));
+    // Re-read the page now: the breakdown under a card is the canonical items,
+    // not the draft. (A save into another month leaves this month as it was.)
+    if (onRefresh) onRefresh();
+    else onSettled?.();
   }
 
   async function undo() {
-    if (!draft || !toast?.applied) return;
-    const applied = toast.applied;
+    if (!draft || !toast?.commandId) return;
     onRecalc?.(true);
     const { status, body } = await call(
       "/api/restaurant/fixed-costs/upload/undo",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ draftId: draft.id, applied }),
+        // The browser names the command only. What to restore is the server's.
+        body: JSON.stringify({
+          commandId: toast.commandId,
+          commandKey: crypto.randomUUID(),
+        }),
       },
       false
     );
-    onRecalc?.(false);
     if (status === 200 && body.draft) {
       setDraft(body.draft as Draft);
-      onConfirm?.(
-        applied
-          .filter(
-            (a) =>
-              a.month === month &&
-              (a.locationId ?? null) === (locationId ?? null)
-          )
-          .map((a) => ({
-            category: a.category,
-            total: a.previous
-              ? a.category === "impuestos"
-                ? a.previous.pct_of_sales
-                : a.previous.amount
-              : null,
-            source: a.previous?.source ?? null,
-            label: a.previous?.label ?? null,
-            repeats: a.previous?.repeats === true,
-          }))
-      );
-      showToast({ text: t.undone, applied: null }, 2000);
-      onSettled?.();
+      setPreview((body.preview as UploadPreview | null) ?? null);
+      showToast({ text: t.undone, commandId: null }, 2000);
+      onRefresh?.();
     } else {
+      onRecalc?.(false);
       setToast(null);
       setError(String(body.error ?? t.errSave));
     }
@@ -641,6 +560,35 @@ export function FixedCostUpload({
     month: t.needsMonth,
     duplicate: t.needsDuplicate,
   };
+
+  // WHERE each pending line will be saved, before anything is written. The month
+  // on screen is only where the person is looking, never an instruction.
+  const destGroups = (() => {
+    const by = new Map<
+      string,
+      { month: string; where: string; ids: string[] }
+    >();
+    for (const l of all) {
+      if (l.status !== "pending" || !l.month || !l.scope) continue;
+      const key = `${l.month}|${l.scope.kind === "restaurant" ? l.scope.locationId : "group"}`;
+      const g = by.get(key) ?? { month: l.month, where: where(l), ids: [] };
+      g.ids.push(l.id);
+      by.set(key, g);
+    }
+    return [...by.entries()].map(([key, g]) => ({ key, ...g }));
+  })();
+  const monthChoices = (current: string) => {
+    const out = new Set<string>([current]);
+    const [y, m] = month.split("-").map(Number);
+    for (let i = 0; i < 13; i++) {
+      const d = new Date(Date.UTC(y, m - 1 - i, 1));
+      out.add(
+        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`
+      );
+    }
+    return [...out].sort().reverse();
+  };
+  const destMonths = [...new Set(destGroups.map((g) => g.month))];
 
   const [dragging, setDragging] = useState(false);
   const drop = showDrop && list.length === 0;
@@ -717,6 +665,81 @@ export function FixedCostUpload({
           </div>
           <p className="mt-1 text-sm text-[#4a5a85]">{t.intro}</p>
 
+          {destGroups.length > 0 ? (
+            <div
+              data-testid="upload-destination"
+              className="mt-3 rounded-lg border border-[#dbe3f7] bg-white p-3"
+            >
+              <p className="text-[13px] font-bold text-[#0F172A]">
+                {t.destTitle}
+              </p>
+              <ul className="mt-1 space-y-1">
+                {destGroups.map((g) => (
+                  <li
+                    key={g.key}
+                    className="flex flex-wrap items-center justify-between gap-2 text-sm text-[#0F172A]"
+                  >
+                    <span data-testid="dest-line">
+                      {fmt(g.ids.length === 1 ? t.destLineOne : t.destLine, {
+                        n: g.ids.length,
+                        where: g.where || t.group,
+                        month: monthText(g.month),
+                      })}
+                    </span>
+                    <label className="flex items-center gap-2 text-[12px] text-[#4a5a85]">
+                      {t.destChange}
+                      <select
+                        aria-label={`${t.destChange}: ${monthText(g.month)}`}
+                        value={g.month}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const m = e.target.value;
+                          void patch(
+                            {
+                              edits: g.ids.map((id) => ({
+                                lineId: id,
+                                month: m,
+                              })),
+                            },
+                            (ls) =>
+                              ls.map((x) =>
+                                g.ids.includes(x.id) ? { ...x, month: m } : x
+                              )
+                          );
+                        }}
+                        className={FIELD}
+                      >
+                        {monthChoices(g.month).map((m) => (
+                          <option key={m} value={m}>
+                            {monthText(m)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <p
+                data-testid="dest-note"
+                className="mt-2 text-[12px] text-[#4a5a85]"
+              >
+                {destMonths.length > 1
+                  ? t.destMixed
+                  : destMonths[0] === month
+                    ? t.destSame
+                    : fmt(t.destViewing, {
+                        screen: monthText(month),
+                        dest: destMonths.map(monthText).join(", "),
+                      })}
+              </p>
+              {preview?.same_file_seen_before ? (
+                <p className="mt-1 text-[12px] text-[#4a5a85]">
+                  {t.sameFileSeen}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {conflicts.length > 0 ? (
             <div
               data-testid="overwrite-confirm"
@@ -731,21 +754,51 @@ export function FixedCostUpload({
                     {fmt(t.overwriteRow, {
                       category: categoryLabel(c.category, lang),
                       month: monthText(c.month),
-                      old: money(c.category, c.old),
+                      old: money(c.category, c.old ?? 0),
                       new: money(c.category, c.new),
                     })}
+                    {c.kind === "duplicate" ? (
+                      <span className="block text-[12px] text-[#4a5a85]">
+                        {fmt(t.duplicateNote, {
+                          category: categoryLabel(c.category, lang),
+                        })}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>
               <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void approve(pending, "replace")}
-                  className={BTN}
-                >
-                  {t.overwriteConfirm}
-                </button>
+                {conflicts.every((c) => c.kind === "duplicate") ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void approve(pending, "add_duplicate")}
+                    className={BTN}
+                  >
+                    {t.addAnyway}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void approve(pending, "replace")}
+                      className={BTN}
+                    >
+                      {t.overwriteConfirm}
+                    </button>
+                    {conflicts.every((c) => c.category !== "impuestos") ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void approve(pending, "add")}
+                        className={BTN_LIGHT}
+                      >
+                        {t.addBtn.replace("(→ {sum})", "").trim()}
+                      </button>
+                    ) : null}
+                  </>
+                )}
                 <button
                   type="button"
                   disabled={busy}
@@ -882,7 +935,7 @@ export function FixedCostUpload({
               {fmt(t.viewMonth, { month: toast.view.label })}
             </button>
           ) : null}
-          {toast.applied ? (
+          {toast.commandId ? (
             <button
               type="button"
               onClick={() => void undo()}

@@ -99,11 +99,11 @@ describe("the membership lookup is shared per request", () => {
 });
 
 describe("Costos fijos starts independent reads together", () => {
-  it("margin, split and the monthly copy run in one Promise.all", () => {
+  it("margin and split run in one Promise.all; rendering never writes", () => {
     const src = read("app/dashboard/restaurant/costs/page.tsx");
-    expect(src).toMatch(
-      /Promise\.all\(\[\s*repeated,\s*splitSalesP,\s*loadMonthMargin/
-    );
+    expect(src).toMatch(/Promise\.all\(\[\s*splitSalesP,\s*loadMonthMargin/);
+    // No render-time copy: the page has no writer in it at all.
+    expect(src).not.toMatch(/repeatFixedCosts|saveFixedCosts|approveDraft/);
     expect(src).toContain("<Suspense");
   });
 });

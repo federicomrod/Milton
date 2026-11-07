@@ -50,7 +50,20 @@ const FIVE = [
 ];
 
 interface Server {
-  draft: { id: string; fileName: string; status: string; lines: any[] };
+  draft: {
+    id: string;
+    version: number;
+    fileName: string;
+    status: string;
+    lines: any[];
+  };
+  copies: any[];
+  approveBodies: any[];
+  undoBodies: any[];
+  lastApply: {
+    lineIds: string[];
+    before: Record<string, number | undefined>;
+  } | null;
   calls: string[];
   puts: any[];
   patches: any[];
@@ -68,16 +81,21 @@ function installFetch() {
     const json = (b: unknown, status = 200) =>
       new Response(JSON.stringify(b), { status });
     if (u.endsWith("/approve")) {
+      // The new contract (migration 079): the browser sends the draft version, the
+      // versions it reviewed, a command key and decisions per line.
       server.calls.push("approve");
+      server.approveBodies.push(body);
       if (server.failApprove) return json({ error: "boom" }, 500);
       const ids: string[] = body.lineIds;
+      const decisions: Record<string, string> = body.decisions ?? {};
       const issues = ids
         .filter((id) => server.refuse.includes(id))
         .map((lineId) => ({ lineId, error: "no se pudo" }));
       const picked = ids
         .filter((id) => !server.refuse.includes(id))
         .map((id) => server.draft.lines.find((x) => x.id === id));
-      const applied: any[] = [];
+      const categories: any[] = [];
+      const before: Record<string, number | undefined> = {};
       for (const l of picked) l.status = "approved";
       const cats = [...new Set(picked.map((l) => l.category))];
       for (const c of cats) {
@@ -86,47 +104,63 @@ function installFetch() {
         const own = server.draft.lines
           .filter((x) => x.status === "approved" && x.category === c)
           .reduce((n, x) => n + x.amount, 0);
-        const total = body.adds
-          ? (server.confirmed[c] ?? 0) + sum
-          : body.confirmed
-            ? sum
-            : own;
-        const previous =
-          c in server.confirmed
-            ? {
-                amount: server.confirmed[c],
-                pct_of_sales: null,
-                label: null,
-                source: "upload",
-              }
-            : null;
+        const mode = mine.map((l) => decisions[l.id]).find(Boolean);
+        const total =
+          mode === "add"
+            ? (server.confirmed[c] ?? 0) + sum
+            : mode === "replace"
+              ? sum
+              : own;
+        before[c] = server.confirmed[c];
         server.confirmed[c] = total;
-        applied.push({
+        categories.push({
+          key: `${LOC}|${MONTH}|${c}`,
           category: c,
           month: MONTH,
-          locationId: LOC,
+          location_id: LOC,
+          outcome: before[c] === undefined ? "created" : "replaced",
           total,
-          previous,
+          previous_total: before[c] ?? null,
+          version: 1,
           repeats: !mine.some((l) => l.oneTime),
-          lineIds: mine.map((l) => l.id),
+          line_ids: mine.map((l) => l.id),
         });
       }
+      server.lastApply = { lineIds: picked.map((l) => l.id), before };
+      server.draft.version += 1;
       return json({
-        approved: applied.length,
+        status: "applied",
+        command_id: "cmd-" + server.calls.length,
+        replayed: false,
+        lines_approved: picked.length,
+        lines_already_approved: 0,
+        categories,
         issues,
-        applied,
         draft: structuredClone(server.draft),
+        preview: null,
       });
     }
     if (u.endsWith("/undo")) {
       server.calls.push("undo");
-      for (const a of body.applied) {
-        for (const id of a.lineIds)
+      server.undoBodies.push(body);
+      const last = server.lastApply;
+      if (last) {
+        for (const id of last.lineIds)
           server.draft.lines.find((x) => x.id === id).status = "pending";
-        if (a.previous) server.confirmed[a.category] = a.previous.amount;
-        else delete server.confirmed[a.category];
+        for (const [c, v] of Object.entries(last.before)) {
+          if (v === undefined) delete server.confirmed[c];
+          else server.confirmed[c] = v;
+        }
       }
-      return json({ draft: structuredClone(server.draft) });
+      server.draft.version += 1;
+      return json({ draft: structuredClone(server.draft), preview: null });
+    }
+    if (u.endsWith("/api/restaurant/fixed-costs/copy")) {
+      server.copies.push(body);
+      return json({
+        status: "applied",
+        copied: body.categories.map((category: string) => ({ category })),
+      });
     }
     if (u.endsWith("/api/restaurant/fixed-costs") && init?.method === "PUT") {
       server.puts.push(body);
@@ -168,6 +202,9 @@ function view(over: Record<string, unknown> = {}) {
     currency: "USD",
     locationId: LOC,
     lines: [],
+    items: {},
+    versions: {},
+    copy: null,
     groupShares: {},
     groupImpuestosPct: null,
     openDays: 30,
@@ -185,8 +222,13 @@ function show(
   history: any[] = []
 ) {
   server = {
+    copies: [],
+    approveBodies: [],
+    undoBodies: [],
+    lastApply: null,
     draft: {
       id: "d1",
+      version: 1,
       fileName: "costos-demo.csv",
       status: "draft",
       lines: structuredClone(lines),
@@ -201,11 +243,24 @@ function show(
   for (const l of (v as any).lines)
     server.confirmed[l.category] = l.amount ?? l.pct_of_sales;
   installFetch();
+  // Items a reload shows now come from the canonical items the page loaded.
+  if (savedItems) {
+    const items: Record<string, any[]> = {};
+    for (const [c, list] of Object.entries(savedItems))
+      items[c] = list.map((i: any) => ({
+        id: i.id,
+        label: i.raw,
+        cents: Math.round(i.amount * 100),
+        kind: "item",
+        version: 1,
+        origin: {},
+      }));
+    v = { ...(v as any), items } as never;
+  }
   render(
     <FixedCostsTab
       view={v}
       history={history}
-      savedItems={savedItems}
       locationName="Demo"
       shellParams={{}}
       currentMonth={MONTH}
@@ -351,13 +406,17 @@ describe("5 lines → Aprobar todo", () => {
     expect(screen.getByTestId("break-even-detail").textContent).toBe(
       "desde $29,950 costos fijos · 30 días abiertos"
     );
-    // Servicios lists its lines under the card; the card is their sum
-    const items = screen.getByTestId("fixed-items-servicios");
-    expect(items.textContent).toContain("Luz demo");
-    expect(items.textContent).toContain("$650");
-    expect(items.textContent).toContain("$1,800");
+    // The breakdown under a card is the canonical items: the page re-reads them
+    // right after the commit (the screen says «Recalculando…» until then).
+    expect(refresh).toHaveBeenCalled();
+    expect(server.approveBodies[0]).toMatchObject({
+      draftId: "d1",
+      draftVersion: 1,
+    });
+    expect(typeof server.approveBodies[0].commandKey).toBe("string");
     expect(clicks).toBeLessThanOrEqual(3);
-    expect(refresh).not.toHaveBeenCalled();
+    // One quiet re-read after the commit (no page reload, no navigation).
+    expect(refresh).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByTestId("confirmed-pill").textContent).toBe(
       "Categorías confirmadas: 4 de 5"
@@ -396,7 +455,7 @@ describe("5 lines → Aprobar todo", () => {
 });
 
 describe("one at a time", () => {
-  it("shows «Agua demo +$650 → Servicios» with Deshacer; the second line adds to the first", async () => {
+  it("the toast counts the committed lines and offers Deshacer; the second line adds to the first", async () => {
     show([FIVE[2], FIVE[3]]);
     fireEvent.click(await approveBtn("Luz demo"));
     await waitFor(() =>
@@ -404,26 +463,30 @@ describe("one at a time", () => {
     );
     fireEvent.click(await approveBtn("Agua demo"));
     expect((await screen.findByTestId("approve-toast")).textContent).toContain(
-      "Agua demo +$650 → Servicios"
+      "1 línea aprobada → Servicios"
     );
     await waitFor(() =>
       expect(card("servicios").textContent).toContain("$2,450")
     );
+    expect(screen.getByRole("button", { name: "Deshacer" })).toBeTruthy();
   });
 
-  it("Deshacer puts the card and the line back", async () => {
+  it("Deshacer names the command only (the server restores), returns the line and re-reads the page", async () => {
     show([FIVE[2], FIVE[3]]);
     fireEvent.click(await approveBtn("Luz demo"));
     fireEvent.click(await approveBtn("Agua demo"));
     fireEvent.click(await screen.findByRole("button", { name: "Deshacer" }));
-    await waitFor(() =>
-      expect(card("servicios").textContent).toContain("$1,800")
-    );
+    await waitFor(() => expect(server.calls).toContain("undo"));
     expect(await lineRow("Agua demo")).toBeTruthy();
-    expect(server.calls).toContain("undo");
+    // No previous values travel from the browser: just which command to undo.
+    expect(Object.keys(server.undoBodies[0]).sort()).toEqual([
+      "commandId",
+      "commandKey",
+    ]);
     expect(screen.getByTestId("approve-toast").textContent).toContain(
       "Deshecho"
     );
+    expect(refresh).toHaveBeenCalled();
   });
 
   it("the toast goes away by itself after about 5 seconds", async () => {
@@ -556,26 +619,100 @@ describe("manual entry and editing on the card", () => {
       category: "planilla",
       value: 21400,
       repeats: true,
-      keepSource: true,
+      // Only a flag changes: the amount is kept, nothing replaces a breakdown,
+      // and the version the screen read travels with the save.
+      replaceItems: false,
+      expectedVersion: 0,
     });
+    expect(typeof server.puts[0].commandKey).toBe("string");
     expect(card("planilla").textContent).toContain("desde factura");
   });
 });
 
-describe("Copiar mes", () => {
-  it("only when something is confirmed; says what it did", async () => {
+describe("Copiar mes (explicit, previewed, never on render)", () => {
+  const copyView = (state: string, extra: Record<string, unknown> = {}) =>
+    view({
+      lines: [saved("planilla", 21400)],
+      copy: {
+        from: "2026-09-01",
+        to: MONTH,
+        location_id: LOC,
+        categories: [
+          {
+            category: "alquiler",
+            state,
+            source_changed_since_copy: false,
+            source: {
+              version: 1010,
+              amount: 7000,
+              pct_of_sales: null,
+              detail_state: "legacy_total",
+              items: [],
+            },
+            destination: null,
+            destination_version: 0,
+            ...extra,
+          },
+        ],
+      },
+    });
+
+  it("no button without something to copy; opening the panel writes nothing", async () => {
     show([]);
-    expect(screen.queryByRole("button", { name: /^Copiar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Copiar de/ })).toBeNull();
     cleanup();
-    show([], view({ lines: [saved("planilla", 21400)] }));
+    show([], copyView("missing_in_destination"));
+    const puts = server.puts.length;
     fireEvent.click(
-      screen.getByRole("button", { name: "Copiar recurrentes de septiembre" })
+      screen.getByRole("button", { name: "Copiar de septiembre" })
     );
+    const panel = await screen.findByTestId("copy-panel");
+    expect(panel.textContent).toContain("Copiar de septiembre a octubre");
+    expect(panel.textContent).toContain("$7,000");
+    expect(server.puts.length).toBe(puts);
+    expect(server.copies).toHaveLength(0);
+  });
+
+  it("confirming sends the categories and the destination version, then says what it did", async () => {
+    show([], copyView("missing_in_destination"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copiar de septiembre" })
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+    await waitFor(() => expect(server.copies).toHaveLength(1));
+    expect(server.copies[0]).toMatchObject({
+      month: MONTH,
+      from: "2026-09-01",
+      categories: ["alquiler"],
+      expected: { [`${LOC}|${MONTH}|alquiler`]: 0 },
+    });
+    expect(typeof server.copies[0].commandKey).toBe("string");
     expect(
-      await screen.findByText(
-        /No hay costos recurrentes que copiar de septiembre/
-      )
+      await screen.findByText(/Copiaste 1 categorías de septiembre a octubre/)
     ).toBeTruthy();
+  });
+
+  it("a conflicting destination is kept unless the person picks Reemplazar", async () => {
+    show(
+      [],
+      copyView("conflict", {
+        destination: {
+          version: 1020,
+          amount: 6500,
+          pct_of_sales: null,
+          detail_state: "legacy_total",
+          copy_source: null,
+          items: [],
+        },
+        destination_version: 1020,
+      })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Copiar de septiembre" })
+    );
+    // Default: keep what October has, so confirming copies nothing.
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+    expect(server.copies).toHaveLength(0);
   });
 });
 
@@ -681,13 +818,14 @@ describe("v3 answers from Sofia", () => {
     expect(items.textContent).toContain("$3,250");
   });
 
-  it("saved lines that no longer add up to the card are not shown", () => {
-    show([], view({ lines: [saved("servicios", 4000)] }), {
-      servicios: [
-        { id: "a", raw: "Agua", amount: 650 },
-        { id: "b", raw: "Seguro", amount: 3250 },
-      ],
-    });
+  it("a legacy total shows its honest amount and says the breakdown is not available; never an empty card", () => {
+    show([], view({ lines: [saved("servicios", 4000)] }));
+    const c = card("servicios");
+    expect(c.getAttribute("data-state")).toBe("confirmed");
+    expect(c.textContent).toContain("$4,000");
+    expect(c.textContent).toContain(
+      "Desglose no disponible para este registro."
+    );
     expect(screen.queryByTestId("fixed-items-servicios")).toBeNull();
   });
 

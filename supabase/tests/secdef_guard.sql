@@ -53,7 +53,7 @@ WITH allowlist (schema_name, func_name, arg_types, allowed_roles, reason) AS (
     ('public', 'fixed_cost_save_totals', 'text, uuid, date, uuid, jsonb, text',
        ARRAY['authenticated'], 'transactional manual save; checks writer role (079)'),
     ('public', 'fixed_cost_item_command', 'text, uuid, text, uuid, date, text, uuid, text, bigint, integer, integer, text',
-       ARRAY['authenticated'], 'add/edit/delete one item; checks writer role (079)'),
+       ARRAY['authenticated'], 'one-item command; checks writer role (079)'),
     ('public', 'fixed_cost_preview_copy', 'uuid, uuid, date, date',
        ARRAY['authenticated'], 'read-only copy preview; checks writer role (079)'),
     ('public', 'fixed_cost_copy', 'text, uuid, uuid, date, date, text[], jsonb, jsonb, text',

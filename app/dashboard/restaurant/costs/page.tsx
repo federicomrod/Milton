@@ -60,11 +60,8 @@ import {
   listFixedCostHistory,
   loadFixedCostsView,
   monthSalesByLocation,
-  loadRepeatDetail,
-  repeatFixedCosts,
 } from "@/lib/restaurant/fixed-costs-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
-import { loadApprovedItems } from "@/lib/restaurant/fixed-cost-upload-server";
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
 import { createClient } from "@/lib/supabase/server";
@@ -540,18 +537,14 @@ async function CostosFijosTab({
     );
     const locationId = context.selected?.locationId ?? null;
     const restaurantIds = context.locations.map((l) => l.id);
-    // The margin read (sales + food cost) and the group split do not depend on
-    // the «repetir cada mes» copy, so they run while it writes.
-    const repeated = repeatFixedCosts(ctx, month).catch((err) =>
-      console.error("[costs page] fixed-costs repeat failed:", err)
-    );
+    // READ ONLY. Rendering a month never writes: no auto-copy, no history row.
+    // Copying a month is an explicit action («Copiar de …», /fixed-costs/copy).
     const splitSalesP = locationId
       ? Promise.resolve(null)
       : monthSalesByLocation(supabase, companyId, month).catch(
           () => new Map<string, number>()
         );
-    const [, splitSales, marginRead] = await Promise.all([
-      repeated,
+    const [splitSales, marginRead] = await Promise.all([
       splitSalesP,
       loadMonthMargin({
         supabase,
@@ -562,7 +555,7 @@ async function CostosFijosTab({
         lang,
       }),
     ]);
-    const [view, history, savedItems, repeatDetail] = await Promise.all([
+    const [view, history] = await Promise.all([
       loadFixedCostsView(ctx, {
         month,
         locationId,
@@ -571,16 +564,12 @@ async function CostosFijosTab({
         marginRead,
       }),
       listFixedCostHistory(supabase, companyId, { locationId, month }),
-      loadApprovedItems(ctx, { month, locationId }).catch(() => ({})),
-      loadRepeatDetail(ctx, { month, locationId }).catch(() => ({})),
     ]);
     return (
       <FixedCostsTab
         key={`${month}|${locationId ?? "group"}`}
         view={view}
         history={history}
-        savedItems={savedItems}
-        repeatDetail={repeatDetail}
         locationName={
           context.locations.find((l) => l.id === locationId)?.name ?? null
         }

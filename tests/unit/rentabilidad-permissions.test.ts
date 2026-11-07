@@ -33,9 +33,12 @@ vi.mock("@/lib/restaurant/fixed-costs-server", () => ({
     loads.push("view");
     return { lines: [] };
   },
-  saveFixedCosts: async () => {
+  listFixedCosts: async () => [],
+}));
+vi.mock("@/lib/restaurant/fixed-cost-commands", () => ({
+  saveTotals: async () => {
     loads.push("save");
-    return { ok: true, lines: [] };
+    return { ok: true, value: { status: "applied", changed: [] } };
   },
 }));
 // Mobile manager routes: a synthetic bearer sign-in, the role from `role`, and
@@ -135,7 +138,8 @@ const put = () =>
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         month: "2026-10-01",
-        entries: [{ category: "alquiler", value: 1200 }],
+        commandKey: "11111111-1111-4111-8111-111111111111",
+        entries: [{ category: "alquiler", value: 1200, expectedVersion: 0 }],
       }),
     })
   );

@@ -28,6 +28,7 @@ import {
   previewGroupSplit,
   nextMonthStart,
   previousMonthStart,
+  type AmountCategory,
   type FixedCostCategory,
   type SplitRule,
 } from "@/lib/restaurant/fixed-costs";
@@ -35,8 +36,6 @@ import {
   clustersFromLines,
   confirmedCount,
   figuresOf,
-  detailUnavailable,
-  itemsToShow,
   type ClusterItem,
   type ClusterMap,
   type Confirmed,
@@ -44,8 +43,9 @@ import {
 import type {
   FixedCostHistoryItem,
   FixedCostsView,
-  RepeatDetail,
 } from "@/lib/restaurant/fixed-costs-server";
+import type { CopyPreviewCategory } from "@/lib/restaurant/fixed-cost-commands";
+import { missingCategories } from "@/lib/restaurant/fixed-cost-engine";
 import { FixedCostUpload, type ClusterChange } from "./FixedCostUpload";
 import { costsTabHref } from "@/lib/restaurant/costs-tabs";
 import { RENTABILIDAD_HREF } from "@/lib/restaurant/navigation";
@@ -107,10 +107,6 @@ export interface FixedCostsTabProps {
   shellParams: Record<string, string | string[] | undefined>;
   /** The current month (YYYY-MM-01), the latest the picker goes to. */
   currentMonth: string;
-  /** The lines an earlier upload approved per cluster, so a reload still lists them. */
-  savedItems?: Partial<Record<FixedCostCategory, ClusterItem[]>>;
-  /** What the copy log kept for the month: the source month and the breakdown. */
-  repeatDetail?: Partial<Record<FixedCostCategory, RepeatDetail>>;
   /** The company's restaurants (the review list asks «¿A qué restaurante?»). */
   restaurants?: Array<{ id: string; name: string }>;
   /** Group view only: the restaurants and their month sales, for the «Repartir» preview. */
@@ -128,8 +124,6 @@ export function FixedCostsTab({
   shellParams,
   currentMonth,
   restaurants = [],
-  savedItems = {},
-  repeatDetail = {},
   splitTargets = [],
 }: FixedCostsTabProps) {
   const router = useRouter();
@@ -164,16 +158,14 @@ export function FixedCostsTab({
   const [clusters, setClusters] = useState<ClusterMap>(() =>
     clustersFromLines(view.lines)
   );
-  const [items, setItems] = useState<
-    Partial<Record<FixedCostCategory, ClusterItem[]>>
-  >({});
   const [falta, setFalta] = useState<string[]>([]);
   const onReview = useCallback(
     (info: {
       items: Partial<Record<FixedCostCategory, ClusterItem[]>>;
       falta: string[];
     }) => {
-      setItems(info.items);
+      // The breakdown on a card is the canonical items the page loaded, never
+      // the upload draft: a draft can only say what a file held.
       setFalta(info.falta);
     },
     []
@@ -209,8 +201,10 @@ export function FixedCostsTab({
         groupImpuestosPct: view.groupImpuestosPct,
         margin: view.margin,
         openDays: view.openDays,
+        month: view.month,
       }),
     [
+      view.month,
       clusters,
       view.groupShares,
       view.groupImpuestosPct,
@@ -251,6 +245,14 @@ export function FixedCostsTab({
   if (seenLines !== view.lines) {
     setSeenLines(view.lines);
     if (askedAt === dirty) setClusters(clustersFromLines(view.lines));
+  }
+  // The version each category had when this screen last read it. Every save
+  // sends it back; the database refuses a save made on an older one.
+  const [versions, setVersions] = useState(view.versions ?? {});
+  const [seenVersions, setSeenVersions] = useState(view.versions);
+  if (seenVersions !== view.versions) {
+    setSeenVersions(view.versions);
+    setVersions(view.versions ?? {});
   }
   function touch() {
     dirtyRef.current += 1;
@@ -311,6 +313,21 @@ export function FixedCostsTab({
       },
     }));
     highlight([category]);
+    // A total typed over a known breakdown replaces it: say so first.
+    const hasItems =
+      category !== "impuestos" &&
+      (view.items?.[category as AmountCategory]?.length ?? 0) > 0 &&
+      !next.keepSource;
+    if (
+      hasItems &&
+      typeof window !== "undefined" &&
+      typeof window.confirm === "function" &&
+      !window.confirm(f.hasItems)
+    ) {
+      setClusters(before);
+      return null;
+    }
+    setRecalc(true);
     try {
       const res = await fetch("/api/restaurant/fixed-costs", {
         method: "PUT",
@@ -318,27 +335,38 @@ export function FixedCostsTab({
         body: JSON.stringify({
           month: view.month,
           location_id: view.locationId,
+          commandKey: crypto.randomUUID(),
           entries: [
             {
               category,
               value: next.value,
               label: next.keepSource ? (prev?.label ?? null) : null,
               repeats: next.repeats,
-              keepSource: next.keepSource === true,
               split_rule: isGroup ? splitRule : null,
+              replaceItems: hasItems,
+              expectedVersion: versions[category] ?? 0,
             },
           ],
         }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        stale?: boolean;
+        versions?: Partial<Record<FixedCostCategory, number>>;
+      };
       if (!res.ok) {
         setClusters(before);
+        setRecalc(false);
+        if (body.stale) refreshNow(); // read the newer state, then try again
         return body.error ?? f.saveFailed;
       }
+      if (body.versions) setVersions(body.versions);
+      setRecalc(false);
       settle();
       return null;
     } catch {
       setClusters(before);
+      setRecalc(false);
       return f.saveFailed;
     }
   }
@@ -355,19 +383,31 @@ export function FixedCostsTab({
         body: JSON.stringify({
           month: view.month,
           location_id: view.locationId,
+          commandKey: crypto.randomUUID(),
           entries: cats.map((category) => ({
             category,
             value: (clusters[category] as Confirmed).value,
             label: clusters[category]?.label ?? null,
             repeats: clusters[category]?.repeats === true,
-            keepSource: true,
             split_rule: next,
+            // Only the split rule changes: the amount (and any breakdown) stays.
+            replaceItems: false,
+            expectedVersion: versions[category] ?? 0,
           })),
         }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) setMessage({ ok: false, text: body.error ?? f.saveFailed });
-      else settle();
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        stale?: boolean;
+        versions?: Partial<Record<FixedCostCategory, number>>;
+      };
+      if (!res.ok) {
+        setMessage({ ok: false, text: body.error ?? f.saveFailed });
+        if (body.stale) refreshNow();
+      } else {
+        if (body.versions) setVersions(body.versions);
+        settle();
+      }
     } catch {
       setMessage({ ok: false, text: f.saveFailed });
     }
@@ -378,37 +418,95 @@ export function FixedCostsTab({
   const prevName = lower(
     getDictionary(lang).rentabilidad.months[Number(prevMonth.split("-")[1]) - 1]
   );
+  // Explicit copy. «Copiar de {mes}» opens a preview built by the database
+  // (a pure read); nothing is written until the person confirms.
+  const [copyOpen, setCopyOpen] = useState(false);
   const [copying, setCopying] = useState(false);
-  /** «Copiar octubre»: brings last month's «se repite» costs in (idempotent). */
-  async function copyPrevious() {
+  const [copyPick, setCopyPick] = useState<
+    Partial<Record<FixedCostCategory, "copy" | "replace" | "skip">>
+  >({});
+  const copyRows: CopyPreviewCategory[] = (view.copy?.categories ?? []).filter(
+    (c) => c.state !== "no_source"
+  );
+  const canCopy = copyRows.some(
+    (c) => c.state === "missing_in_destination" || c.state === "conflict"
+  );
+  function openCopy() {
+    setMessage(null);
+    setCopyPick(
+      Object.fromEntries(
+        copyRows.map((c) => [
+          c.category,
+          c.state === "missing_in_destination"
+            ? "copy"
+            : c.state === "conflict"
+              ? "skip"
+              : "skip",
+        ])
+      )
+    );
+    setCopyOpen(true);
+  }
+  async function confirmCopy() {
+    const chosen = copyRows.filter(
+      (c) =>
+        copyPick[c.category] === "copy" || copyPick[c.category] === "replace"
+    );
+    if (chosen.length === 0) {
+      setCopyOpen(false);
+      return;
+    }
     setCopying(true);
     setMessage(null);
+    setRecalc(true);
     try {
-      const res = await fetch("/api/restaurant/fixed-costs/repeat", {
+      const res = await fetch("/api/restaurant/fixed-costs/copy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month: view.month }),
+        body: JSON.stringify({
+          month: view.month,
+          from: prevMonth,
+          location_id: view.locationId,
+          commandKey: crypto.randomUUID(),
+          categories: chosen.map((c) => c.category),
+          decisions: Object.fromEntries(
+            chosen
+              .filter((c) => copyPick[c.category] === "replace")
+              .map((c) => [c.category, "replace"])
+          ),
+          expected: Object.fromEntries(
+            chosen.map((c) => [
+              `${view.locationId ?? "group"}|${view.month}|${c.category}`,
+              c.destination_version,
+            ])
+          ),
+        }),
       });
       const body = (await res.json().catch(() => ({}))) as {
-        created?: number;
+        copied?: unknown[];
         error?: string;
+        stale?: boolean;
       };
       if (!res.ok) {
         setMessage({ ok: false, text: body.error ?? f.saveFailed });
+        if (body.stale) refreshNow();
       } else {
-        const n = body.created ?? 0;
         setMessage({
           ok: true,
-          text: n
-            ? fmt(f.copied, { n, month: prevName })
-            : fmt(f.copyNone, { month: prevName }),
+          text: fmt(f.copyDone, {
+            n: body.copied?.length ?? 0,
+            from: prevName,
+            to: lower(monthLabelEs(view.month, lang)),
+          }),
         });
-        if (n) refreshNow();
+        setCopyOpen(false);
+        refreshNow();
       }
     } catch {
       setMessage({ ok: false, text: f.saveFailed });
     } finally {
       setCopying(false);
+      setRecalc(false);
     }
   }
 
@@ -432,21 +530,26 @@ export function FixedCostsTab({
   }
 
   const shownText = monthLabelEs(shownMonth, lang);
-  // The breakdown behind each card: this session's approvals, the lines an
-  // earlier upload approved, or what the copy log kept. Only when it adds up.
+  // The breakdown behind each card is the canonical items the page loaded. A
+  // legacy total (no known detail) shows its honest total and says so.
   const shownItems = Object.fromEntries(
     FIXED_COST_CATEGORIES.map((c) => {
-      const fromLog: ClusterItem[] | undefined = repeatDetail[c]?.items?.map(
-        (i, n) => ({ id: `log-${c}-${n}`, raw: i.raw, amount: i.amount })
-      );
-      const pick = items[c]?.length
-        ? items[c]
-        : savedItems[c]?.length
-          ? savedItems[c]
-          : fromLog;
-      return [c, itemsToShow(pick, clusters[c])];
+      const its =
+        c === "impuestos" ? [] : (view.items?.[c as AmountCategory] ?? []);
+      return [
+        c,
+        its.length >= 2
+          ? its.map((i) => ({
+              id: i.id,
+              raw: i.kind === "legacy_base" ? f.itemsLegacy : (i.label ?? "—"),
+              amount: i.cents / 100,
+            }))
+          : [],
+      ];
     })
   ) as Partial<Record<FixedCostCategory, ClusterItem[]>>;
+  const lineOf = (c: FixedCostCategory) =>
+    view.lines.find((l) => l.category === c);
   const confirmed = confirmedCount(clusters);
   // Nothing of the restaurant's own is confirmed: the first-visit page.
   const ownEmpty = confirmed === 0 && sharedTotal === 0;
@@ -470,6 +573,23 @@ export function FixedCostsTab({
   })();
   // Some category has no figure: say the number is a partial one.
   const partialBreakEven = live.breakEven !== null && live.incomplete;
+  const missingNames = [
+    ...missingCategories(live.engine).map((c) => categoryLabel(c, lang)),
+    ...live.engine.missing.flatMap((m) =>
+      m.kind === "margin"
+        ? [f.missingMargin]
+        : m.kind === "open_days"
+          ? [f.missingDays]
+          : []
+    ),
+  ];
+  const taxMonth = lower(monthLabelEs(view.month, lang));
+  const taxText =
+    live.engine.tax.kind === "local"
+      ? fmt(f.taxLocal, { rate: `${live.engine.tax.rate}%`, month: taxMonth })
+      : live.engine.tax.kind === "group"
+        ? fmt(f.taxGroup, { rate: `${live.engine.tax.rate}%`, month: taxMonth })
+        : f.taxMissing;
   const detailText = live.empty
     ? f.addCostsFirst
     : breakEvenText
@@ -544,6 +664,17 @@ export function FixedCostsTab({
           {f.bePartialNote}
         </p>
       ) : null}
+      {missingNames.length > 0 && !live.empty ? (
+        <p
+          data-testid="break-even-missing"
+          className="mt-1 text-xs text-[#6b7385]"
+        >
+          {fmt(f.missingInputs, { names: missingNames.join(", ") })}
+        </p>
+      ) : null}
+      <p data-testid="tax-source" className="mt-1 text-xs text-[#6b7385]">
+        {taxText}
+      </p>
       <dl className="mt-4 space-y-1 border-t border-[#eef0f4] pt-3 text-sm text-[#151c2c]">
         <div
           data-testid="fixed-total"
@@ -675,14 +806,16 @@ export function FixedCostsTab({
                     >
                       {d.costs.fixedUpload.button}
                     </button>
-                    <button
-                      type="button"
-                      disabled={copying}
-                      onClick={() => void copyPrevious()}
-                      className={BTN_LIGHT}
-                    >
-                      {fmt(f.copyMonth, { month: prevName })}
-                    </button>
+                    {canCopy ? (
+                      <button
+                        type="button"
+                        disabled={copying}
+                        onClick={openCopy}
+                        className={BTN_LIGHT}
+                      >
+                        {fmt(f.copyButton, { month: prevName })}
+                      </button>
+                    ) : null}
                   </span>
                 ) : null}
               </div>
@@ -702,6 +835,7 @@ export function FixedCostsTab({
               onReview={onReview}
               onConfirm={applyChanges}
               onSettled={settle}
+              onRefresh={refreshNow}
               onViewMonth={goMonth}
               onRecalc={setRecalc}
               month={view.month}
@@ -709,6 +843,115 @@ export function FixedCostsTab({
               currency={view.currency}
               restaurants={restaurants}
             />
+
+            {copyOpen ? (
+              <div
+                data-testid="copy-panel"
+                className="space-y-3 rounded-xl border border-[#1B40C8] bg-[#F8FAFF] p-4"
+              >
+                <h3 className="text-sm font-bold text-[#151c2c]">
+                  {fmt(f.copyTitle, {
+                    from: prevName,
+                    to: lower(monthLabelEs(view.month, lang)),
+                  })}
+                </h3>
+                <p className="text-xs text-[#6b7385]">
+                  {fmt(f.copyHint, {
+                    from: prevName,
+                    to: lower(monthLabelEs(view.month, lang)),
+                  })}
+                </p>
+                <ul className="space-y-2">
+                  {copyRows.map((c) => {
+                    const val = (x: CopyPreviewCategory["source"]) =>
+                      x
+                        ? x.pct_of_sales !== null
+                          ? `${x.pct_of_sales}%`
+                          : formatMoney(x.amount ?? 0, view.currency, lang)
+                        : "—";
+                    const pick = copyPick[c.category] ?? "skip";
+                    return (
+                      <li
+                        key={c.category}
+                        className="flex flex-wrap items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="font-semibold text-[#151c2c]">
+                          {categoryLabel(c.category, lang)} · {val(c.source)}
+                        </span>
+                        {c.state === "same" ? (
+                          <span className="text-[#6b7385]">
+                            {f.copyAlready}
+                          </span>
+                        ) : c.state === "missing_in_destination" ? (
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={pick === "copy"}
+                              onChange={(e) =>
+                                setCopyPick((cur) => ({
+                                  ...cur,
+                                  [c.category]: e.target.checked
+                                    ? "copy"
+                                    : "skip",
+                                }))
+                              }
+                            />
+                            {f.copyConfirm}
+                          </label>
+                        ) : (
+                          <select
+                            aria-label={categoryLabel(c.category, lang)}
+                            value={pick}
+                            onChange={(e) =>
+                              setCopyPick((cur) => ({
+                                ...cur,
+                                [c.category]: e.target.value as
+                                  | "replace"
+                                  | "skip",
+                              }))
+                            }
+                            className="h-10 rounded-lg border border-[#c9cfdb] bg-white px-2 text-sm"
+                          >
+                            <option value="skip">
+                              {fmt(f.copyKeep, {
+                                to: lower(monthLabelEs(view.month, lang)),
+                              })}{" "}
+                              ({val(c.destination)})
+                            </option>
+                            <option value="replace">
+                              {fmt(f.copyReplace, { from: prevName })} (
+                              {val(c.source)})
+                            </option>
+                          </select>
+                        )}
+                        {c.source_changed_since_copy ? (
+                          <span className="w-full text-xs text-[#6b7385]">
+                            {fmt(f.copySourceChanged, { from: prevName })}
+                          </span>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={copying}
+                    onClick={() => void confirmCopy()}
+                    className={BTN}
+                  >
+                    {f.copyConfirm}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopyOpen(false)}
+                    className={BTN_LIGHT}
+                  >
+                    {f.copyCancel}
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {message ? (
               <p
@@ -731,14 +974,18 @@ export function FixedCostsTab({
                     items={shownItems[category] ?? []}
                     copiedFrom={
                       clusters[category]?.source === "repeat" &&
-                      repeatDetail[category]?.fromMonth
-                        ? longMonth(repeatDetail[category]!.fromMonth as string)
+                      lineOf(category)?.copy_source?.month
+                        ? longMonth(lineOf(category)!.copy_source!.month!)
                         : null
                     }
-                    detailMissing={detailUnavailable(
-                      clusters[category],
-                      shownItems[category] ?? []
-                    )}
+                    detailMissing={
+                      category !== "impuestos" &&
+                      !!clusters[category] &&
+                      lineOf(category)?.detail_state !== "itemized" &&
+                      (clusters[category]?.source === "upload" ||
+                        clusters[category]?.source === "repeat") &&
+                      (shownItems[category] ?? []).length === 0
+                    }
                     currency={view.currency}
                     flashing={flash?.includes(category) ?? false}
                     onUpload={() => uploadInput.current?.click()}
@@ -856,7 +1103,7 @@ export function FixedCostsTab({
                                 ? fmt(f.copiedFrom, {
                                     month: longMonth(h.new_value.from_month),
                                   })
-                                : f.historyRepeatAuto,
+                                : f.historyRepeatUnknown,
                             })
                           : fmt(f.historyLine, {
                               category: categoryLabel(h.category, lang),

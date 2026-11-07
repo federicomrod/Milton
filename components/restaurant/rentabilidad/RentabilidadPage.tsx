@@ -334,6 +334,22 @@ export function RentabilidadPage({
               <p className="mt-1 text-[14px] leading-snug text-[#4a5a85]">
                 {fmt(mc.sub, { names })}
               </p>
+              {m.figures.status === "partial" &&
+              m.figures.breakEven !== null ? (
+                <p
+                  data-testid="partial-break-even"
+                  className="mt-2 text-[14px] leading-snug text-[#0F172A]"
+                >
+                  <span className="font-bold">
+                    {d.costs.fixed.bePartialTitle}
+                  </span>
+                  {": "}
+                  {money(m.figures.breakEven)}{" "}
+                  <span className="text-[#4a5a85]">
+                    · {d.costs.fixed.bePartialNote}
+                  </span>
+                </p>
+              ) : null}
               <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {(["planilla", "alquiler", "servicios", "otros"] as const).map(
                   (cat) => {

@@ -10,6 +10,8 @@ let role: string | null = "member";
 let dbWrite: { error: { code?: string; message: string } | null } = {
   error: null,
 };
+// Every change is ONE database command (migration 079) called with the user's own
+// session; `rpc` stands in for it and records the call.
 const writes: string[] = [];
 
 vi.mock("@/lib/restaurant/api-lang", () => ({
@@ -33,7 +35,15 @@ vi.mock("@/lib/restaurant/restaurant-context-server", () => ({
 
 /** A chainable Supabase stand-in: reads are empty; a write returns `dbWrite`. */
 function stub() {
-  return { from: () => chainFor() };
+  return {
+    from: () => chainFor(),
+    rpc: async (fn: string) => {
+      writes.push("rpc:" + fn);
+      return dbWrite.error
+        ? { data: null, error: dbWrite.error }
+        : { data: { status: "applied", changed: [] }, error: null };
+    },
+  };
 }
 
 function chainFor() {
@@ -76,7 +86,8 @@ const put = (value: number | null = 1200) =>
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         month: "2026-10-01",
-        entries: [{ category: "alquiler", value }],
+        commandKey: "11111111-1111-4111-8111-111111111111",
+        entries: [{ category: "alquiler", value, expectedVersion: 0 }],
       }),
     })
   );
@@ -112,7 +123,7 @@ describe("owner, admin and manager write", () => {
     role = r;
     const res = await put();
     expect(res.status).toBe(200);
-    expect(writes.some((w) => w.startsWith("insert:"))).toBe(true);
+    expect(writes).toEqual(["rpc:fixed_cost_save_totals"]);
   });
 });
 
@@ -138,10 +149,39 @@ describe("a database that refuses the write (row-level security) is a 403 with t
     expect(body).not.toMatch(/row-level security|violates|42501/);
   });
 
-  it("another database error keeps its own path (not a 403)", async () => {
-    role = "owner";
-    dbWrite = { error: { code: "23514", message: "check constraint" } };
+  it("the command's own refusal (FC403) is the same 403, and its text is never shown", async () => {
+    role = "manager";
+    dbWrite = { error: { code: "FC403", message: "forbidden" } };
     const res = await put();
+    expect(res.status).toBe(403);
+    expect(JSON.stringify(await res.json())).not.toMatch(/FC403|forbidden/);
+  });
+
+  it("a stale version is a 409 with the reload message; another database error is a plain failure", async () => {
+    role = "owner";
+    dbWrite = { error: { code: "FC409", message: "stale_version" } };
+    const stale = await put();
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).error).toBe(es.costs.fixed.staleReload);
+    dbWrite = { error: { code: "23514", message: "check constraint" } };
+    const other = await put();
+    expect(other.status).toBe(500);
+    expect(JSON.stringify(await other.json())).not.toMatch(/check constraint/);
+  });
+
+  it("a request without a command key or an expected version is refused before the database", async () => {
+    role = "owner";
+    const res = await PUT(
+      new NextRequest("http://localhost/api/restaurant/fixed-costs", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          month: "2026-10-01",
+          entries: [{ category: "alquiler", value: 1 }],
+        }),
+      })
+    );
     expect(res.status).toBe(400);
+    expect(writes).toEqual([]);
   });
 });

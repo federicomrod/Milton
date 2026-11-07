@@ -16,12 +16,15 @@
 // Missing values are `null`, never 0.
 
 import {
+  computeFixedFigures,
+  type FixedFigures,
+} from "@/lib/restaurant/fixed-cost-engine";
+import {
   valuedPct,
   type WastePlanVsReported,
 } from "@/lib/restaurant/unplanned-waste";
 import {
   AMOUNT_CATEGORIES,
-  breakEvenPerDay,
   contributionMarginPct,
   daysInMonth,
   nextMonthStart,
@@ -214,6 +217,8 @@ export interface RentabilidadInput {
   wastePlan?: WastePlanVsReported | null;
   /** The restaurant's own and shared fixed costs (confirmed lines only). */
   fixed: EffectiveFixedCosts;
+  /** Where the tax rate came from; null = no rate. Labels the shared engine's result. */
+  fixedTaxSource?: "local" | "group" | null;
   /** An included fixed-cost line is a Milton estimate. */
   fixedHasEstimate?: boolean;
   /** ISO weekdays the restaurant opens; null = every day. */
@@ -315,6 +320,12 @@ export interface RentabilidadMonth {
   profit: number | null;
   profitPct: number | null;
   breakEvenPerDay: number | null;
+  /**
+   * The shared fixed-cost engine's full result for this month (the same function
+   * Costos fijos calls): complete / partial / unavailable and what is missing.
+   * A partial break-even is a number for the known categories, never a final one.
+   */
+  figures: FixedFigures;
   /** First day the cumulative margin ≥ the month's fixed costs. */
   breakEvenDay: { date: string; day: number; projected: boolean } | null;
   avgSalesPerDay: number | null;
@@ -464,12 +475,20 @@ export function computeRentabilidad(
       : cm * marginInputs.sales - fixedTotal;
   const profitToDate =
     fixedTotal === null || actualDays === 0 ? null : actual.margin - fixedTotal;
-  const breakEven = breakEvenPerDay({
-    amounts: input.fixed.amounts,
-    impuestosPct,
+  // ONE break-even function: the shared engine. Complete inputs give the same
+  // number as before; incomplete ones give a labelled partial number or none.
+  const figures = computeFixedFigures({
+    month,
+    costs: input.fixed,
+    taxSource: input.fixedTaxSource ?? (impuestosPct === null ? null : "local"),
     margin: marginInputs,
+    marginMonth: month,
     openDays: input.openDays,
   });
+  // `breakEvenPerDay` stays the COMPLETE figure (null while anything is missing),
+  // so findings, summaries and older consumers never use an understated target.
+  // A partial number lives in `figures.breakEven`, labelled by `figures.status`.
+  const breakEven = figures.status === "complete" ? figures.breakEven : null;
 
   let breakEvenDay: RentabilidadMonth["breakEvenDay"] = null;
   if (fixedTotal !== null) {
@@ -579,6 +598,7 @@ export function computeRentabilidad(
         ? null
         : profit / monthTotals.sales,
     breakEvenPerDay: breakEven === null ? null : round2(breakEven),
+    figures,
     breakEvenDay,
     avgSalesPerDay: withData.length
       ? withData.reduce((s, r) => s + r.sales, 0) / withData.length
@@ -704,7 +724,7 @@ export function miltonFindings(
       out.push({ kind: "cost_share_change", amounts: { now, before } });
   }
 
-  const be = month.breakEvenPerDay;
+  const be = month.figures.status === "complete" ? month.breakEvenPerDay : null;
   if (be !== null) {
     const sold = month.days.filter((d) => !d.projected && d.sales > 0);
     if (sold.length > 0) {

@@ -23,17 +23,10 @@ vi.mock("@/lib/restaurant/currency", async (importOriginal) => ({
 
 import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
 import { figuresOf } from "@/lib/restaurant/fixed-cost-clusters";
-import {
-  loadRepeatDetail,
-  repeatFixedCosts,
-} from "@/lib/restaurant/fixed-costs-server";
-import { fakeSupabase } from "./helpers/fake-memory-db";
 
 const LOC = "00000000-0000-4000-8000-00000000000a";
-const LOC2 = "00000000-0000-4000-8000-00000000000b";
 const NOV = "2026-11-01";
 const OCT = "2026-10-01";
-const DEC = "2026-12-01";
 
 const view = (over: Record<string, unknown> = {}) =>
   ({
@@ -41,6 +34,9 @@ const view = (over: Record<string, unknown> = {}) =>
     currency: "USD",
     locationId: LOC,
     lines: [],
+    items: {},
+    versions: {},
+    copy: null,
     groupShares: { servicios: 21000 },
     groupImpuestosPct: null,
     openDays: 30,
@@ -79,7 +75,13 @@ const dline = (id: string, raw: string, amount: number, month: string) => ({
 
 let patches: any[] = [];
 function mount(lines: any[], props: Record<string, unknown> = {}, v = view()) {
-  const draft = { id: "d1", fileName: "demo.csv", status: "draft", lines };
+  const draft = {
+    id: "d1",
+    version: 1,
+    fileName: "demo.csv",
+    status: "draft",
+    lines,
+  };
   patches = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -88,21 +90,29 @@ function mount(lines: any[], props: Record<string, unknown> = {}, v = view()) {
       const picked = draft.lines.filter((l) => body.lineIds.includes(l.id));
       picked.forEach((l) => (l.status = "approved"));
       const months = [...new Set(picked.map((l) => l.month))];
+      draft.version += 1;
       return new Response(
         JSON.stringify({
-          approved: picked.length,
+          status: "applied",
+          command_id: "cmd-1",
+          lines_approved: picked.length,
+          lines_already_approved: 0,
           issues: [],
           draft: structuredClone(draft),
-          applied: months.map((m) => {
+          preview: null,
+          categories: months.map((m) => {
             const mine = picked.filter((l) => l.month === m);
             return {
+              key: `${LOC}|${m}|servicios`,
               category: "servicios",
               month: m,
-              locationId: LOC,
+              location_id: LOC,
+              outcome: "created",
               total: mine.reduce((n, l) => n + (l.amount as number), 0),
-              previous: null,
+              previous_total: null,
+              version: 1,
               repeats: true,
-              lineIds: mine.map((l) => l.id),
+              line_ids: mine.map((l) => l.id),
             };
           }),
         }),
@@ -172,7 +182,10 @@ describe("destination month: visible before approval, never moved silently", () 
     fireEvent.click(within(row).getByRole("button", { name: "Aprobar" }));
     const toast = await screen.findByTestId("approve-toast");
     expect(toast.textContent).toContain("1 línea aprobada");
-    expect(toast.textContent).toContain("octubre de 2026");
+    // Says where it went AND that the month on screen did not change.
+    expect(toast.textContent).toContain(
+      "Se guardó en octubre de 2026. noviembre de 2026 no cambió."
+    );
     expect(
       within(toast).getByRole("button", { name: "Ver octubre de 2026" })
     ).toBeTruthy();
@@ -293,7 +306,7 @@ describe("a late read never overwrites a newer change", () => {
       screen.getByTestId("fixed-row-planilla").getAttribute("data-state")
     ).not.toBe("empty");
   });
-  it("after a local approval, an older read (without it) does not wipe the card", async () => {
+  it("after an approval the page re-reads once and that authoritative read is what the cards show", async () => {
     const { rerender, ui } = mount([dline("l1", "Luz demo", 1800, NOV)]);
     fireEvent.click(
       within((await rows())[0]).getByRole("button", { name: "Aprobar" })
@@ -301,65 +314,88 @@ describe("a late read never overwrites a newer change", () => {
     await waitFor(() =>
       expect(screen.getByTestId("fixed-total").textContent).toContain("$22,800")
     );
-    rerender(ui(view({ lines: [] }))); // a read asked for before the approval
+    // The re-read asked for after the commit includes it.
+    rerender(
+      ui(
+        view({ lines: [saved("servicios", 1800)], versions: { servicios: 1 } })
+      )
+    );
     expect(screen.getByTestId("fixed-total").textContent).toContain("$22,800");
+    expect(
+      screen.getByTestId("fixed-row-servicios").getAttribute("data-state")
+    ).toBe("confirmed");
   });
 });
 
 describe("copied Servicios: source month and breakdown", () => {
-  const cluster = (p: Record<string, unknown> = {}) =>
+  const cluster = (p: Record<string, unknown> = {}, items?: unknown[]) =>
     view({
       lines: [
         saved("servicios", 3900, {
           source: "repeat",
           label: "Agua + Seguro",
+          detail_state: items ? "itemized" : "legacy_total",
+          repeats: false,
           ...p,
         }),
       ],
+      items: items ? { servicios: items } : {},
       groupShares: {},
     });
-  const items = [
-    { raw: "Agua", amount: 650 },
-    { raw: "Seguro", amount: 3250 },
-  ];
-  it("shows the breakdown and «copiado de octubre de 2026» when the log kept both", () => {
+  const item = (id: string, label: string, cents: number, kind = "item") => ({
+    id,
+    label,
+    cents,
+    kind,
+    version: 1,
+    origin: {},
+  });
+  const known = [item("a", "Agua", 65000), item("b", "Seguro", 325000)];
+  it("shows the breakdown and «copiado de octubre de 2026» when the copy recorded its source", () => {
     mount(
       [],
-      { repeatDetail: { servicios: { fromMonth: OCT, items } } },
-      cluster()
+      {},
+      cluster({ copy_source: { month: OCT, aggregate_version: 1010 } }, known)
     );
     const list = screen.getByTestId("fixed-items-servicios");
     expect(list.textContent).toContain("$3,250");
     expect(list.textContent).toContain("copiado de octubre de 2026");
     expect(screen.queryByTestId("fixed-detail-missing-servicios")).toBeNull();
   });
-  it("breakdown but NO source month: the detail still shows; no «no disponible» note", () => {
-    mount(
-      [],
-      { repeatDetail: { servicios: { fromMonth: null, items } } },
-      cluster()
-    );
+  it("breakdown but NO recorded source month: the detail still shows; no «no disponible» note", () => {
+    mount([], {}, cluster({ copy_source: null }, known));
     expect(screen.getByTestId("fixed-items-servicios")).toBeTruthy();
     expect(screen.queryByTestId("fixed-detail-missing-servicios")).toBeNull();
   });
-  it("legacy aggregate-only (several concepts in the label, no breakdown): the note", () => {
-    mount([], { repeatDetail: {} }, cluster());
+  it("a legacy total (no known detail) keeps its honest amount and says the breakdown is unavailable", () => {
+    mount([], {}, cluster());
     expect(screen.queryByTestId("fixed-items-servicios")).toBeNull();
     expect(
       screen.getByTestId("fixed-detail-missing-servicios").textContent
     ).toBe("Desglose no disponible para este registro.");
+    expect(screen.getByTestId("fixed-row-servicios").textContent).toContain(
+      "$3,900"
+    );
   });
-  it("a single-concept copy is not «no disponible»", () => {
-    mount([], {}, cluster({ label: "Alquiler demo" }));
+  it("a hand-typed total is not «no disponible»: nothing was ever broken down", () => {
+    mount([], {}, cluster({ source: "manual", label: null }));
     expect(screen.queryByTestId("fixed-detail-missing-servicios")).toBeNull();
   });
-  it("a breakdown that no longer adds up is not shown, and not invented", () => {
+  it("an unknown legacy part sits next to the known items, flagged as such", () => {
     mount(
       [],
-      { repeatDetail: { servicios: { fromMonth: OCT, items } } },
-      cluster({ amount: 4000 })
+      {},
+      cluster({ source: "upload", copy_source: null, amount: 4900 }, [
+        item("base", "", 480000, "legacy_base"),
+        item("s", "Seguro", 10000),
+      ])
     );
-    expect(screen.queryByTestId("fixed-items-servicios")).toBeNull();
+    const list = screen.getByTestId("fixed-items-servicios");
+    expect(list.textContent).toContain(
+      "Desglose no disponible para este registro."
+    );
+    expect(list.textContent).toContain("$4,800");
+    expect(list.textContent).toContain("Seguro");
   });
   it("History: «copiado de octubre de 2026» only when the log stored the month", () => {
     const row = (id: string, nv: Record<string, unknown>) => ({
@@ -386,201 +422,14 @@ describe("copied Servicios: source month and breakdown", () => {
     );
     const h = screen.getByTestId("history").textContent ?? "";
     expect(h).toContain("Servicios · $4,800 · copiado de octubre de 2026");
-    expect(h).toContain("Servicios · $4,800 · repetido automáticamente");
+    // An old copy row never recorded its source: it says so, it does not guess.
+    expect(h).toContain(
+      "Servicios · $4,800 · copiado de un mes anterior (origen no registrado)"
+    );
     expect(h).not.toContain("Repitió");
   });
 });
 
-// ---------------------------------------------------------------------------
-// Server: the copy keeps its source month and breakdown in the log
-// ---------------------------------------------------------------------------
-const lineRow = (over: Record<string, unknown> = {}) => ({
-  id: "fc-oct",
-  company_id: "c1",
-  location_id: LOC,
-  month: OCT,
-  category: "servicios",
-  label: "Luz + Agua",
-  amount: 2450,
-  pct_of_sales: null,
-  currency: "USD",
-  source: "upload",
-  status: "confirmed",
-  repeats: true,
-  split_rule: null,
-  ...over,
-});
-const draftRow = (over: Record<string, unknown> = {}) => ({
-  id: "d-oct",
-  company_id: "c1",
-  status: "approved",
-  created_at: "2026-10-05T10:00:00Z",
-  file_name: "demo.csv",
-  parsed_lines: [
-    {
-      id: "a",
-      raw: "Luz",
-      category: "servicios",
-      amount: 1800,
-      month: OCT,
-      scope: { kind: "restaurant", locationId: LOC },
-      from: "file",
-      status: "approved",
-    },
-    {
-      id: "b",
-      raw: "Agua",
-      category: "servicios",
-      amount: 650,
-      month: OCT,
-      scope: { kind: "restaurant", locationId: LOC },
-      from: "file",
-      status: "approved",
-    },
-  ],
-  ...over,
-});
-const ctxOf = (db: ReturnType<typeof fakeSupabase>, companyId = "c1") => ({
-  supabase: db.client,
-  companyId,
-  userId: "u1",
-});
-const names = (d: any) =>
-  d.servicios?.items?.map((i: any) => [i.raw, i.amount]);
-
-describe("repeatFixedCosts keeps provenance and breakdown (log, no migration)", () => {
-  it("stores from_month + items; they come back after a reload; the sum matches the total", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow()],
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [draftRow()],
-    });
-    const made = await repeatFixedCosts(ctxOf(db), NOV);
-    expect(made).toHaveLength(1);
-    expect(made[0].amount).toBe(2450);
-    const detail = await loadRepeatDetail(ctxOf(db), {
-      month: NOV,
-      locationId: LOC,
-    });
-    expect(detail.servicios?.fromMonth).toBe(OCT);
-    expect(names(detail)).toEqual([
-      ["Luz", 1800],
-      ["Agua", 650],
-    ]);
-    expect(detail.servicios!.items!.reduce((n, i) => n + i.amount, 0)).toBe(
-      2450
-    );
-  });
-  it("a second copy changes nothing: no double count, same detail", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow()],
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [draftRow()],
-    });
-    await repeatFixedCosts(ctxOf(db), NOV);
-    const again = await repeatFixedCosts(ctxOf(db), NOV);
-    expect(again).toHaveLength(0);
-    const nov = db.tables.restaurant_fixed_costs.filter(
-      (r: any) => r.month === NOV
-    );
-    expect(nov).toHaveLength(1);
-    const detail = await loadRepeatDetail(ctxOf(db), {
-      month: NOV,
-      locationId: LOC,
-    });
-    expect(names(detail)).toEqual([
-      ["Luz", 1800],
-      ["Agua", 650],
-    ]);
-  });
-  it("a copy of a copy (Nov → Dic) keeps the breakdown and names November as its source", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow()],
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [draftRow()],
-    });
-    await repeatFixedCosts(ctxOf(db), NOV);
-    await repeatFixedCosts(ctxOf(db), DEC);
-    const dec = await loadRepeatDetail(ctxOf(db), {
-      month: DEC,
-      locationId: LOC,
-    });
-    expect(dec.servicios?.fromMonth).toBe(NOV);
-    expect(names(dec)).toEqual([
-      ["Luz", 1800],
-      ["Agua", 650],
-    ]);
-  });
-  it("legacy aggregate-only source (no drafts): month stored, NO items invented", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow()],
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [],
-    });
-    await repeatFixedCosts(ctxOf(db), NOV);
-    const detail = await loadRepeatDetail(ctxOf(db), {
-      month: NOV,
-      locationId: LOC,
-    });
-    expect(detail.servicios?.fromMonth).toBe(OCT);
-    expect(detail.servicios?.items).toBeUndefined();
-  });
-  it("lines that no longer add up to the source amount are not copied as detail", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow({ amount: 3000 })], // edited by hand since
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [draftRow()],
-    });
-    await repeatFixedCosts(ctxOf(db), NOV);
-    const detail = await loadRepeatDetail(ctxOf(db), {
-      month: NOV,
-      locationId: LOC,
-    });
-    expect(detail.servicios?.items).toBeUndefined();
-  });
-  it("another restaurant's / another company's draft or log is never used or returned", async () => {
-    const other = draftRow({
-      id: "d-other",
-      company_id: "c2",
-      parsed_lines: draftRow().parsed_lines.map((l: any) => ({
-        ...l,
-        scope: { kind: "restaurant", locationId: LOC2 },
-      })),
-    });
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [lineRow()],
-      restaurant_fixed_costs_log: [],
-      fixed_cost_upload_drafts: [other], // not c1's, not LOC
-    });
-    await repeatFixedCosts(ctxOf(db), NOV);
-    const mine = await loadRepeatDetail(ctxOf(db), {
-      month: NOV,
-      locationId: LOC,
-    });
-    expect(mine.servicios?.items).toBeUndefined();
-    expect(
-      await loadRepeatDetail(ctxOf(db, "c2"), { month: NOV, locationId: LOC })
-    ).toEqual({});
-    expect(
-      await loadRepeatDetail(ctxOf(db), { month: NOV, locationId: LOC2 })
-    ).toEqual({});
-    expect(
-      await loadRepeatDetail(ctxOf(db), { month: NOV, locationId: null })
-    ).toEqual({});
-  });
-  it("only rows with «Se repite» ON are copied", async () => {
-    const off = (category: string) =>
-      lineRow({ id: `x-${category}`, category, repeats: false });
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [
-        lineRow(),
-        off("planilla"),
-        off("alquiler"),
-        off("otros"),
-      ],
-      restaurant_fixed_costs_log: [],
-    });
-    const made = await repeatFixedCosts(ctxOf(db), NOV);
-    expect(made.map((l) => l.category)).toEqual(["servicios"]);
-  });
-});
+// Copies are an explicit database command now (migration 079): lineage, snapshots,
+// double copies and tenant isolation are proven on Postgres in tests/pg/commands.test.ts
+// and security.test.ts.

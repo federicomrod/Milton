@@ -17,6 +17,7 @@ import { useRouter } from "expo-router";
 import { friendlyMessage } from "../api/client";
 import { useStrings } from "../i18n";
 import { fmt } from "../i18n/strings";
+import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
 import { useSession } from "../session/SessionProvider";
 import { biometricAvailable, unlockStoredPin } from "../lib/biometric";
@@ -38,6 +39,7 @@ import { Button, Field, Muted, text } from "../components/ui";
 
 export default function PinLogin() {
   const s = useStrings();
+  const g = useG();
   const router = useRouter();
   const { api, signIn } = useSession();
   const manager = useManager();
@@ -190,6 +192,13 @@ export default function PinLogin() {
             label={s.login.useInvite}
             variant="secondary"
             onPress={() => router.replace("/join")}
+          />
+          <Button
+            label={g.login.back}
+            variant="secondary"
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace("/entrada")
+            }
           />
         </ScrollView>
       </KeyboardAvoidingView>

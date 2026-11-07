@@ -82,6 +82,7 @@ describe("brand palette", () => {
       join("src", "app", "join.tsx"),
       join("src", "app", "pin.tsx"),
       join("src", "app", "perfil.tsx"),
+      join("src", "app", "cuenta.tsx"),
       join("src", "app", "platos.tsx"),
       join("src", "app", "factura.tsx"),
       join("src", "app", "preguntar.tsx"),

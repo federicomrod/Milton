@@ -90,20 +90,25 @@ ALTER TABLE public.push_sends ENABLE ROW LEVEL SECURITY;
 -- Deliberately no policy: only the service role reads or writes the send log.
 
 -- ---------------------------------------------------------------------------
--- Grants (least privilege; no TRUNCATE / TRIGGER / REFERENCES / MAINTAIN for
--- app roles). RLS still applies to `authenticated`.
+-- Grants (least privilege)
+--
+-- The public schema has DEFAULT PRIVILEGES that give anon, authenticated and
+-- service_role ALL (incl. TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) on every new
+-- table. TRUNCATE bypasses RLS, so a narrower GRANT alone does not help: each
+-- table first REVOKEs everything from PUBLIC and all three roles, THEN grants
+-- exactly what is needed. RLS still applies to `authenticated`.
 -- ---------------------------------------------------------------------------
 
 -- push_devices: a signed-in manager manages their own rows (RLS above); the
--- service role reads devices to send and removes dead tokens / reassigns a
--- phone. `anon` gets nothing.
-REVOKE ALL ON TABLE public.push_devices FROM anon;
+-- service role reads devices to send, removes dead tokens and reassigns a phone.
+-- `anon` gets nothing.
+REVOKE ALL ON TABLE public.push_devices FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.push_devices
   TO authenticated, service_role;
 
--- push_sends: the send log is service-role only. Neither `anon` nor
+-- push_sends: the send log is service role only. Neither `anon` nor
 -- `authenticated` can read or write it, with or without a policy.
-REVOKE ALL ON TABLE public.push_sends FROM anon, authenticated;
+REVOKE ALL ON TABLE public.push_sends FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.push_sends TO service_role;
 
 COMMENT ON TABLE public.push_devices IS

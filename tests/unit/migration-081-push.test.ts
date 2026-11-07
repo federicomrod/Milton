@@ -30,11 +30,38 @@ describe("081 push notifications migration", () => {
     );
   });
 
-  it("push_devices: a manager manages own rows; service role too; anon nothing", () => {
-    expect(code).toMatch(
-      /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.push_devices\s+TO authenticated, service_role/
+  // Staging's default privileges give anon, authenticated and service_role ALL
+  // (incl. TRUNCATE, which bypasses RLS) on every new table, so each table must
+  // REVOKE ALL from PUBLIC and all three roles BEFORE its narrower GRANT.
+  const revokeAll = (table: string) =>
+    new RegExp(
+      `REVOKE ALL ON TABLE public\\.${table}\\s+FROM\\s+PUBLIC,\\s*anon,\\s*authenticated,\\s*service_role;`
     );
-    expect(code).toMatch(/REVOKE ALL ON TABLE public\.push_devices FROM anon/);
+
+  it.each(["push_devices", "push_sends"])(
+    "%s: REVOKE ALL from PUBLIC, anon, authenticated and service_role comes before its GRANT",
+    (table) => {
+      const revoke = revokeAll(table).exec(code);
+      expect(revoke, `REVOKE ALL for ${table}`).not.toBeNull();
+      const grant = new RegExp(
+        `GRANT [A-Z, ]+ ON TABLE public\\.${table}\\b`
+      ).exec(code);
+      expect(grant, `GRANT for ${table}`).not.toBeNull();
+      expect(revoke!.index).toBeLessThan(grant!.index);
+      // Exactly one REVOKE and one GRANT per table: nothing re-widens it later.
+      expect(
+        code.match(new RegExp(`REVOKE[^;]*public\\.${table}\\b`, "g"))
+      ).toHaveLength(1);
+      expect(
+        code.match(new RegExp(`GRANT[^;]*public\\.${table}\\b`, "g"))
+      ).toHaveLength(1);
+    }
+  );
+
+  it("push_devices: a manager manages own rows (RLS), service role too; anon nothing", () => {
+    expect(code).toMatch(
+      /GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public\.push_devices\s+TO authenticated, service_role;/
+    );
     expect(code).toMatch(/user_id = auth\.uid\(\)/);
   });
 
@@ -42,11 +69,7 @@ describe("081 push notifications migration", () => {
     expect(code).toMatch(
       /GRANT SELECT, INSERT, UPDATE ON TABLE public\.push_sends TO service_role;/
     );
-    expect(code).toMatch(
-      /REVOKE ALL ON TABLE public\.push_sends FROM anon, authenticated/
-    );
     expect(code).not.toMatch(/CREATE POLICY \w+ ON public\.push_sends/);
-    // Never granted to the app roles, in any statement.
     const grants = code.match(/GRANT[^;]*;/g) ?? [];
     for (const g of grants.filter((x) => /push_sends/.test(x))) {
       expect(g).not.toMatch(/\b(authenticated|anon|PUBLIC)\b/);

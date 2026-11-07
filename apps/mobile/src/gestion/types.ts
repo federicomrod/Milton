@@ -190,3 +190,13 @@ export interface KitchenTeam {
   kitchenCode: string | null;
   team: KitchenTeamMember[];
 }
+
+export interface PushPrefsData {
+  registered: boolean;
+  timezone: string;
+  dailyEnabled: boolean;
+  criticalEnabled: boolean;
+  dailyHour: number;
+  quietStart: number;
+  quietEnd: number;
+}

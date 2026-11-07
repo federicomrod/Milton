@@ -15,6 +15,7 @@ import type {
   LocationRef,
   ManagerMe,
   ManagerTokens,
+  PushPrefsData,
   RentabilidadData,
   VentasData,
   VentasPeriod,
@@ -157,6 +158,38 @@ export function createManagerApi(deps: ManagerApiDeps) {
         if (typeof body.text !== "string") throw new ApiError("unreachable");
         return body.text;
       }),
+    /** This phone's Expo push token for the signed-in manager (own rows only). */
+    registerPush: (input: {
+      token: string;
+      platform: string;
+      timezone: string;
+      dailyEnabled?: boolean;
+      criticalEnabled?: boolean;
+      dailyHour?: number;
+      quietStart?: number;
+      quietEnd?: number;
+    }) =>
+      authed(() =>
+        request<{ registered: boolean }>("PUT", `${V1}/push/register`, {
+          body: input,
+        })
+      ),
+    unregisterPush: (token: string) =>
+      authed(() =>
+        request<{ registered: boolean }>("DELETE", `${V1}/push/register`, {
+          body: { token },
+        })
+      ),
+    pushPrefs: (token: string | null) =>
+      authed(() =>
+        request<PushPrefsData>("GET", `${V1}/push/preferences${qs({ token })}`)
+      ),
+    savePushPrefs: (token: string, patch: Partial<PushPrefsData>) =>
+      authed(() =>
+        request<PushPrefsData>("PUT", `${V1}/push/preferences`, {
+          body: { token, ...patch },
+        })
+      ),
     login: (email: string, password: string) =>
       request<ManagerTokens>("POST", `${V1}/auth/login`, {
         body: { email, password },

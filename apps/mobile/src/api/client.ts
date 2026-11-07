@@ -114,7 +114,7 @@ export function createRequester(deps: ClientDeps) {
   const base = deps.baseUrl.replace(/\/+$/, "");
 
   async function request<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     opts: { body?: unknown; auth?: boolean } = {},
     retried = false

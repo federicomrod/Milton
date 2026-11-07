@@ -23,6 +23,7 @@ import { ToastHost } from "../components/ToastHost";
 import { Button, Muted } from "../components/ui";
 import { ManagerProvider, useManager } from "../gestion/ManagerProvider";
 import { useG } from "../gestion/hooks";
+import { PushNavigator } from "../gestion/notifications/PushNavigator";
 import { signedOutLanding } from "../lib/landing";
 import { I18nProvider, useStrings } from "../i18n";
 import { SessionProvider, useSession } from "../session/SessionProvider";
@@ -149,6 +150,10 @@ function Routes() {
             name="perfil"
             options={{ headerShown: false, presentation: "modal" }}
           />
+          <Stack.Screen
+            name="notificaciones"
+            options={{ headerShown: false, presentation: "modal" }}
+          />
         </Stack.Protected>
         <Stack.Protected guard={showKitchen}>
           {/* The title is what iOS writes on the back button of «Cuenta». */}
@@ -182,6 +187,7 @@ function Routes() {
         </Stack.Protected>
       </Stack>
       {signedOut ? <SignedOutLanding /> : null}
+      {managerIn ? <PushNavigator /> : null}
       {showKitchen ? <KitchenGates /> : null}
     </>
   );

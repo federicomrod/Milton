@@ -5,6 +5,7 @@
 
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { tokenLoadOf, type TokenLoad } from "./session-core";
 import type { ManagerTokens, ManagerUser } from "./types";
 
 const ACCESS_KEY = "milton_mgr_access";
@@ -21,29 +22,35 @@ interface Meta {
   mode: Mode;
 }
 
-export async function loadTokens(): Promise<ManagerTokens | null> {
+/**
+ * found / absent / unreadable. A store that cannot answer right now (a locked
+ * Keychain on a cold start, a storage hiccup) is «unreadable», never «absent»:
+ * only «absent» means nobody is signed in.
+ */
+export async function loadTokens(): Promise<TokenLoad> {
   try {
-    const [accessToken, refreshToken, raw] = await Promise.all([
+    const [access, refresh, meta] = await Promise.all([
       SecureStore.getItemAsync(ACCESS_KEY),
       SecureStore.getItemAsync(REFRESH_KEY),
       AsyncStorage.getItem(META_KEY),
     ]);
-    if (!accessToken || !refreshToken || !raw) return null;
-    const meta = JSON.parse(raw) as Meta;
-    return {
-      accessToken,
-      refreshToken,
-      expiresAt: meta.expiresAt,
-      user: meta.user,
-    };
+    return tokenLoadOf({ access, refresh, meta });
   } catch {
-    return null;
+    return { kind: "unreadable" };
   }
 }
 
+// Readable after the first unlock, so a cold or background launch of a phone
+// that is already signed in still finds the session. Saving over an existing
+// item updates it in place (expo-secure-store 58), so existing logins move the
+// next time the session is renewed. Never leaves this device.
+const ACCESS = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
+
 export async function saveTokens(tokens: ManagerTokens): Promise<void> {
-  await SecureStore.setItemAsync(ACCESS_KEY, tokens.accessToken);
-  await SecureStore.setItemAsync(REFRESH_KEY, tokens.refreshToken);
+  await SecureStore.setItemAsync(ACCESS_KEY, tokens.accessToken, ACCESS);
+  await SecureStore.setItemAsync(REFRESH_KEY, tokens.refreshToken, ACCESS);
   const prev = await loadMeta();
   await saveMeta({
     expiresAt: tokens.expiresAt,

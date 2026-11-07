@@ -14,7 +14,14 @@ import { fetch as streamFetch } from "expo/fetch";
 import { apiBaseUrl } from "../config";
 import { currentLanguage, setCurrentLanguage } from "../i18n/language-store";
 import { createManagerApi, type ManagerApi } from "./api";
-import { accessOf, needsRefresh, pickCompany } from "./session-core";
+import {
+  accessOf,
+  loadTokensPatiently,
+  needsRefresh,
+  pickCompany,
+  refreshOutcomeOf,
+  type RefreshOutcome,
+} from "./session-core";
 import {
   clearTokens,
   loadMeta,
@@ -34,6 +41,8 @@ type Status = "loading" | "signedOut" | "signedIn" | "noAccess" | "error";
 
 interface Manager {
   status: Status;
+  /** Why the app shows «try again» (status «error»): no connection or the saved login could not be read. */
+  problem: "network" | "storage" | null;
   user: ManagerUser | null;
   company: ManagerCompany | null;
   /** Restaurants of the company (filled by the first screen that reads them). */
@@ -56,7 +65,7 @@ const Ctx = createContext<Manager | null>(null);
 // React refs) so the API client's callbacks can read them at request time.
 const session: {
   tokens: ManagerTokens | null;
-  refreshing: Promise<boolean> | null;
+  refreshing: Promise<RefreshOutcome> | null;
 } = { tokens: null, refreshing: null };
 
 export function useManager(): Manager {
@@ -73,6 +82,7 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
   const [locationId, setLocationIdState] = useState<string | null>(null);
   const [mode, setModeState] = useState<Mode>("manager");
   const [attempt, setAttempt] = useState(0);
+  const [problem, setProblem] = useState<"network" | "storage" | null>(null);
 
   const clearSession = useCallback(async () => {
     session.tokens = null;
@@ -90,26 +100,30 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
       createManagerApi({
         baseUrl: apiBaseUrl(),
         getToken: async () => session.tokens?.accessToken ?? null,
-        refreshSession: async () => false,
+        refreshSession: async () => "rejected" as const,
         onSignedOut: () => undefined,
         language: currentLanguage,
       }),
     []
   );
 
-  const refreshSession = useCallback((): Promise<boolean> => {
+  const refreshSession = useCallback((): Promise<RefreshOutcome> => {
     // One renewal at a time, however many requests found the token expired.
     session.refreshing ??= (async () => {
       const current = session.tokens;
-      if (!current) return false;
+      if (!current) return "rejected";
       try {
         const next = await bare.refresh(current.refreshToken);
+        // The renewed session is in use from here on, even if saving it fails:
+        // the next renewal saves again.
         session.tokens = next;
-        await saveTokens(next);
         setUser(next.user);
-        return true;
-      } catch {
-        return false;
+        await saveTokens(next).catch(() => undefined);
+        return "ok";
+      } catch (err) {
+        // Only the server saying no ends the session; a dropped connection or a
+        // busy server does not.
+        return refreshOutcomeOf(err);
       } finally {
         session.refreshing = null;
       }
@@ -167,12 +181,25 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const saved = await loadTokens();
+      const read = await loadTokensPatiently(
+        loadTokens,
+        (ms) => new Promise((r) => setTimeout(r, ms))
+      );
       if (cancelled) return;
-      if (!saved) {
+      if (read.kind === "absent") {
+        setProblem(null);
         setStatus("signedOut");
         return;
       }
+      if (read.kind === "unreadable") {
+        // The saved login could not be read right now. That is NOT signed out:
+        // offer «try again» and keep whatever is stored.
+        setProblem("storage");
+        setStatus("error");
+        return;
+      }
+      const saved = read.tokens;
+      setProblem(null);
       session.tokens = saved;
       setUser(saved.user);
       setStatus("loading");
@@ -180,7 +207,10 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
         const meta = await loadMeta();
         await open(meta?.companyId ?? null);
       } catch {
-        if (!cancelled && session.tokens) setStatus("error");
+        if (!cancelled && session.tokens) {
+          setProblem("network");
+          setStatus("error");
+        }
       }
     })();
     return () => {
@@ -207,6 +237,7 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<Manager>(
     () => ({
       status,
+      problem,
       user,
       company,
       locations,
@@ -240,6 +271,7 @@ export function ManagerProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       status,
+      problem,
       user,
       company,
       locations,

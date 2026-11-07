@@ -315,6 +315,8 @@ const es = {
     close: "Cerrar",
   },
   errors: {
+    storage:
+      "No pude abrir tu sesión guardada ahora. Espera un momento e inténtalo otra vez.",
     generic: "Algo salió mal. Inténtalo de nuevo.",
     offline: "No hay conexión. Revisa tu internet.",
     retry: "Reintentar",
@@ -633,6 +635,8 @@ const en: typeof es = {
     close: "Close",
   },
   errors: {
+    storage:
+      "I could not open your saved session right now. Wait a moment and try again.",
     generic: "Something went wrong. Try again.",
     offline: "No connection. Check your internet.",
     retry: "Retry",
@@ -953,6 +957,8 @@ const de: typeof es = {
     close: "Schließen",
   },
   errors: {
+    storage:
+      "Ihre gespeicherte Anmeldung konnte gerade nicht gelesen werden. Warten Sie einen Moment und versuchen Sie es erneut.",
     generic: "Etwas ist schiefgelaufen. Versuchen Sie es erneut.",
     offline: "Keine Verbindung. Prüfen Sie Ihr Internet.",
     retry: "Erneut versuchen",

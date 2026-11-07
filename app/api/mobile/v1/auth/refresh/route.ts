@@ -40,7 +40,21 @@ export async function POST(request: NextRequest) {
       refresh_token: refreshToken,
     });
     if (error || !data.session) {
-      return mobileJson({ error: d.signInAgain }, 401);
+      // Only a refusal ends the session (a revoked, expired or unknown refresh
+      // token: 400/401/403/404/422, or no error at all). A dropped connection to
+      // Supabase or a busy server is OUR trouble: 503, so the phone keeps the
+      // login and tries again instead of signing the manager out.
+      const status = (error as { status?: number } | null)?.status;
+      const refused =
+        !error ||
+        status === 400 ||
+        status === 401 ||
+        status === 403 ||
+        status === 404 ||
+        status === 422;
+      return refused
+        ? mobileJson({ error: d.signInAgain }, 401)
+        : mobileJson({ error: d.managerLoginFailed }, 503);
     }
     return mobileJson(sessionBody(data.session, data.user));
   } catch (err) {

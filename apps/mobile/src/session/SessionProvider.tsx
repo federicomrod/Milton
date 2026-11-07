@@ -26,11 +26,20 @@ import {
   clearToken,
   getProfile,
   getToken,
+  readToken,
+  accessibilityMove,
   setProfile,
   setToken,
   type Profile,
 } from "../storage/token";
-import { outboxOnSignIn, pinGate, type PinGate } from "./stay-signed-in";
+import {
+  outboxOnSignIn,
+  pinGate,
+  readTokenPatiently,
+  startupStatus,
+  upgradeTokenAccessibility,
+  type PinGate,
+} from "./stay-signed-in";
 
 // One provider exists, so one flag stops a 401 burst from signing out twice.
 let signingOut = false;
@@ -111,6 +120,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       createApiClient({
         baseUrl: apiBaseUrl(),
         getToken,
+        readToken,
         language: currentLanguage,
         unauthorizedPolicy: "device",
         onUnauthorized: () => void endSession("revoked"),
@@ -171,12 +181,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const token = await getToken();
-      if (!token) {
+      const read = await readTokenPatiently(
+        readToken,
+        (ms) => new Promise((r) => setTimeout(r, ms))
+      );
+      const cached = await getProfile();
+      if (startupStatus(read, cached !== null) === "signedOut") {
         setStatus("signedOut");
         return;
       }
-      const cached = await getProfile();
+      // Existing installs saved the token as «when unlocked»: move it once, safely.
+      void upgradeTokenAccessibility(accessibilityMove);
       setCurrentLanguage(cached?.language);
       setProfileState(cached);
       setStatus("signedIn");

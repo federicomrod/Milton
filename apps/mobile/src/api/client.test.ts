@@ -483,3 +483,62 @@ describe("unauthorized policy (stay signed in)", () => {
     });
   });
 });
+
+describe("a saved login that cannot be read right now", () => {
+  const withRead = (
+    read: () => Promise<import("../storage/token").TokenRead>
+  ) => {
+    const fetchImpl = vi.fn(async () => json({ staff: {} }));
+    const onUnauthorized = vi.fn();
+    const api = createApiClient({
+      baseUrl: "https://api.example.test/",
+      getToken: async () => null,
+      readToken: read,
+      onUnauthorized,
+      fetchImpl: fetchImpl as never,
+      timeoutMs: 50,
+    });
+    return { api, fetchImpl, onUnauthorized };
+  };
+
+  it("an unreadable store is a retry message, never «sign in again», and nothing is sent or cleared", async () => {
+    const { api, fetchImpl, onUnauthorized } = withRead(async () => ({
+      kind: "unreadable",
+    }));
+    const err = await api.me().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.kind).toBe("credentials_unreadable");
+    expect(err.retryable).toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    for (const s of [es, en, de]) {
+      const text = friendlyMessage(err, s.errors);
+      expect(text).toBe(s.errors.credentialsUnreadable);
+      expect(text).not.toBe(s.errors.signIn);
+      expect(text).not.toBe(s.errors.generic);
+    }
+  });
+
+  it("a genuinely absent login is still «sign in again»", async () => {
+    const { api, fetchImpl } = withRead(async () => ({ kind: "absent" }));
+    const err = await api.me().catch((e) => e);
+    expect(err.kind).toBe("unauthorized");
+    expect(friendlyMessage(err, es.errors)).toBe(es.errors.signIn);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("a readable login is sent as usual", async () => {
+    const { api, fetchImpl } = withRead(async () => ({
+      kind: "found",
+      token: TOKEN,
+    }));
+    await api.me();
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${TOKEN}`
+    );
+  });
+});

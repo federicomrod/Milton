@@ -3,6 +3,7 @@
 // text, the URL or the token, so nothing here can leak into a log or a screen.
 
 import type { Strings } from "../i18n/strings";
+import type { TokenRead } from "../storage/token";
 import type {
   HistoryPage,
   KitchenMe,
@@ -18,6 +19,7 @@ export type ApiErrorKind =
   | "timeout"
   | "unreachable" // answered, but not with our JSON (for example a login wall)
   | "unauthorized" // the device token is no longer valid
+  | "credentials_unreadable" // the saved login could not be read right now (NOT lost)
   | "client" // 4xx
   | "server"; // 5xx
 
@@ -36,6 +38,7 @@ export class ApiError extends Error {
   /** Worth trying again later (no connection, timeout, server trouble). */
   get retryable(): boolean {
     return (
+      this.kind === "credentials_unreadable" ||
       this.kind === "network" ||
       this.kind === "timeout" ||
       this.kind === "unreachable" ||
@@ -84,6 +87,12 @@ export function unauthorizedAction(
 export interface ClientDeps {
   baseUrl: string;
   getToken: () => Promise<string | null>;
+  /**
+   * Optional: tells «no saved login» apart from «could not read it now». When
+   * given, an unreadable store ends the request with `credentials_unreadable`
+   * (a retry message), never with «sign in again».
+   */
+  readToken?: () => Promise<TokenRead>;
   /** Called once when an authenticated request gets a 401 that ends the session. */
   onUnauthorized: () => void | Promise<void>;
   /** Default "any". The kitchen client uses "device". */
@@ -116,7 +125,16 @@ export function createRequester(deps: ClientDeps) {
       typeof deps.language === "function" ? deps.language() : deps.language;
     if (language) headers["Accept-Language"] = language;
     if (auth) {
-      const token = await deps.getToken();
+      let token: string | null;
+      if (deps.readToken) {
+        const read = await deps.readToken();
+        if (read.kind === "unreadable") {
+          throw new ApiError("credentials_unreadable");
+        }
+        token = read.kind === "found" ? read.token : null;
+      } else {
+        token = await deps.getToken();
+      }
       if (!token) throw new ApiError("unauthorized", 401);
       headers.Authorization = `Bearer ${token}`;
     }
@@ -289,6 +307,8 @@ export function friendlyMessage(err: unknown, e: ErrorStrings): string {
       return e.unreachable;
     case "unauthorized":
       return e.signIn;
+    case "credentials_unreadable":
+      return e.credentialsUnreadable;
     case "server":
       return e.server;
     default:

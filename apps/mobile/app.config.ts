@@ -22,7 +22,7 @@ const FACE_EN =
 const both = (es: string, en: string) => `${es} / ${en}`;
 
 const config: ExpoConfig = {
-  name: "Milton Cocina",
+  name: "Milton",
   slug: "milton-cocina",
   scheme: "milton",
   version: "0.1.0",
@@ -30,6 +30,9 @@ const config: ExpoConfig = {
   userInterfaceStyle: "light",
   icon: "./assets/icon.png",
   ios: {
+    // PROPOSED, not registered anywhere yet: confirm the Apple team and this
+    // id before the first signed build (see README, «iOS development build»).
+    bundleIdentifier: "com.miltonlabs.milton",
     supportsTablet: false,
     infoPlist: {
       NSCameraUsageDescription: both(CAMERA_ES, CAMERA_EN),
@@ -48,6 +51,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-dev-client",
     "expo-secure-store",
     ["expo-local-authentication", { faceIDPermission: both(FACE_ES, FACE_EN) }],
     [

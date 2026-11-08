@@ -3,7 +3,9 @@
 import React from "react";
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +17,9 @@ import { ApiError } from "../api/client";
 import { Button, Field, Muted, text } from "../components/ui";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
-import { colors, space } from "../theme";
+import { apiBaseUrl } from "../config";
+import { forgotPasswordUrl } from "../lib/entry";
+import { colors, fonts, space } from "../theme";
 
 export default function Login() {
   const g = useG();
@@ -79,11 +83,23 @@ export default function Login() {
           />
           {error ? <Muted>{error}</Muted> : null}
           <Button label={g.login.signIn} onPress={enter} busy={busy} />
+          <Pressable
+            accessibilityRole="link"
+            onPress={() =>
+              void Linking.openURL(forgotPasswordUrl(apiBaseUrl()))
+            }
+            style={st.link}
+          >
+            <Text style={st.linkText}>{g.login.forgot}</Text>
+          </Pressable>
           <Button
             label={g.login.back}
             variant="secondary"
-            onPress={() => router.back()}
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace("/entrada")
+            }
           />
+          <Muted style={{ textAlign: "center" }}>{g.login.createOnWeb}</Muted>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -91,6 +107,8 @@ export default function Login() {
 }
 
 const st = StyleSheet.create({
+  link: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  linkText: { fontSize: 15, fontFamily: fonts.semibold, color: colors.blue },
   screen: { flex: 1, backgroundColor: colors.white },
   content: {
     padding: space.l,

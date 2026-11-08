@@ -23,7 +23,8 @@ import { ToastHost } from "../components/ToastHost";
 import { Button, Muted } from "../components/ui";
 import { ManagerProvider, useManager } from "../gestion/ManagerProvider";
 import { useG } from "../gestion/hooks";
-import { signedOutLanding } from "../lib/landing";
+import { PushNavigator } from "../gestion/notifications/PushNavigator";
+import { nextLanded, signedOutLanding } from "../lib/landing";
 import { I18nProvider, useStrings } from "../i18n";
 import { SessionProvider, useSession } from "../session/SessionProvider";
 import { colors, fonts } from "../theme";
@@ -32,14 +33,21 @@ import { colors, fonts } from "../theme";
 export const unstable_settings = { anchor: "entrada" };
 
 /** Signed out: send the first screen to /entrada (see lib/landing.ts). Mounted
- *  once per signed-out period, so it decides on the screen it opened on only. */
+ *  once per signed-out period. It redirects only until the phone has landed:
+ *  <Redirect> fires again on every render, so left mounted it bounced /login
+ *  back to /entrada. */
 function SignedOutLanding() {
   const pathname = usePathname();
   const { secret } = useGlobalSearchParams<{ secret?: string }>();
   const [target] = React.useState(() =>
     signedOutLanding(pathname, typeof secret === "string" && secret !== "")
   );
-  return target ? <Redirect href={target} /> : null;
+  const [landed, setLanded] = React.useState(target === null);
+  // Derived during render (no effect): once the phone is on the screen it was
+  // sent to, the redirect is gone for good.
+  const nowLanded = nextLanded(landed, target, pathname);
+  if (nowLanded !== landed) setLanded(nowLanded);
+  return !nowLanded && target ? <Redirect href={target} /> : null;
 }
 
 /** A cook who must set a PIN goes there first; right after joining, the welcome. */
@@ -103,7 +111,9 @@ function Routes() {
           backgroundColor: colors.white,
         }}
       >
-        <Muted>{g.errors.offline}</Muted>
+        <Muted>
+          {manager.problem === "storage" ? g.errors.storage : g.errors.offline}
+        </Muted>
         <Button label={g.errors.retry} onPress={manager.retry} />
         <Button
           label={g.noAccess.signOut}
@@ -139,10 +149,18 @@ function Routes() {
         <Stack.Protected guard={showManager}>
           <Stack.Screen name="platos" options={{ headerShown: false }} />
           <Stack.Screen name="factura" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="preguntar"
+            options={{ headerShown: false, presentation: "modal" }}
+          />
         </Stack.Protected>
         <Stack.Protected guard={managerIn}>
           <Stack.Screen
             name="perfil"
+            options={{ headerShown: false, presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="notificaciones"
             options={{ headerShown: false, presentation: "modal" }}
           />
         </Stack.Protected>
@@ -178,6 +196,7 @@ function Routes() {
         </Stack.Protected>
       </Stack>
       {signedOut ? <SignedOutLanding /> : null}
+      {managerIn ? <PushNavigator /> : null}
       {showKitchen ? <KitchenGates /> : null}
     </>
   );

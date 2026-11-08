@@ -5,9 +5,14 @@ import {
   canInviteTeam,
   canManageKitchenTeam,
   canUseGestion,
+  loadTokensPatiently,
   needsRefresh,
   pickCompany,
+  refreshOutcomeOf,
+  tokenLoadOf,
+  type TokenLoad,
 } from "./session-core";
+import { ApiError } from "../api/client";
 import type { ManagerCompany } from "./types";
 
 const co = (
@@ -70,5 +75,95 @@ describe("Equipo de cocina rights", () => {
     expect(canManageKitchenTeam(co("a", "viewer", ["kitchen.team"]))).toBe(
       true
     );
+  });
+});
+
+describe("renewal outcome: only the server's «no» ends the session", () => {
+  it("a rejected refresh token (401, 400, 403, unauthorized) is «rejected»", () => {
+    expect(refreshOutcomeOf(new ApiError("unauthorized", 401))).toBe(
+      "rejected"
+    );
+    expect(refreshOutcomeOf(new ApiError("client", 401))).toBe("rejected");
+    expect(refreshOutcomeOf(new ApiError("client", 400))).toBe("rejected");
+    expect(refreshOutcomeOf(new ApiError("client", 403))).toBe("rejected");
+  });
+  it("no connection, a timeout, a busy server or a login wall are «unavailable» (keep the login)", () => {
+    for (const kind of [
+      "network",
+      "timeout",
+      "unreachable",
+      "server",
+    ] as const) {
+      expect(refreshOutcomeOf(new ApiError(kind))).toBe("unavailable");
+    }
+    expect(refreshOutcomeOf(new ApiError("server", 503))).toBe("unavailable");
+    expect(refreshOutcomeOf(new ApiError("client", 429))).toBe("unavailable");
+    expect(refreshOutcomeOf(new ApiError("credentials_unreadable"))).toBe(
+      "unavailable"
+    );
+    expect(refreshOutcomeOf(new Error("anything else"))).toBe("unavailable");
+    expect(refreshOutcomeOf(undefined)).toBe("unavailable");
+  });
+});
+
+describe("what the secure store said at launch", () => {
+  const meta = JSON.stringify({
+    expiresAt: 1234,
+    user: { id: "u", email: "a@example.test", name: "Ana" },
+  });
+  it("a complete login is «found»", () => {
+    const r = tokenLoadOf({ access: "a", refresh: "r", meta });
+    expect(r.kind).toBe("found");
+    if (r.kind === "found") {
+      expect(r.tokens).toMatchObject({
+        accessToken: "a",
+        refreshToken: "r",
+        expiresAt: 1234,
+      });
+    }
+  });
+  it("nothing stored (or a part missing) is «absent» = signed out", () => {
+    expect(tokenLoadOf({ access: null, refresh: null, meta: null }).kind).toBe(
+      "absent"
+    );
+    expect(tokenLoadOf({ access: "a", refresh: null, meta }).kind).toBe(
+      "absent"
+    );
+    expect(tokenLoadOf({ access: "a", refresh: "r", meta: null }).kind).toBe(
+      "absent"
+    );
+    expect(
+      tokenLoadOf({ access: "a", refresh: "r", meta: "{broken" }).kind
+    ).toBe("absent");
+  });
+  it("retries an unreadable store, then returns the answer; a bounded number of times", async () => {
+    const found = { kind: "found", tokens: {} } as unknown as TokenLoad;
+    const answers: TokenLoad[] = [
+      { kind: "unreadable" },
+      { kind: "unreadable" },
+      found,
+    ];
+    const waits: number[] = [];
+    const got = await loadTokensPatiently(
+      async () => answers.shift() as TokenLoad,
+      async (ms) => void waits.push(ms)
+    );
+    expect(got).toBe(found);
+    expect(waits).toHaveLength(2);
+    let calls = 0;
+    const never = await loadTokensPatiently(
+      async () => (calls++, { kind: "unreadable" } as TokenLoad),
+      async () => {}
+    );
+    expect(never.kind).toBe("unreadable");
+    expect(calls).toBe(3);
+  });
+  it("does not retry «absent»", async () => {
+    let calls = 0;
+    await loadTokensPatiently(
+      async () => (calls++, { kind: "absent" } as TokenLoad),
+      async () => {}
+    );
+    expect(calls).toBe(1);
   });
 });

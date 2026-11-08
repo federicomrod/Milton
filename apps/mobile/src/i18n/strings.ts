@@ -4,7 +4,7 @@
 // do not see them.
 
 export const es = {
-  appName: "Milton Cocina",
+  appName: "Milton",
   tabs: { send: "Enviar", history: "Historial" },
   hello: "Hola, {name}",
   helloPlain: "Hola",
@@ -16,7 +16,7 @@ export const es = {
     location: "Local",
     company: "Empresa",
     logout: "Cerrar sesión",
-    version: "Milton Cocina {version}",
+    version: "Milton {version}",
     kitchenCode: "Código de cocina",
     security: "Seguridad",
     changePin: "Cambiar mi PIN",
@@ -111,6 +111,8 @@ export const es = {
     timeout: "Tardó demasiado. Inténtalo otra vez.",
     unreachable: "No pude conectar con Milton. Inténtalo en un momento.",
     signIn: "Vuelve a entrar con tu invitación.",
+    credentialsUnreadable:
+      "No pude abrir tu sesión guardada ahora. Espera un momento e inténtalo otra vez.",
     server: "Milton no responde ahora. Inténtalo en un momento.",
     generic: "Algo salió mal. Inténtalo otra vez.",
     failed: "No se pudo completar. Inténtalo otra vez.",
@@ -218,7 +220,7 @@ type Shape<T> = { [K in keyof T]: T[K] extends string ? string : Shape<T[K]> };
 export type Strings = Shape<typeof es>;
 
 export const en: Strings = {
-  appName: "Milton Kitchen",
+  appName: "Milton",
   tabs: { send: "Send", history: "History" },
   hello: "Hi, {name}",
   helloPlain: "Hi",
@@ -230,7 +232,7 @@ export const en: Strings = {
     location: "Location",
     company: "Company",
     logout: "Sign out",
-    version: "Milton Kitchen {version}",
+    version: "Milton {version}",
     kitchenCode: "Kitchen code",
     security: "Security",
     changePin: "Change my PIN",
@@ -324,6 +326,8 @@ export const en: Strings = {
     timeout: "It took too long. Try again.",
     unreachable: "I couldn't reach Milton. Try again in a moment.",
     signIn: "Sign in again with your invite.",
+    credentialsUnreadable:
+      "I could not open your saved session right now. Wait a moment and try again.",
     server: "Milton isn't answering right now. Try again in a moment.",
     generic: "Something went wrong. Try again.",
     failed: "It couldn't be completed. Try again.",
@@ -426,7 +430,7 @@ export const en: Strings = {
 };
 
 export const de: Strings = {
-  appName: "Milton Küche",
+  appName: "Milton",
   tabs: { send: "Senden", history: "Verlauf" },
   hello: "Hallo, {name}",
   helloPlain: "Hallo",
@@ -438,7 +442,7 @@ export const de: Strings = {
     location: "Standort",
     company: "Unternehmen",
     logout: "Abmelden",
-    version: "Milton Küche {version}",
+    version: "Milton {version}",
     kitchenCode: "Küchencode",
     security: "Sicherheit",
     changePin: "Meine PIN ändern",
@@ -537,6 +541,8 @@ export const de: Strings = {
     unreachable:
       "Ich konnte Milton nicht erreichen. Versuche es gleich noch einmal.",
     signIn: "Melde dich noch einmal mit deiner Einladung an.",
+    credentialsUnreadable:
+      "Deine gespeicherte Anmeldung konnte gerade nicht gelesen werden. Warte einen Moment und versuche es erneut.",
     server: "Milton antwortet gerade nicht. Versuche es gleich noch einmal.",
     generic: "Etwas ist schiefgegangen. Versuche es noch einmal.",
     failed: "Das ging nicht. Versuche es noch einmal.",

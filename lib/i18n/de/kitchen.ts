@@ -10,6 +10,16 @@ export const kitchen: Dictionary["kitchen"] = {
     managerLoginFailed:
       "Die Anmeldung ist gerade nicht möglich. Versuchen Sie es erneut.",
     managerLoadFailed: "Diese Daten konnten gerade nicht geladen werden.",
+    managerAskEmpty: "Schreiben Sie Ihre Frage.",
+    managerAskTooLong: "Die Frage ist zu lang.",
+    managerAskClarifyLocation: "Welches Restaurant meinen Sie?",
+    managerAskAllRestaurants: "Alle Restaurants",
+    managerAskFailed:
+      "Ich konnte gerade nicht antworten. Versuchen Sie es erneut.",
+    managerVoiceFailed:
+      "Ich konnte das Audio nicht verstehen. Versuchen Sie es erneut oder schreiben Sie Ihre Frage.",
+    managerVoiceTooBig: "Das Audio ist zu lang.",
+    managerPushInvalid: "Die Benachrichtigungseinstellungen sind ungültig.",
     managerPeriodInvalid: "Der Zeitraum ist ungültig.",
     managerMonthInvalid: "Der Monat ist ungültig.",
     managerPickRestaurant: "Wählen Sie ein Restaurant.",
@@ -121,5 +131,14 @@ export const kitchen: Dictionary["kitchen"] = {
     ingredientExists: '"{name}" existiert bereits. Verwenden?',
     ingredientArchived:
       '"{name}" ist archiviert. Stellen Sie es unter Zutaten wieder her oder verwenden Sie einen anderen Namen.',
+  },
+  push: {
+    dailyTitle: "Ihre Zusammenfassung von gestern",
+    dailySales: "Umsatz von gestern: {amount}.",
+    dailyProfit: "Gewinn im Monat: {amount}.",
+    dailyReady: "Ihre Zusammenfassung von gestern ist in Milton bereit.",
+    invoicesTitle: "Rechnungen zur Freigabe",
+    invoicesOne: "1 Rechnung wartet auf Ihre Freigabe.",
+    invoicesMany: "{count} Rechnungen warten auf Ihre Freigabe.",
   },
 };

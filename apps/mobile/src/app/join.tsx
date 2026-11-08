@@ -144,13 +144,13 @@ export default function Join() {
             variant="secondary"
             onPress={() => router.push("/pin")}
           />
-          {manager.status === "signedOut" ? (
-            <Button
-              label={g.welcome.managerLink}
-              variant="secondary"
-              onPress={() => router.push("/login")}
-            />
-          ) : null}
+          <Button
+            label={g.login.back}
+            variant="secondary"
+            onPress={() =>
+              router.canGoBack() ? router.back() : router.replace("/entrada")
+            }
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

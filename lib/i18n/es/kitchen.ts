@@ -6,6 +6,15 @@ export const kitchen = {
     managerLoginInvalid: "Correo o contraseña incorrectos.",
     managerLoginFailed: "No pude iniciar sesión ahora. Inténtalo de nuevo.",
     managerLoadFailed: "No pude cargar estos datos ahora.",
+    managerAskEmpty: "Escribe tu pregunta.",
+    managerAskTooLong: "La pregunta es demasiado larga.",
+    managerAskClarifyLocation: "¿De qué restaurante quieres saber?",
+    managerAskAllRestaurants: "Todos los restaurantes",
+    managerAskFailed: "No pude responder ahora. Inténtalo de nuevo.",
+    managerVoiceFailed:
+      "No pude entender el audio. Inténtalo de nuevo o escribe tu pregunta.",
+    managerVoiceTooBig: "El audio es demasiado largo.",
+    managerPushInvalid: "Los datos de notificaciones no son válidos.",
     managerPeriodInvalid: "El período no es válido.",
     managerMonthInvalid: "El mes no es válido.",
     managerPickRestaurant: "Elige un restaurante.",
@@ -115,5 +124,14 @@ export const kitchen = {
     ingredientExists: 'Ya existe "{name}". ¿Usarlo?',
     ingredientArchived:
       '"{name}" está archivado. Restáuralo en Ingredientes o usa otro nombre.',
+  },
+  push: {
+    dailyTitle: "Tu resumen de ayer",
+    dailySales: "Ventas de ayer: {amount}.",
+    dailyProfit: "Ganancia del mes: {amount}.",
+    dailyReady: "Tu resumen de ayer ya está listo en Milton.",
+    invoicesTitle: "Facturas por aprobar",
+    invoicesOne: "1 factura espera tu aprobación.",
+    invoicesMany: "{count} facturas esperan tu aprobación.",
   },
 } as const;

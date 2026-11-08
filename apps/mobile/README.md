@@ -1,4 +1,4 @@
-# Milton Cocina (Expo app)
+# Milton (Expo app: Gestión and Cocina)
 
 The cook's app for Milton: join with an invite, send a photo, a voice note or a
 text, and see your own sends and the location's recipes. No money anywhere.
@@ -97,3 +97,48 @@ company's setting, like the web.
 
 Gestión part 2 (Preguntar a Milton, push notifications, a Notificaciones
 settings screen), universal links, store builds (EAS / TestFlight / Play).
+
+
+## iOS development build (Xcode simulator and your iPhone)
+
+Expo Go cannot test push, Face ID as shipped, or universal links. A development
+build can. Nothing below creates or changes an Apple or Expo account resource
+by itself: where a step touches one, it says so.
+
+**Proposed bundle identifier:** `com.miltonlabs.milton` (in `app.config.ts`,
+`ios.bundleIdentifier`). It is not registered with Apple until you do step 6.
+
+### Simulator (no Apple account needed)
+
+1. Install the tools once: Xcode (already installed), then
+   `brew install cocoapods` (no CocoaPods is installed on this Mac today).
+2. `cd apps/mobile && npm ci`.
+3. `npx expo run:ios` — generates the native `ios/` folder (git-ignored),
+   builds, and opens the simulator. Pick an iPhone simulator when asked.
+4. For later JS-only changes: `npx expo start --dev-client` and press `i`.
+
+A simulator proves the screens and flows only. It does **not** prove push
+tokens, Face ID hardware, Keychain behaviour after a real lock, or a cold
+background launch.
+
+### Your iPhone (needs your Apple team)
+
+5. In Xcode ▸ Settings ▸ Accounts, check which team your Apple ID shows (name
+   and Team ID). Send that to Scotty to confirm before going on: the one signing
+   certificate on this Mac is «Apple Development: …», whose id is not
+   necessarily the team id.
+6. Only after that is confirmed: `npx expo run:ios --device` with the iPhone
+   connected by cable and unlocked (Developer Mode on, iPhone ▸ Settings ▸
+   Privacy & Security). Xcode registers the bundle id and a development
+   profile under that team — **this is the account-side step**; approve it
+   explicitly first.
+7. First launch: iPhone ▸ Settings ▸ General ▸ VPN & Device Management ▸ trust
+   the developer, then open Milton.
+8. Alternative without Xcode signing: `npx eas build --profile development
+   --platform ios` (needs `eas login` and an Expo project, also an account-side
+   step) and install the internal build.
+
+### What only a physical iPhone proves
+Cocina stays signed in after force-quit and after a lock-screen cold launch;
+Face ID prompt and fallback to the PIN; push permission and a received push
+(needs APNs credentials, see the notifications PR); universal links.

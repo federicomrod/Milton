@@ -8,6 +8,15 @@ export const kitchen: Dictionary["kitchen"] = {
     managerLoginInvalid: "Wrong email or password.",
     managerLoginFailed: "I could not sign you in right now. Try again.",
     managerLoadFailed: "I could not load this data right now.",
+    managerAskEmpty: "Type your question.",
+    managerAskTooLong: "The question is too long.",
+    managerAskClarifyLocation: "Which restaurant do you mean?",
+    managerAskAllRestaurants: "All restaurants",
+    managerAskFailed: "I could not answer right now. Try again.",
+    managerVoiceFailed:
+      "I could not understand the audio. Try again or type your question.",
+    managerVoiceTooBig: "The audio is too long.",
+    managerPushInvalid: "The notification settings are not valid.",
     managerPeriodInvalid: "The period is not valid.",
     managerMonthInvalid: "The month is not valid.",
     managerPickRestaurant: "Pick a restaurant.",
@@ -116,5 +125,14 @@ export const kitchen: Dictionary["kitchen"] = {
     ingredientExists: '"{name}" already exists. Use it?',
     ingredientArchived:
       '"{name}" is archived. Restore it in Ingredients or use another name.',
+  },
+  push: {
+    dailyTitle: "Your summary of yesterday",
+    dailySales: "Yesterday's sales: {amount}.",
+    dailyProfit: "Profit this month: {amount}.",
+    dailyReady: "Your summary of yesterday is ready in Milton.",
+    invoicesTitle: "Invoices to approve",
+    invoicesOne: "1 invoice is waiting for your approval.",
+    invoicesMany: "{count} invoices are waiting for your approval.",
   },
 };

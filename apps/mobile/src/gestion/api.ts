@@ -5,6 +5,8 @@
 
 import { ApiError, createRequester } from "../api/client";
 import type { RedeemResponse } from "../api/types";
+import type { RefreshOutcome } from "./session-core";
+import { createSseReader, type AskEvent, type ChatTurn } from "./ask-core";
 import type {
   ApproveResult,
   CostosData,
@@ -14,6 +16,7 @@ import type {
   LocationRef,
   ManagerMe,
   ManagerTokens,
+  PushPrefsData,
   RentabilidadData,
   VentasData,
   VentasPeriod,
@@ -22,12 +25,14 @@ import type {
 export interface ManagerApiDeps {
   baseUrl: string;
   getToken: () => Promise<string | null>;
-  /** Renews the session. true = a new access token is ready. */
-  refreshSession: () => Promise<boolean>;
+  /** Renews the session (see RefreshOutcome: only «rejected» ends it). */
+  refreshSession: () => Promise<RefreshOutcome>;
   /** The session cannot be renewed: sign out. */
   onSignedOut: () => void | Promise<void>;
   language?: string | (() => string);
   fetchImpl?: typeof fetch;
+  /** A fetch whose body can be read as it arrives (expo/fetch on the phone). */
+  streamFetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
 
@@ -49,7 +54,13 @@ export function createManagerApi(deps: ManagerApiDeps) {
       return await run();
     } catch (err) {
       if (!(err instanceof ApiError) || err.kind !== "unauthorized") throw err;
-      if (await deps.refreshSession()) {
+      const outcome = await deps.refreshSession();
+      if (outcome === "unavailable") {
+        // Nothing was decided (offline, a timeout, server trouble): keep the
+        // login and let the screen offer «try again».
+        throw new ApiError("network");
+      }
+      if (outcome === "ok") {
         try {
           return await run();
         } catch (again) {
@@ -63,7 +74,129 @@ export function createManagerApi(deps: ManagerApiDeps) {
     }
   }
 
+  const base = deps.baseUrl.replace(/\/+$/, "");
+  const lang = () =>
+    typeof deps.language === "function" ? deps.language() : deps.language;
+
+  /** One authorised call with a raw response (streaming and audio). */
+  async function rawOnce(
+    path: string,
+    init: { body: BodyInit; contentType: string; signal?: AbortSignal },
+    doFetch: typeof fetch
+  ): Promise<Response> {
+    const token = await deps.getToken();
+    if (!token) throw new ApiError("unauthorized", 401);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": init.contentType,
+    };
+    const l = lang();
+    if (l) headers["Accept-Language"] = l;
+    let res: Response;
+    try {
+      res = await doFetch(`${base}${path}`, {
+        method: "POST",
+        headers,
+        body: init.body,
+        signal: init.signal,
+      });
+    } catch {
+      throw new ApiError("network");
+    }
+    if (res.status === 401) throw new ApiError("unauthorized", 401);
+    if (!res.ok) {
+      throw new ApiError(res.status >= 500 ? "server" : "client", res.status);
+    }
+    return res;
+  }
+
   return {
+    /**
+     * Preguntar a Milton. Calls `onEvent` for clarify / delta / final / error and
+     * resolves when the stream ends. `location` = one restaurant; `all` = the
+     * person chose «Todos». Nothing is stored on the phone.
+     */
+    ask: (input: {
+      message: string;
+      conversation: ChatTurn[];
+      location?: string | null;
+      all?: boolean;
+      signal?: AbortSignal;
+      onEvent: (e: AskEvent) => void;
+    }) =>
+      authed(async () => {
+        const res = await rawOnce(
+          `${V1}/ask${qs({ location: input.location })}`,
+          {
+            body: JSON.stringify({
+              message: input.message,
+              conversation: input.conversation,
+              ...(input.all ? { scope: "all" } : {}),
+            }),
+            contentType: "application/json",
+            signal: input.signal,
+          },
+          deps.streamFetchImpl ?? deps.fetchImpl ?? fetch
+        );
+        const reader = createSseReader(input.onEvent);
+        if (!res.body) {
+          reader.push(await res.text());
+          reader.end();
+          return;
+        }
+        const decoder = new TextDecoder();
+        const stream = res.body.getReader();
+        for (;;) {
+          const { done, value } = await stream.read();
+          if (done) break;
+          reader.push(decoder.decode(value, { stream: true }));
+        }
+        reader.end();
+      }),
+    /** A spoken question to text. The audio is not kept on the server. */
+    transcribe: (audio: Blob) =>
+      authed(async () => {
+        const res = await rawOnce(
+          `${V1}/ask/transcribe`,
+          { body: audio, contentType: "audio/m4a" },
+          deps.fetchImpl ?? fetch
+        );
+        const body = (await res.json()) as { text?: unknown };
+        if (typeof body.text !== "string") throw new ApiError("unreachable");
+        return body.text;
+      }),
+    /** This phone's Expo push token for the signed-in manager (own rows only). */
+    registerPush: (input: {
+      token: string;
+      platform: string;
+      timezone: string;
+      dailyEnabled?: boolean;
+      criticalEnabled?: boolean;
+      dailyHour?: number;
+      quietStart?: number;
+      quietEnd?: number;
+    }) =>
+      authed(() =>
+        request<{ registered: boolean }>("PUT", `${V1}/push/register`, {
+          body: input,
+        })
+      ),
+    unregisterPush: (token: string) =>
+      authed(() =>
+        request<{ registered: boolean }>("DELETE", `${V1}/push/register`, {
+          body: { token },
+        })
+      ),
+    pushPrefs: (token: string | null) =>
+      authed(() =>
+        request<PushPrefsData>("GET", `${V1}/push/preferences${qs({ token })}`)
+      ),
+    savePushPrefs: (token: string, patch: Partial<PushPrefsData>) =>
+      authed(() =>
+        request<PushPrefsData>("PUT", `${V1}/push/preferences`, {
+          body: { token, ...patch },
+        })
+      ),
     login: (email: string, password: string) =>
       request<ManagerTokens>("POST", `${V1}/auth/login`, {
         body: { email, password },

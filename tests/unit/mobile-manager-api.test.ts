@@ -1020,6 +1020,48 @@ describe("sign-in", () => {
   });
 });
 
+describe("refresh: revoked access is enforced, temporary trouble is not a sign-out", () => {
+  const refreshWith = async (error: unknown) => {
+    h.refresh.mockResolvedValue({ data: { session: null }, error });
+    return call(refreshPOST, "auth/refresh", null, {
+      method: "POST",
+      body: { refreshToken: "refresh-1" },
+    });
+  };
+
+  it("a refusal from Supabase (revoked / expired / unknown token) is a 401: sign in again", async () => {
+    for (const status of [400, 401, 403, 404, 422]) {
+      expect((await refreshWith({ status })).status, String(status)).toBe(401);
+    }
+    // No error and no session is also a refusal.
+    expect((await refreshWith(null)).status).toBe(401);
+  });
+
+  it("a dropped connection or a busy Supabase is a 503, never a 401", async () => {
+    for (const error of [
+      { name: "AuthRetryableFetchError", status: 0 },
+      { name: "AuthRetryableFetchError", status: 502 },
+      { status: 500 },
+      { status: 503 },
+      { status: 429 },
+      {},
+    ]) {
+      const res = await refreshWith(error);
+      expect(res.status, JSON.stringify(error)).toBe(503);
+      expect((await res.json()).error).toBeTruthy();
+    }
+  });
+
+  it("an unexpected crash is a 503 as well", async () => {
+    h.refresh.mockRejectedValue(new Error("network down"));
+    const res = await call(refreshPOST, "auth/refresh", null, {
+      method: "POST",
+      body: { refreshToken: "refresh-1" },
+    });
+    expect(res.status).toBe(503);
+  });
+});
+
 describe("Invitar a mi equipo reuses the kitchen invites API (owner only)", () => {
   it("a manager cannot create an invite (kitchen.qr is the owner's)", async () => {
     const res = await call(

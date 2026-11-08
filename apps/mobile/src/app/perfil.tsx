@@ -21,6 +21,8 @@ import { TeamSection } from "../gestion/TeamSection";
 import { deviceLabel } from "../lib/device";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
+import { endsKitchenWithManager } from "../lib/entry";
+import { unregisterThisPhone } from "../gestion/notifications/usePush";
 import { useSession } from "../session/SessionProvider";
 import { fmt } from "../i18n/strings";
 import { initials } from "../gestion/format";
@@ -209,11 +211,16 @@ export default function Perfil() {
             ) : null}
           </Pressable>
         ))}
-        <View style={[st.row, st.rowBorder]}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/notificaciones")}
+          style={[st.row, st.rowBorder]}
+        >
           <Icon name="notifications-outline" size={20} />
           <Text style={st.rowText}>{g.profile.notifications}</Text>
           <Text style={st.value}>{g.profile.dailySummary}</Text>
-        </View>
+          <Icon name="chevron-forward" size={18} />
+        </Pressable>
         {canInviteTeam(m.company) ? (
           <Pressable
             accessibilityRole="button"
@@ -249,8 +256,18 @@ export default function Perfil() {
         label={g.profile.signOut}
         variant="secondary"
         onPress={async () => {
+          // The manager's own kitchen session goes with the account; a cook's
+          // own session on this phone is left alone.
+          if (endsKitchenWithManager(kitchen.profile)) {
+            try {
+              await kitchen.api.logout(); // revokes this phone's kitchen device
+            } catch {
+              // Offline or already revoked: signing out here is enough.
+            }
+            await kitchen.signOut();
+          }
+          await unregisterThisPhone(m.api);
           await m.signOut();
-          router.dismissAll?.();
           router.replace("/");
         }}
       />

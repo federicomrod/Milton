@@ -68,162 +68,186 @@ export default function Inicio() {
             : null;
           const shown = home.highlights.slice(0, MAX_HIGHLIGHTS);
           return (
-            <ScrollView contentContainerStyle={st.content}>
-              <View style={st.greetBlock}>
-                <Text style={st.hello} accessibilityRole="header">
-                  {first
-                    ? fmt(g.header.hello, { name: first })
-                    : g.header.helloPlain}
-                </Text>
-                <Muted>
-                  {asOf
-                    ? `${formatDateLong(isoDay(now), lang)} · ${asOf}`
-                    : formatDateLong(isoDay(now), lang)}
-                </Muted>
-              </View>
-
-              <View style={st.kpis}>
-                <View style={[st.kpi, st.kpiBlue]}>
-                  <View style={gst.row}>
-                    <Text style={st.kpiLabelOnBlue}>
-                      {g.home.yesterdaySales}
-                    </Text>
-                    {home.yesterday && home.yesterday.trend.length > 1 ? (
-                      <Sparkbars values={home.yesterday.trend} />
-                    ) : null}
-                  </View>
-                  {home.yesterday && home.yesterday.net !== null ? (
-                    <>
-                      <Text style={st.kpiBig}>
-                        {formatMoney(home.yesterday.net, home.currency, lang)}
-                      </Text>
-                      <DeltaChip
-                        value={home.yesterday.delta}
-                        suffix={home.yesterday.compareLabel}
-                      />
-                    </>
-                  ) : (
-                    <Text style={st.kpiLabelOnBlue}>{g.home.noSales}</Text>
-                  )}
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => router.push("/rentabilidad")}
-                  style={[st.kpi, st.kpiLine]}
-                >
-                  <Text style={st.kpiLabel}>{g.home.monthProfit}</Text>
-                  {home.month === null ? (
-                    <Muted>{g.home.needRestaurant}</Muted>
-                  ) : !home.month.hasData || home.month.profit === null ? (
-                    <Muted>{g.home.noMonthData}</Muted>
-                  ) : (
-                    <>
-                      <Text
-                        style={[st.kpiBig, { color: colors.ink, fontSize: 24 }]}
-                      >
-                        {formatMoney(home.month.profit, home.currency, lang)}
-                      </Text>
-                      <View style={st.chips}>
-                        <View style={st.mint}>
-                          <Text style={st.mintText}>
-                            {fmt(g.home.marginChip, {
-                              pct: formatFraction(home.month.profitPct, lang),
-                            })}
-                          </Text>
-                        </View>
-                        {home.month.basis === "estimada" ? (
-                          <View style={st.amarillo}>
-                            <Text style={st.mintText}>{g.home.estimated}</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    </>
-                  )}
-                </Pressable>
-              </View>
-
-              <View style={[gst.row, st.sectionRow]}>
-                <Text style={st.section}>{g.home.highlights}</Text>
-                {home.highlights.length > MAX_HIGHLIGHTS ? (
+            <>
+              <ScrollView contentContainerStyle={st.content}>
+                <View style={st.greetBlock}>
+                  <Text style={st.hello} accessibilityRole="header">
+                    {first
+                      ? fmt(g.header.hello, { name: first })
+                      : g.header.helloPlain}
+                  </Text>
                   <Muted>
-                    {fmt(g.home.highlightsCount, {
-                      n: shown.length,
-                      total: home.highlights.length,
-                    })}
+                    {asOf
+                      ? `${formatDateLong(isoDay(now), lang)} · ${asOf}`
+                      : formatDateLong(isoDay(now), lang)}
                   </Muted>
-                ) : null}
-              </View>
-              {shown.length === 0 ? (
-                <Muted>{g.home.noHighlights}</Muted>
-              ) : (
-                shown.map((h) => {
-                  const k = KIND[h.kind] ?? KIND.coverage;
-                  return (
-                    <Pressable
-                      key={h.id}
-                      accessibilityRole="button"
-                      onPress={() => router.push("/rentabilidad")}
-                    >
-                      <Panel style={st.card}>
-                        <View style={[st.bubble, { backgroundColor: k.bg }]}>
-                          <Icon name={k.icon} size={20} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={st.cardTitle}>{h.text}</Text>
-                          <View style={st.link}>
-                            <Text style={st.linkText}>{g.home.seeProfit}</Text>
-                            <Icon
-                              name="chevron-forward"
-                              size={14}
-                              color={colors.blue}
-                            />
-                          </View>
-                        </View>
-                      </Panel>
-                    </Pressable>
-                  );
-                })
-              )}
+                </View>
 
-              {home.pending.count > 0 ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => router.push("/costos")}
-                >
-                  <Panel style={st.card}>
-                    <View
-                      style={[st.bubble, { backgroundColor: colors.amarillo }]}
-                    >
-                      <Icon name="receipt-outline" size={20} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={st.cardTitle}>
-                        {home.pending.count === 1
-                          ? g.home.pendingWaitingOne
-                          : fmt(g.home.pendingWaiting, {
-                              count: home.pending.count,
-                            })}
+                <View style={st.kpis}>
+                  <View style={[st.kpi, st.kpiBlue]}>
+                    <View style={gst.row}>
+                      <Text style={st.kpiLabelOnBlue}>
+                        {g.home.yesterdaySales}
                       </Text>
-                      {home.pending.suppliers.length > 0 ? (
-                        <Muted style={{ marginTop: 3 }}>
-                          {fmt(g.home.pendingFrom, {
-                            suppliers: home.pending.suppliers.join(", "),
-                          })}
-                        </Muted>
+                      {home.yesterday && home.yesterday.trend.length > 1 ? (
+                        <Sparkbars values={home.yesterday.trend} />
                       ) : null}
-                      <View style={st.link}>
-                        <Text style={st.linkText}>{g.home.review}</Text>
-                        <Icon
-                          name="chevron-forward"
-                          size={14}
-                          color={colors.blue}
-                        />
-                      </View>
                     </View>
-                  </Panel>
-                </Pressable>
-              ) : null}
-            </ScrollView>
+                    {home.yesterday && home.yesterday.net !== null ? (
+                      <>
+                        <Text style={st.kpiBig}>
+                          {formatMoney(home.yesterday.net, home.currency, lang)}
+                        </Text>
+                        <DeltaChip
+                          value={home.yesterday.delta}
+                          suffix={home.yesterday.compareLabel}
+                        />
+                      </>
+                    ) : (
+                      <Text style={st.kpiLabelOnBlue}>{g.home.noSales}</Text>
+                    )}
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => router.push("/rentabilidad")}
+                    style={[st.kpi, st.kpiLine]}
+                  >
+                    <Text style={st.kpiLabel}>{g.home.monthProfit}</Text>
+                    {home.month === null ? (
+                      <Muted>{g.home.needRestaurant}</Muted>
+                    ) : !home.month.hasData || home.month.profit === null ? (
+                      <Muted>{g.home.noMonthData}</Muted>
+                    ) : (
+                      <>
+                        <Text
+                          style={[
+                            st.kpiBig,
+                            { color: colors.ink, fontSize: 24 },
+                          ]}
+                        >
+                          {formatMoney(home.month.profit, home.currency, lang)}
+                        </Text>
+                        <View style={st.chips}>
+                          <View style={st.mint}>
+                            <Text style={st.mintText}>
+                              {fmt(g.home.marginChip, {
+                                pct: formatFraction(home.month.profitPct, lang),
+                              })}
+                            </Text>
+                          </View>
+                          {home.month.basis === "estimada" ? (
+                            <View style={st.amarillo}>
+                              <Text style={st.mintText}>
+                                {g.home.estimated}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+
+                <View style={[gst.row, st.sectionRow]}>
+                  <Text style={st.section}>{g.home.highlights}</Text>
+                  {home.highlights.length > MAX_HIGHLIGHTS ? (
+                    <Muted>
+                      {fmt(g.home.highlightsCount, {
+                        n: shown.length,
+                        total: home.highlights.length,
+                      })}
+                    </Muted>
+                  ) : null}
+                </View>
+                {shown.length === 0 ? (
+                  <Muted>{g.home.noHighlights}</Muted>
+                ) : (
+                  shown.map((h) => {
+                    const k = KIND[h.kind] ?? KIND.coverage;
+                    return (
+                      <Pressable
+                        key={h.id}
+                        accessibilityRole="button"
+                        onPress={() => router.push("/rentabilidad")}
+                      >
+                        <Panel style={st.card}>
+                          <View style={[st.bubble, { backgroundColor: k.bg }]}>
+                            <Icon name={k.icon} size={20} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={st.cardTitle}>{h.text}</Text>
+                            <View style={st.link}>
+                              <Text style={st.linkText}>
+                                {g.home.seeProfit}
+                              </Text>
+                              <Icon
+                                name="chevron-forward"
+                                size={14}
+                                color={colors.blue}
+                              />
+                            </View>
+                          </View>
+                        </Panel>
+                      </Pressable>
+                    );
+                  })
+                )}
+
+                {home.pending.count > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => router.push("/costos")}
+                  >
+                    <Panel style={st.card}>
+                      <View
+                        style={[
+                          st.bubble,
+                          { backgroundColor: colors.amarillo },
+                        ]}
+                      >
+                        <Icon name="receipt-outline" size={20} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={st.cardTitle}>
+                          {home.pending.count === 1
+                            ? g.home.pendingWaitingOne
+                            : fmt(g.home.pendingWaiting, {
+                                count: home.pending.count,
+                              })}
+                        </Text>
+                        {home.pending.suppliers.length > 0 ? (
+                          <Muted style={{ marginTop: 3 }}>
+                            {fmt(g.home.pendingFrom, {
+                              suppliers: home.pending.suppliers.join(", "),
+                            })}
+                          </Muted>
+                        ) : null}
+                        <View style={st.link}>
+                          <Text style={st.linkText}>{g.home.review}</Text>
+                          <Icon
+                            name="chevron-forward"
+                            size={14}
+                            color={colors.blue}
+                          />
+                        </View>
+                      </View>
+                    </Panel>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={g.ask.title}
+                onPress={() => router.push("/preguntar")}
+                style={st.askBar}
+              >
+                <Icon name="sparkles-outline" size={18} />
+                <Text style={st.askText}>{g.ask.bar}</Text>
+                <View style={st.askMic}>
+                  <Icon name="mic" size={18} color={colors.white} />
+                </View>
+              </Pressable>
+            </>
           );
         }}
       </Async>
@@ -232,6 +256,35 @@ export default function Inicio() {
 }
 
 const st = StyleSheet.create({
+  askBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    minHeight: 50,
+    paddingLeft: 16,
+    paddingRight: 6,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: colors.lavender,
+    backgroundColor: colors.white,
+  },
+  askText: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  askMic: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.blue,
+  },
   content: { paddingHorizontal: space.l, paddingBottom: space.xl, gap: 10 },
   greetBlock: { gap: 2, marginTop: 6, marginBottom: 6 },
   hello: {

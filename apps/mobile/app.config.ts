@@ -62,7 +62,11 @@ const config: ExpoConfig = {
       {
         cameraPermission: both(CAMERA_ES, CAMERA_EN),
         photosPermission: both(PHOTOS_ES, PHOTOS_EN),
-        microphonePermission: false,
+        // NOT false: this plugin deletes NSMicrophoneUsageDescription when it is
+        // false, and because mods run in reverse order that removed the string
+        // expo-audio had just set. Without it iOS never shows the microphone
+        // prompt and answers «denied» at once (Preguntar a Milton, Cocina voice).
+        microphonePermission: both(MIC_ES, MIC_EN),
       },
     ],
     ["expo-audio", { microphonePermission: both(MIC_ES, MIC_EN) }],

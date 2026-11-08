@@ -7,6 +7,7 @@
 import React from "react";
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -21,6 +22,7 @@ import {
 } from "react-native-safe-area-context";
 import {
   RecordingPresets,
+  getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioRecorder,
@@ -28,6 +30,7 @@ import {
 import { useRouter } from "expo-router";
 import { Icon, Muted } from "../components/ui";
 import { useG } from "../gestion/hooks";
+import { micStepAfterAsking, micStepFor } from "../gestion/mic-core";
 import { useManager } from "../gestion/ManagerProvider";
 import {
   trimConversation,
@@ -64,6 +67,8 @@ export default function Preguntar() {
   );
   const [recording, setRecording] = React.useState(false);
   const [micError, setMicError] = React.useState<string | null>(null);
+  // Only a real denial or restriction: it gets its own message and Settings.
+  const [micDenied, setMicDenied] = React.useState(false);
   // The restaurant for this chat: the one in view, or what the person picked.
   const [scope, setScope] = React.useState<{ id: string | null; all: boolean }>(
     {
@@ -171,6 +176,7 @@ export default function Preguntar() {
   async function toggleMic() {
     if (busy === "transcribing") return;
     setMicError(null);
+    setMicDenied(false);
     if (recording) {
       if (stopTimer.current) clearTimeout(stopTimer.current);
       setRecording(false);
@@ -194,11 +200,16 @@ export default function Preguntar() {
       return;
     }
     try {
-      const permission = await requestRecordingPermissionsAsync();
-      if (!permission.granted) {
-        setMicError(g.ask.micPermission);
+      // Ask the system first, so only a real denial reads as one.
+      let step = micStepFor(await getRecordingPermissionsAsync());
+      if (step === "ask") {
+        step = micStepAfterAsking(await requestRecordingPermissionsAsync());
+      }
+      if (step === "settings") {
+        setMicDenied(true);
         return;
       }
+      setMicDenied(false);
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
@@ -339,6 +350,18 @@ export default function Preguntar() {
             )
           )}
         </ScrollView>
+        {micDenied ? (
+          <View style={st.micError}>
+            <Muted>{g.ask.micDenied}</Muted>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void Linking.openSettings()}
+              style={st.chip}
+            >
+              <Text style={st.chipText}>{g.ask.openSettings}</Text>
+            </Pressable>
+          </View>
+        ) : null}
         {micError ? <Muted style={st.micError}>{micError}</Muted> : null}
         {recording || busy === "transcribing" ? (
           <Muted style={st.micError}>
@@ -473,7 +496,7 @@ const st = StyleSheet.create({
     color: colors.ink,
   },
   factValue: { fontSize: 14, fontFamily: fonts.bold, color: colors.ink },
-  micError: { paddingHorizontal: space.l, paddingBottom: 6 },
+  micError: { paddingHorizontal: space.l, paddingBottom: 6, gap: 8 },
   composer: {
     flexDirection: "row",
     alignItems: "flex-end",

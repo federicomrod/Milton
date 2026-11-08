@@ -55,12 +55,11 @@ import {
   loadBusinessToday,
   loadRestaurantBuffers,
 } from "@/lib/restaurant/kitchen-buffer-server";
-import { FixedCostsTab } from "@/components/restaurant/costs/FixedCostsTab";
+import { FixedCostsWorkspace } from "@/components/restaurant/costs/FixedCostsWorkspace";
 import {
-  listFixedCostHistory,
-  loadFixedCostsView,
-  monthSalesByLocation,
-} from "@/lib/restaurant/fixed-costs-server";
+  loadFixedCostActivity,
+  loadFixedCostOverview,
+} from "@/lib/restaurant/fixed-cost-overview-server";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
 import { loadMonthMargin } from "@/lib/restaurant/rentabilidad-server";
 import { resolveRestaurantContext } from "@/lib/restaurant/restaurant-context-server";
@@ -539,55 +538,45 @@ async function CostosFijosTab({
     const restaurantIds = context.locations.map((l) => l.id);
     // READ ONLY. Rendering a month never writes: no auto-copy, no history row.
     // Copying a month is an explicit action («Copiar de …», /fixed-costs/copy).
-    const splitSalesP = locationId
-      ? Promise.resolve(null)
-      : monthSalesByLocation(supabase, companyId, month).catch(
-          () => new Map<string, number>()
-        );
-    const [splitSales, marginRead] = await Promise.all([
-      splitSalesP,
-      loadMonthMargin({
-        supabase,
-        companyId,
-        locationId,
-        restaurantIds,
-        month,
-        lang,
-      }),
-    ]);
-    const [view, history] = await Promise.all([
-      loadFixedCostsView(ctx, {
-        month,
+    const [loaded, activity] = await Promise.all([
+      loadFixedCostOverview(ctx, {
+        endMonth: month,
         locationId,
         brandId: context.selected?.brandId ?? null,
-        restaurantIds: context.locations.map((l) => l.id),
-        marginRead,
+        restaurantIds,
+        // The SAME margin read Rentabilidad uses, once per month of the window.
+        marginFor: (m) =>
+          loadMonthMargin({
+            supabase,
+            companyId,
+            locationId,
+            restaurantIds,
+            month: m,
+            lang,
+          }),
       }),
-      listFixedCostHistory(supabase, companyId, { locationId, month }),
+      loadFixedCostActivity(ctx, locationId),
     ]);
     return (
-      <FixedCostsTab
-        key={`${month}|${locationId ?? "group"}`}
-        view={view}
-        history={history}
+      <FixedCostsWorkspace
+        overview={loaded.overview}
+        itemsByMonth={Object.fromEntries(
+          Object.entries(loaded.views).map(([m, v]) => [m, v.items])
+        )}
+        activity={activity}
+        currency={loaded.currency}
+        selectedMonth={month}
+        currentMonth={currentMonth}
+        locationId={locationId}
         locationName={
           context.locations.find((l) => l.id === locationId)?.name ?? null
         }
-        shellParams={shellParams}
-        currentMonth={currentMonth}
         restaurants={context.locations.map((l) => ({
           id: l.id,
           name: l.name,
         }))}
-        splitTargets={
-          splitSales
-            ? context.locations.map((l) => ({
-                location_id: l.id,
-                name: l.name,
-                sales: splitSales.get(l.id) ?? null,
-              }))
-            : []
-        }
+        shellParams={shellParams}
+        canWrite
       />
     );
   } catch (err) {

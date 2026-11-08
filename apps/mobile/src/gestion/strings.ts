@@ -275,7 +275,9 @@ const es = {
     listening: "Escuchando… toca para detener",
     transcribing: "Entendiendo tu pregunta…",
     thinking: "Pensando…",
-    micPermission: "Activa el micrófono en Ajustes para preguntar con voz.",
+    micDenied:
+      "El micrófono está desactivado o restringido para Milton. Actívalo en Ajustes para preguntar con voz.",
+    openSettings: "Abrir Ajustes",
     voiceFailed:
       "No pude entender el audio. Inténtalo de nuevo o escribe tu pregunta.",
     failed: "No pude responder ahora. Inténtalo de nuevo.",
@@ -600,7 +602,9 @@ const en: typeof es = {
     listening: "Listening… tap to stop",
     transcribing: "Understanding your question…",
     thinking: "Thinking…",
-    micPermission: "Turn on the microphone in Settings to ask with voice.",
+    micDenied:
+      "The microphone is off or restricted for Milton. Turn it on in Settings to ask with voice.",
+    openSettings: "Open Settings",
     voiceFailed:
       "I could not understand the audio. Try again or type your question.",
     failed: "I could not answer right now. Try again.",
@@ -925,8 +929,9 @@ const de: typeof es = {
     listening: "Ich höre zu… zum Beenden tippen",
     transcribing: "Ich verstehe Ihre Frage…",
     thinking: "Ich denke nach…",
-    micPermission:
-      "Aktivieren Sie das Mikrofon in den Einstellungen, um per Sprache zu fragen.",
+    micDenied:
+      "Das Mikrofon ist für Milton ausgeschaltet oder eingeschränkt. Schalten Sie es in den Einstellungen ein, um per Sprache zu fragen.",
+    openSettings: "Einstellungen öffnen",
     voiceFailed:
       "Ich konnte das Audio nicht verstehen. Versuchen Sie es erneut oder schreiben Sie Ihre Frage.",
     failed: "Ich konnte gerade nicht antworten. Versuchen Sie es erneut.",

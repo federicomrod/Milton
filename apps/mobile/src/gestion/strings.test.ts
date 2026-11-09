@@ -82,4 +82,14 @@ describe("Gestión strings", () => {
       }
     }
   });
+
+  it("German speaks to the reader as du, never the formal Sie/Ihr", () => {
+    // "Sie" meaning she/it stays ("Sie gilt nur einmal"), so only the formal
+    // address is checked: any Ihr- form, or Sie after a verb or before one of
+    // the verbs the formal copy used.
+    const formal =
+      /\b(Ihr|Ihre|Ihren|Ihrem|Ihrer|Ihres|Ihnen)\b|\b[A-Za-zäöüß]+ Sie\b|\bSie (müssen|verkaufen|erreichen|brauchen|haben|erhalten|bleiben|wählen)\b/;
+    const offenders = [...flat.de].filter(([, v]) => formal.test(v));
+    expect(offenders).toEqual([]);
+  });
 });

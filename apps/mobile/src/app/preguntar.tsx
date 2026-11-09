@@ -31,6 +31,7 @@ import { useRouter } from "expo-router";
 import { Icon, Muted } from "../components/ui";
 import { useG } from "../gestion/hooks";
 import { micStepAfterAsking, micStepFor } from "../gestion/mic-core";
+import { isTooShort, usableTranscript } from "../gestion/voice-core";
 import { useManager } from "../gestion/ManagerProvider";
 import {
   trimConversation,
@@ -79,6 +80,7 @@ export default function Preguntar() {
   const scroll = React.useRef<React.ComponentRef<typeof ScrollView>>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const stopTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAt = React.useRef(0);
   const abort = React.useRef<AbortController | null>(null);
 
   React.useEffect(() => () => abort.current?.abort(), []);
@@ -187,11 +189,20 @@ export default function Preguntar() {
       }
       const uri = recorder.uri;
       if (!uri) return;
+      // An accidental tap records nothing worth sending: say so, don't upload.
+      if (isTooShort(Date.now() - startedAt.current)) {
+        setMicError(g.ask.voiceFailed);
+        return;
+      }
       setBusy("transcribing");
       try {
         const blob = await (await fetch(uri)).blob();
-        const text = await api.transcribe(blob);
-        setInput(text);
+        const text = usableTranscript(await api.transcribe(blob));
+        if (text === null) {
+          setMicError(g.ask.voiceFailed);
+        } else {
+          setInput(text);
+        }
       } catch {
         setMicError(g.ask.voiceFailed);
       } finally {
@@ -216,6 +227,7 @@ export default function Preguntar() {
       });
       await recorder.prepareToRecordAsync();
       recorder.record();
+      startedAt.current = Date.now();
       setRecording(true);
       stopTimer.current = setTimeout(() => void toggleMic(), MAX_RECORD_MS);
     } catch {

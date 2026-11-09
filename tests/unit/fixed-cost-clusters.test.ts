@@ -13,11 +13,7 @@ import {
   sortForReview,
   vsLastMonth,
 } from "@/lib/restaurant/fixed-cost-clusters";
-import {
-  planApproval,
-  keyOfLine,
-  type DraftLine,
-} from "@/lib/restaurant/fixed-cost-upload";
+import { type DraftLine } from "@/lib/restaurant/fixed-cost-upload";
 import { fakeSupabase } from "./helpers/fake-memory-db";
 
 vi.mock("@/lib/restaurant/currency", () => ({
@@ -25,7 +21,6 @@ vi.mock("@/lib/restaurant/currency", () => ({
 }));
 
 import {
-  approveDraft,
   createDraft,
   editDraft,
 } from "@/lib/restaurant/fixed-cost-upload-server";
@@ -77,7 +72,7 @@ describe("figuresOf: everything derives from the confirmed clusters", () => {
     expect(a.missingAmounts).toEqual(["alquiler", "servicios", "otros"]);
   });
 
-  it("all four amounts in: not partial; the tax rate comes out of the margin once", () => {
+  it("all four amounts in: partial only until the tax rate is set; the rate comes out of the margin once", () => {
     const all = {
       planilla: c(21000),
       alquiler: c(8400),
@@ -86,7 +81,11 @@ describe("figuresOf: everything derives from the confirmed clusters", () => {
     };
     const noTax = figures(all);
     const withTax = figures({ ...all, impuestos: c(10) });
-    expect(noTax.partial).toBe(false);
+    // No tax rate is NOT guessed: the figure is labelled partial and says why.
+    expect(noTax.partial).toBe(true);
+    expect(noTax.engine.missing).toEqual([{ kind: "tax" }]);
+    expect(withTax.partial).toBe(false);
+    expect(withTax.engine.status).toBe("complete");
     expect(noTax.fixed.total).toBe(32350);
     expect(withTax.breakEven as number).toBeGreaterThan(
       noTax.breakEven as number
@@ -260,81 +259,7 @@ describe("the review list statuses", () => {
   });
 });
 
-describe("server: Sumar adds to a value from elsewhere", () => {
-  const existing = new Map([
-    [
-      keyOfLine(line({})),
-      {
-        amount: 21400,
-        pct_of_sales: null,
-        source: "manual",
-        label: "Nómina junio",
-      },
-    ],
-  ]);
-
-  it("without a choice it is a conflict; Reemplazar is the confirm; Sumar adds", () => {
-    const plain = planApproval([line({})], existing);
-    expect(plain.conflicts).toHaveLength(1);
-    const added = planApproval(
-      [line({})],
-      existing,
-      [],
-      new Set([keyOfLine(line({}))])
-    );
-    expect(added.conflicts).toHaveLength(0);
-    expect(added.writes[0].line.amount).toBe(43500);
-    expect(added.writes[0].line.raw).toBe("Nómina junio + Nómina");
-  });
-
-  it("a rate is never added even if asked", () => {
-    const k = keyOfLine(line({ category: "impuestos" }));
-    const ex = new Map([
-      [k, { amount: null, pct_of_sales: 13, source: "manual" }],
-    ]);
-    const r = planApproval(
-      [line({ category: "impuestos", amount: 16 })],
-      ex,
-      [],
-      new Set([k])
-    );
-    expect(r.conflicts).toHaveLength(1);
-  });
-
-  it("approveDraft with adds writes today + invoice", async () => {
-    const db = fakeSupabase({
-      restaurant_fixed_costs: [
-        {
-          id: "fc1",
-          company_id: "c1",
-          location_id: LOC,
-          month: "2026-10-01",
-          category: "planilla",
-          label: "Nómina junio",
-          amount: 21400,
-          pct_of_sales: null,
-          source: "manual",
-        },
-      ],
-    });
-    const ctx = { supabase: db.client, companyId: "c1", userId: "u1" };
-    const draft = (await createDraft(ctx, {
-      fileName: "costos-demo.csv",
-      month: "2026-10-01",
-      locationId: LOC,
-      lines: [line({})],
-    }))!;
-    const res = await approveDraft(ctx, draft, {
-      lineIds: ["l1"],
-      adds: ["l1"],
-    });
-    expect(res.ok).toBe(true);
-    expect(db.tables.restaurant_fixed_costs[0]).toMatchObject({
-      amount: 43500,
-      source: "upload",
-    });
-  });
-});
+// «Sumar» / «Reemplazar» are database decisions now: tests/pg/approve.test.ts.
 
 describe("server: answering ¿A qué restaurante? edits the draft line", () => {
   it("scope and month are saved on a pending line only", async () => {

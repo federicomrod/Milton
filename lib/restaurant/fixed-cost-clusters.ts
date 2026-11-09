@@ -10,7 +10,10 @@
 // return, it does not do the math.
 
 import {
-  contributionMarginPct,
+  computeFixedFigures,
+  type FixedFigures,
+} from "@/lib/restaurant/fixed-cost-engine";
+import {
   effectiveFixedCosts,
   fixedCostCompleteness,
   fixedCostTotal,
@@ -85,6 +88,8 @@ export interface Figures {
    * a figure; it is not missing.
    */
   incomplete: boolean;
+  /** The shared engine's full result (status, missing inputs, tax source). */
+  engine: FixedFigures;
 }
 
 export function figuresOf(args: {
@@ -93,6 +98,8 @@ export function figuresOf(args: {
   groupImpuestosPct: number | null;
   margin: MarginInputs | null;
   openDays: number;
+  /** The month shown; labels where an inherited rate comes from. */
+  month?: string;
 }): Figures {
   const own = (Object.keys(args.clusters) as FixedCostCategory[]).map((c) => {
     const v = (args.clusters[c] as Confirmed).value;
@@ -110,20 +117,28 @@ export function figuresOf(args: {
   const fixed = fixedCostTotal(costs);
   const { missingAmounts, complete } = fixedCostCompleteness(costs);
   const empty = fixed.total === null && costs.impuestosPct === null;
-
-  let breakEven: number | null = null;
-  if (fixed.total !== null && args.margin && args.openDays > 0) {
-    const cm = contributionMarginPct(args.margin, costs.impuestosPct);
-    if (cm !== null && cm > 0) breakEven = fixed.total / (cm * args.openDays);
-  }
+  // No arithmetic here: the shared engine (lib/restaurant/fixed-cost-engine.ts)
+  // is the only place a break-even is computed, on the server and in this preview.
+  const engine = computeFixedFigures({
+    month: args.month ?? "",
+    costs,
+    taxSource: args.clusters.impuestos
+      ? "local"
+      : args.groupImpuestosPct !== null
+        ? "group"
+        : null,
+    margin: args.margin,
+    openDays: args.openDays,
+  });
   return {
     costs,
     fixed,
     missingAmounts,
     empty,
-    breakEven,
-    partial: breakEven !== null && missingAmounts.length > 0,
+    breakEven: engine.breakEven,
+    partial: engine.status === "partial",
     incomplete: !complete,
+    engine,
   };
 }
 
@@ -281,7 +296,7 @@ export function sortForReview(
     .map((x) => x.l);
 }
 
-export type ApproveMode = "auto" | "replace" | "add";
+export type ApproveMode = "auto" | "replace" | "add" | "add_duplicate";
 
 /**
  * What a cluster holds after approving `lines` (all of one category) on top of

@@ -3,18 +3,14 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
-  categoryTotals,
   detectCategory,
-  duplicateTaxIds,
   isApprovable,
   issuesOf,
   normalizeAiLines,
   parseAmount,
   parseGrid,
   parseMonthCell,
-  planApproval,
   scopeFromText,
-  type DraftLine,
   type ReadDefaults,
 } from "@/lib/restaurant/fixed-cost-upload";
 import { gridFromSpreadsheet } from "@/lib/restaurant/fixed-cost-upload-server";
@@ -155,133 +151,8 @@ describe("lines read by AI (PDF, photo)", () => {
   });
 });
 
-describe("approval plan", () => {
-  const line = (over: Partial<DraftLine>): DraftLine => ({
-    id: "l1",
-    raw: "Renta",
-    category: "alquiler",
-    amount: 7000,
-    month: "2026-10-01",
-    scope: { kind: "restaurant", locationId: A },
-    from: "file",
-    status: "pending",
-    ...over,
-  });
-  const key = `${A}|2026-10-01|alquiler`;
-
-  it("a new value is a plain write", () => {
-    const p = planApproval([line({})], new Map());
-    expect(p.writes).toHaveLength(1);
-    expect(p.conflicts).toHaveLength(0);
-  });
-  it("a different existing value is a conflict (old → new)", () => {
-    const p = planApproval(
-      [line({})],
-      new Map([[key, { amount: 6500, pct_of_sales: null }]])
-    );
-    expect(p.conflicts).toEqual([
-      expect.objectContaining({ lineId: "l1", old: 6500, new: 7000 }),
-    ]);
-  });
-  it("the same value changes nothing", () => {
-    const p = planApproval(
-      [line({})],
-      new Map([[key, { amount: 7000, pct_of_sales: null }]])
-    );
-    expect(p.writes).toHaveLength(0);
-    expect(p.unchanged).toHaveLength(1);
-  });
-  it("lines with issues wait; the rest are written", () => {
-    const p = planApproval(
-      [line({ id: "a" }), line({ id: "c", category: null })],
-      new Map()
-    );
-    expect(p.writes.map((w) => w.line.id)).toEqual(["a"]);
-    expect(p.blocked.map((l) => l.id)).toEqual(["c"]);
-  });
-  it("3 servicios lines of one month and restaurant are ONE write: the sum, parts joined", () => {
-    const p = planApproval(
-      [
-        line({ id: "a", category: "servicios", raw: "Luz", amount: 100.1 }),
-        line({ id: "b", category: "servicios", raw: "Agua", amount: 50.2 }),
-        line({ id: "c", category: "servicios", raw: "Internet", amount: 30 }),
-      ],
-      new Map()
-    );
-    expect(p.writes).toHaveLength(1);
-    expect(p.blocked).toHaveLength(0);
-    expect(p.writes[0].line).toMatchObject({
-      amount: 180.3,
-      raw: "Luz + Agua + Internet",
-    });
-    expect(p.writes[0].members.map((m) => m.id)).toEqual(["a", "b", "c"]);
-  });
-  it("the joined label is cut to the 120-character limit", () => {
-    const long = "x".repeat(60);
-    const p = planApproval(
-      [
-        line({ id: "a", raw: long }),
-        line({ id: "b", raw: long }),
-        line({ id: "c", raw: long }),
-      ],
-      new Map()
-    );
-    expect(p.writes[0].line.raw.length).toBe(120);
-  });
-  it("the sum is what is compared with the existing value", () => {
-    const k = `${A}|2026-10-01|servicios`;
-    const three = [
-      line({ id: "a", category: "servicios", amount: 100 }),
-      line({ id: "b", category: "servicios", amount: 50 }),
-      line({ id: "c", category: "servicios", amount: 30 }),
-    ];
-    const diff = planApproval(
-      three,
-      new Map([[k, { amount: 100, pct_of_sales: null }]])
-    );
-    expect(diff.conflicts).toEqual([
-      expect.objectContaining({ lineId: "a", old: 100, new: 180 }),
-    ]);
-    const same = planApproval(
-      three,
-      new Map([[k, { amount: 180, pct_of_sales: null }]])
-    );
-    expect(same.writes).toHaveLength(0);
-    expect(same.unchanged).toHaveLength(3);
-  });
-  it("two impuestos lines of one key are flagged, never summed", () => {
-    const two = [
-      line({ id: "a", category: "impuestos", amount: 10 }),
-      line({ id: "b", category: "impuestos", amount: 6 }),
-    ];
-    expect([...duplicateTaxIds(two)]).toEqual(["a", "b"]);
-    const p = planApproval(two, new Map());
-    expect(p.writes).toHaveLength(0);
-    expect(p.blocked.map((l) => l.id)).toEqual(["a", "b"]);
-    // once the person keeps one, it goes through
-    const kept = planApproval([two[0]], new Map());
-    expect(kept.writes).toHaveLength(1);
-  });
-  it("the review shows the combined total per category", () => {
-    const totals = categoryTotals([
-      line({ id: "a", category: "servicios", amount: 100 }),
-      line({ id: "b", category: "servicios", amount: 50 }),
-      line({ id: "c" }),
-    ]);
-    expect(totals.find((t) => t.category === "servicios")).toMatchObject({
-      lines: 2,
-      total: 150,
-    });
-  });
-  it("impuestos is a rate up to 100", () => {
-    expect(isApprovable(line({ category: "impuestos", amount: 16 }))).toBe(
-      true
-    );
-    expect(isApprovable(line({ category: "impuestos", amount: 160 }))).toBe(
-      false
-    );
-  });
-});
+// The approval plan (new / already there / overlap / add / replace) is computed by
+// the database. See tests/pg/approve.test.ts.
 
 describe("which restaurant a text means", () => {
   const two = [

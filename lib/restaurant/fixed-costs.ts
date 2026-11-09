@@ -74,6 +74,12 @@ export interface FixedCostLine {
   status: FixedCostStatus;
   repeats: boolean;
   split_rule: SplitRule | null;
+  /** Aggregate version (migration 079); sent back as the expected version on a save. 0 = unknown / none. */
+  version?: number;
+  /** legacy_total = a known total with no known detail; itemized = the sum of its items. */
+  detail_state?: "legacy_total" | "itemized";
+  /** Set only by an explicit copy: the month and source version it took. */
+  copy_source?: { month?: string; aggregate_version?: number } | null;
 }
 
 export function isFixedCostCategory(v: unknown): v is FixedCostCategory {

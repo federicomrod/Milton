@@ -28,6 +28,7 @@ afterEach(() => {
 const LOC = "00000000-0000-4000-8000-00000000000a";
 const draft = {
   id: "d1",
+  version: 7,
   fileName: "costos-demo.pdf",
   status: "draft",
   lines: [
@@ -168,17 +169,26 @@ describe("FixedCostUpload", () => {
       if (init?.method === "POST") {
         const body = String(init.body);
         calls.push({ url, body });
-        return JSON.parse(body).confirmed
+        return JSON.parse(body).decisions?.l1 === "replace"
           ? ok({
-              approved: 1,
-              applied: [],
-              draft: { ...draft, status: "draft", lines: [draft.lines[1]] },
+              status: "applied",
+              lines_approved: 1,
+              lines_already_approved: 0,
+              categories: [],
+              issues: [],
+              draft: {
+                ...draft,
+                version: 2,
+                status: "draft",
+                lines: [draft.lines[1]],
+              },
             })
           : ok(
               {
                 conflicts: [
                   {
                     lineId: "l1",
+                    kind: "overlap",
                     category: "alquiler",
                     month: "2026-10-01",
                     old: 6500,
@@ -199,7 +209,13 @@ describe("FixedCostUpload", () => {
       within(panel).getByRole("button", { name: "Reemplazar y aprobar" })
     );
     await waitFor(() => expect(calls).toHaveLength(2));
-    expect(JSON.parse(calls[1].body).confirmed).toEqual(["l1"]);
+    // The choice travels as a decision for that line; the draft version and a
+    // command key travel with it.
+    const sent = JSON.parse(calls[1].body);
+    expect(sent.decisions).toEqual({ l1: "replace" });
+    expect(sent.draftVersion).toBe(draft.version);
+    expect(typeof sent.commandKey).toBe("string");
+    expect(calls[0].body).not.toBe(calls[1].body);
   });
 });
 
@@ -225,15 +241,22 @@ describe("a cluster that already has a confirmed amount", () => {
   });
 
   it.each([
-    ["Reemplazar", "confirmed"],
-    ["Sumar (→ $43,500)", "adds"],
-  ])("«%s» sends %s for that line", async (name, key) => {
+    ["Reemplazar", "replace"],
+    ["Sumar (→ $43,500)", "add"],
+  ])("«%s» sends the decision «%s» for that line", async (name, key) => {
     let sent: any = null;
     show(
       async (_u, init) => {
         if (init?.method === "POST") {
           sent = JSON.parse(String(init.body));
-          return ok({ approved: 1, applied: [], draft: lineSet() });
+          return ok({
+            status: "applied",
+            lines_approved: 1,
+            lines_already_approved: 0,
+            categories: [],
+            issues: [],
+            draft: lineSet(),
+          });
         }
         return ok({ draft: lineSet() });
       },
@@ -242,7 +265,7 @@ describe("a cluster that already has a confirmed amount", () => {
     const row = await screen.findByTestId("upload-line");
     fireEvent.click(within(row).getByRole("button", { name }));
     await waitFor(() => expect(sent).not.toBeNull());
-    expect(sent[key]).toEqual(["p"]);
+    expect(sent.decisions).toEqual({ p: key });
   });
 
   it("a rate is never added: impuestos offers only «Reemplazar»", async () => {

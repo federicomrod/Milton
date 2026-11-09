@@ -14,6 +14,10 @@
 //
 // A month is never read one day or one dish at a time.
 
+import {
+  loadPlanVsReported,
+  loadWasteSummary,
+} from "@/lib/restaurant/unplanned-waste-server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
@@ -46,6 +50,10 @@ import {
   openDaysInMonth,
   previousMonthStart,
 } from "@/lib/restaurant/fixed-costs";
+import {
+  buildGroupView,
+  type GroupView,
+} from "@/lib/restaurant/rentabilidad-group";
 import {
   addDays,
   businessToday,
@@ -183,8 +191,16 @@ export async function loadRentabilidad(args: {
       }),
     ]);
     const confirmed = own.filter((l) => l.status === "confirmed");
+    const localTax = confirmed.some(
+      (l) => l.category === "impuestos" && l.pct_of_sales !== null
+    );
     return {
       costs: effectiveFixedCosts(confirmed, group.shares, group.impuestosPct),
+      taxSource: localTax
+        ? ("local" as const)
+        : group.impuestosPct !== null
+          ? ("group" as const)
+          : null,
       hasEstimate:
         confirmed.some((l) => l.source === "estimate") || group.hasEstimate,
     };
@@ -203,6 +219,44 @@ export async function loadRentabilidad(args: {
       let windowSales = 0;
       for (const [date, v] of Object.entries(dailySales))
         if (date >= month && date <= windowTo) windowSales += v;
+      // #408: confirmed waste through yesterday. A missing table or a failed
+      // read = not available («⚑ Falta»), never $0.
+      const wasteWindow = windowTo >= month;
+      const wasteRead = wasteWindow
+        ? await loadWasteSummary(
+            supabase,
+            companyId,
+            [locationId],
+            month,
+            windowTo
+          )
+        : ({ available: false } as const);
+      // Purchases are company-wide (ingredient_cost_entries has no location):
+      // with several restaurants the plan line compares them with the waste of
+      // ALL of them and says so.
+      const allRestaurants = restaurantIds.length > 1;
+      const reportedAll =
+        allRestaurants && wasteRead.available
+          ? await loadWasteSummary(
+              supabase,
+              companyId,
+              restaurantIds,
+              month,
+              windowTo
+            )
+          : wasteRead;
+      const wastePlan =
+        reportedAll.available && reportedAll.summary.counted > 0
+          ? await loadPlanVsReported(
+              supabase,
+              companyId,
+              locationId,
+              month,
+              windowTo,
+              reportedAll.summary.amount,
+              allRestaurants
+            )
+          : null;
       return [
         month,
         computeRentabilidad({
@@ -210,8 +264,17 @@ export async function loadRentabilidad(args: {
           today,
           dailySales,
           food: { ...food, periodSales: round2(windowSales) },
-          unplannedWaste: 0, // valuation arrives in #408
+          unplannedWaste: wasteRead.available ? wasteRead.summary.amount : 0,
+          waste: wasteRead.available
+            ? {
+                available: true,
+                counted: wasteRead.summary.counted,
+                missing: wasteRead.summary.missing,
+              }
+            : { available: false, counted: 0, missing: 0 },
+          wastePlan,
           fixed: fixed.costs,
+          fixedTaxSource: fixed.taxSource,
           fixedHasEstimate: fixed.hasEstimate,
           openWeekdays: weekdays.length ? weekdays : null,
           openDays: openDaysInMonth(
@@ -242,6 +305,44 @@ export interface RentabilidadPageData {
   findings: MiltonFinding[];
 }
 
+function pageDataFor(
+  load: RentabilidadLoad,
+  month: string
+): RentabilidadPageData {
+  const prev = previousMonthStart(month);
+  const m = load.months[month];
+  const previous = load.months[prev] ?? null;
+  const usable = previous && previous.hasData ? previous : null;
+  return {
+    currency: load.currency,
+    today: load.today,
+    month: m,
+    previous: usable,
+    chips: comparisonChips(m, usable),
+    findings: miltonFindings(m, usable),
+  };
+}
+
+/**
+ * Every wanted month plus the one before it (for the comparison chips), in ONE
+ * load: the sales cube, the recipes context and the fixed-cost reads are shared
+ * by all the months, so the month picker can switch without another request.
+ */
+export async function loadRentabilidadPages(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locationId: string;
+  restaurantIds: string[];
+  months: string[];
+}): Promise<Record<string, RentabilidadPageData>> {
+  const wanted = [...new Set(args.months)];
+  const load = await loadRentabilidad({
+    ...args,
+    months: [...new Set(wanted.flatMap((m) => [m, previousMonthStart(m)]))],
+  });
+  return Object.fromEntries(wanted.map((m) => [m, pageDataFor(load, m)]));
+}
+
 /** The selected month plus the previous one (for the comparison chips). */
 export async function loadRentabilidadPage(args: {
   supabase: SupabaseClient;
@@ -250,27 +351,8 @@ export async function loadRentabilidadPage(args: {
   restaurantIds: string[];
   month: string;
 }): Promise<RentabilidadPageData> {
-  const prev = previousMonthStart(args.month);
-  const load = await loadRentabilidad({
-    ...args,
-    months: [args.month, prev],
-  });
-  const month = load.months[args.month];
-  const previous = load.months[prev] ?? null;
-  return {
-    currency: load.currency,
-    today: load.today,
-    month,
-    previous: previous && previous.hasData ? previous : null,
-    chips: comparisonChips(
-      month,
-      previous && previous.hasData ? previous : null
-    ),
-    findings: miltonFindings(
-      month,
-      previous && previous.hasData ? previous : null
-    ),
-  };
+  const { month, ...rest } = args;
+  return (await loadRentabilidadPages({ ...rest, months: [month] }))[month];
 }
 
 /**
@@ -315,4 +397,68 @@ export async function loadMonthMargin(args: {
     console.error("[rentabilidad] margin load failed:", err);
     return { ok: false, reason: reasons.readFailed };
   }
+}
+
+export interface RentabilidadGroupData {
+  today: string;
+  month: string;
+  isCurrentMonth: boolean;
+  view: GroupView;
+}
+
+/**
+ * «Todos los restaurantes»: the wanted months of EVERY restaurant, each one
+ * through the same `loadRentabilidad` as the single-restaurant page (so a line
+ * here is exactly what its own page shows), then summed by the pure builder.
+ * The company has one currency (restaurant_locations has no currency column),
+ * so every line carries it; the builder still refuses a mixed total.
+ */
+export async function loadRentabilidadGroups(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locations: Array<{ id: string; name: string }>;
+  months: string[];
+}): Promise<Record<string, RentabilidadGroupData>> {
+  const restaurantIds = args.locations.map((l) => l.id);
+  const months = [...new Set(args.months)];
+  const loads = await Promise.all(
+    args.locations.map((l) =>
+      loadRentabilidad({
+        supabase: args.supabase,
+        companyId: args.companyId,
+        locationId: l.id,
+        restaurantIds,
+        months,
+      })
+    )
+  );
+  const first = loads[0];
+  return Object.fromEntries(
+    months.map((month) => [
+      month,
+      {
+        today: first.today,
+        month,
+        isCurrentMonth: first.months[month].isCurrentMonth,
+        view: buildGroupView(
+          loads.map((load, i) => ({
+            locationId: args.locations[i].id,
+            name: args.locations[i].name,
+            currency: load.currency,
+            month: load.months[month],
+          }))
+        ),
+      },
+    ])
+  );
+}
+
+export async function loadRentabilidadGroup(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locations: Array<{ id: string; name: string }>;
+  month: string;
+}): Promise<RentabilidadGroupData> {
+  const { month, ...rest } = args;
+  return (await loadRentabilidadGroups({ ...rest, months: [month] }))[month];
 }

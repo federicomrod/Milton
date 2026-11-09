@@ -1,12 +1,18 @@
 "use client";
 
-import { isOwnerRole } from "@/lib/auth/capabilities";
+import {
+  canGrantRole,
+  canManageMemberRole,
+  DEFAULT_TEAM_ROLE,
+  TEAM_ROLES,
+  type Role,
+} from "@/lib/auth/capabilities";
 
 // components/restaurant/config/team/TeamPanel.tsx
 //
 // Configuración › Equipo y acceso. Two read-only lists on load (Gestión: web
-// members + pending invites; Cocina: active cooks). The owner (canManage) also
-// gets Invitar / Quitar / Revocar, each inline: no modals, no confirm().
+// members + pending invites; Cocina: active cooks). The owner and admin (canManage) also
+// gets Invitar / Cambiar rol / Quitar / Revocar / Reenviar, each inline: no modals, no confirm().
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -14,8 +20,10 @@ import { useT } from "@/lib/i18n/client";
 import { fmt } from "@/lib/i18n";
 import { useConfig } from "../ConfigProvider";
 import {
+  changeMemberRole,
   inviteMember,
   removeMember,
+  resendInvite,
   revokeInvite,
   type TeamActionError,
 } from "@/app/dashboard/restaurant/data/team-actions";
@@ -23,6 +31,8 @@ import type { TeamCook, TeamInvite, TeamMember } from "./types";
 
 const BTN =
   "inline-flex h-9 items-center rounded-lg border border-[#E5E7EB] bg-white px-3 text-sm font-medium text-[#0F172A] hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] disabled:opacity-50";
+const BADGE =
+  "inline-flex items-center rounded-full bg-[#E7EDFD] px-2 py-0.5 text-xs font-semibold text-[#1B40C8]";
 const BTN_PRIMARY =
   "inline-flex h-9 items-center rounded-lg bg-[#1B40C8] px-4 text-sm font-semibold text-white hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 const CHIP =
@@ -33,11 +43,16 @@ export function TeamPanel({
   invites,
   cooks,
   canManage,
+  actorRole = null,
+  actorIsStaff = false,
 }: {
   members: TeamMember[];
   invites: TeamInvite[];
   cooks: TeamCook[];
   canManage: boolean;
+  /** The signed-in person's company role: which roles they may hand out. */
+  actorRole?: string | null;
+  actorIsStaff?: boolean;
 }) {
   const { d, locale } = useT();
   const s = d.config.shared;
@@ -54,12 +69,21 @@ export function TeamPanel({
 
   const [inviting, setInviting] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"owner" | "member">("member");
+  const [role, setRole] = useState<Role>(DEFAULT_TEAM_ROLE);
   const [created, setCreated] = useState<{
     link: string;
     email: string;
     emailSent: boolean;
   } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [roles, setRoles] = useState<Record<string, Role>>({});
+
+  const actor = { role: actorRole, isMiltonStaff: actorIsStaff };
+  // Only the roles this person may hand out; Gerente is the default.
+  const grantable = TEAM_ROLES.filter((r) => canGrantRole(actor, r));
+  const defaultRole = grantable.includes(DEFAULT_TEAM_ROLE)
+    ? DEFAULT_TEAM_ROLE
+    : (grantable[grantable.length - 1] ?? DEFAULT_TEAM_ROLE);
 
   const errText = (e: TeamActionError) =>
     e === "email"
@@ -70,16 +94,26 @@ export function TeamPanel({
           ? tm.errLastOwner
           : e === "forbidden"
             ? tm.errForbidden
-            : tm.errGeneric;
+            : e === "role_limit"
+              ? tm.errRoleLimit
+              : e === "role"
+                ? tm.errInvalidRole
+                : tm.errGeneric;
 
   const refresh = () => startTransition(() => router.refresh());
 
-  const roleLabel = (r: TeamMember["role"]) =>
+  const roleLabel = (r: Role) =>
     r === "owner"
       ? tm.roleOwner
-      : r === "readOnly"
-        ? tm.roleReadOnly
-        : tm.roleManagement;
+      : r === "admin"
+        ? tm.roleAdmin
+        : r === "manager"
+          ? tm.roleManager
+          : r === "analyst"
+            ? tm.roleAnalyst
+            : r === "viewer"
+              ? tm.roleReadOnly
+              : tm.roleManagement;
 
   const visibleMembers = members.filter((m) => !gone.has(m.id));
   const visibleInvites = [
@@ -101,6 +135,61 @@ export function TeamPanel({
     setGone((g) => new Set(g).add(m.id));
     setConfirm(null);
     notify(tm.removed);
+    refresh();
+  }
+
+  async function doChangeRole(m: TeamMember, next: Role) {
+    setBusy(true);
+    setError(null);
+    const res = await changeMemberRole(m.id, next);
+    setBusy(false);
+    if (!res.ok) {
+      const text = errText(res.error);
+      setError(text);
+      notify(text, "error");
+      return;
+    }
+    setRoles((r) => ({ ...r, [m.id]: next }));
+    setEditing(null);
+    notify(tm.roleChanged);
+    refresh();
+  }
+
+  function shown(res: {
+    inviteId: string;
+    email: string;
+    role: Role;
+    expiresAt: string;
+    link: string;
+    emailSent: boolean;
+  }) {
+    setAdded((a) => [
+      {
+        id: res.inviteId,
+        email: res.email,
+        role: res.role,
+        expiresAt: res.expiresAt,
+      },
+      ...a.filter((x) => x.email !== res.email),
+    ]);
+    setCreated({ link: res.link, email: res.email, emailSent: res.emailSent });
+  }
+
+  async function doResend(i: TeamInvite) {
+    setBusy(true);
+    setError(null);
+    const res = await resendInvite(i.id);
+    setBusy(false);
+    if (!res.ok) {
+      const text = errText(res.error);
+      setError(text);
+      notify(text, "error");
+      return;
+    }
+    // The old row is revoked; the new one takes its place.
+    setGone((g) => new Set(g).add(i.id));
+    shown(res);
+    notify(tm.resent);
     refresh();
   }
 
@@ -131,16 +220,7 @@ export function TeamPanel({
       setError(errText(res.error));
       return;
     }
-    setAdded((a) => [
-      {
-        id: res.inviteId,
-        email: res.email,
-        role: res.role,
-        expiresAt: res.expiresAt,
-      },
-      ...a.filter((x) => x.email !== res.email),
-    ]);
-    setCreated({ link: res.link, email: res.email, emailSent: res.emailSent });
+    shown(res);
     setEmail("");
     setInviting(false);
     notify(s.saved);
@@ -171,9 +251,10 @@ export function TeamPanel({
           {canManage && !inviting ? (
             <button
               type="button"
-              className={BTN}
+              className={BTN_PRIMARY}
               onClick={() => {
                 setInviting(true);
+                setRole(defaultRole);
                 setCreated(null);
                 setError(null);
               }}
@@ -214,13 +295,22 @@ export function TeamPanel({
               {tm.role}
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as "owner" | "member")}
+                onChange={(e) => setRole(e.target.value as Role)}
                 className="mt-1 block h-9 w-full min-w-0 rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm text-[#0F172A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
               >
-                <option value="member">{tm.roleManagement}</option>
-                <option value="owner">{tm.roleOwner}</option>
+                {grantable.map((r) => (
+                  <option key={r} value={r}>
+                    {roleLabel(r)}
+                  </option>
+                ))}
               </select>
             </label>
+            <p
+              data-testid="team-role-hint"
+              className="-mt-1 text-[13px] text-[#64748B]"
+            >
+              {tm.roleHint}
+            </p>
             <div className="flex items-center gap-2 pt-1">
               <button
                 type="submit"
@@ -248,11 +338,20 @@ export function TeamPanel({
             data-testid="team-invite-link"
             className="mb-3 space-y-2 rounded-lg border border-[#E5E7EB] bg-[#F8FAFC] p-3"
           >
+            {!created.emailSent ? (
+              <p
+                role="alert"
+                data-testid="team-email-failed"
+                className="rounded-lg border border-[#0F172A] bg-white px-3 py-2 text-sm font-medium"
+              >
+                ⚑ {tm.emailNotSent}
+              </p>
+            ) : null}
             <p className="text-sm font-medium">{tm.linkTitle}</p>
             <p className="text-[13px] text-[#64748B]">
               {created.emailSent
-                ? fmt(tm.emailSent, { email: created.email })
-                : tm.emailNotSent}{" "}
+                ? `${fmt(tm.emailSent, { email: created.email })} `
+                : ""}
               {tm.linkNote}
             </p>
             <input
@@ -285,7 +384,9 @@ export function TeamPanel({
         ) : (
           <ul className="divide-y divide-[#E5E7EB]">
             {visibleMembers.map((m) => {
-              const label = m.name || m.email || tm.noName;
+              const label = m.isSupport
+                ? d.support.team.label
+                : m.name || m.email || tm.noName;
               return (
                 <li
                   key={m.id}
@@ -300,15 +401,54 @@ export function TeamPanel({
                         </span>
                       ) : null}
                     </div>
-                    {m.name && m.email ? (
+                    {m.isSupport ? (
+                      <div className="text-[13px] text-[#64748B]">
+                        {d.support.team.note}
+                      </div>
+                    ) : null}
+                    {!m.isSupport && m.name && m.email ? (
                       <div className="break-all text-[13px] text-[#64748B]">
                         {m.email}
                       </div>
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={CHIP}>{roleLabel(m.role)}</span>
-                    {canManage && !m.isSelf ? (
+                    <span className={BADGE} data-testid="team-role-badge">
+                      {roleLabel(roles[m.id] ?? m.role)}
+                    </span>
+                    {canManage &&
+                    !m.isSelf &&
+                    !m.isSupport &&
+                    canManageMemberRole(actor, roles[m.id] ?? m.role) ? (
+                      editing === m.id ? (
+                        <select
+                          aria-label={tm.changeRole}
+                          value={roles[m.id] ?? m.role}
+                          disabled={busy}
+                          onChange={(e) =>
+                            doChangeRole(m, e.target.value as Role)
+                          }
+                          className="h-9 rounded-lg border border-[#E5E7EB] bg-white px-2 text-sm text-[#0F172A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8]"
+                        >
+                          {grantable.map((r) => (
+                            <option key={r} value={r}>
+                              {roleLabel(r)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <button
+                          type="button"
+                          className={BTN}
+                          onClick={() => setEditing(m.id)}
+                        >
+                          {tm.changeRole}
+                        </button>
+                      )
+                    ) : null}
+                    {canManage &&
+                    !m.isSelf &&
+                    canManageMemberRole(actor, roles[m.id] ?? m.role) ? (
                       confirm === m.id ? (
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm">
@@ -352,6 +492,9 @@ export function TeamPanel({
             <h4 className="mb-1 text-[13px] font-semibold text-[#64748B]">
               {tm.pending}
             </h4>
+            {canManage ? (
+              <p className="mb-1 text-[13px] text-[#64748B]">{tm.resendNote}</p>
+            ) : null}
             <ul className="divide-y divide-[#E5E7EB]">
               {visibleInvites.map((i) => (
                 <li
@@ -367,10 +510,10 @@ export function TeamPanel({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={CHIP}>
-                      {isOwnerRole(i.role) ? tm.roleOwner : tm.roleManagement}
+                    <span className={BADGE} data-testid="team-role-badge">
+                      {roleLabel(i.role)}
                     </span>
-                    {canManage ? (
+                    {canManage && canManageMemberRole(actor, i.role) ? (
                       confirm === i.id ? (
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm">
@@ -393,13 +536,23 @@ export function TeamPanel({
                           </button>
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          className={BTN}
-                          onClick={() => setConfirm(i.id)}
-                        >
-                          {tm.revoke}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className={BTN}
+                            disabled={busy}
+                            onClick={() => doResend(i)}
+                          >
+                            {tm.resend}
+                          </button>
+                          <button
+                            type="button"
+                            className={BTN}
+                            onClick={() => setConfirm(i.id)}
+                          >
+                            {tm.revoke}
+                          </button>
+                        </>
                       )
                     ) : null}
                   </div>

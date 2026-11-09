@@ -180,3 +180,14 @@ export function lineImpactAfterPrice(input: {
   }
   return null;
 }
+
+/**
+ * Menú › Ingredientes is for the roles that see prices. Kitchen roles (cooks)
+ * do not see the tab and are redirected on the server; the page data is never
+ * read for them.
+ */
+export function canSeeIngredientes(
+  capabilities: Partial<Record<string, boolean>>
+): boolean {
+  return capabilities["prices.view"] !== false;
+}

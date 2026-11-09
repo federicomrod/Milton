@@ -125,11 +125,27 @@ export async function startOutbox(client: ApiClient) {
   void processDue();
 }
 
+/**
+ * The session ended by a confirmed revoke: stop sending (there is no valid
+ * token) but KEEP the items, in memory and on disk. If the same cook signs back
+ * in, startOutbox resumes them; clearOutbox is for anyone else.
+ */
+export function pauseOutbox() {
+  api = null;
+}
+
 /** Forget everything (sign-out): the next cook must not inherit these. */
 export async function clearOutbox() {
   snap.items.forEach((i) => removeFile(i.fileUri));
   set({ items: [], offline: false });
   api = null;
+  try {
+    // Also the copies of items that were saved but not loaded in this run.
+    const dir = new Directory(Paths.document, "outbox");
+    if (dir.exists) dir.delete();
+  } catch {
+    // Already gone.
+  }
   try {
     await AsyncStorage.removeItem(KEY);
   } catch {

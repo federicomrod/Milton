@@ -16,8 +16,15 @@
 // Missing values are `null`, never 0.
 
 import {
+  computeFixedFigures,
+  type FixedFigures,
+} from "@/lib/restaurant/fixed-cost-engine";
+import {
+  valuedPct,
+  type WastePlanVsReported,
+} from "@/lib/restaurant/unplanned-waste";
+import {
   AMOUNT_CATEGORIES,
-  breakEvenPerDay,
   contributionMarginPct,
   daysInMonth,
   nextMonthStart,
@@ -198,10 +205,20 @@ export interface RentabilidadInput {
    */
   dailySales: Readonly<Record<string, number>>;
   food: FoodCostInput;
-  /** Unplanned waste over the actual days (0 until #408). */
+  /** Confirmed, valued unplanned waste over the actual days (#408). */
   unplannedWaste?: number;
+  /**
+   * What the waste read says: `available` false = the table is not there yet
+   * (no number is shown, «⚑ Falta»); `counted` confirmed lines; `missing` of
+   * them without a value (counted, «⚑ Falta», never $0).
+   */
+  waste?: { available: boolean; counted: number; missing: number };
+  /** «Hasta ayer… planeaste X%, reportaste Y%» (#408); null = not computable. */
+  wastePlan?: WastePlanVsReported | null;
   /** The restaurant's own and shared fixed costs (confirmed lines only). */
   fixed: EffectiveFixedCosts;
+  /** Where the tax rate came from; null = no rate. Labels the shared engine's result. */
+  fixedTaxSource?: "local" | "group" | null;
   /** An included fixed-cost line is a Milton estimate. */
   fixedHasEstimate?: boolean;
   /** ISO weekdays the restaurant opens; null = every day. */
@@ -274,8 +291,17 @@ export interface RentabilidadMonth {
   /** The tax rate is not set: the page says «se calcula con 0%». */
   impuestosUndefined: boolean;
   impuestosPct: number | null;
-  /** Merma no planeada is not valued yet: the line says «Disponible pronto». */
+  /** There is at least one confirmed waste line; otherwise the line says «⚑ Falta». */
   wasteAvailable: boolean;
+  /** Confirmed waste lines without a value: shown as «⚑ Falta», never $0. */
+  wasteMissing: number;
+  /** Month waste ÷ month sales, 0–1; null without sales or waste. */
+  wastePctOfSales: number | null;
+  wastePlan: WastePlanVsReported | null;
+  /** The waste projection runs on open days, or on calendar days (none set). */
+  wasteBasis: "open" | "calendar";
+  /** Confirmed waste lines with a cost, 0–100; null without confirmed lines. */
+  wasteValuedPct: number | null;
   fixed: {
     amounts: Record<AmountCategory, number | null>;
     /** null = a category is missing. */
@@ -294,6 +320,12 @@ export interface RentabilidadMonth {
   profit: number | null;
   profitPct: number | null;
   breakEvenPerDay: number | null;
+  /**
+   * The shared fixed-cost engine's full result for this month (the same function
+   * Costos fijos calls): complete / partial / unavailable and what is missing.
+   * A partial break-even is a number for the known categories, never a final one.
+   */
+  figures: FixedFigures;
   /** First day the cumulative margin ≥ the month's fixed costs. */
   breakEvenDay: { date: string; day: number; projected: boolean } | null;
   avgSalesPerDay: number | null;
@@ -376,8 +408,19 @@ export function computeRentabilidad(
 
   const foodRate = food.periodSales > 0 ? food.cogs / food.periodSales : 0;
   const waste = input.unplannedWaste ?? 0;
-  const wastePerDay = actualDays > 0 ? waste / actualDays : 0;
   const open = input.openWeekdays ? new Set(input.openWeekdays) : null;
+  // Waste is spread over the restaurant's OPEN days (like the break-even);
+  // calendar days only when no open days are set.
+  let openActualDays = 0;
+  if (open)
+    for (let day = 1; day <= actualDays; day++)
+      if (open.has(isoWeekday(dateOfDay(month, day)))) openActualDays += 1;
+  const wasteOnOpenDays = open !== null && openActualDays > 0;
+  const wastePerDay = wasteOnOpenDays
+    ? waste / openActualDays
+    : actualDays > 0
+      ? waste / actualDays
+      : 0;
 
   const days: DayRow[] = [];
   let cum = 0;
@@ -393,7 +436,7 @@ export function computeRentabilidad(
       : (input.dailySales[date] ?? 0);
     const impuestos = taxInSales(sales, impuestosPct);
     const foodCost = sales * foodRate;
-    const wasteDay = wastePerDay;
+    const wasteDay = !wasteOnOpenDays || open!.has(weekday) ? wastePerDay : 0;
     const margin = sales - impuestos - foodCost - wasteDay;
     cum += margin;
     days.push({
@@ -432,12 +475,20 @@ export function computeRentabilidad(
       : cm * marginInputs.sales - fixedTotal;
   const profitToDate =
     fixedTotal === null || actualDays === 0 ? null : actual.margin - fixedTotal;
-  const breakEven = breakEvenPerDay({
-    amounts: input.fixed.amounts,
-    impuestosPct,
+  // ONE break-even function: the shared engine. Complete inputs give the same
+  // number as before; incomplete ones give a labelled partial number or none.
+  const figures = computeFixedFigures({
+    month,
+    costs: input.fixed,
+    taxSource: input.fixedTaxSource ?? (impuestosPct === null ? null : "local"),
     margin: marginInputs,
+    marginMonth: month,
     openDays: input.openDays,
   });
+  // `breakEvenPerDay` stays the COMPLETE figure (null while anything is missing),
+  // so findings, summaries and older consumers never use an understated target.
+  // A partial number lives in `figures.breakEven`, labelled by `figures.status`.
+  const breakEven = figures.status === "complete" ? figures.breakEven : null;
 
   let breakEvenDay: RentabilidadMonth["breakEvenDay"] = null;
   if (fixedTotal !== null) {
@@ -518,7 +569,19 @@ export function computeRentabilidad(
     basis: input.fixedHasEstimate ? "estimada" : "real",
     impuestosUndefined: impuestosPct === null,
     impuestosPct,
-    wasteAvailable: false,
+    wasteAvailable:
+      (input.waste?.available ?? false) && (input.waste?.counted ?? 0) > 0,
+    wasteMissing: input.waste?.missing ?? 0,
+    wastePctOfSales:
+      monthTotals.sales > 0 && monthTotals.waste > 0
+        ? monthTotals.waste / monthTotals.sales
+        : null,
+    wastePlan: input.wastePlan ?? null,
+    wasteBasis: wasteOnOpenDays ? "open" : "calendar",
+    wasteValuedPct: valuedPct(
+      input.waste?.counted ?? 0,
+      input.waste?.missing ?? 0
+    ),
     fixed: {
       amounts: input.fixed.amounts,
       total: fixedTotal === null ? null : round2(fixedTotal),
@@ -535,6 +598,7 @@ export function computeRentabilidad(
         ? null
         : profit / monthTotals.sales,
     breakEvenPerDay: breakEven === null ? null : round2(breakEven),
+    figures,
     breakEvenDay,
     avgSalesPerDay: withData.length
       ? withData.reduce((s, r) => s + r.sales, 0) / withData.length
@@ -660,7 +724,7 @@ export function miltonFindings(
       out.push({ kind: "cost_share_change", amounts: { now, before } });
   }
 
-  const be = month.breakEvenPerDay;
+  const be = month.figures.status === "complete" ? month.breakEvenPerDay : null;
   if (be !== null) {
     const sold = month.days.filter((d) => !d.projected && d.sales > 0);
     if (sold.length > 0) {

@@ -21,6 +21,7 @@
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { hashKitchenToken } from "@/lib/restaurant/telegram/kitchen-join";
+import { setKitchenPin } from "@/lib/restaurant/kitchen/pin-store";
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const LAST_SEEN_THROTTLE_MS = 60_000;
@@ -74,9 +75,27 @@ export async function createKitchenInvite(
     locationId: string;
     createdBy: string;
     inviteeName?: string | null;
+    /**
+     * «Nuevo enlace» for an EXISTING cook: redeeming it signs that same
+     * kitchen_staff row in on a new phone (history kept), no new cook.
+     */
+    targetStaffId?: string | null;
   }
 ): Promise<CreateInviteResult> {
   try {
+    if (input.targetStaffId) {
+      const { data: target, error: targetError } = await admin
+        .from("kitchen_staff")
+        .select("id, location_id")
+        .eq("id", input.targetStaffId)
+        .eq("company_id", input.companyId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (targetError) return { ok: false, reason: "error" };
+      if (!target || target.location_id !== input.locationId) {
+        return { ok: false, reason: "location" };
+      }
+    }
     const { data: location, error: locError } = await admin
       .from("restaurant_locations")
       .select("id, status")
@@ -100,6 +119,9 @@ export async function createKitchenInvite(
         location_id: input.locationId,
         created_by: input.createdBy,
         invitee_name: cleanName(input.inviteeName, MAX_NAME),
+        ...(input.targetStaffId
+          ? { target_staff_id: input.targetStaffId }
+          : {}),
         secret_hash: hashToken(secret),
         expires_at: expiresAt,
       })
@@ -137,6 +159,7 @@ interface InviteRow {
   used_at: string | null;
   used_by_staff_id: string | null;
   revoked_at: string | null;
+  target_staff_id?: string | null;
 }
 
 /**
@@ -151,6 +174,8 @@ export async function redeemKitchenInvite(
     name?: string | null;
     platform?: string | null;
     deviceLabel?: string | null;
+    /** A valid 4–6 digit PIN, already checked by the route; stored hashed. */
+    pin?: string | null;
   }
 ): Promise<RedeemInviteResult> {
   try {
@@ -162,7 +187,7 @@ export async function redeemKitchenInvite(
     const { data: found, error: findError } = await admin
       .from("kitchen_invites")
       .select(
-        "id, company_id, location_id, invitee_name, expires_at, used_at, used_by_staff_id, revoked_at"
+        "id, company_id, location_id, invitee_name, expires_at, used_at, used_by_staff_id, revoked_at, target_staff_id"
       )
       .eq("secret_hash", hashToken(secret))
       .maybeSingle();
@@ -233,7 +258,25 @@ export async function redeemKitchenInvite(
     // Reuse the staff row a previous, half-finished redeem of THIS invite made.
     let staffId: string | null = null;
     let createdStaffId: string | null = null;
-    if (invite.used_by_staff_id) {
+    let staffDisplayName = staffName;
+    if (invite.target_staff_id) {
+      // A new link for an existing cook: the same row, the same history.
+      const { data: target } = await admin
+        .from("kitchen_staff")
+        .select("id, display_name")
+        .eq("id", invite.target_staff_id)
+        .eq("company_id", invite.company_id)
+        .eq("location_id", invite.location_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!target) {
+        await rollback(null);
+        return { ok: false, reason: "invalid" };
+      }
+      staffId = target.id as string;
+      staffDisplayName = (target.display_name as string) ?? staffName;
+    }
+    if (!staffId && invite.used_by_staff_id) {
       const { data: prior } = await admin
         .from("kitchen_staff")
         .select("id")
@@ -264,18 +307,28 @@ export async function redeemKitchenInvite(
       createdStaffId = staffId;
     }
 
-    const deviceToken = generateToken();
-    const { error: deviceError } = await admin.from("kitchen_devices").insert({
-      company_id: invite.company_id,
-      staff_id: staffId,
-      invite_id: invite.id,
-      token_hash: hashToken(deviceToken),
-      platform: platformOf(input.platform),
-      device_label: cleanName(input.deviceLabel, MAX_DEVICE_LABEL),
+    const issued = await issueKitchenDevice(admin, {
+      companyId: invite.company_id,
+      staffId,
+      inviteId: invite.id,
+      platform: input.platform,
+      deviceLabel: input.deviceLabel,
     });
-    if (deviceError) {
+    if (!issued.ok) {
       await rollback(createdStaffId);
       return { ok: false, reason: "error" };
+    }
+    const deviceToken = issued.deviceToken;
+    if (input.pin) {
+      // A failure to store the PIN must not lose the join: the app sees
+      // `pin.set = false` in /me and asks for it again.
+      await setKitchenPin(admin, {
+        companyId: invite.company_id,
+        staffId,
+        pin: input.pin,
+        mustChange: false,
+        setBy: null,
+      });
     }
 
     // Audit link; the redeem already succeeded, so a failure here is not fatal.
@@ -290,7 +343,7 @@ export async function redeemKitchenInvite(
       ok: true,
       deviceToken,
       staffId,
-      staffName,
+      staffName: staffDisplayName,
       companyId: invite.company_id,
       locationId: invite.location_id,
       locationName: (location.name as string) ?? "",
@@ -327,6 +380,34 @@ export async function revokeKitchenInvite(
 // Devices
 // ---------------------------------------------------------------------------
 
+/**
+ * A new device row (one phone) for a cook. The raw token is returned once; only
+ * its hash is stored. The token has no expiry: it ends only when the row is
+ * revoked, the cook is removed, or the app is reinstalled.
+ */
+export async function issueKitchenDevice(
+  admin: SupabaseClient,
+  input: {
+    companyId: string;
+    staffId: string;
+    inviteId?: string | null;
+    platform?: string | null;
+    deviceLabel?: string | null;
+  }
+): Promise<{ ok: true; deviceToken: string } | { ok: false }> {
+  const deviceToken = generateToken();
+  const { error } = await admin.from("kitchen_devices").insert({
+    company_id: input.companyId,
+    staff_id: input.staffId,
+    invite_id: input.inviteId ?? null,
+    token_hash: hashToken(deviceToken),
+    platform: platformOf(input.platform),
+    device_label: cleanName(input.deviceLabel, MAX_DEVICE_LABEL),
+    last_seen_at: new Date().toISOString(),
+  });
+  return error ? { ok: false } : { ok: true, deviceToken };
+}
+
 export interface ResolvedKitchenDevice {
   device: { id: string; companyId: string; staffId: string };
   staff: {
@@ -339,30 +420,37 @@ export interface ResolvedKitchenDevice {
   };
 }
 
+export type DeviceLookupFailure = "unknown_device" | "revoked" | "unavailable";
+
 /**
- * The active device + cook behind a raw device token, or null (unknown,
- * revoked, or the cook was removed). Touches last_seen_at at most once a
- * minute.
+ * Why a device token does not work. `unknown_device`: no such token.
+ * `revoked`: the phone was signed out, or the cook was removed. `unavailable`:
+ * the database could not answer: NOT an auth failure, so the route answers 503
+ * and the app keeps the session (a hiccup must never sign a cook out).
  */
-export async function resolveKitchenDevice(
+export async function lookupKitchenDevice(
   admin: SupabaseClient,
   rawToken: string
-): Promise<ResolvedKitchenDevice | null> {
+): Promise<
+  | { ok: true; resolved: ResolvedKitchenDevice }
+  | { ok: false; reason: DeviceLookupFailure }
+> {
   try {
     if (
       typeof rawToken !== "string" ||
       rawToken.length < 16 ||
       rawToken.length > MAX_RAW_TOKEN
     ) {
-      return null;
+      return { ok: false, reason: "unknown_device" };
     }
     const { data: device, error } = await admin
       .from("kitchen_devices")
-      .select("id, company_id, staff_id, last_seen_at")
+      .select("id, company_id, staff_id, last_seen_at, revoked_at")
       .eq("token_hash", hashToken(rawToken))
-      .is("revoked_at", null)
       .maybeSingle();
-    if (error || !device) return null;
+    if (error) return { ok: false, reason: "unavailable" };
+    if (!device) return { ok: false, reason: "unknown_device" };
+    if (device.revoked_at) return { ok: false, reason: "revoked" };
 
     const { data: staff, error: staffError } = await admin
       .from("kitchen_staff")
@@ -371,9 +459,10 @@ export async function resolveKitchenDevice(
       )
       .eq("id", device.staff_id as string)
       .eq("company_id", device.company_id as string)
-      .eq("is_active", true)
       .maybeSingle();
-    if (staffError || !staff) return null;
+    if (staffError) return { ok: false, reason: "unavailable" };
+    if (!staff || staff.is_active !== true)
+      return { ok: false, reason: "revoked" };
 
     const lastSeen = device.last_seen_at
       ? new Date(device.last_seen_at as string).getTime()
@@ -387,23 +476,38 @@ export async function resolveKitchenDevice(
     }
 
     return {
-      device: {
-        id: device.id as string,
-        companyId: device.company_id as string,
-        staffId: device.staff_id as string,
-      },
-      staff: {
-        id: staff.id as string,
-        companyId: staff.company_id as string,
-        locationId: staff.location_id as string,
-        displayName: (staff.display_name as string) ?? "",
-        canSeeCosts: staff.can_see_costs === true,
+      ok: true,
+      resolved: {
+        device: {
+          id: device.id as string,
+          companyId: device.company_id as string,
+          staffId: device.staff_id as string,
+        },
+        staff: {
+          id: staff.id as string,
+          companyId: staff.company_id as string,
+          locationId: staff.location_id as string,
+          displayName: (staff.display_name as string) ?? "",
+          canSeeCosts: staff.can_see_costs === true,
+        },
       },
     };
   } catch (err) {
     logUnexpected("resolve device", err);
-    return null;
+    return { ok: false, reason: "unavailable" };
   }
+}
+
+/**
+ * The active device + cook behind a raw device token, or null (unknown,
+ * revoked, unavailable). Touches last_seen_at at most once a minute.
+ */
+export async function resolveKitchenDevice(
+  admin: SupabaseClient,
+  rawToken: string
+): Promise<ResolvedKitchenDevice | null> {
+  const found = await lookupKitchenDevice(admin, rawToken);
+  return found.ok ? found.resolved : null;
 }
 
 /** Revokes every live device of one cook (used when the cook is removed). */

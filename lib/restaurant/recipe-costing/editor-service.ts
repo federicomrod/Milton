@@ -12,6 +12,14 @@
 // - After every edit the cached evidence is rebuilt from the inputs, so the
 //   screen, the checklist and the approved recipe agree.
 
+import {
+  DEFAULT_OUTPUT_QUANTITY,
+  isConfirmedDefault,
+  isMeasuredOutput,
+  nextYieldReading,
+  parseYield,
+  readYieldHistory,
+} from "@/lib/restaurant/prep-yield";
 import { fmt, getDictionary } from "@/lib/i18n";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 import { findSimilarIngredient } from "@/lib/restaurant/ingredient-similar";
@@ -233,6 +241,10 @@ export interface EditorState {
   version_id: string | null;
   lines: EditorLine[];
   options: PickerOption[];
+  /** True for a role without prices.view: every money field is null (editor-redact.ts). */
+  money_hidden?: boolean;
+  /** True for a role that may not edit recipes: read-only, no new-version menu. */
+  role_read_only?: boolean;
   /** True when `options` was left out because the client caches it. */
   options_omitted?: boolean;
   pending: number;
@@ -246,6 +258,18 @@ export interface EditorState {
     yield: PreparationYield | null;
     cost_per_output_unit: number | null;
     checklist: PreparationChecklist;
+    /** The batch output is missing or only assumed: ⚑ «falta rendimiento». */
+    yield_missing?: boolean;
+    /** The yield in force is a person's «Confirmar 1 unidad» (it can be undone). */
+    yield_confirmed_default?: boolean;
+    /** Who confirmed or undid the default, and when (oldest first). */
+    yield_history?: Array<{
+      at: string;
+      by_name: string | null;
+      action: "confirm" | "revoke";
+      value: number;
+      unit: string;
+    }>;
   };
 }
 
@@ -277,6 +301,8 @@ export interface Ctx {
   /** Edit a preparation instead of a dish. */
   componentId?: string;
   userId: string | null;
+  /** Shown in the yield history next to a confirmation (decoration only). */
+  actorName?: string | null;
   /** The client already has the picker list (R1-09c): do not send it. */
   omitOptions?: boolean;
   /**
@@ -315,17 +341,7 @@ function resolvedName(
 export function yieldOf(
   evidence: Record<string, unknown>
 ): PreparationYield | null {
-  const raw = evidence.yield;
-  if (!raw || typeof raw !== "object") return null;
-  const row = raw as Record<string, unknown>;
-  const value = typeof row.value === "number" ? row.value : Number(row.value);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return {
-    value,
-    unit: typeof row.unit === "string" ? row.unit : "unit",
-    confirmed: row.confirmed !== false && row.source !== "assumed",
-    source: typeof row.source === "string" ? row.source : null,
-  };
+  return parseYield(evidence);
 }
 
 function stripEstimateFlag(line: { flags: string[] }): void {
@@ -526,12 +542,20 @@ async function build(
     const prepYield: PreparationYield | null =
       fromEvidence ??
       (version?.output_quantity
-        ? {
-            value: version.output_quantity,
-            unit: version.output_unit ?? "unit",
-            confirmed: true,
-            source: null,
-          }
+        ? (() => {
+            // The default 1 unit is not a measurement (prep-yield.ts).
+            const measured = isMeasuredOutput({
+              quantity: version.output_quantity,
+              status: version.status,
+              evidence: null,
+            });
+            return {
+              value: version.output_quantity,
+              unit: version.output_unit ?? "unit",
+              confirmed: measured,
+              source: measured ? null : "assumed",
+            };
+          })()
         : null);
     const checklist = preparationChecklist(lines, prepYield, ctx.lang);
     state.preparation = {
@@ -539,6 +563,14 @@ async function build(
       name: loaded.preparation.name,
       status: version?.status ?? "sin_receta",
       yield: prepYield,
+      yield_confirmed_default: isConfirmedDefault(loaded.holder.evidence),
+      yield_history: readYieldHistory(loaded.holder.evidence).map((h) => ({
+        at: h.at,
+        by_name: h.byName,
+        action: h.action,
+        value: h.value,
+        unit: h.unit,
+      })),
       cost_per_output_unit:
         totalCost !== null && prepYield ? totalCost / prepYield.value : null,
       checklist,
@@ -721,6 +753,9 @@ export type EditorAction =
   | { action: "update"; input_id: string; quantity?: number; unit?: string }
   | { action: "answer_unit"; input_id: string; unit: string }
   | { action: "set_yield"; quantity: number; unit: string }
+  /** «Confirmar 1 unidad»: the default 1 unit is the real output. Reversible. */
+  | { action: "confirm_yield" }
+  | { action: "unconfirm_yield" }
   | {
       action: "change_item";
       input_id: string;
@@ -988,7 +1023,12 @@ export async function applyEdit(
   const denied = await ctx.guard;
   if (denied) return denied;
   const { holder, version } = loaded;
-  if (action.action === "set_yield" && !loaded.preparation) {
+  if (
+    (action.action === "set_yield" ||
+      action.action === "confirm_yield" ||
+      action.action === "unconfirm_yield") &&
+    !loaded.preparation
+  ) {
     return {
       ok: false,
       error: svc(ctx.lang).yieldInPreparation,
@@ -1186,7 +1226,47 @@ export async function applyEdit(
         unit,
         source: "confirmed",
         confirmed: true,
+        // A typed value keeps the history of earlier confirmations.
+        history: readYieldHistory(holder.evidence),
       };
+      break;
+    }
+    case "confirm_yield":
+    case "unconfirm_yield": {
+      const confirm = action.action === "confirm_yield";
+      const qty = Number(version!.output_quantity);
+      // The confirmation lives in the draft's yield reading: with no draft
+      // there is nowhere to keep it (never a silent no-op).
+      if (!holder.id) {
+        return {
+          ok: false,
+          error: svc(ctx.lang).confirmNeedsDraft,
+          status: 409,
+        };
+      }
+      // Only the default 1 unit can be confirmed as is; anything else is typed.
+      if (confirm && qty !== DEFAULT_OUTPUT_QUANTITY) {
+        return {
+          ok: false,
+          error: svc(ctx.lang).onlyDefaultConfirmable,
+          status: 400,
+        };
+      }
+      if (!confirm && !isConfirmedDefault(holder.evidence)) {
+        return {
+          ok: false,
+          error: svc(ctx.lang).nothingToUndo,
+          status: 400,
+        };
+      }
+      evidenceYield = nextYieldReading(holder.evidence, {
+        confirm,
+        value: qty > 0 ? qty : DEFAULT_OUTPUT_QUANTITY,
+        unit: version!.output_unit ?? "unit",
+        by: ctx.userId,
+        byName: ctx.actorName ?? null,
+        at: new Date().toISOString(),
+      });
       break;
     }
     case "answer_unit": {

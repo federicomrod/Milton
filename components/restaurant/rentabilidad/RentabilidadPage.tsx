@@ -13,9 +13,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { formatMoney } from "@/lib/restaurant/costs-format";
-import { costsTabHref } from "@/lib/restaurant/costs-tabs";
+import { costsTabHref, fixedCostUploadHref } from "@/lib/restaurant/costs-tabs";
 import { dishHref, platosHref } from "@/lib/restaurant/menu-links";
 import { SALES_HREF, withShellParams } from "@/lib/restaurant/navigation";
 import { categoryLabel } from "@/lib/restaurant/fixed-costs";
@@ -28,7 +28,6 @@ import {
   findingText,
   emptyMonthSentence,
   noSummaryText,
-  projectionMethod,
   monthLabelEs,
   monthNameEs,
   pctText,
@@ -36,43 +35,41 @@ import {
   weekdayShort,
 } from "@/lib/restaurant/rentabilidad-copy";
 import { RaceChart } from "@/components/restaurant/rentabilidad/RaceChart";
+import { WhatIfPanel } from "@/components/restaurant/rentabilidad/WhatIfPanel";
 import { OperatingPageHeader } from "@/components/restaurant/shell/OperatingPageHeader";
-import { StatCard } from "@/components/restaurant/ui/StatCard";
 
 // Brand colours: the one place.
 const PRIMARY = "#1B40C8";
 const INK = "#0F172A";
-const GOOD_FILL = "#A7F3D0";
-const BAD_FILL = "#FBCFE8";
 const AI_FILL = "#D8D0F8";
 
 const BTN =
   "inline-flex items-center justify-center rounded-md bg-[#1B40C8] px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1533A3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1B40C8] focus-visible:ring-offset-2";
 const ALERT_PILL =
   "inline-block rounded-full bg-[#FDE68A] px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]";
-const SEGMENT_GROUP =
+export const SEGMENT_GROUP =
   "inline-flex flex-wrap rounded-[11px] bg-[#e1e8fa] p-[3px] text-[13px] font-semibold";
-const segmentBtn = (active: boolean) =>
+export const segmentBtn = (active: boolean) =>
   "rounded-[9px] px-3.5 py-1.5 " +
   (active
     ? "bg-[#1b40c8] text-white shadow-sm"
     : "text-[#4a5a85] hover:text-[#1b40c8]");
 
 const PART_COLOR: Record<Cada100Part["key"], string> = {
-  comida: "#1B40C8",
-  impuestos: "#A9B8EE",
-  merma: BAD_FILL,
-  planilla: "#4F6BD6",
-  alquiler: "#7F93E3",
-  servicios: "#C3CEF4",
-  otros: "#E7EDFD",
-  ganancia: GOOD_FILL,
+  comida: "#6B85E0",
+  impuestos: "#E3E6EB",
+  merma: "#A9B8EE",
+  planilla: "#0F172A",
+  alquiler: "#5B6570",
+  servicios: "#9AA3AF",
+  otros: "#CDD2DA",
+  ganancia: "#1B40C8",
 };
 
 const CHIP_TONE = {
-  good: "bg-[#A7F3D0] text-[#0F172A]",
-  bad: "bg-[#FBCFE8] text-[#0F172A]",
-  neutral: "bg-[#E7EDFD] text-[#1B40C8]",
+  good: "bg-[#E7EDFD] text-[#1B40C8]",
+  bad: "bg-[#F1F3F7] text-[#0F172A]",
+  neutral: "bg-[#F1F3F7] text-[#5B6570]",
 } as const;
 
 function ProfitBadges({
@@ -86,14 +83,16 @@ function ProfitBadges({
   const r = d.rentabilidad;
   return (
     <>
-      <span
-        className={
-          "rounded-full px-2 py-0.5 text-[12px] font-semibold " +
-          (value >= 0 ? CHIP_TONE.good : CHIP_TONE.bad)
-        }
-      >
-        {value >= 0 ? r.page.profit : r.page.loss}
-      </span>
+      {value < 0 ? (
+        <span
+          className={
+            "rounded-full px-2 py-0.5 text-[12px] font-semibold " +
+            CHIP_TONE.bad
+          }
+        >
+          {r.page.loss}
+        </span>
+      ) : null}
       {estimate ? (
         <span
           className="rounded-full px-2 py-0.5 text-[12px] font-semibold text-[#0F172A]"
@@ -107,12 +106,15 @@ function ProfitBadges({
 }
 
 export function RentabilidadPage({
-  data,
+  data: initialData,
+  pages,
   locationId,
   months,
   currentMonth,
 }: {
   data: RentabilidadPageData;
+  /** Every month of the picker, loaded together: switching is a state change. */
+  pages?: Record<string, RentabilidadPageData>;
   locationId: string;
   locationName: string | null;
   /** The month picker: the current month and the 2 before it. */
@@ -123,7 +125,9 @@ export function RentabilidadPage({
   const { d, lang, fmt } = useT();
   const r = d.rentabilidad;
   const [pending, startTransition] = useTransition();
-  const [tab, setTab] = useState<"resumen" | "por-dia">("resumen");
+  const [tab, setTab] = useState<"estado" | "por-dia">("estado");
+  const [shownMonth, setShownMonth] = useState(initialData.month.month);
+  const data = pages?.[shownMonth] ?? initialData;
   const m = data.month;
   const money = useMemo(
     () => (n: number) => formatMoney(n, data.currency),
@@ -133,21 +137,31 @@ export function RentabilidadPage({
   const hrefFor = (month: string) =>
     `${base}?${new URLSearchParams({ location: locationId, month }).toString()}`;
 
-  // Warm the three months of the picker so a click shows the page right away.
-  useEffect(() => {
-    for (const month of months) router.prefetch(hrefFor(month));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [months.join("|"), locationId]);
-
-  const goto = (month: string) =>
+  // A month already loaded is shown at once (no request, no spinner) and the
+  // address follows; any other month (the date input) loads from the server.
+  const goto = (month: string) => {
+    if (pages?.[month]) {
+      setShownMonth(month);
+      window.history.replaceState(null, "", hrefFor(month));
+      return;
+    }
     startTransition(() => router.push(hrefFor(month)));
+  };
 
   const fixedHref = costsTabHref("costos-fijos", {
     location: locationId,
     month: m.month,
   });
+  const uploadHref = fixedCostUploadHref({
+    location: locationId,
+    month: m.month,
+  });
   const salesHref = withShellParams(SALES_HREF, { locationId });
   const platos = withShellParams(platosHref(), { locationId });
+  const ingredientes = withShellParams(
+    "/dashboard/restaurant/menu/ingredientes",
+    { locationId }
+  );
   const estimada = m.basis === "estimada";
   const fixedMissing = m.fixed.total === null;
   const showFlag =
@@ -175,11 +189,73 @@ export function RentabilidadPage({
     </>
   ) : undefined;
   const be = m.breakEvenDay;
+  const h = r.hero;
+  const mc = r.missingCard;
+  const monthName = monthNameEs(m.month, lang);
+  const yesterday = addDay(data.today, -1);
+  const missingAmounts = m.fixed.missingAmounts;
+
+  let headline = "";
+  let sub = "";
+  if (be) {
+    const day = dayLabelEs(be.date, lang);
+    if (be.projected) {
+      headline = fmt(h.willCover, { month: monthName, day });
+      sub = h.subWillCover;
+    } else if (m.isCurrentMonth && be.date === yesterday) {
+      headline = fmt(h.coveredYesterday, { month: monthName, day });
+      sub = h.subCoveredNow;
+    } else {
+      headline = fmt(h.coveredOn, { month: monthName, day });
+      sub = m.isCurrentMonth ? h.subCoveredNow : h.subCoveredPast;
+    }
+  } else {
+    headline = fmt(h.notCovered, { month: monthName });
+    sub =
+      m.profit !== null && m.profit < 0
+        ? fmt(h.subNotCovered, { amount: money(-m.profit) })
+        : "";
+  }
+  const names = new Intl.ListFormat(
+    lang === "de" ? "de" : lang === "en" ? "en" : "es",
+    {
+      type: "conjunction",
+    }
+  ).format(missingAmounts.map((c) => categoryLabel(c, lang)));
+  const fact = (
+    label: string,
+    value: string,
+    color: string,
+    extra?: string
+  ) => (
+    <div className="min-w-0">
+      <p className="text-[12px] text-[#6b7385]">{label}</p>
+      <p
+        className="break-words text-[28px] font-extrabold leading-tight tracking-[-0.5px] sm:text-[34px]"
+        style={{ color }}
+      >
+        {value}
+        {extra ? (
+          <span className="ml-2 text-[14px] font-semibold text-[#6b7385] sm:text-[16px]">
+            {extra}
+          </span>
+        ) : null}
+      </p>
+    </div>
+  );
+  const estimateTag = estimada ? (
+    <span
+      className="ml-2 rounded-full px-2 py-0.5 align-middle text-[12px] font-semibold text-[#0F172A]"
+      style={{ background: AI_FILL }}
+    >
+      {r.page.estimatedByMilton}
+    </span>
+  ) : null;
 
   return (
     <div
       className={
-        "w-full space-y-3 px-6 py-3 lg:px-10 " +
+        "w-full min-w-0 space-y-3 px-4 py-3 sm:px-6 lg:px-10 " +
         (pending ? "opacity-70 transition-opacity" : "transition-opacity")
       }
       aria-busy={pending}
@@ -227,7 +303,7 @@ export function RentabilidadPage({
         <span className="ml-auto text-[12px] text-[#8a92a3]">
           {m.isCurrentMonth
             ? fmt(r.page.dataUntilYesterday, {
-                day: dayLabelEs(addDay(data.today, -1), lang),
+                day: dayLabelEs(yesterday, lang),
               })
             : monthLabelEs(m.month, lang)}
         </span>
@@ -242,25 +318,168 @@ export function RentabilidadPage({
           {fixedMissing ? (
             <section
               aria-label={r.page.fixedMissingAria}
-              className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
+              data-testid="missing-card"
+              className="min-w-0 rounded-[14px] border border-[#dbe3f7] bg-white p-4 sm:p-6"
             >
-              <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold text-[#0F172A]">
-                {r.page.fixedMissingTitle}
+              <p className="text-[12px] text-[#6b7385]">
+                {fmt(estimada ? h.eyebrowEstimated : h.eyebrowReal, {
+                  month: monthName,
+                })}
               </p>
-              <ul className="mt-2 flex flex-wrap gap-2">
-                {m.fixed.missing.map((cat) => (
-                  <li key={cat} className={ALERT_PILL}>
-                    {fmt(r.page.missingCategory, {
-                      category: categoryLabel(cat, lang),
-                    })}
-                  </li>
-                ))}
+              <h2 className="mt-1 text-[22px] font-extrabold leading-tight tracking-[-0.3px] text-[#0F172A] sm:text-[26px]">
+                {missingAmounts.length === 1
+                  ? mc.titleOne
+                  : fmt(mc.title, { n: missingAmounts.length })}
+              </h2>
+              <p className="mt-1 text-[14px] leading-snug text-[#4a5a85]">
+                {fmt(mc.sub, { names })}
+              </p>
+              {m.figures.status === "partial" &&
+              m.figures.breakEven !== null ? (
+                <p
+                  data-testid="partial-break-even"
+                  className="mt-2 text-[14px] leading-snug text-[#0F172A]"
+                >
+                  <span className="font-bold">
+                    {d.costs.fixed.bePartialTitle}
+                  </span>
+                  {": "}
+                  {money(m.figures.breakEven)}{" "}
+                  <span className="text-[#4a5a85]">
+                    · {d.costs.fixed.bePartialNote}
+                  </span>
+                </p>
+              ) : null}
+              <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {(["planilla", "alquiler", "servicios", "otros"] as const).map(
+                  (cat) => {
+                    const v = m.fixed.amounts[cat];
+                    return (
+                      <li
+                        key={cat}
+                        className="min-w-0 rounded-[12px] border border-[#dbe3f7] bg-white p-3"
+                      >
+                        <p className="text-[12px] text-[#6b7385]">
+                          {categoryLabel(cat, lang)}
+                        </p>
+                        {v === null ? (
+                          <>
+                            <p className="mt-0.5">
+                              <span className={ALERT_PILL}>
+                                {r.page.flagMissing}
+                              </span>
+                            </p>
+                            <p className="mt-1.5 text-[12px] font-semibold text-[#1B40C8]">
+                              <Link href={fixedHref} className="underline">
+                                {mc.write}
+                              </Link>
+                              {" · "}
+                              <Link href={fixedHref} className="underline">
+                                {mc.upload}
+                              </Link>
+                            </p>
+                          </>
+                        ) : (
+                          <p className="mt-0.5 break-words text-[20px] font-extrabold text-[#0F172A]">
+                            {money(v)}
+                          </p>
+                        )}
+                      </li>
+                    );
+                  }
+                )}
+                <li className="min-w-0 rounded-[12px] border border-[#dbe3f7] bg-white p-3">
+                  <p className="text-[12px] text-[#6b7385]">
+                    {r.parts.impuestos}
+                  </p>
+                  <p className="mt-0.5 break-words text-[20px] font-extrabold text-[#0F172A]">
+                    {m.impuestosPct === null
+                      ? mc.taxUndefined
+                      : pctText(m.impuestosPct / 100, 1, lang)}
+                  </p>
+                  <p className="text-[12px] text-[#6b7385]">
+                    {m.impuestosPct === null
+                      ? mc.taxUndefinedSub
+                      : mc.taxSetSub}
+                  </p>
+                </li>
               </ul>
-              <Link href={fixedHref} className={BTN + " mt-3"}>
-                {r.page.uploadFixed}
-              </Link>
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+                <Link href={uploadHref} className={BTN}>
+                  {r.page.uploadFixed}
+                </Link>
+                <span className="text-[13px] text-[#4a5a85]">
+                  {fmt(mc.meanwhile, {
+                    month: monthName,
+                    amount: money(m.monthTotals.margin),
+                    pct:
+                      m.monthTotals.marginPct !== null
+                        ? pctText(m.monthTotals.marginPct, 1, lang)
+                        : "—",
+                  })}
+                </span>
+              </div>
             </section>
-          ) : null}
+          ) : (
+            <section
+              aria-label={r.page.profitAria}
+              data-testid="hero-card"
+              className="min-w-0 rounded-[14px] border border-[#dbe3f7] bg-white p-4 sm:p-6"
+            >
+              <p className="text-[12px] text-[#6b7385]">
+                {fmt(estimada ? h.eyebrowEstimated : h.eyebrowReal, {
+                  month: monthName,
+                })}
+                {estimateTag}
+              </p>
+              <h2
+                data-testid="hero-headline"
+                className="mt-1 text-[22px] font-extrabold leading-tight tracking-[-0.5px] text-[#0F172A] sm:text-[30px]"
+              >
+                {headline}
+              </h2>
+              {sub ? (
+                <p className="mt-1 text-[14px] leading-snug text-[#4a5a85] sm:text-[15px]">
+                  {sub}
+                </p>
+              ) : null}
+              {m.profit !== null ? (
+                <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3">
+                  {m.isCurrentMonth && m.profitToDate !== null
+                    ? fact(
+                        estimada
+                          ? r.page.profitEstimatedToYesterday
+                          : r.page.profitRealToYesterday,
+                        signed(m.profitToDate, money),
+                        INK
+                      )
+                    : null}
+                  {fact(
+                    m.isCurrentMonth
+                      ? estimada
+                        ? r.page.projectionEstimated
+                        : r.page.projection
+                      : estimada
+                        ? r.page.profitEstimatedMonth
+                        : r.page.profitRealMonth,
+                    signed(m.profit, money),
+                    PRIMARY,
+                    m.profitPct !== null
+                      ? "· " +
+                          fmt(h.ofSales, { pct: pctText(m.profitPct, 1, lang) })
+                      : undefined
+                  )}
+                  <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                    <ProfitBadges value={m.profit} estimate={false} />
+                    {chipNodes}
+                  </div>
+                </div>
+              ) : null}
+              <div className="mt-3">
+                <RaceChart month={m} money={money} />
+              </div>
+            </section>
+          )}
 
           {showFlag ? (
             <CoverageFlag
@@ -268,95 +487,12 @@ export function RentabilidadPage({
               uncovered={m.coverage.uncovered}
               moreHref={platos}
               locationId={locationId}
+              money={money}
             />
           ) : null}
 
-          {!fixedMissing && m.profit !== null ? (
-            <section
-              aria-label={r.page.profitAria}
-              className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-            >
-              {m.isCurrentMonth && m.profitToDate !== null ? (
-                <StatCard
-                  label={
-                    estimada
-                      ? r.page.profitEstimatedToYesterday
-                      : r.page.profitRealToYesterday
-                  }
-                  value={signed(m.profitToDate, money)}
-                  badge={
-                    <ProfitBadges value={m.profitToDate} estimate={estimada} />
-                  }
-                  note={r.page.profitNote}
-                />
-              ) : null}
-              <StatCard
-                label={
-                  m.isCurrentMonth
-                    ? estimada
-                      ? r.page.projectionEstimated
-                      : r.page.projection
-                    : estimada
-                      ? r.page.profitEstimatedMonth
-                      : r.page.profitRealMonth
-                }
-                value={signed(m.profit, money)}
-                badge={<ProfitBadges value={m.profit} estimate={estimada} />}
-                labelTitle={
-                  m.isCurrentMonth ? projectionMethod(lang) : undefined
-                }
-                chips={chipNodes}
-              />
-            </section>
-          ) : null}
-
-          <div
-            role="tablist"
-            aria-label={r.page.view}
-            className={SEGMENT_GROUP}
-          >
-            {(
-              [
-                ["resumen", r.page.tabSummary],
-                ["por-dia", r.page.tabByDay],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                role="tab"
-                type="button"
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-                className={segmentBtn(tab === id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === "resumen" ? (
-            <div className="space-y-3">
-              {!fixedMissing ? (
-                <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4">
-                  <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
-                    <h2 className="text-[14px] font-bold text-[#1b2333]">
-                      {r.page.coveredQuestion}
-                    </h2>
-                    <span className="text-[12px] text-[#8a92a3]">
-                      {be
-                        ? fmt(
-                            be.projected
-                              ? r.page.breakEvenOnProjected
-                              : r.page.breakEvenOn,
-                            { day: dayLabelEs(be.date, lang) }
-                          )
-                        : r.page.notCoveringYet}
-                    </span>
-                  </div>
-                  <RaceChart month={m} money={money} />
-                </section>
-              ) : null}
-
+          {!fixedMissing ? (
+            <>
               <section
                 className="grid grid-cols-2 gap-3 lg:grid-cols-4"
                 aria-label={r.page.indicators}
@@ -368,16 +504,13 @@ export function RentabilidadPage({
                   }
                   sub={
                     m.breakEvenPerDay === null
-                      ? fixedMissing
-                        ? r.page.flagMissing
-                        : r.page.noMarginToCalc
+                      ? r.page.noMarginToCalc
                       : m.avgSalesPerDay !== null
                         ? fmt(r.page.sellsOnAverage, {
                             amount: money(m.avgSalesPerDay),
                           })
                         : undefined
                   }
-                  flag={m.breakEvenPerDay === null && fixedMissing}
                 />
                 <Kpi
                   label={r.page.primeCost}
@@ -408,13 +541,11 @@ export function RentabilidadPage({
                 <Kpi
                   label={r.page.fixedOfMonth}
                   value={m.fixed.total !== null ? money(m.fixed.total) : "—"}
-                  sub={m.fixed.total === null ? r.page.flagMissing : undefined}
-                  flag={m.fixed.total === null}
                 />
               </section>
 
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                <section className="rounded-[14px] border border-[#dbe3f7] bg-white p-4 lg:col-span-2">
+                <section className="min-w-0 rounded-[14px] border border-[#dbe3f7] bg-white p-4 lg:col-span-2">
                   <h2 className="mb-3 text-[14px] font-bold text-[#1b2333]">
                     {fmt(r.page.per100Title, { hundred: money(100) })}
                   </h2>
@@ -433,7 +564,7 @@ export function RentabilidadPage({
                   )}
                 </section>
                 <section
-                  className="rounded-[14px] p-4"
+                  className="min-w-0 rounded-[14px] p-4"
                   style={{ background: "#E7EDFD" }}
                   aria-label={r.page.miltonAria}
                 >
@@ -457,15 +588,53 @@ export function RentabilidadPage({
                       </li>
                     ))}
                   </ul>
+                  <a
+                    href="#whatif"
+                    className="mt-3 inline-block rounded-[9px] border border-[#c6d3f5] bg-white px-3 py-1.5 text-[13px] font-bold text-[#0F172A] hover:bg-[#F6F8FE]"
+                  >
+                    {r.whatIf.tryIt}
+                  </a>
                 </section>
               </div>
 
-              <StatementTable
-                data={data}
-                money={money}
-                links={{ sales: salesHref, platos, fixed: fixedHref }}
-              />
-            </div>
+              <WhatIfPanel key={m.month} month={m} money={money} />
+            </>
+          ) : null}
+
+          <div
+            role="tablist"
+            aria-label={r.page.view}
+            className={SEGMENT_GROUP}
+          >
+            {(
+              [
+                ["estado", r.statement.title],
+                ["por-dia", r.page.tabByDay],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                role="tab"
+                type="button"
+                aria-selected={tab === id}
+                onClick={() => setTab(id)}
+                className={segmentBtn(tab === id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {tab === "estado" ? (
+            <StatementTable
+              data={data}
+              money={money}
+              links={{
+                sales: salesHref,
+                platos,
+                fixed: fixedHref,
+                ingredientes,
+              }}
+            />
           ) : (
             <DailyTable data={data} money={money} />
           )}
@@ -519,11 +688,13 @@ function CoverageFlag({
   uncovered,
   moreHref,
   locationId,
+  money,
 }: {
   uncoveredPct: number;
   uncovered: UncoveredDish[];
   moreHref: string;
   locationId: string;
+  money: (n: number) => string;
 }) {
   const { d: dict, lang, fmt } = useT();
   const c = dict.rentabilidad.coverage;
@@ -532,51 +703,94 @@ function CoverageFlag({
     sin_receta: c.reasonNoRecipe,
     sin_precio: c.reasonNoPrice,
   };
-  const shown = uncovered.slice(0, 6);
+  const shown = uncovered.slice(0, 5);
+  const action = (d: UncoveredDish) => {
+    const label =
+      d.reason === "sin_precio"
+        ? c.completePrice
+        : d.hasDraft
+          ? c.approve
+          : c.createRecipe;
+    return (
+      <Link
+        href={withShellParams(dishHref(d.odooProductId), { locationId })}
+        className="inline-flex items-center justify-center whitespace-nowrap rounded-[9px] bg-[#1B40C8] px-2.5 py-1 text-[12.5px] font-semibold text-white hover:bg-[#1533A3]"
+      >
+        {label}
+      </Link>
+    );
+  };
   return (
     <section
       role="alert"
       aria-label={c.aria}
-      className="rounded-[14px] border border-[#FDE68A] bg-[#FDE68A]/40 p-4"
+      className="min-w-0 rounded-[14px] border border-[#dbe3f7] bg-white p-4"
     >
-      <p className="inline-block rounded-lg bg-[#FDE68A] px-2.5 py-1 text-[14px] font-bold leading-snug text-[#0F172A]">
+      <p className="text-[14px] font-bold leading-snug text-[#0F172A]">
         {fmt(c.headline, { pct: pctText(uncoveredPct, 1, lang) })}
       </p>
-      <ul className="mt-3 space-y-2">
-        {shown.map((d) => {
-          const label =
-            d.reason === "sin_precio"
-              ? c.completePrice
-              : d.hasDraft
-                ? c.approve
-                : c.createRecipe;
-          return (
-            <li
-              key={d.odooProductId}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-[#0f1b3d]">
-                  {d.name}
-                </p>
-                <p className="text-xs text-[#6b7385]">
-                  {fmt(c.shareOfSales, {
-                    pct: pctText(d.share, 1, lang),
-                    reason: reasonLabel[d.reason],
-                  })}
-                </p>
-              </div>
-              <Link
-                href={withShellParams(dishHref(d.odooProductId), {
-                  locationId,
-                })}
-                className={BTN}
+      <table className="mt-2 hidden w-full table-fixed text-sm sm:table">
+        <thead>
+          <tr className="text-xs text-[#6b7385]">
+            <th scope="col" className="w-[34%] py-2 text-left font-semibold">
+              {c.colDish}
+            </th>
+            <th scope="col" className="py-2 text-right font-semibold">
+              {c.colSales}
+            </th>
+            <th scope="col" className="py-2 text-right font-semibold">
+              {c.colShare}
+            </th>
+            <th scope="col" className="py-2 pl-4 text-left font-semibold">
+              {c.colRecipe}
+            </th>
+            <th scope="col" className="w-[18%] py-2" />
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((d) => (
+            <tr key={d.odooProductId} className="border-t border-[#eef1f8]">
+              <th
+                scope="row"
+                className="truncate py-2 text-left font-medium text-[#0f1b3d]"
               >
-                {label}
-              </Link>
-            </li>
-          );
-        })}
+                {d.name}
+              </th>
+              <td className="py-2 text-right tabular-nums">
+                {money(d.netSales)}
+              </td>
+              <td className="py-2 text-right tabular-nums text-[#6b7385]">
+                {pctText(d.share, 1, lang)}
+              </td>
+              <td className="py-2 pl-4 text-[#6b7385]">
+                {reasonLabel[d.reason]}
+              </td>
+              <td className="py-2 text-right">{action(d)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <ul className="mt-2 space-y-2 sm:hidden">
+        {shown.map((d) => (
+          <li
+            key={d.odooProductId}
+            className="flex flex-wrap items-center justify-between gap-2 border-t border-[#eef1f8] pt-2"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[#0f1b3d]">
+                {d.name}
+              </p>
+              <p className="text-xs text-[#6b7385]">
+                {money(d.netSales)} ·{" "}
+                {fmt(c.shareOfSales, {
+                  pct: pctText(d.share, 1, lang),
+                  reason: reasonLabel[d.reason],
+                })}
+              </p>
+            </div>
+            {action(d)}
+          </li>
+        ))}
       </ul>
       {uncovered.length > shown.length ? (
         <Link
@@ -645,7 +859,7 @@ function Cada100Bar({
       </ul>
       {loss ? (
         <p className="mt-2">
-          <span className="inline-block rounded-full bg-[#FBCFE8] px-2.5 py-0.5 text-sm font-semibold text-[#0F172A]">
+          <span className="inline-block rounded-full bg-[#F1F3F7] px-2.5 py-0.5 text-sm font-semibold text-[#0F172A]">
             {fmt(r.page.per100Loss, { hundred })}
           </span>
         </p>
@@ -661,11 +875,17 @@ function StatementTable({
 }: {
   data: RentabilidadPageData;
   money: (n: number) => string;
-  links: { sales: string; platos: string; fixed: string };
+  links: {
+    sales: string;
+    platos: string;
+    fixed: string;
+    ingredientes: string;
+  };
 }) {
-  const { d, lang } = useT();
+  const { d, lang, fmt } = useT();
   const r = d.rentabilidad;
   const st = r.statement;
+  const ww = r.waste;
   const m = data.month;
   const twoCols = m.projection !== null;
   const a = m.actual;
@@ -682,6 +902,8 @@ function StatementTable({
     href?: string;
     strong?: boolean;
     soon?: boolean;
+    /** A small second line under the label. */
+    note?: string;
     values: [React.ReactNode, React.ReactNode];
   };
   const out = (n: number) => cell(-n === 0 ? 0 : -n);
@@ -701,11 +923,35 @@ function StatementTable({
       href: links.platos,
       values: [out(a.food), out(p.food)],
     },
-    {
-      label: st.waste,
-      soon: true,
-      values: [st.soon, st.soon],
-    },
+    m.wasteAvailable
+      ? {
+          label: st.waste,
+          note: [
+            m.wastePctOfSales !== null
+              ? fmt(ww.rowNote, { pct: pctText(m.wastePctOfSales, 1, lang) })
+              : null,
+            m.wasteBasis === "calendar" ? ww.calendarBasis : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          values: [
+            <span key="a" data-testid="waste-actual">
+              {out(a.waste)}
+              {m.wasteMissing > 0 ? (
+                <>
+                  {" "}
+                  <span className={ALERT_PILL}>{ww.noCost}</span>
+                </>
+              ) : null}
+            </span>,
+            out(p.waste),
+          ],
+        }
+      : {
+          // No confirmed line yet, or the table is not there: «⚑ Falta», never $0.
+          label: st.waste,
+          values: [cell(null), cell(null)],
+        },
     {
       label: st.grossMargin,
       strong: true,
@@ -781,6 +1027,11 @@ function StatementTable({
                   className="break-words px-3 py-2 text-left font-medium text-[#0f1b3d] sm:px-4"
                 >
                   {r.label}
+                  {r.note ? (
+                    <span className="block text-xs font-normal text-[#6b7385]">
+                      {r.note}
+                    </span>
+                  ) : null}
                 </th>
                 <td className="px-2 py-2 text-right tabular-nums">
                   {r.soon ? (
@@ -823,6 +1074,33 @@ function StatementTable({
             <span className="rounded-full bg-[#E7EDFD] px-2 py-0.5 font-semibold text-[#1B40C8]">
               {st.allCovered}
             </span>
+          </p>
+        ) : null}
+        {m.wastePlan ? (
+          <p data-testid="waste-vs-plan">
+            {fmt(m.wastePlan.allRestaurants ? ww.vsPlanAll : ww.vsPlan, {
+              planned: pctText(m.wastePlan.plannedPct / 100, 1, lang),
+              reported: pctText(m.wastePlan.reportedPct / 100, 1, lang),
+              diff: signed(m.wastePlan.difference, money),
+            })}
+          </p>
+        ) : null}
+        {m.wasteValuedPct !== null ? (
+          <p data-testid="waste-valued">
+            <strong className="text-[#0f1b3d]">
+              {fmt(ww.valuedPct, { pct: `${m.wasteValuedPct}%` })}
+            </strong>
+            {m.wasteMissing > 0 ? (
+              <>
+                {" · "}
+                <Link
+                  href={links.ingredientes}
+                  className="font-semibold text-[#1B40C8] underline"
+                >
+                  {ww.addPrices}
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : null}
         {m.coverage.coveredMarginPct !== null ? (

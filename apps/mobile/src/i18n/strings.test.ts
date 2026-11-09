@@ -38,7 +38,9 @@ describe("app strings", () => {
   it("English and German are really translated (not copies of Spanish)", () => {
     const same = [...flat.es].filter(
       ([k, v]) =>
-        v.length > 12 && (flat.en.get(k) === v || flat.de.get(k) === v)
+        v.length > 12 &&
+        !/^Milton \{version\}$/.test(v) && // the brand name is not translated
+        (flat.en.get(k) === v || flat.de.get(k) === v)
     );
     expect(same.map(([k]) => k)).toEqual([]);
   });

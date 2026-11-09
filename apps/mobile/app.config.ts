@@ -14,10 +14,15 @@ const PHOTOS_EN = "Milton uses your photos so you can send kitchen images.";
 const MIC_ES = "Milton usa el micrófono para que envíes notas de voz.";
 const MIC_EN = "Milton uses the microphone so you can send voice notes.";
 
+const FACE_ES =
+  "Milton usa Face ID para que entres más rápido con tu cara. Tu PIN se guarda solo en este teléfono.";
+const FACE_EN =
+  "Milton uses Face ID so you can sign in faster. Your PIN stays only on this phone.";
+
 const both = (es: string, en: string) => `${es} / ${en}`;
 
 const config: ExpoConfig = {
-  name: "Milton Cocina",
+  name: "Milton",
   slug: "milton-cocina",
   scheme: "milton",
   version: "0.1.0",
@@ -25,6 +30,9 @@ const config: ExpoConfig = {
   userInterfaceStyle: "light",
   icon: "./assets/icon.png",
   ios: {
+    // PROPOSED, not registered anywhere yet: confirm the Apple team and this
+    // id before the first signed build (see README, «iOS development build»).
+    bundleIdentifier: "com.miltonlabs.milton",
     supportsTablet: false,
     infoPlist: {
       NSCameraUsageDescription: both(CAMERA_ES, CAMERA_EN),
@@ -43,13 +51,22 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-dev-client",
     "expo-secure-store",
+    // Registers the iOS push entitlement; sending needs APNs credentials in the
+    // Expo project (an account-side step, see the notifications PR).
+    "expo-notifications",
+    ["expo-local-authentication", { faceIDPermission: both(FACE_ES, FACE_EN) }],
     [
       "expo-image-picker",
       {
         cameraPermission: both(CAMERA_ES, CAMERA_EN),
         photosPermission: both(PHOTOS_ES, PHOTOS_EN),
-        microphonePermission: false,
+        // NOT false: this plugin deletes NSMicrophoneUsageDescription when it is
+        // false, and because mods run in reverse order that removed the string
+        // expo-audio had just set. Without it iOS never shows the microphone
+        // prompt and answers «denied» at once (Preguntar a Milton, Cocina voice).
+        microphonePermission: both(MIC_ES, MIC_EN),
       },
     ],
     ["expo-audio", { microphonePermission: both(MIC_ES, MIC_EN) }],

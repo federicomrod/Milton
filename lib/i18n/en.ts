@@ -17,6 +17,7 @@ import { errors } from "./en/errors";
 import { comms } from "./en/comms";
 import { admin } from "./en/admin";
 import { config } from "./en/config";
+import { support } from "./en/support";
 
 export const en: Dictionary = {
   common,
@@ -36,4 +37,5 @@ export const en: Dictionary = {
   comms,
   admin,
   config,
+  support,
 };

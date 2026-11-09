@@ -29,6 +29,9 @@ export default async function RestaurantShellLayout({
       isAdmin={chrome.isAdmin}
       lastSyncedAt={chrome.lastSyncedAt}
       userName={chrome.userName ?? null}
+      companies={chrome.companies}
+      activeCompanyId={chrome.activeCompanyId ?? null}
+      supportCompanyName={chrome.supportCompanyName ?? null}
       capabilities={capabilities}
     >
       {children}

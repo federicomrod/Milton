@@ -62,6 +62,17 @@ export interface IngredientUseEntry {
   /** «a través de la preparación X» / «por el alias …» / «ingrediente unido». */
   via: string | null;
   href: string;
+  /**
+   * The ingredient reaches this recipe only THROUGH these preparations (with
+   * the quantity of each the recipe uses): the share of the merma impact.
+   */
+  viaPreps?: Array<{
+    componentId: string;
+    qty: number | null;
+    unit: string | null;
+  }>;
+  /** A preparation covered by a measured yield, itself or above it (set by the page, display only). */
+  prepCovered?: boolean;
 }
 
 export interface UsesLine {
@@ -268,6 +279,10 @@ export function computeIngredientUses(
         { lines: UsesLine[]; via: string | null }
       >();
       const through = new Map<string, string>();
+      const throughLines = new Map<
+        string,
+        Array<{ componentId: string; qty: number | null; unit: string | null }>
+      >();
       for (const line of src.lines) {
         if (line.input_type === "ingredient") {
           const r = resolve(line.ingredient_id);
@@ -277,9 +292,17 @@ export function computeIngredientUses(
           direct.set(r.id, cur);
         } else if (line.component_id) {
           const prep = input.components.get(line.component_id);
-          for (const id of reachOf(line.component_id))
+          for (const id of reachOf(line.component_id)) {
             if (!through.has(id))
               through.set(id, fmt(uc.viaPrep, { name: prep?.name ?? "—" }));
+            const list = throughLines.get(id) ?? [];
+            list.push({
+              componentId: line.component_id,
+              qty: line.quantity ?? null,
+              unit: line.unit ?? null,
+            });
+            throughLines.set(id, list);
+          }
         }
       }
       for (const [id, d] of direct) {
@@ -311,6 +334,7 @@ export function computeIngredientUses(
           unit: null,
           via,
           href,
+          viaPreps: throughLines.get(id) ?? [],
         });
       }
     }

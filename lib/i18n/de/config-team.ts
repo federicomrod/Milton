@@ -31,7 +31,8 @@ export const configTeam: Dictionary["config"]["team"] = {
   copy: "Link kopieren",
   copied: "Link kopiert",
   emailSent: "E-Mail an {email} gesendet.",
-  emailNotSent: "E-Mail nicht gesendet. Teilen Sie den Link.",
+  emailNotSent:
+    "Wir konnten die E-Mail nicht senden. Kopieren Sie den Link und teilen Sie ihn.",
   remove: "Entfernen",
   removeAsk: "{name} entfernen?",
   yes: "Ja",
@@ -43,6 +44,20 @@ export const configTeam: Dictionary["config"]["team"] = {
   errInvalidEmail: "Geben Sie eine gültige E-Mail ein.",
   errSelf: "Sie können sich nicht selbst entfernen.",
   errLastOwner: "Mindestens ein Inhaber muss bleiben.",
-  errForbidden: "Nur der Inhaber kann das tun.",
+  errForbidden: "Nur der Inhaber oder ein Administrator kann das tun.",
+  roleAdmin: "Administrator",
+  roleManager: "Manager",
+  roleAnalyst: "Analyst",
+  roleHint:
+    "Rentabilität und Fixkosten: nur Inhaber, Administrator und Manager. Analyst und Nur Lesen sehen den Rest, ohne ihn zu ändern.",
+  changeRole: "Rolle ändern",
+  roleChanged: "Rolle geändert",
+  resend: "Erneut senden",
+  resent: "Einladung erneut gesendet",
+  resendNote:
+    "Der Link kann nicht erneut angezeigt werden. Erneut senden erstellt einen neuen.",
+  errRoleLimit:
+    "Sie können keine höhere Rolle als Ihre eigene vergeben oder ändern.",
+  errInvalidRole: "Wählen Sie eine gültige Rolle.",
   errGeneric: "Das hat nicht geklappt. Bitte erneut versuchen.",
 };

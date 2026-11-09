@@ -23,6 +23,17 @@ export const FIXED_COST_CATEGORIES = [
 ] as const;
 export type FixedCostCategory = (typeof FIXED_COST_CATEGORIES)[number];
 
+/**
+ * The database refused a write because of row-level security: the person's
+ * role may not change fixed costs (migration 073). Never show its raw text.
+ */
+export function isRlsDenied(error: unknown): boolean {
+  const e = error as { code?: unknown; message?: unknown } | null;
+  return (
+    e?.code === "42501" || /row-level security/i.test(String(e?.message ?? ""))
+  );
+}
+
 export const CATEGORY_LABELS_ES: Record<FixedCostCategory, string> = {
   planilla: "Planilla",
   alquiler: "Alquiler",
@@ -63,6 +74,12 @@ export interface FixedCostLine {
   status: FixedCostStatus;
   repeats: boolean;
   split_rule: SplitRule | null;
+  /** Aggregate version (migration 079); sent back as the expected version on a save. 0 = unknown / none. */
+  version?: number;
+  /** legacy_total = a known total with no known detail; itemized = the sum of its items. */
+  detail_state?: "legacy_total" | "itemized";
+  /** Set only by an explicit copy: the month and source version it took. */
+  copy_source?: { month?: string; aggregate_version?: number } | null;
 }
 
 export function isFixedCostCategory(v: unknown): v is FixedCostCategory {
@@ -393,6 +410,27 @@ export function fixedCostCompleteness(
   const missing: FixedCostCategory[] = [...missingAmounts];
   if (costs.impuestosPct === null) missing.push("impuestos");
   return { complete: missing.length === 0, missing, missingAmounts };
+}
+
+export interface FixedCostTotal {
+  /** Sum of the known amount categories; null when none is known (never 0). */
+  total: number | null;
+  /** Amount categories still missing. */
+  missingCount: number;
+}
+
+/**
+ * «Total de costos fijos»: the known amounts added up. Impuestos is a % of
+ * sales, not an amount, so it is excluded. A missing category is not a $0.
+ */
+export function fixedCostTotal(costs: EffectiveFixedCosts): FixedCostTotal {
+  const known = AMOUNT_CATEGORIES.map((c) => costs.amounts[c]).filter(
+    (n): n is number => n !== null
+  );
+  return {
+    total: known.length > 0 ? known.reduce((a, b) => a + b, 0) : null,
+    missingCount: AMOUNT_CATEGORIES.length - known.length,
+  };
 }
 
 // ---------------------------------------------------------------------------

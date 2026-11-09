@@ -20,7 +20,9 @@ export async function GET(req: NextRequest) {
   const fe = getDictionary(lang).costs.fixedErrors;
   const auth = await authorizeFixedCosts();
   if (!auth.ok) return auth.response;
-  const denied = requireCapability(auth.actor, "costs.fixed");
+  const denied = requireCapability(auth.actor, "costs.fixed", {
+    message: getDictionary(lang).costs.fixed.roleDenied,
+  });
   if (denied) return denied;
   const rawMonth = req.nextUrl.searchParams.get("month");
   const month = rawMonth ? monthStartOf(rawMonth) : undefined;

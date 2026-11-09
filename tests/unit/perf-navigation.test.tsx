@@ -99,11 +99,17 @@ describe("the membership lookup is shared per request", () => {
 });
 
 describe("Costos fijos starts independent reads together", () => {
-  it("margin, split and the monthly copy run in one Promise.all", () => {
+  it("the months and the activity load in one Promise.all; rendering never writes", () => {
     const src = read("app/dashboard/restaurant/costs/page.tsx");
     expect(src).toMatch(
-      /Promise\.all\(\[\s*repeated,\s*splitSalesP,\s*loadMonthMargin/
+      /Promise\.all\(\[\s*loadFixedCostOverview\([\s\S]*loadFixedCostActivity/
     );
+    // Every month of the window reads its margin together, inside the loader.
+    expect(read("lib/restaurant/fixed-cost-overview-server.ts")).toMatch(
+      /Promise\.all\(\s*months\.map/
+    );
+    // No render-time copy: the page has no writer in it at all.
+    expect(src).not.toMatch(/repeatFixedCosts|saveFixedCosts|approveDraft/);
     expect(src).toContain("<Suspense");
   });
 });

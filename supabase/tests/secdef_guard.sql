@@ -20,7 +20,8 @@
 -- Run:  psql "$DB_URL" -X -A -t -f supabase/tests/secdef_guard.sql
 --       (any output line = failure)
 --
--- Skipped: trigger functions (not callable as RPC), extension-owned
+-- Skipped: trigger and event-trigger functions (PostgreSQL refuses to call them
+-- outside a trigger, so they are not callable as RPC), extension-owned
 -- functions, and Supabase-managed schemas.
 --
 -- ALLOWLIST: (schema, function, argument TYPES, roles allowed to execute, reason).
@@ -34,12 +35,34 @@ WITH allowlist (schema_name, func_name, arg_types, allowed_roles, reason) AS (
     ('public', 'is_company_member',        'uuid',
        ARRAY['authenticated'],
        'RLS helper evaluated for signed-in users; anon revoked (migration 022)'),
+    ('public', 'has_company_role',         'uuid, text[]',
+       ARRAY['authenticated'],
+       'RLS helper for write policies (fixed costs, migration 073), evaluated for signed-in users; anon revoked'),
     ('public', 'is_milton_admin',          '',
        ARRAY['authenticated'],
        'RLS helper for admin-only policies, evaluated for signed-in users (migration 020)'),
     ('public', 'current_user_was_invited', '',
        ARRAY['authenticated'],
-       'called from the logged-in login redirect; reads only auth.uid() (migration 020)')
+       'called from the logged-in login redirect; reads only auth.uid() (migration 020)'),
+    -- Fixed-cost command implementations (migration 079). They live in the PRIVATE
+    -- schema fixed_cost_private, which must not be in the API's exposed schemas; the
+    -- API surface is seven SECURITY INVOKER wrappers in public (not SECURITY DEFINER,
+    -- so not listed here). Each implementation re-checks auth.uid() and the caller's
+    -- writer role. anon and service_role have no EXECUTE and no schema USAGE.
+    ('fixed_cost_private', 'fixed_cost_preview_upload', 'uuid',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_approve_upload', 'text, uuid, integer, jsonb, text[], jsonb, text',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_save_totals', 'text, uuid, date, uuid, jsonb, text',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_item_command', 'text, uuid, text, uuid, date, text, uuid, text, bigint, integer, integer, text',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_preview_copy', 'uuid, uuid, date, date',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_copy', 'text, uuid, uuid, date, date, text[], jsonb, jsonb, text',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role (079)'),
+    ('fixed_cost_private', 'fixed_cost_undo', 'text, uuid',
+       ARRAY['authenticated'], 'private impl behind an invoker wrapper; checks writer role of the command company (079)')
 ),
 managed_schemas (name) AS (
   VALUES ('auth'), ('storage'), ('realtime'), ('_realtime'), ('vault'),
@@ -56,7 +79,7 @@ fn AS (
     JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE p.prosecdef
      AND p.prokind = 'f'
-     AND p.prorettype <> 'trigger'::regtype
+     AND p.prorettype NOT IN ('trigger'::regtype, 'event_trigger'::regtype)
      AND n.nspname !~ '^pg_'
      AND n.nspname NOT IN (SELECT name FROM managed_schemas)
      AND NOT EXISTS (

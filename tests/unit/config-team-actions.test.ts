@@ -41,8 +41,10 @@ vi.mock("@/lib/auth/permissions", async () => {
 });
 
 import {
+  changeMemberRole,
   inviteMember,
   removeMember,
+  resendInvite,
   revokeInvite,
 } from "@/app/dashboard/restaurant/data/team-actions";
 
@@ -62,8 +64,8 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("team actions gate", () => {
-  it("refuses non-owners and touches nothing", async () => {
-    for (const r of ["admin", "manager", "member", "viewer", null]) {
+  it("refuses everyone but owner and admin and touches nothing", async () => {
+    for (const r of ["manager", "analyst", "member", "viewer", null]) {
       role = r;
       expect(await inviteMember("a@b.co", "member")).toEqual({
         ok: false,
@@ -97,7 +99,7 @@ describe("inviteMember", () => {
       ok: false,
       error: "email",
     });
-    expect(await inviteMember("a@b.co", "admin")).toEqual({
+    expect(await inviteMember("a@b.co", "boss")).toEqual({
       ok: false,
       error: "role",
     });
@@ -202,5 +204,194 @@ describe("revokeInvite", () => {
       expires_at: new Date(Date.now() + 1e9).toISOString(),
     });
     expect(await revokeInvite(foreign)).toEqual({ ok: false, error: "error" });
+  });
+});
+
+const ROLES = ["owner", "admin", "manager", "analyst", "viewer"] as const;
+
+describe("inviteMember roles", () => {
+  it("an owner can invite any of the five roles, and the chosen role is stored", async () => {
+    for (const r of ROLES) {
+      const res = await inviteMember(`${r}@cafe.test`, r);
+      expect(res.ok, r).toBe(true);
+    }
+    expect(db.tables.workspace_invites.map((i) => i.role)).toEqual([...ROLES]);
+  });
+
+  it("an existing «member» role keeps working", async () => {
+    expect((await inviteMember("old@cafe.test", "member")).ok).toBe(true);
+    expect(db.tables.workspace_invites[0].role).toBe("member");
+  });
+
+  it("an admin invites admin, manager, analyst and viewer but never an owner", async () => {
+    role = "admin";
+    for (const r of ["admin", "manager", "analyst", "viewer"]) {
+      expect((await inviteMember(`${r}@cafe.test`, r)).ok, r).toBe(true);
+    }
+    const before = db.tables.workspace_invites.length;
+    expect(await inviteMember("boss@cafe.test", "owner")).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+    expect(db.tables.workspace_invites).toHaveLength(before);
+  });
+
+  it("nobody who cannot manage the team grants anything", async () => {
+    for (const r of ["manager", "analyst", "viewer", "member", null]) {
+      role = r;
+      expect(await inviteMember("x@cafe.test", "viewer")).toEqual({
+        ok: false,
+        error: "forbidden",
+      });
+    }
+    expect(db.tables.workspace_invites ?? []).toEqual([]);
+  });
+});
+
+describe("resendInvite", () => {
+  it("revokes the pending invite and creates a new one with the same email and role", async () => {
+    const made = await inviteMember("ana@cafe.test", "analyst");
+    if (!made.ok) throw new Error("not created");
+    const again = await resendInvite(made.inviteId);
+    if (!again.ok) throw new Error("not resent");
+    expect(again.inviteId).not.toBe(made.inviteId);
+    expect(again.link).not.toBe(made.link);
+    const [first, second] = db.tables.workspace_invites;
+    expect(first.revoked_at).toBeTruthy();
+    expect(second.role).toBe("analyst");
+    expect(second.email).toBe("ana@cafe.test");
+    expect(JSON.stringify(db.tables.workspace_invites)).not.toContain(
+      again.link.split("token=")[1]
+    );
+  });
+
+  it("an admin cannot resend an owner invite; a foreign or bad id is an error", async () => {
+    const made = await inviteMember("boss@cafe.test", "owner");
+    if (!made.ok) throw new Error("not created");
+    role = "admin";
+    expect(await resendInvite(made.inviteId)).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+    expect((await resendInvite("nope")).ok).toBe(false);
+    role = "owner";
+    const foreign = "b2222222-2222-4222-8222-222222222222";
+    db.tables.workspace_invites.push({
+      id: foreign,
+      company_id: OTHER_CO,
+      email: "x@y.co",
+      role: "viewer",
+      token_hash: "h",
+      expires_at: new Date(Date.now() + 1e9).toISOString(),
+    });
+    expect(await resendInvite(foreign)).toEqual({ ok: false, error: "error" });
+  });
+});
+
+describe("changeMemberRole", () => {
+  it("an owner changes a manager to any role, including owner", async () => {
+    for (const r of ["admin", "analyst", "viewer", "owner", "manager"]) {
+      expect(await changeMemberRole(M_MGR, r)).toEqual({ ok: true, role: r });
+      expect(
+        db.tables.company_memberships.find((m) => m.id === M_MGR)?.role
+      ).toBe(r);
+    }
+  });
+
+  it("an admin cannot make an owner, nor touch one, nor grant above their own", async () => {
+    role = "admin";
+    expect(await changeMemberRole(M_MGR, "owner")).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+    db.tables.company_memberships.push({
+      id: M_OWNER2,
+      company_id: CO,
+      user_id: "u-o2",
+      role: "owner",
+    });
+    expect(await changeMemberRole(M_OWNER2, "viewer")).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+    expect(await removeMember(M_OWNER2)).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+    expect(
+      db.tables.company_memberships.find((m) => m.id === M_OWNER2)?.role
+    ).toBe("owner");
+    // What an admin may do: manager -> analyst.
+    expect(await changeMemberRole(M_MGR, "analyst")).toEqual({
+      ok: true,
+      role: "analyst",
+    });
+  });
+
+  it("an admin cannot revoke an owner's pending invite", async () => {
+    const made = await inviteMember("boss@cafe.test", "owner");
+    if (!made.ok) throw new Error("not created");
+    role = "admin";
+    expect(await revokeInvite(made.inviteId)).toEqual({
+      ok: false,
+      error: "role_limit",
+    });
+  });
+
+  it("never demotes the last owner", async () => {
+    // Caller is an admin acting on a company whose only owner is M_OWNER2.
+    db.tables.company_memberships = db.tables.company_memberships.filter(
+      (m) => m.id !== M_SELF
+    );
+    db.tables.company_memberships.push({
+      id: M_OWNER2,
+      company_id: CO,
+      user_id: "u-o2",
+      role: "owner",
+    });
+    expect(await changeMemberRole(M_OWNER2, "admin")).toEqual({
+      ok: false,
+      error: "last_owner",
+    });
+    // With a second owner, demoting one is fine.
+    db.tables.company_memberships.push({
+      id: M_SELF,
+      company_id: CO,
+      user_id: "u-o3",
+      role: "owner",
+    });
+    expect(await changeMemberRole(M_OWNER2, "admin")).toEqual({
+      ok: true,
+      role: "admin",
+    });
+  });
+
+  it("refuses yourself, a non-team role, another company and non-managers", async () => {
+    expect(await changeMemberRole(M_SELF, "viewer")).toEqual({
+      ok: false,
+      error: "self",
+    });
+    expect(await changeMemberRole(M_MGR, "member")).toEqual({
+      ok: false,
+      error: "role",
+    });
+    expect(await changeMemberRole(M_MGR, "boss")).toEqual({
+      ok: false,
+      error: "role",
+    });
+    expect(await changeMemberRole(M_OTHER, "viewer")).toEqual({
+      ok: false,
+      error: "error",
+    });
+    for (const r of ["manager", "analyst", "viewer", "member", null]) {
+      role = r;
+      expect(await changeMemberRole(M_MGR, "viewer")).toEqual({
+        ok: false,
+        error: "forbidden",
+      });
+    }
+    expect(
+      db.tables.company_memberships.find((m) => m.id === M_MGR)?.role
+    ).toBe("manager");
   });
 });

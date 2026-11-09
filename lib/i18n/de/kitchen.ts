@@ -4,6 +4,29 @@ export const kitchen: Dictionary["kitchen"] = {
   qrIntro:
     "Ihr Team scannt diesen Code mit Telegram und kann Ihnen dann Meldungen und Rezepte per Sprachnachricht senden.",
   api: {
+    managerNoAccess:
+      "Ihre Rolle hat keinen Zugriff auf die Verwaltung. Fragen Sie den Inhaber.",
+    managerLoginInvalid: "E-Mail oder Passwort ist falsch.",
+    managerLoginFailed:
+      "Die Anmeldung ist gerade nicht möglich. Versuchen Sie es erneut.",
+    managerLoadFailed: "Diese Daten konnten gerade nicht geladen werden.",
+    managerAskEmpty: "Schreiben Sie Ihre Frage.",
+    managerAskTooLong: "Die Frage ist zu lang.",
+    managerAskClarifyLocation: "Welches Restaurant meinen Sie?",
+    managerAskAllRestaurants: "Alle Restaurants",
+    managerAskFailed:
+      "Ich konnte gerade nicht antworten. Versuchen Sie es erneut.",
+    managerVoiceFailed:
+      "Ich konnte das Audio nicht verstehen. Versuchen Sie es erneut oder schreiben Sie Ihre Frage.",
+    managerVoiceTooBig: "Das Audio ist zu lang.",
+    managerPushInvalid: "Die Benachrichtigungseinstellungen sind ungültig.",
+    managerPeriodInvalid: "Der Zeitraum ist ungültig.",
+    managerMonthInvalid: "Der Monat ist ungültig.",
+    managerPickRestaurant: "Wählen Sie ein Restaurant.",
+    managerInvoiceNotFound: "Diese Rechnung wurde nicht gefunden.",
+    managerInvoiceNotPending: "Diese Rechnung ist nicht mehr offen.",
+    managerInvoiceActionFailed:
+      "Die Änderung an der Rechnung konnte nicht gespeichert werden.",
     signInAgain: "Melden Sie sich erneut mit Ihrer Einladung an.",
     sessionCheckFailed: "Ich konnte Ihre Sitzung nicht prüfen.",
     draftNotFoundThat: "Ich habe diesen Entwurf nicht gefunden.",
@@ -88,6 +111,19 @@ export const kitchen: Dictionary["kitchen"] = {
     signOutFailed: "Ich konnte Sie nicht abmelden.",
     submissionNotFound: "Ich habe diese Sendung nicht gefunden.",
     submissionSaveFailed: "Ich konnte Ihre Sendung nicht speichern.",
+    pinInvalid: "Die PIN muss aus 4 bis 6 Ziffern bestehen.",
+    pinLocked:
+      "Zu viele Versuche. Warte 15 Minuten oder bitte deine Leitung um eine neue PIN.",
+    pinLoginFailed:
+      "Anmeldung nicht möglich. Prüfe den Code, deinen Namen und deine PIN. Wenn du vor der Einführung der PIN beigetreten bist, bitte deine Leitung um eine PIN oder einen neuen Link.",
+    pinSaveFailed: "Die PIN konnte nicht gespeichert werden.",
+    pinWeak:
+      "Wähle eine PIN, die schwerer zu erraten ist (nicht 1234 oder 0000).",
+    pinWrong: "Die aktuelle PIN ist nicht korrekt.",
+    selfDeviceFailed: "Küche konnte nicht geöffnet werden. Versuche es erneut.",
+    selfDeviceForbidden: "Deine Rolle kann die Küche nicht öffnen.",
+    teamActionFailed: "Die Änderung konnte nicht vorgenommen werden.",
+    teamLoadFailed: "Das Küchenteam konnte nicht geladen werden.",
     tooManyAttempts: "Zu viele Versuche. Bitte warten Sie eine Minute.",
     typeInvalid: "Die Art ist ungültig.",
     uploadPrepareFailed: "Ich konnte die Sendung nicht vorbereiten.",
@@ -95,5 +131,14 @@ export const kitchen: Dictionary["kitchen"] = {
     ingredientExists: '"{name}" existiert bereits. Verwenden?',
     ingredientArchived:
       '"{name}" ist archiviert. Stellen Sie es unter Zutaten wieder her oder verwenden Sie einen anderen Namen.',
+  },
+  push: {
+    dailyTitle: "Ihre Zusammenfassung von gestern",
+    dailySales: "Umsatz von gestern: {amount}.",
+    dailyProfit: "Gewinn im Monat: {amount}.",
+    dailyReady: "Ihre Zusammenfassung von gestern ist in Milton bereit.",
+    invoicesTitle: "Rechnungen zur Freigabe",
+    invoicesOne: "1 Rechnung wartet auf Ihre Freigabe.",
+    invoicesMany: "{count} Rechnungen warten auf Ihre Freigabe.",
   },
 };

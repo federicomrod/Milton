@@ -3,18 +3,30 @@
 // (web repo, same repository). None of these has a price, cost, margin, total
 // or sales field, and the app must never invent one.
 
+/** Whether the cook has a PIN, and whether it is a temporary one to change. */
+export interface PinState {
+  set: boolean;
+  mustChange: boolean;
+}
+
 export interface RedeemResponse {
   deviceToken: string;
   staff: { id: string; name: string };
   location: { id: string; name: string };
   /** The company's language («es», «en», «de»). */
   language?: string;
+  /** Absent on an older server. */
+  pin?: PinState;
+  /** The company's short kitchen code (for example «K7M2QX»). */
+  kitchenCode?: string | null;
 }
 
 export interface KitchenMe {
   staff: { id: string; name: string };
   company: { name: string; language?: string };
   locations: { id: string; name: string }[];
+  pin?: PinState;
+  kitchenCode?: string | null;
 }
 
 export type ItemKind = "photo" | "voice" | "document" | "text";

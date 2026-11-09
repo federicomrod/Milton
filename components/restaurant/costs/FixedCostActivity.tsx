@@ -23,9 +23,12 @@ const TAG: Record<ActivityEntry["kind"], string> = {
 
 export function FixedCostActivity({
   entries,
+  elsewhere = 0,
   currency,
 }: {
   entries: ActivityEntry[];
+  /** Operations that touched another restaurant or the group. */
+  elsewhere?: number;
   currency: string;
 }) {
   const { d, lang, locale, fmt } = useT();
@@ -64,7 +67,9 @@ export function FixedCostActivity({
         <span className="text-sm font-bold text-[#151c2c]">
           {a.title}
           <span className="ml-2 font-normal text-[#6b7385]">
-            {fmt(a.summary, { n: entries.length })}
+            {entries.length === 0
+              ? a.empty
+              : fmt(a.summary, { n: entries.length })}
           </span>
         </span>
         <span className="text-sm font-semibold text-[#1B40C8]">
@@ -74,6 +79,14 @@ export function FixedCostActivity({
       {open ? (
         <div className="space-y-2 border-t border-[#dfe3ea] p-4">
           <p className="text-xs text-[#6b7385]">{a.note}</p>
+          {elsewhere > 0 ? (
+            <p
+              className="text-xs text-[#4a5266]"
+              data-testid="activity-elsewhere"
+            >
+              {fmt(a.elsewhere, { n: elsewhere })}
+            </p>
+          ) : null}
           {entries.length === 0 ? (
             <p className="text-sm text-[#4a5266]">{a.empty}</p>
           ) : (

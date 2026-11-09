@@ -338,16 +338,11 @@ export const costs: Dictionary["costs"] = {
     resultingPartial: "Erfasste Summe danach: {amount} · teilweise",
     overlapQuestion:
       "{category} hat schon {before}. Die Datei bringt {incoming}.",
-    choiceReplace: "Ersetzen: wird zu {amount}",
-    choiceAdd: "Als zusätzliche Rechnung addieren: wird zu {amount}",
     choiceNeeded: "Wähle eine Option für {category}.",
     existingNoDetail: "Der aktuelle Betrag hat keine bekannte Aufschlüsselung.",
     exactAgain: "Schon mit demselben Betrag erfasst: nichts ändert sich.",
     fileSeen:
       "Genau diese Datei wurde schon hochgeladen. Stimmen die Beträge überein, ändert sich nichts.",
-    unresolvedTitle: "Diese Zeilen werden nicht gespeichert",
-    unresolvedIntro:
-      "Wir konnten sie nicht ganz verstehen. Sie bleiben draußen, bis du sie korrigierst.",
     reasonCategory: "die Kategorie fehlt",
     reasonAmount: "der Betrag fehlt",
     reasonMonth: "der Monat fehlt",
@@ -356,7 +351,6 @@ export const costs: Dictionary["costs"] = {
     reasonOther: "sie konnte nicht zum Speichern vorbereitet werden",
     summary: "{lines} Zeilen in {months} Monaten",
     confirm: "Bestätigen und speichern",
-    confirmWithLeft: "Bestätigen und speichern · {n} Zeilen bleiben draußen",
     confirmWaiting: "Wähle bei jedem Hinweis eine Option, um zu bestätigen",
     cancel: "Abbrechen",
     saving: "Speichern…",
@@ -373,6 +367,44 @@ export const costs: Dictionary["costs"] = {
     undone: "Freigabe rückgängig gemacht. Die Beträge sind wie vorher.",
     dismiss: "Schließen",
     selectionKept: "Du siehst weiterhin {month}.",
+
+    choiceReplace:
+      "Betrag aus der Datei nehmen: {category} im {month} geht von {before} auf {incoming}",
+    choiceAdd:
+      "Das ist eine zusätzliche Ausgabe: {incoming} zu den aktuellen {before} addieren = {total}",
+    choiceTax: "Den Satz von {before} auf {incoming} ändern",
+    recommended:
+      "Empfohlen: Die Datei sieht nach einer vollständigen Monatsabrechnung aus",
+    unclearTitle: "Zeilen, bei denen du entscheiden musst",
+    unclearIntro:
+      "Wähle, wohin jede gehört, oder markiere sie mit «Nicht aufnehmen». Nichts fällt weg, ohne dass du es entscheidest.",
+    pickCategory: "Kategorie",
+    suggested: "Vorschlag",
+    pickRestaurant: "Restaurant wählen",
+    exclude: "Nicht aufnehmen",
+    include: "Wieder aufnehmen",
+    excludedLine: "Wird nicht aufgenommen",
+    onlyExclude:
+      "Es fehlt eine Angabe, die du hier nicht ergänzen kannst ({reason}): Du kannst sie nur weglassen.",
+    excludedNote: "{n} Zeilen nicht aufgenommen",
+    waitingLines:
+      "Ordne jede Zeile zu oder schließe sie aus, um zu bestätigen.",
+    updatingTotals: "Summen werden aktualisiert…",
+    confirmTo: "In {where} speichern · {when}",
+    scopeQuestion: "Wohin gehören diese Kosten?",
+    scopeHint:
+      "Wähle ein Ziel, bevor du die Datei hochlädst. Es wird nichts gespeichert, bis du bestätigst.",
+    scopePick: "Datei wählen",
+    scopeGroupHelp: "Kosten, die auf die Restaurants verteilt werden",
+    savedIn: "Gespeichert in {where} · {when}",
+    savedRow: "{category}: {before} → {after}",
+    savedElsewhere:
+      "Diese Änderungen siehst du in der aktuellen Ansicht ({view}) nicht: Sie wurden in {where} gespeichert.",
+    viewDestination: "{where} ansehen",
+    tableUpdating: "Tabelle wird aktualisiert…",
+    tableMismatch: "Die Tabelle zeigt das Gespeicherte noch nicht.",
+    tableRefresh: "Tabelle aktualisieren",
+    tableMatches: "Die Tabelle zeigt das Gespeicherte.",
   },
   fixedActivity: {
     title: "Aktivität",
@@ -396,6 +428,8 @@ export const costs: Dictionary["costs"] = {
     detail: "Vorher und nachher ansehen",
     hideDetail: "Vorher und nachher ausblenden",
     note: "Freigeben, rückgängig machen und erneut freigeben sind drei getrennte Vorgänge: Sie werden nicht addiert.",
+    elsewhere:
+      "{n} Vorgänge für andere Restaurants oder die Gruppe werden hier nicht angezeigt.",
   },
   page: {
     emptyText:

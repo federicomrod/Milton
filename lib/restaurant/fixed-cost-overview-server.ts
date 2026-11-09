@@ -84,12 +84,18 @@ export async function loadFixedCostOverview(
   return { overview, views: byMonth, currency: views[0]?.currency ?? "USD" };
 }
 
+export interface ActivityLoad {
+  entries: ActivityEntry[];
+  /** Operations of this company that touched another restaurant or the group. */
+  elsewhere: number;
+}
+
 /** Recent operations grouped by command. Read-only. */
 export async function loadFixedCostActivity(
   ctx: FixedCostsContext,
   locationId: string | null,
   limit = 40
-): Promise<ActivityEntry[]> {
+): Promise<ActivityLoad> {
   const { data, error } = await ctx.supabase
     .from("fixed_cost_commands")
     .select("id, kind, created_at, draft_id, undo_of, result")
@@ -97,6 +103,9 @@ export async function loadFixedCostActivity(
     .order("created_at", { ascending: false })
     .limit(limit);
   // Before migration 079 the table does not exist: no activity, not an error.
-  if (error) return [];
-  return buildActivity((data ?? []) as unknown as CommandRow[], { locationId });
+  if (error) return { entries: [], elsewhere: 0 };
+  const rows = (data ?? []) as unknown as CommandRow[];
+  const entries = buildActivity(rows, { locationId });
+  const all = buildActivity(rows);
+  return { entries, elsewhere: Math.max(0, all.length - entries.length) };
 }

@@ -72,3 +72,25 @@ Until 1-3 exist the UI offers only what is true today and says what each option 
 Screenshots (`docs/qa/fixed-cost-desktop-redesign/`) are of the real components in a desktop browser with
 **synthetic fixtures and a mocked network**. They were NOT taken against a hosted preview, and a real
 workbook was not uploaded. No hosted database was read or written.
+
+## Round 2 (review feedback): mapping, wording, destination, saved-result check
+
+- **Unclear lines are mapped inline again** (same review screen). Category picker (Planilla, Alquiler, Servicios,
+  Otros) with a suggestion (insurance/utilities → Servicios, unknown → Otros) that still takes one click; a
+  restaurant picker for an unknown branch; «No incluir» for any line (reversible until confirmed). Assignments are
+  draft edits (`PATCH /upload`, no money) and the database re-previews, so before/after totals update live.
+  Confirmation needs every line assigned or explicitly excluded; excluded lines are discarded first, then ONE approval.
+  A line with no amount, no month or a repeated tax rate cannot be fixed here: only «No incluir».
+- **Overlap wording** states the outcome («Usar el monto del archivo: Planilla de octubre pasa de … a …» /
+  «Es un gasto extra: sumar … a los … actuales = …» / «Cambiar la tasa de 15% a 13%»). «Use the file's amount» is
+  recommended for a full monthly statement (≥3 monthly categories) but never pre-selected.
+- **Destination**: in the group view the upload asks «¿A dónde van estos costos?» (a restaurant, or the shared group
+  costs) BEFORE reading the file; shared is never a default. The review heading and the confirm button both name it
+  («Guardar en Cantina Demo · Octubre 2026»).
+- **Issue 4 (table vs approval)**: see the PR description. The saved result is now taken from the command's own
+  answer; the result card lists it, checks it against the table on screen, and a cell is highlighted only while it
+  shows the saved value. A save into another destination is said to be elsewhere, with a button to open it.
+- **Activity**: an empty list reads «Todavía no hay operaciones» (not «0 operaciones recientes»); operations that touched
+  another restaurant or the group are counted in a note instead of silently missing.
+
+Screenshots: `docs/qa/fixed-cost-redesign-r2/` (same synthetic-fixture, mocked-network harness as round 1).

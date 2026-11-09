@@ -327,16 +327,11 @@ export const costs = {
     resultingPartial: "Total registrado después: {amount} · parcial",
     overlapQuestion:
       "{category} ya tiene {before}. El archivo trae {incoming}.",
-    choiceReplace: "Reemplazar: queda {amount}",
-    choiceAdd: "Sumar como factura adicional: queda {amount}",
     choiceNeeded: "Elige una opción para {category}.",
     existingNoDetail: "El monto actual no tiene desglose conocido.",
     exactAgain: "Ya registrado con el mismo monto: no cambia nada.",
     fileSeen:
       "Este mismo archivo ya se había subido. Si los montos coinciden, no habrá cambios.",
-    unresolvedTitle: "Estas líneas no se guardarán",
-    unresolvedIntro:
-      "No pudimos entenderlas del todo. Quedan fuera hasta que las corrijas.",
     reasonCategory: "falta la categoría",
     reasonAmount: "falta el monto",
     reasonMonth: "falta el mes",
@@ -345,7 +340,6 @@ export const costs = {
     reasonOther: "no se pudo preparar para guardar",
     summary: "{lines} líneas en {months} meses",
     confirm: "Confirmar y guardar",
-    confirmWithLeft: "Confirmar y guardar · {n} líneas quedan fuera",
     confirmWaiting: "Elige una opción en cada aviso para confirmar",
     cancel: "Cancelar",
     saving: "Guardando…",
@@ -361,6 +355,42 @@ export const costs = {
     undone: "Aprobación deshecha. Los montos volvieron a como estaban.",
     dismiss: "Cerrar",
     selectionKept: "Sigues viendo {month}.",
+
+    choiceReplace:
+      "Usar el monto del archivo: {category} de {month} pasa de {before} a {incoming}",
+    choiceAdd:
+      "Es un gasto extra: sumar {incoming} a los {before} actuales = {total}",
+    choiceTax: "Cambiar la tasa de {before} a {incoming}",
+    recommended: "Recomendado: el archivo parece un estado mensual completo",
+    unclearTitle: "Líneas que necesitan tu decisión",
+    unclearIntro:
+      "Elige dónde va cada una o márcala como «No incluir». Nada se descarta sin que lo decidas.",
+    pickCategory: "Categoría",
+    suggested: "Sugerido",
+    pickRestaurant: "Elegir restaurante",
+    exclude: "No incluir",
+    include: "Volver a incluir",
+    excludedLine: "No se incluirá",
+    onlyExclude:
+      "Falta un dato que no puedes completar aquí ({reason}): solo puedes no incluirla.",
+    excludedNote: "{n} líneas no incluidas",
+    waitingLines: "Asigna o excluye cada línea para confirmar.",
+    updatingTotals: "Actualizando totales…",
+    confirmTo: "Guardar en {where} · {when}",
+    scopeQuestion: "¿A dónde van estos costos?",
+    scopeHint:
+      "Elige un destino antes de subir el archivo. No se guarda nada hasta que confirmes.",
+    scopePick: "Elegir archivo",
+    scopeGroupHelp: "Costos que se reparten entre los restaurantes",
+    savedIn: "Guardado en {where} · {when}",
+    savedRow: "{category}: {before} → {after}",
+    savedElsewhere:
+      "No ves estos cambios en la vista actual ({view}): se guardaron en {where}.",
+    viewDestination: "Ver {where}",
+    tableUpdating: "Actualizando la tabla…",
+    tableMismatch: "La tabla todavía no muestra lo guardado.",
+    tableRefresh: "Actualizar tabla",
+    tableMatches: "La tabla muestra lo guardado.",
   },
   fixedActivity: {
     title: "Actividad",
@@ -384,6 +414,8 @@ export const costs = {
     detail: "Ver antes y después",
     hideDetail: "Ocultar antes y después",
     note: "Aprobar, deshacer y aprobar de nuevo son tres operaciones distintas: no se suman.",
+    elsewhere:
+      "{n} operaciones de otros restaurantes o del grupo no se muestran aquí.",
   },
   page: {
     emptyText:

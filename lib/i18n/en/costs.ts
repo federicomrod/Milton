@@ -329,16 +329,11 @@ export const costs: Dictionary["costs"] = {
     resultingPartial: "Recorded total after: {amount} · partial",
     overlapQuestion:
       "{category} already has {before}. The file brings {incoming}.",
-    choiceReplace: "Replace: it becomes {amount}",
-    choiceAdd: "Add as an additional invoice: it becomes {amount}",
     choiceNeeded: "Choose an option for {category}.",
     existingNoDetail: "The current amount has no known breakdown.",
     exactAgain: "Already recorded with the same amount: nothing changes.",
     fileSeen:
       "This exact file was uploaded before. If the amounts match, nothing will change.",
-    unresolvedTitle: "These lines will not be saved",
-    unresolvedIntro:
-      "We could not fully understand them. They stay out until you fix them.",
     reasonCategory: "the category is missing",
     reasonAmount: "the amount is missing",
     reasonMonth: "the month is missing",
@@ -347,7 +342,6 @@ export const costs: Dictionary["costs"] = {
     reasonOther: "it could not be prepared to save",
     summary: "{lines} lines in {months} months",
     confirm: "Confirm and save",
-    confirmWithLeft: "Confirm and save · {n} lines left out",
     confirmWaiting: "Choose an option for each notice to confirm",
     cancel: "Cancel",
     saving: "Saving…",
@@ -363,6 +357,42 @@ export const costs: Dictionary["costs"] = {
     undone: "Approval undone. The amounts are back as they were.",
     dismiss: "Close",
     selectionKept: "You are still viewing {month}.",
+
+    choiceReplace:
+      "Use the file's amount: {category} for {month} goes from {before} to {incoming}",
+    choiceAdd:
+      "It's an extra expense: add {incoming} to the current {before} = {total}",
+    choiceTax: "Change the rate from {before} to {incoming}",
+    recommended: "Recommended: the file looks like a full monthly statement",
+    unclearTitle: "Lines that need your decision",
+    unclearIntro:
+      "Choose where each one goes or mark it «Don't include». Nothing is dropped unless you decide so.",
+    pickCategory: "Category",
+    suggested: "Suggested",
+    pickRestaurant: "Choose a restaurant",
+    exclude: "Don't include",
+    include: "Include again",
+    excludedLine: "Will not be included",
+    onlyExclude:
+      "A detail is missing that you can't fill in here ({reason}): you can only leave it out.",
+    excludedNote: "{n} lines not included",
+    waitingLines: "Assign or exclude every line to confirm.",
+    updatingTotals: "Updating totals…",
+    confirmTo: "Save in {where} · {when}",
+    scopeQuestion: "Where do these costs go?",
+    scopeHint:
+      "Pick a destination before uploading the file. Nothing is saved until you confirm.",
+    scopePick: "Choose file",
+    scopeGroupHelp: "Costs shared across the restaurants",
+    savedIn: "Saved in {where} · {when}",
+    savedRow: "{category}: {before} → {after}",
+    savedElsewhere:
+      "You can't see these changes in the current view ({view}): they were saved in {where}.",
+    viewDestination: "View {where}",
+    tableUpdating: "Updating the table…",
+    tableMismatch: "The table doesn't show what was saved yet.",
+    tableRefresh: "Refresh table",
+    tableMatches: "The table shows what was saved.",
   },
   fixedActivity: {
     title: "Activity",
@@ -386,6 +416,8 @@ export const costs: Dictionary["costs"] = {
     detail: "See before and after",
     hideDetail: "Hide before and after",
     note: "Approve, undo and approve again are three separate operations: they do not add up.",
+    elsewhere:
+      "{n} operations for other restaurants or the group are not shown here.",
   },
   page: {
     emptyText:

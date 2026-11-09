@@ -23,6 +23,7 @@ import {
 } from "@/lib/restaurant/fixed-cost-overview";
 import { FixedCostOverview } from "./FixedCostOverview";
 import { FixedCostImport, type ImportApplied } from "./FixedCostImport";
+import type { SavedRow } from "@/lib/restaurant/fixed-cost-import-review";
 import { FixedCostRecurring } from "./FixedCostRecurring";
 import { FixedCostActivity } from "./FixedCostActivity";
 
@@ -32,6 +33,7 @@ export function FixedCostsWorkspace({
   overview,
   itemsByMonth,
   activity,
+  activityElsewhere = 0,
   currency,
   selectedMonth,
   currentMonth,
@@ -44,6 +46,8 @@ export function FixedCostsWorkspace({
   overview: Overview;
   itemsByMonth: ItemsByMonth;
   activity: ActivityEntry[];
+  /** Recent operations that touched another restaurant or the group (not listed here). */
+  activityElsewhere?: number;
   currency: string;
   /** The last month of the window (YYYY-MM-01). */
   selectedMonth: string;
@@ -58,10 +62,15 @@ export function FixedCostsWorkspace({
   const { d, lang, fmt } = useT();
   const o = d.costs.fixedOverview;
   const [, startNav] = useTransition();
+  const [refreshing, startRefresh] = useTransition();
   const [expanded, setExpanded] = useState<ReadonlySet<AmountCategory>>(
     new Set()
   );
-  const [changed, setChanged] = useState<ReadonlySet<string>>(new Set());
+  // What the last save reported. A cell is highlighted only while the table
+  // really shows that saved value, so a highlight can never sit on old numbers.
+  const [applied, setApplied] = useState<SavedRow[] | null>(null);
+  // Cells filled by accepting recurring costs (that command reports no totals).
+  const [filled, setFilled] = useState<ReadonlySet<string>>(new Set());
   const [detail, setDetail] = useState<{
     month: string;
     category: AmountCategory;
@@ -85,13 +94,40 @@ export function FixedCostsWorkspace({
     [router, href, currentMonth]
   );
 
-  const onApplied = useCallback(
-    (a: ImportApplied) => {
-      setChanged(new Set(a.changed));
-      router.refresh();
-    },
+  const refresh = useCallback(
+    () => startRefresh(() => router.refresh()),
     [router]
   );
+  const onApplied = useCallback(
+    (a: ImportApplied) => {
+      setApplied(a.saved);
+      refresh();
+    },
+    [refresh]
+  );
+  const viewDestination = useCallback(
+    (loc: string | null) => {
+      const next: Record<string, string | string[] | undefined> = {
+        ...shellParams,
+      };
+      if (loc) next.location = loc;
+      else delete next.location;
+      startNav(() => router.push(costsTabHref("costos-fijos", next)));
+    },
+    [router, shellParams]
+  );
+
+  const changed = useMemo<ReadonlySet<string>>(() => {
+    const out = new Set<string>(filled);
+    for (const x of applied ?? []) {
+      if (x.loc !== (locationId ?? null) || x.category === "impuestos")
+        continue;
+      const m = overview.months.find((mm) => mm.month === x.month);
+      const shown = m?.cells[x.category as AmountCategory].amount ?? null;
+      if (m && shown === (x.after ?? null)) out.add(`${x.month}|${x.category}`);
+    }
+    return out;
+  }, [applied, filled, overview, locationId]);
 
   // Changed categories that have positions open on their own while the result
   // is on screen, so the change is visible. Closing the result lets them rest.
@@ -156,10 +192,17 @@ export function FixedCostsWorkspace({
           windowMonths={windowMonths}
           onApplied={onApplied}
           onViewMonths={(months) => goTo(months[months.length - 1])}
-          onDismiss={() => setChanged(new Set())}
+          onDismiss={() => {
+            setApplied(null);
+            setFilled(new Set());
+          }}
+          refreshing={refreshing}
+          onRefresh={refresh}
+          onViewDestination={viewDestination}
           onUndone={() => {
-            setChanged(new Set());
-            router.refresh();
+            setApplied(null);
+            setFilled(new Set());
+            refresh();
           }}
           canWrite={canWrite}
         />
@@ -172,13 +215,10 @@ export function FixedCostsWorkspace({
           categories={recurring.categories}
           locationId={locationId}
           currency={currency}
-          onApplied={(keys) =>
-            onApplied({
-              changed: keys,
-              months: [selectedMonth],
-              commandId: null,
-            })
-          }
+          onApplied={(keys) => {
+            setFilled(new Set(keys));
+            refresh();
+          }}
         />
       ) : null}
 
@@ -259,7 +299,11 @@ export function FixedCostsWorkspace({
         </aside>
       ) : null}
 
-      <FixedCostActivity entries={activity} currency={currency} />
+      <FixedCostActivity
+        entries={activity}
+        elsewhere={activityElsewhere}
+        currency={currency}
+      />
     </div>
   );
 }

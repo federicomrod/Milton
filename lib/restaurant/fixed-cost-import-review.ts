@@ -20,6 +20,49 @@ import {
 
 export type OverlapChoice = "replace" | "add";
 
+/** The categories a person can assign an unclear line to. */
+export const ASSIGNABLE = [
+  "planilla",
+  "alquiler",
+  "servicios",
+  "otros",
+] as const satisfies readonly AmountCategory[];
+export type AssignableCategory = (typeof ASSIGNABLE)[number];
+
+const fold = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+const SERVICE_WORDS =
+  /seguro|insurance|versicherung|luz|electric|agua|water|wasser|gas\b|internet|telefon|phone|strom|heizung|basura|garbage|mull|alarma|alarm/;
+const RENT_WORDS = /renta|alquiler|arriendo|rent\b|miete|lease/;
+const PAYROLL_WORDS =
+  /planilla|sueldo|salario|nomina|payroll|salary|wage|lohn|gehalt/;
+
+/**
+ * A reasonable first guess for an unclear line: insurance and utilities →
+ * Servicios, anything we cannot place → Otros. It is only a suggestion; the
+ * person confirms it with one click.
+ */
+export function suggestCategory(raw: string): AssignableCategory {
+  const t = fold(raw.split(" · ")[0] ?? raw);
+  if (PAYROLL_WORDS.test(t)) return "planilla";
+  if (RENT_WORDS.test(t)) return "alquiler";
+  if (SERVICE_WORDS.test(t)) return "servicios";
+  return "otros";
+}
+
+/**
+ * A file that carries three or more of the four monthly categories for a
+ * month reads as a full monthly statement: «use the file's amount» is then the
+ * recommended answer to an overlap (still never pre-selected).
+ */
+export function isFullStatement(group: ReviewGroup): boolean {
+  return group.rows.filter((r) => r.category !== "impuestos").length >= 3;
+}
+
 export interface ReviewRow {
   key: string;
   category: FixedCostCategory;
@@ -49,6 +92,18 @@ export interface ReviewGroup {
 export interface UnresolvedLine {
   id: string;
   raw: string;
+  /** What the file said for the amount; null = «Sin precio». */
+  amount: number | null;
+  /** The person can fix these two inline; anything else can only be excluded. */
+  missingCategory: boolean;
+  missingRestaurant: boolean;
+  /**
+   * Why the person cannot fix it here (no amount, no month, a repeated tax
+   * rate). null = the category and/or restaurant pickers can resolve it.
+   */
+  blocker: "amount" | "month" | "duplicate_tax" | "other" | null;
+  /** A reasonable guess for the category; NEVER applied without one click. */
+  suggested: AssignableCategory | null;
   reason:
     | "category"
     | "amount"
@@ -147,7 +202,27 @@ export function buildReview(
             : !l.scope
               ? "restaurant"
               : "other";
-    unresolved.push({ id: l.id, raw: l.raw, reason });
+    const missingCategory = !l.category;
+    const missingRestaurant = !l.scope;
+    const blocker: UnresolvedLine["blocker"] = dupTax.has(l.id)
+      ? "duplicate_tax"
+      : l.amount === null || !(l.amount > 0)
+        ? "amount"
+        : !l.month
+          ? "month"
+          : !missingCategory && !missingRestaurant
+            ? "other"
+            : null;
+    unresolved.push({
+      id: l.id,
+      raw: l.raw,
+      amount: l.amount,
+      missingCategory,
+      missingRestaurant,
+      blocker,
+      suggested: l.category ? null : suggestCategory(l.raw),
+      reason,
+    });
   }
   return {
     fileName: preview?.file_name ?? null,
@@ -240,6 +315,45 @@ export function monthUnchanged(
       (c.location_id ?? null) === loc &&
       c.outcome !== "unchanged"
   );
+}
+
+/** One category the command actually changed, exactly as the database reported it. */
+export interface SavedRow {
+  month: string;
+  category: FixedCostCategory;
+  loc: string | null;
+  /** Money (or a % for impuestos). null = nothing was recorded before. */
+  before: number | null;
+  after: number | null;
+}
+
+export function savedRows(
+  categories: ReadonlyArray<{
+    month: string;
+    category: string;
+    location_id: string | null;
+    outcome: string;
+    total?: number | null;
+    previous_total?: number | null;
+  }>
+): SavedRow[] {
+  const order: string[] = [...AMOUNT_CATEGORIES, "impuestos"];
+  return categories
+    .filter((c) => c.outcome !== "unchanged")
+    .map((c) => ({
+      month: c.month,
+      category: c.category as FixedCostCategory,
+      loc: c.location_id ?? null,
+      before: c.previous_total ?? null,
+      after: c.total ?? null,
+    }))
+    .sort((a, b) =>
+      a.month === b.month
+        ? order.indexOf(a.category) - order.indexOf(b.category)
+        : a.month < b.month
+          ? -1
+          : 1
+    );
 }
 
 export type { AmountCategory };

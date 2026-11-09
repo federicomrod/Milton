@@ -563,7 +563,8 @@ async function CostosFijosTab({
         itemsByMonth={Object.fromEntries(
           Object.entries(loaded.views).map(([m, v]) => [m, v.items])
         )}
-        activity={activity}
+        activity={activity.entries}
+        activityElsewhere={activity.elsewhere}
         currency={loaded.currency}
         selectedMonth={month}
         currentMonth={currentMonth}

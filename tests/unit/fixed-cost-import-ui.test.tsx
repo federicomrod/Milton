@@ -173,9 +173,9 @@ describe("one review, one confirmation", () => {
     expect(row.textContent).toContain("Nada registrado");
     expect(row.textContent).toMatch(/21[.,\s]?400/);
     // There is exactly one confirm control and no per-line approve.
-    expect(screen.getAllByRole("button", { name: /confirmar/i })).toHaveLength(
-      1
-    );
+    expect(
+      screen.getAllByRole("button", { name: /^guardar en/i })
+    ).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /^aprobar/i })).toBeNull();
   });
 
@@ -251,6 +251,7 @@ describe("failure is atomic and visible", () => {
 describe("overlap and unresolved lines", () => {
   it("an overlap blocks the confirmation until the person chooses, inline", async () => {
     keys = [
+      k("planilla", 2140000),
       k("alquiler", 700000, {
         kind: "overlap",
         old_cents: 650000,
@@ -263,7 +264,7 @@ describe("overlap and unresolved lines", () => {
     const confirm = screen.getByTestId("review-confirm") as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     expect(screen.getByText(/Elige una opción para/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText(/Sumar como factura adicional/));
+    fireEvent.click(screen.getByLabelText(/Es un gasto extra/));
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
     await screen.findByTestId("import-result");
@@ -273,10 +274,8 @@ describe("overlap and unresolved lines", () => {
     expect(body.decisions).toEqual({ "l-alquiler": "add" });
   });
 
-  it("lines that cannot be saved are named before the confirmation, never dropped silently", async () => {
-    openDraft = null;
+  it("a line that cannot be completed here is named, offered only «No incluir», and blocks confirmation until decided", async () => {
     keys = [k("planilla", 100), k("alquiler", 200)];
-    // The upload response carries a second, unreadable line.
     (fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (url: string, init?: RequestInit) => {
         const method = init?.method ?? "GET";
@@ -306,9 +305,17 @@ describe("overlap and unresolved lines", () => {
     await pickFile();
     const box = screen.getByTestId("review-unresolved");
     expect(box.textContent).toContain("Línea rara");
-    expect(box.textContent).toMatch(/falta la categoría/);
-    expect(screen.getByTestId("review-confirm").textContent).toMatch(
-      /1 líneas quedan fuera/
+    expect(box.textContent).toMatch(/falta el monto/);
+    expect(screen.queryByTestId("pick-bad-otros")).toBeNull();
+    expect(
+      (screen.getByTestId("review-confirm") as HTMLButtonElement).disabled
+    ).toBe(true);
+    fireEvent.click(screen.getByTestId("exclude-bad"));
+    expect(
+      (screen.getByTestId("review-confirm") as HTMLButtonElement).disabled
+    ).toBe(false);
+    expect(screen.getByTestId("excluded-note").textContent).toMatch(
+      /1 líneas no incluidas/
     );
   });
 });

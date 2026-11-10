@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import config from "../../app.config";
 
@@ -32,5 +34,22 @@ describe("native microphone configuration (iOS usage string)", () => {
     expect(options("expo-image-picker").cameraPermission).toBeTruthy();
     expect(options("expo-image-picker").photosPermission).toBeTruthy();
     expect(options("expo-local-authentication").faceIDPermission).toBeTruthy();
+  });
+
+  it("declares standard-HTTPS-only encryption for App Store export compliance", () => {
+    const ios = config.ios as { infoPlist?: Record<string, unknown> };
+    expect(ios.infoPlist?.ITSAppUsesNonExemptEncryption).toBe(false);
+  });
+
+  it("production builds call the production API; the other profiles are untouched", () => {
+    const eas = JSON.parse(
+      readFileSync(join(__dirname, "../../eas.json"), "utf8")
+    ) as { build: Record<string, { env?: Record<string, string> }> };
+    expect(eas.build.production.env?.EXPO_PUBLIC_API_BASE_URL).toBe(
+      "https://app.miltonlabs.ai"
+    );
+    expect(eas.build.development.env).toBeUndefined();
+    expect(eas.build["development-simulator"].env).toBeUndefined();
+    expect(eas.build.preview.env).toBeUndefined();
   });
 });

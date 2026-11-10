@@ -95,9 +95,30 @@ company's setting, like the web.
 
 ## Not here yet
 
-Gestión part 2 (Preguntar a Milton, push notifications, a Notificaciones
-settings screen), universal links, store builds (EAS / TestFlight / Play).
+Universal links and Android store builds. Push notifications are built but
+hidden: the Notificaciones row only appears in builds made with
+`EXPO_PUBLIC_PUSH_ENABLED=1` (off by default, and off in the TestFlight build
+until the APNs / Expo project / server side is set up).
 
+## TestFlight (Gestión, iOS)
+
+The `production` profile in `eas.json` points the app at
+`https://app.miltonlabs.ai` (`EXPO_PUBLIC_API_BASE_URL`), auto-increments the
+build number and leaves push off. `development` and `preview` are unchanged.
+Account-side steps (Apple Developer team, App Store Connect app record, Expo
+login and project) are done by the account owner, not from this repo.
+
+```bash
+cd apps/mobile
+npx eas login                                   # once
+npx eas build --platform ios --profile production
+npx eas submit --platform ios --profile production --latest
+```
+
+`eas submit` uploads the build to App Store Connect; it shows up in TestFlight
+after Apple finishes processing it. Export compliance is answered in the app
+config (`ITSAppUsesNonExemptEncryption: false`, standard HTTPS only), so there
+is no question to answer per upload.
 
 ## iOS development build (Xcode simulator and your iPhone)
 
@@ -135,10 +156,11 @@ background launch.
 7. First launch: iPhone ▸ Settings ▸ General ▸ VPN & Device Management ▸ trust
    the developer, then open Milton.
 8. Alternative without Xcode signing: `npx eas build --profile development
-   --platform ios` (needs `eas login` and an Expo project, also an account-side
+--platform ios` (needs `eas login` and an Expo project, also an account-side
    step) and install the internal build.
 
 ### What only a physical iPhone proves
+
 Cocina stays signed in after force-quit and after a lock-screen cold launch;
 Face ID prompt and fallback to the PIN; push permission and a received push
 (needs APNs credentials, see the notifications PR); universal links.

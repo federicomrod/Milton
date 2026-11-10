@@ -163,11 +163,20 @@ export function Banner({ text }: { text: string }) {
 export function Muted({
   children,
   style,
+  maxFontSizeMultiplier,
 }: {
   children: React.ReactNode;
   style?: StyleProp<TextStyle>;
+  maxFontSizeMultiplier?: number;
 }) {
-  return <Text style={[s.muted, style]}>{children}</Text>;
+  return (
+    <Text
+      style={[s.muted, style]}
+      maxFontSizeMultiplier={maxFontSizeMultiplier}
+    >
+      {children}
+    </Text>
+  );
 }
 
 export function Field(props: TextInputProps & { label: string }) {

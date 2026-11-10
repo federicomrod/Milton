@@ -12,10 +12,46 @@ import { loadSalesDetailCached } from "@/lib/restaurant/sales-detail-server";
 import { viewFor } from "@/lib/restaurant/mobile-manager/sales";
 import {
   buildRentabilidad,
+  buildRentabilidadWithLatest,
   type RentabilidadPayload,
 } from "@/lib/restaurant/mobile-manager/rentabilidad";
+import type { DataReasons } from "@/lib/restaurant/mobile-manager/data-quality";
 import { loadPendingInvoices } from "@/lib/restaurant/mobile-manager/costos";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+
+/**
+ * The four KPI cards under «Ventas de ayer». Added field: an older app build
+ * ignores it. Every figure is one the web / the other tabs already show:
+ * `sales` is the Ventas › Mes cube view, `profit` the Rentabilidad screen's
+ * lead month (with its latest-month fallback), `reasons` the Costos data
+ * quality (food cost and planilla share are read from it, never recomputed).
+ */
+export interface HomeCards {
+  /** Month to date, exactly the Ventas › Mes total and its comparison. null = no sales yet. */
+  sales: {
+    value: number | null;
+    /** % change vs the same days of last month. */
+    delta: number | null;
+    compareLabel: string;
+    /** The days the total covers. */
+    range: { from: string; to: string };
+  } | null;
+  /** The month the cost cards are about (first day), null without a single restaurant. */
+  month: string | null;
+  profit: {
+    /** The month the profit is of: this one, or the latest with data. */
+    month: string;
+    /** True when it is an earlier month because this one has no profit yet. */
+    isLatest: boolean;
+    value: number;
+    /** 0–1 */
+    pct: number | null;
+    basis: "real" | "estimada";
+  } | null;
+  /** Costos' «Costo de ventas» number (0–100) and why it may be missing. */
+  foodCostPct: number | null;
+  reasons: DataReasons | null;
+}
 
 export interface HomePayload {
   currency: string;
@@ -36,6 +72,7 @@ export interface HomePayload {
     "month" | "hasData" | "basis" | "profit" | "profitPct" | "isCurrentMonth"
   > | null;
   needsRestaurant: boolean;
+  cards: HomeCards;
   highlights: Array<{
     id: string;
     text: string;
@@ -63,18 +100,26 @@ export async function buildHome(args: {
   const sales = await loadSalesDetailCached(supabase, companyId, locationId);
   const view = viewFor(sales, "day", lang);
   const weekView = viewFor(sales, "week", lang);
+  const monthView = viewFor(sales, "month", lang);
 
   let rent: RentabilidadPayload | null = null;
+  let latest: RentabilidadPayload | null = null;
   if (singleLocationId) {
     try {
-      rent = await buildRentabilidad({
+      const rentArgs = {
         supabase,
         companyId,
         locationId: singleLocationId,
         restaurantIds: args.restaurantIds,
         month: monthStartOf(args.now ?? new Date()) as string,
         lang,
-      });
+      };
+      rent = await buildRentabilidad(rentArgs);
+      // No profit yet this month: the same latest-month fallback as the
+      // Rentabilidad screen, only loaded when it is needed.
+      if (!(rent.hasData && rent.profit !== null)) {
+        latest = (await buildRentabilidadWithLatest(rentArgs)).latest;
+      }
     } catch (err) {
       console.error(
         "[mobile-home] rentabilidad failed:",
@@ -111,6 +156,21 @@ export async function buildHome(args: {
         }
       : null,
     needsRestaurant: singleLocationId === null,
+    cards: {
+      sales:
+        monthView && !monthView.empty
+          ? {
+              value: monthView.kpis.net.value,
+              delta: monthView.kpis.net.delta,
+              compareLabel: monthView.compare.label,
+              range: monthView.range,
+            }
+          : null,
+      month: rent?.month ?? null,
+      profit: profitCard(rent, latest),
+      foodCostPct: rent?.reasons.foodCost.pct ?? null,
+      reasons: rent?.reasons ?? null,
+    },
     highlights: (rent?.findings ?? []).map((text, i) => ({
       id: `finding-${i}`,
       text,
@@ -128,5 +188,22 @@ export async function buildHome(args: {
         ),
       ].slice(0, 2),
     },
+  };
+}
+
+/** The month the profit card leads with: this one, else the latest with data. */
+function profitCard(
+  rent: RentabilidadPayload | null,
+  latest: RentabilidadPayload | null
+): HomeCards["profit"] {
+  if (!rent) return null;
+  const pick = rent.hasData && rent.profit !== null ? rent : (latest ?? null);
+  if (!pick || pick.profit === null) return null;
+  return {
+    month: pick.month,
+    isLatest: pick !== rent,
+    value: pick.profit,
+    pct: pick.profitPct,
+    basis: pick.basis,
   };
 }

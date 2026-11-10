@@ -149,6 +149,16 @@ export function monthLabel(month: string, lang: Language): string {
   }).format(new Date(Date.UTC(y, m - 1, 1)));
 }
 
+/** «octubre» (no year) from YYYY-MM-01 or YYYY-MM, for a sentence about this month. */
+export function monthName(month: string, lang: Language): string {
+  const { y, m } = parts(`${month.slice(0, 7)}-01`);
+  if (!y || !m) return month;
+  return new Intl.DateTimeFormat(localeOf(lang), {
+    month: "long",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(y, m - 1, 1)));
+}
+
 /** «oct.» for a month bar (YYYY-MM). */
 export function monthShort(month: string, lang: Language): string {
   const { y, m } = parts(`${month.slice(0, 7)}-01`);

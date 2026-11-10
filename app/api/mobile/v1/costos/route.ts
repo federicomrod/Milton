@@ -39,8 +39,11 @@ export async function GET(request: NextRequest) {
           hasData: rent.hasData,
           basis: rent.basis,
           sales: rent.sales,
-          foodCostPct: rent.foodCostPct,
+          // The web's «De cada $100» food share when it has one, else the
+          // month's food cost ÷ sales; null says why in `reasons`.
+          foodCostPct: rent.reasons.foodCost.pct,
           fixedTotal: rent.fixedTotal,
+          reasons: rent.reasons,
         };
       }
     }

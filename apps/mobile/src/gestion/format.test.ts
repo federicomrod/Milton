@@ -9,6 +9,7 @@ import {
   formatPercent,
   initials,
   monthLabel,
+  monthName,
   monthShort,
   shiftMonth,
 } from "./format";
@@ -60,6 +61,8 @@ describe("dates", () => {
     expect(formatDay("2026-10-30", "es")).toMatch(/30/);
     expect(monthLabel("2026-10-01", "en")).toBe("October 2026");
     expect(monthLabel("2026-10", "de")).toBe("Oktober 2026");
+    expect(monthName("2026-11-01", "es")).toBe("noviembre");
+    expect(monthName("2026-11", "en")).toBe("November");
     expect(monthShort("2026-03", "en")).toBe("Mar");
   });
 

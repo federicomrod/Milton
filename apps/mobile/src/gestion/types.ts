@@ -73,6 +73,28 @@ export interface HomeData {
   };
 }
 
+/** Why a figure of a month is missing, and how complete its data is. Optional
+ *  on the wire: a server older than this app does not send it. */
+export interface DataReasons {
+  hasSales: boolean;
+  foodCost: {
+    status: "ok" | "no_sales" | "no_costed_dishes";
+    /** 0–100 */
+    pct: number | null;
+    /** 0–1 */
+    coveredPct: number | null;
+    /** 0–1 */
+    uncoveredPct: number | null;
+    uncoveredDishes: number;
+    uncoveredByReason: {
+      sinReceta: number;
+      borrador: number;
+      sinPrecio: number;
+    };
+  };
+  fixed: { loaded: boolean; complete: boolean; missing: string[] };
+}
+
 export type VentasPeriod = "day" | "week" | "month" | "year";
 
 export interface VentasData {
@@ -83,6 +105,8 @@ export interface VentasData {
   range: { from: string; to: string } | null;
   clipped: boolean;
   compareLabel: string | null;
+  /** The days the comparison reads (Ayer: the same weekday last week). */
+  compareRange?: { from: string; to: string } | null;
   total: { value: number | null; delta: number | null };
   tickets: { value: number | null; delta: number | null };
   avgTicket: { value: number | null; delta: number | null };
@@ -116,6 +140,9 @@ export interface RentabilidadData {
   foodCostPct: number | null;
   findings: string[];
   findingKinds: string[];
+  reasons?: DataReasons;
+  /** The most recent earlier month with a profit, when this one has none yet. */
+  latest?: RentabilidadData | null;
 }
 
 export interface InvoiceLine {
@@ -157,6 +184,7 @@ export interface CostosData {
     sales: number | null;
     foodCostPct: number | null;
     fixedTotal: number | null;
+    reasons?: DataReasons;
   } | null;
 }
 

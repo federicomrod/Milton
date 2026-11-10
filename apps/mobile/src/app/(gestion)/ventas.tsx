@@ -9,6 +9,7 @@ import { Muted, Screen } from "../../components/ui";
 import { useLanguage } from "../../i18n";
 import { fmt } from "../../i18n/strings";
 import {
+  formatDateLong,
   formatDay,
   formatMoney,
   formatNumber,
@@ -21,6 +22,7 @@ import { useManager } from "../../gestion/ManagerProvider";
 import type { VentasPeriod } from "../../gestion/types";
 import {
   Async,
+  CompareBars,
   DayBars,
   DeltaChip,
   DishRow,
@@ -126,38 +128,90 @@ export default function Ventas() {
                     ) : null}
                   </View>
 
-                  <Panel style={st.panel}>
-                    <View style={gst.row}>
-                      <Text style={st.panelTitle}>
-                        {v.period === "year" ? g.sales.byMonth : g.sales.byDay}
-                      </Text>
-                      {v.period !== "year" ? (
-                        <View style={st.legend}>
-                          <View
-                            style={[st.dot, { backgroundColor: colors.blue }]}
-                          />
-                          <Text style={st.legendText}>
-                            {g.sales.legendThis}
-                          </Text>
-                          <View
-                            style={[st.dot, { backgroundColor: colors.border }]}
-                          />
-                          <Text style={st.legendText}>
-                            {g.sales.legendPrev}
-                          </Text>
-                        </View>
+                  {v.period === "day" ? (
+                    <Panel style={st.panel}>
+                      <View style={gst.row}>
+                        <Text style={[st.panelTitle, { flex: 1 }]}>
+                          {g.sales.versusLastWeek}
+                        </Text>
+                        <DeltaChip value={v.total.delta} />
+                      </View>
+                      {v.daily.length > 0 ? (
+                        <CompareBars
+                          rows={[
+                            {
+                              key: "now",
+                              label: g.sales.yesterday,
+                              sub: v.range
+                                ? formatDateLong(v.range.to, lang)
+                                : undefined,
+                              value: v.daily[0].net,
+                              amount: money(v.daily[0].net),
+                              color: colors.blue,
+                            },
+                            ...(v.daily[0].previousNet !== null
+                              ? [
+                                  {
+                                    key: "before",
+                                    label: g.sales.sameWeekdayPrev,
+                                    sub: v.compareRange
+                                      ? formatDateLong(
+                                          v.compareRange.from,
+                                          lang
+                                        )
+                                      : undefined,
+                                    value: v.daily[0].previousNet,
+                                    amount: money(v.daily[0].previousNet),
+                                    color: tint.ink20,
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
                       ) : null}
-                    </View>
-                    <DayBars
-                      bars={v.daily.map((d) => ({
-                        key: d.date,
-                        value: d.net,
-                        previous: d.previousNet,
-                        label: money(d.net),
-                      }))}
-                      label={barLabel}
-                    />
-                  </Panel>
+                      {v.daily[0]?.previousNet === null ? (
+                        <Muted>{g.sales.noComparison}</Muted>
+                      ) : null}
+                    </Panel>
+                  ) : (
+                    <Panel style={st.panel}>
+                      <View style={gst.row}>
+                        <Text style={st.panelTitle}>
+                          {v.period === "year"
+                            ? g.sales.byMonth
+                            : g.sales.byDay}
+                        </Text>
+                        {v.period !== "year" ? (
+                          <View style={st.legend}>
+                            <View
+                              style={[st.dot, { backgroundColor: colors.blue }]}
+                            />
+                            <Text style={st.legendText}>
+                              {g.sales.legendThis}
+                            </Text>
+                            <View
+                              style={[
+                                st.dot,
+                                { backgroundColor: colors.border },
+                              ]}
+                            />
+                            <Text style={st.legendText}>
+                              {g.sales.legendPrev}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <DayBars
+                        bars={v.daily.map((d) => ({
+                          key: d.date,
+                          value: d.net,
+                          previous: d.previousNet,
+                          label: money(d.net),
+                        }))}
+                        label={barLabel}
+                      />
+                    </Panel>
+                  )}
 
                   {v.channels.length > 0 ? (
                     <Panel style={st.panel}>

@@ -10,6 +10,7 @@ import {
 } from "@/lib/restaurant/mobile-manager/auth";
 import {
   buildRentabilidad,
+  buildRentabilidadWithLatest,
   parseMonth,
 } from "@/lib/restaurant/mobile-manager/rentabilidad";
 import { monthStartOf } from "@/lib/restaurant/fixed-costs";
@@ -30,9 +31,13 @@ export async function GET(request: NextRequest) {
   }
   const current = monthStartOf(new Date()) as string;
   const month = requested && requested <= current ? requested : current;
+  // Only the current month can lead with an earlier one: a month the person
+  // picked is shown as asked, even when it is empty.
+  const build =
+    month === current ? buildRentabilidadWithLatest : buildRentabilidad;
   try {
     return mobileJson(
-      await buildRentabilidad({
+      await build({
         supabase: auth.supabase,
         companyId: auth.companyId,
         locationId: auth.singleLocationId,

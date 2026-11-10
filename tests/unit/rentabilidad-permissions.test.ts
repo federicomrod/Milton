@@ -8,6 +8,7 @@ import { can, CAPABILITIES, type Actor } from "@/lib/auth/capabilities";
 let role: string | null = "owner";
 let isMiltonStaff = false;
 const loads: string[] = [];
+const reasonsStub = { foodCost: { pct: null } };
 
 vi.mock("@/lib/restaurant/api-lang", () => ({
   apiLanguage: async () => "es",
@@ -78,7 +79,17 @@ vi.mock("@/lib/restaurant/mobile-manager/rentabilidad", () => ({
   parseMonth: () => null,
   buildRentabilidad: async () => {
     loads.push("rentabilidad");
-    return { month: "2026-10-01", hasData: false };
+    return { month: "2026-10-01", hasData: false, reasons: reasonsStub };
+  },
+  // The current month's route leads with the latest month that has data.
+  buildRentabilidadWithLatest: async () => {
+    loads.push("rentabilidad");
+    return {
+      month: "2026-10-01",
+      hasData: false,
+      reasons: reasonsStub,
+      latest: null,
+    };
   },
 }));
 vi.mock("@/lib/restaurant/mobile-manager/costos", () => ({

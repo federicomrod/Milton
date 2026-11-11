@@ -60,6 +60,27 @@ export interface HomeData {
     isCurrentMonth: boolean;
   } | null;
   needsRestaurant: boolean;
+  /** The four KPI cards. Absent on a server older than this app. */
+  cards?: {
+    sales: {
+      value: number | null;
+      delta: number | null;
+      compareLabel: string;
+      range: { from: string; to: string };
+    } | null;
+    month: string | null;
+    profit: {
+      month: string;
+      isLatest: boolean;
+      value: number;
+      /** 0–1 */
+      pct: number | null;
+      basis: "real" | "estimada";
+    } | null;
+    /** 0–100 */
+    foodCostPct: number | null;
+    reasons: DataReasons | null;
+  };
   highlights: {
     id: string;
     text: string;
@@ -93,6 +114,12 @@ export interface DataReasons {
     };
   };
   fixed: { loaded: boolean; complete: boolean; missing: string[] };
+  /** Planilla of the month (Inicio's «Costo de personal»). */
+  staff?: {
+    loaded: boolean;
+    /** 0–1 */
+    pct: number | null;
+  };
 }
 
 export type VentasPeriod = "day" | "week" | "month" | "year";

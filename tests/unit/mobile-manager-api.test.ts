@@ -889,6 +889,180 @@ describe("Inicio", () => {
   });
 });
 
+describe("Inicio cards: ventas, ganancia, costo de comida, costo de personal", () => {
+  const current = monthStartOf(new Date()) as string;
+  const homeBody = async (q = `?location=${LOC1}`) =>
+    (await call(homeGET, `home${q}`, "owner-token")).json();
+  const noData = (month: string) =>
+    pageOf({
+      month,
+      hasData: false,
+      profit: null,
+      profitPct: null,
+      cada100: null,
+      monthTotals: {
+        sales: 0,
+        food: 0,
+        waste: 0,
+        margin: 0,
+        impuestos: 0,
+        marginPct: null,
+      },
+      coverage: {
+        pct: 0,
+        uncoveredPct: 0,
+        coveredMarginPct: null,
+        uncovered: [],
+      },
+      fixed: {
+        total: null,
+        missing: ["planilla"],
+        amounts: { planilla: null },
+        missingAmounts: [],
+      },
+    });
+
+  it("Ventas del mes is the Ventas › Mes view (same total, same comparison, same days)", async () => {
+    const home = await homeBody();
+    const ventas = await (
+      await call(
+        ventasGET,
+        `ventas?period=month&location=${LOC1}`,
+        "owner-token"
+      )
+    ).json();
+    expect(home.cards.sales.value).toBe(ventas.total.value);
+    expect(home.cards.sales.delta).toBe(ventas.total.delta);
+    expect(home.cards.sales.range).toEqual(ventas.range);
+    expect(home.cards.sales.value).toBeGreaterThan(0);
+  });
+
+  it("data present: profit of this month, food cost and planilla share are the web's numbers", async () => {
+    h.state.rentabilidad = () =>
+      pageOf({
+        month: current,
+        planillaPct: 0.25,
+        fixed: {
+          total: 5000,
+          missing: [],
+          amounts: { planilla: 3000 },
+          missingAmounts: [],
+        },
+      });
+    const { cards } = await homeBody();
+    expect(cards.month).toBe(current);
+    expect(cards.profit).toEqual({
+      month: current,
+      isLatest: false,
+      value: 1234.5,
+      pct: 0.103,
+      basis: "real",
+    });
+    const costos = await (
+      await call(costosGET, `costos?location=${LOC1}`, "owner-token")
+    ).json();
+    // The very number the Costos card shows, not a second calculation.
+    expect(cards.foodCostPct).toBe(costos.kpis.foodCostPct);
+    expect(cards.foodCostPct).toBe(30);
+    expect(cards.reasons.foodCost.coveredPct).toBe(
+      costos.kpis.reasons.foodCost.coveredPct
+    );
+    expect(cards.reasons.staff).toEqual({ loaded: true, pct: 0.25 });
+  });
+
+  it("this month has no profit: the latest month with data, labelled by its month", async () => {
+    const lastMonth = previousMonthStart(current);
+    // The single-month load asks with no month: that is the current one.
+    h.state.rentabilidad = (m) =>
+      (m ?? current) === current
+        ? noData(current)
+        : pageOf({ month: m, profit: 777 });
+    const { cards } = await homeBody();
+    expect(cards.profit).toMatchObject({
+      month: lastMonth,
+      isLatest: true,
+      value: 777,
+    });
+    // the cost cards still talk about THIS month
+    expect(cards.month).toBe(current);
+    expect(cards.reasons.hasSales).toBe(false);
+  });
+
+  it("no month has data: no profit figure, never a made-up one", async () => {
+    h.state.rentabilidad = (m) => noData(m as string);
+    const { cards } = await homeBody();
+    expect(cards.profit).toBeNull();
+    expect(cards.foodCostPct).toBeNull();
+  });
+
+  it("reason: no sales this month (food cost and planilla share are null, with the reason)", async () => {
+    h.state.rentabilidad = (m) => noData(m as string);
+    const { cards } = await homeBody();
+    expect(cards.reasons.foodCost.status).toBe("no_sales");
+    expect(cards.reasons.staff).toEqual({ loaded: false, pct: null });
+  });
+
+  it("reason: sales but no planilla loaded", async () => {
+    h.state.rentabilidad = () =>
+      pageOf({
+        planillaPct: null,
+        fixed: {
+          total: null,
+          missing: ["planilla"],
+          amounts: { planilla: null },
+          missingAmounts: [],
+        },
+      });
+    const { cards } = await homeBody();
+    expect(cards.reasons.hasSales).toBe(true);
+    expect(cards.reasons.staff).toEqual({ loaded: false, pct: null });
+    expect(cards.reasons.fixed.missing).toEqual(["planilla"]);
+  });
+
+  it("reason: sales but no dish has a cost", async () => {
+    h.state.rentabilidad = () =>
+      pageOf({
+        cada100: null,
+        coverage: {
+          pct: 0,
+          uncoveredPct: 1,
+          coveredMarginPct: null,
+          uncovered: [{ name: "a", reason: "sin_receta" }],
+        },
+      });
+    const { cards } = await homeBody();
+    expect(cards.foodCostPct).toBeNull();
+    expect(cards.reasons.foodCost.status).toBe("no_costed_dishes");
+    expect(cards.reasons.foodCost.uncoveredByReason.sinReceta).toBe(1);
+  });
+
+  it("several restaurants and none chosen: needsRestaurant, no cost cards, ventas still there", async () => {
+    const body = await homeBody("");
+    expect(body.needsRestaurant).toBe(true);
+    expect(body.cards.month).toBeNull();
+    expect(body.cards.profit).toBeNull();
+    expect(body.cards.reasons).toBeNull();
+    expect(body.cards.foodCostPct).toBeNull();
+    expect(body.cards.sales.value).toBeGreaterThan(0);
+    expect(h.rentabilidadCalls).toHaveLength(0);
+  });
+
+  it("additive: every field an older app reads is still there", async () => {
+    const body = await homeBody();
+    for (const k of [
+      "currency",
+      "locationId",
+      "yesterday",
+      "month",
+      "needsRestaurant",
+      "highlights",
+      "pending",
+      "locations",
+    ])
+      expect(body).toHaveProperty(k);
+  });
+});
+
 describe("Costos: pending invoices, «Sin precio», approve and reject", () => {
   it("lists the pending invoices with their lines; a half-read line has no price, never 0", async () => {
     const body = await (await call(costosGET, "costos", "owner-token")).json();

@@ -61,6 +61,7 @@ export function PickerPill({
       >
         {icon ? <Icon name={icon} size={15} /> : null}
         <Text
+          maxFontSizeMultiplier={1.6}
           style={[st.pillText, fullWidth && { flex: 1 }]}
           numberOfLines={fullWidth ? undefined : 1}
         >
@@ -157,7 +158,11 @@ export function GestionHeader({
   return (
     <View style={[st.header, { paddingTop: insets.top + 12 }]}>
       <View style={st.titleRow}>
-        <Text style={st.title} accessibilityRole="header">
+        <Text
+          style={st.title}
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.6}
+        >
           {title}
         </Text>
         {trailing}
@@ -195,9 +200,12 @@ export function HomeHeader() {
 export function DeltaChip({
   value,
   suffix,
+  text,
 }: {
   value: number | null | undefined;
   suffix?: string | null;
+  /** The whole chip text, already worded (it wraps, it is never cut with «…»). */
+  text?: string | null;
 }) {
   const lang = useLanguage();
   const g = useG();
@@ -224,10 +232,11 @@ export function DeltaChip({
           size={13}
         />
       ) : null}
-      <Text style={st.deltaText} numberOfLines={1}>
-        {suffix
-          ? fmt(g.home.vsLabel, { delta: d.text, label: suffix })
-          : d.text}
+      <Text style={st.deltaText}>
+        {text ??
+          (suffix
+            ? fmt(g.home.vsLabel, { delta: d.text, label: suffix })
+            : d.text)}
       </Text>
     </View>
   );

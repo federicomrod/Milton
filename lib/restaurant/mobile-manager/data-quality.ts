@@ -39,6 +39,13 @@ export interface DataReasons {
     /** Categories still without an amount: planilla, alquiler, servicios, otros, impuestos. */
     missing: string[];
   };
+  /** Planilla (staff) of the month, for Inicio's «Costo de personal». */
+  staff: {
+    /** The month has a planilla amount. */
+    loaded: boolean;
+    /** Planilla ÷ sales, 0–1: the web's own `planillaPct`; null when not loaded or no sales. */
+    pct: number | null;
+  };
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -84,6 +91,12 @@ export function dataReasons(m: RentabilidadMonth): DataReasons {
       loaded: amounts.some((v) => v !== null && v !== undefined),
       complete: m.fixed.total !== null,
       missing: [...m.fixed.missing],
+    },
+    staff: {
+      loaded:
+        m.fixed.amounts?.planilla !== null &&
+        m.fixed.amounts?.planilla !== undefined,
+      pct: hasSales ? (m.planillaPct ?? null) : null,
     },
   };
 }

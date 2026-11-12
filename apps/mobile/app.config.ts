@@ -24,6 +24,9 @@ const both = (es: string, en: string) => `${es} / ${en}`;
 const config: ExpoConfig = {
   name: "Milton",
   slug: "milton-cocina",
+  // Expo org that owns @milton-food/milton-cocina, so EAS builds go there
+  // rather than a personal account.
+  owner: "milton-food",
   scheme: "milton",
   version: "0.1.0",
   orientation: "portrait",
@@ -76,6 +79,9 @@ const config: ExpoConfig = {
   ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL,
+    eas: {
+      projectId: "a452d6a9-80b9-4728-8c43-074c4942df6d",
+    },
   },
 };
 

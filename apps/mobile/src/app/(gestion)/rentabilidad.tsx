@@ -11,8 +11,10 @@ import {
   formatFraction,
   formatMoney,
   monthLabel,
+  monthName,
   shiftMonth,
 } from "../../gestion/format";
+import { missingForMonth } from "../../gestion/costs-core";
 import { useG, useLoad } from "../../gestion/hooks";
 import { useManager } from "../../gestion/ManagerProvider";
 import {
@@ -73,14 +75,29 @@ export default function Rentabilidad() {
 
   return (
     <Screen>
-      <GestionHeader title={g.profit.title} right={picker} />
+      <GestionHeader
+        title={g.profit.title}
+        picker={location === null ? undefined : picker}
+      />
       {location === null ? (
         <View style={st.pad}>
           <Muted>{g.profit.needRestaurant}</Muted>
         </View>
       ) : (
         <Async state={state}>
-          {(r) => {
+          {(cur) => {
+            // The current month cannot show a profit yet: lead with the most
+            // recent month that can (labelled), and say what this one lacks.
+            const r = cur.latest ?? cur;
+            const missing =
+              cur.profit === null
+                ? missingForMonth({
+                    reasons: cur.reasons,
+                    month: cur.month,
+                    g,
+                    lang,
+                  })
+                : [];
             const money = (n: number | null) =>
               formatMoney(n, r.currency, lang);
             const be = r.breakEven;
@@ -99,8 +116,33 @@ export default function Rentabilidad() {
               : null;
             return (
               <ScrollView contentContainerStyle={gst.content}>
+                {cur.latest ? (
+                  <View style={st.grey}>
+                    <Text style={st.chipText}>
+                      {fmt(g.profit.latestMonth, {
+                        month: monthLabel(cur.latest.month, lang),
+                      })}
+                    </Text>
+                  </View>
+                ) : null}
+                {missing.length > 0 ? (
+                  <Panel style={st.panel}>
+                    <Text style={st.panelTitle}>
+                      {fmt(g.profit.missingTitle, {
+                        month: monthName(cur.month, lang),
+                      })}
+                    </Text>
+                    {missing.map((line, i) => (
+                      <Text key={i} style={st.finding}>
+                        {line}
+                      </Text>
+                    ))}
+                  </Panel>
+                ) : null}
                 {!r.hasData || r.profit === null ? (
-                  <Muted>{g.profit.noData}</Muted>
+                  missing.length > 0 ? null : (
+                    <Muted>{g.profit.noData}</Muted>
+                  )
                 ) : (
                   <>
                     <View style={st.head}>

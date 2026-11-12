@@ -119,6 +119,8 @@ export interface VentasPayload {
   /** The range was cut to what the data holds. */
   clipped: boolean;
   compareLabel: string | null;
+  /** The days the comparison reads (Ayer: the same weekday last week); null without one. */
+  compareRange: { from: string; to: string } | null;
   total: { value: number | null; delta: number | null };
   tickets: { value: number | null; delta: number | null };
   avgTicket: { value: number | null; delta: number | null };
@@ -145,6 +147,7 @@ export async function buildVentas(args: {
     range: null,
     clipped: false,
     compareLabel: null,
+    compareRange: null,
     total: { value: null, delta: null },
     tickets: { value: null, delta: null },
     avgTicket: { value: null, delta: null },
@@ -209,6 +212,7 @@ export async function buildVentas(args: {
     range: view.range,
     clipped: view.clipped,
     compareLabel: view.compare.label,
+    compareRange: view.compare.baseline ? view.compare.baseline.range : null,
     total: { value: view.kpis.net.value, delta: view.kpis.net.delta },
     tickets: {
       value: view.kpis.tickets.value,

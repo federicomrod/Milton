@@ -4,7 +4,14 @@
 // Aprobar / Rechazar. A missing price says «Sin precio», never $0.
 
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Icon, Muted, Screen } from "../../components/ui";
 import { useLanguage } from "../../i18n";
@@ -18,6 +25,11 @@ import {
 import { useG, useLoad } from "../../gestion/hooks";
 import { useManager } from "../../gestion/ManagerProvider";
 import { invoiceTotalText } from "../../gestion/invoice";
+import {
+  fixedCostView,
+  foodCostView,
+  qualityRows,
+} from "../../gestion/costs-core";
 import { Async, GestionHeader, Panel, gst } from "../../gestion/ui";
 import { colors, fonts } from "../../theme";
 
@@ -26,6 +38,7 @@ export default function Costos() {
   const lang = useLanguage();
   const router = useRouter();
   const { api, locationId, locations } = useManager();
+  const { fontScale } = useWindowDimensions();
   const location =
     locationId ?? (locations.length === 1 ? locations[0].id : null);
   const state = useLoad(`costos:${location ?? "all"}`, () =>
@@ -38,40 +51,132 @@ export default function Costos() {
       <Async state={state}>
         {(c) => {
           const money0 = (n: number | null) => formatMoney(n, c.currency, lang);
+          const foodView = c.kpis
+            ? foodCostView({
+                pct: c.kpis.foodCostPct,
+                reasons: c.kpis.reasons,
+                month: c.kpis.month,
+                g,
+                lang,
+              })
+            : null;
+          const fixedView = c.kpis
+            ? fixedCostView({
+                total: c.kpis.fixedTotal,
+                reasons: c.kpis.reasons,
+                month: c.kpis.month,
+                g,
+                lang,
+              })
+            : null;
+          const quality = c.kpis
+            ? qualityRows({
+                reasons: c.kpis.reasons,
+                pendingInvoices: c.pendingCount,
+                month: c.kpis.month,
+                g,
+                lang,
+              })
+            : null;
+          // Side by side only when both are short numbers and the text is not
+          // large: a reason needs the full width.
+          const stack =
+            foodView?.value === null ||
+            fixedView?.value === null ||
+            fontScale > 1.3;
           return (
             <ScrollView contentContainerStyle={gst.content}>
               {c.kpis === null ? (
                 <Muted>{g.costs.kpisNeedRestaurant}</Muted>
-              ) : !c.kpis.hasData ? (
-                <Muted>{g.costs.kpisNoData}</Muted>
               ) : (
                 <>
-                  <View style={st.kpis}>
-                    <View style={[st.kpi, st.kpiBlue]}>
+                  <View style={stack ? st.kpisStack : st.kpis}>
+                    <View style={[st.kpi, stack && st.kpiFull, st.kpiBlue]}>
                       <Text style={st.kpiLabelOnBlue}>
                         {g.costs.costOfSales}
                       </Text>
-                      <Text style={st.kpiBig}>
-                        {c.kpis.foodCostPct === null
-                          ? "—"
-                          : formatFraction(c.kpis.foodCostPct / 100, lang)}
-                      </Text>
-                      {c.kpis.basis === "estimada" ? (
+                      {foodView!.value !== null ? (
+                        <Text style={st.kpiBig}>
+                          {formatFraction(foodView!.value / 100, lang)}
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={st.reasonOnBlue}>
+                            {foodView!.reason}
+                          </Text>
+                          {foodView!.next ? (
+                            <Text style={st.nextOnBlue}>{foodView!.next}</Text>
+                          ) : null}
+                        </>
+                      )}
+                      {foodView!.note ? (
+                        <Text style={st.noteOnBlue}>{foodView!.note}</Text>
+                      ) : null}
+                      {c.kpis.basis === "estimada" &&
+                      foodView!.value !== null ? (
                         <View style={st.amarillo}>
                           <Text style={st.chipText}>{g.costs.estimated}</Text>
                         </View>
                       ) : null}
                     </View>
-                    <View style={[st.kpi, st.kpiLine]}>
+                    <View style={[st.kpi, stack && st.kpiFull, st.kpiLine]}>
                       <Text style={st.kpiLabel}>{g.costs.fixedMonth}</Text>
-                      <Text style={[st.kpiBig, st.ink]}>
-                        {money0(c.kpis.fixedTotal)}
-                      </Text>
+                      {fixedView!.value !== null ? (
+                        <Text style={[st.kpiBig, st.ink]}>
+                          {money0(fixedView!.value)}
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={st.reason}>{fixedView!.reason}</Text>
+                          {fixedView!.next ? (
+                            <Text style={st.next}>{fixedView!.next}</Text>
+                          ) : null}
+                        </>
+                      )}
                     </View>
                   </View>
-                  <Muted>
-                    {`${fmt(g.costs.salesOf, { month: monthLabel(c.kpis.month, lang) })} · ${money0(c.kpis.sales)}`}
-                  </Muted>
+                  {c.kpis.sales !== null ? (
+                    <Muted>
+                      {`${fmt(g.costs.salesOf, { month: monthLabel(c.kpis.month, lang) })} · ${money0(c.kpis.sales)}`}
+                    </Muted>
+                  ) : null}
+                  {quality ? (
+                    <Panel style={st.quality}>
+                      <Text style={st.qualityTitle}>{g.costs.quality}</Text>
+                      {quality.rows.map((row) => (
+                        <View key={row.key} style={st.qrow}>
+                          <Icon
+                            name={
+                              row.tone === "ok"
+                                ? "checkmark-circle"
+                                : "alert-circle"
+                            }
+                            size={20}
+                            color={row.tone === "ok" ? colors.blue : colors.ink}
+                          />
+                          <View style={{ flex: 1, gap: 6 }}>
+                            <View style={st.qline}>
+                              <Text style={st.qlabel}>{row.label}</Text>
+                              <Text style={st.qvalue}>{row.value}</Text>
+                            </View>
+                            {row.ratio !== undefined ? (
+                              <View style={st.qtrack}>
+                                <View
+                                  style={[
+                                    st.qfill,
+                                    {
+                                      width: `${Math.round(Math.min(1, Math.max(0, row.ratio)) * 100)}%`,
+                                    },
+                                  ]}
+                                />
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                      ))}
+                      {quality.note ? <Muted>{quality.note}</Muted> : null}
+                    </Panel>
+                  ) : null}
                 </>
               )}
 
@@ -141,7 +246,9 @@ const chip = {
 
 const st = StyleSheet.create({
   kpis: { flexDirection: "row", gap: 10 },
+  kpisStack: { gap: 10 },
   kpi: { flex: 1, borderRadius: 20, padding: 14, gap: 6, minHeight: 104 },
+  kpiFull: { flex: 0, alignSelf: "stretch" },
   kpiBlue: { backgroundColor: colors.blue },
   kpiLine: { borderWidth: 1, borderColor: colors.border },
   kpiLabelOnBlue: {
@@ -164,6 +271,58 @@ const st = StyleSheet.create({
     letterSpacing: -0.6,
   },
   ink: { color: colors.ink },
+  reasonOnBlue: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: fonts.semibold,
+    color: colors.white,
+  },
+  nextOnBlue: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: fonts.bold,
+    color: colors.white,
+  },
+  noteOnBlue: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.white,
+    opacity: 0.85,
+  },
+  reason: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontFamily: fonts.semibold,
+    color: colors.ink,
+  },
+  next: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: fonts.bold,
+    color: colors.blue,
+  },
+  quality: { gap: 14 },
+  qualityTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.ink },
+  qrow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  qline: { gap: 2 },
+  qlabel: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  qvalue: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  qtrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+    overflow: "hidden",
+  },
+  qfill: { height: 8, borderRadius: 4, backgroundColor: colors.mint },
   amarillo: { ...chip, backgroundColor: colors.amarillo },
   count: { ...chip, backgroundColor: colors.amarillo },
   chipText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.ink },

@@ -23,6 +23,7 @@ import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
 import { endsKitchenWithManager } from "../lib/entry";
 import { unregisterThisPhone } from "../gestion/notifications/usePush";
+import { PUSH_ENABLED } from "../config/flags";
 import { useSession } from "../session/SessionProvider";
 import { fmt } from "../i18n/strings";
 import { initials } from "../gestion/format";
@@ -211,16 +212,18 @@ export default function Perfil() {
             ) : null}
           </Pressable>
         ))}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push("/notificaciones")}
-          style={[st.row, st.rowBorder]}
-        >
-          <Icon name="notifications-outline" size={20} />
-          <Text style={st.rowText}>{g.profile.notifications}</Text>
-          <Text style={st.value}>{g.profile.dailySummary}</Text>
-          <Icon name="chevron-forward" size={18} />
-        </Pressable>
+        {PUSH_ENABLED ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("/notificaciones")}
+            style={[st.row, st.rowBorder]}
+          >
+            <Icon name="notifications-outline" size={20} />
+            <Text style={st.rowText}>{g.profile.notifications}</Text>
+            <Text style={st.value}>{g.profile.dailySummary}</Text>
+            <Icon name="chevron-forward" size={18} />
+          </Pressable>
+        ) : null}
         {canInviteTeam(m.company) ? (
           <Pressable
             accessibilityRole="button"

@@ -11,7 +11,10 @@
       "ios": { "simulator": true }
     },
     "preview": { "distribution": "internal" },
-    "production": { "autoIncrement": true }
+    "production": {
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "https://app.miltonlabs.ai" }
+    }
   },
   "submit": { "production": {} }
 }

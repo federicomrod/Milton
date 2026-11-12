@@ -8,11 +8,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadRentabilidadPage,
+  loadRentabilidadPages,
   type RentabilidadPageData,
 } from "@/lib/restaurant/rentabilidad-server";
+import { dataReasons, type DataReasons } from "./data-quality";
 import { findingText } from "@/lib/restaurant/rentabilidad-copy";
 import { formatMoney } from "@/lib/restaurant/costs-format";
-import { monthStartOf } from "@/lib/restaurant/fixed-costs";
+import { monthStartOf, previousMonthStart } from "@/lib/restaurant/fixed-costs";
 import type { PreferredLanguage } from "@/lib/restaurant/language";
 
 export interface RentabilidadPayload {
@@ -58,7 +60,18 @@ export interface RentabilidadPayload {
   findings: string[];
   /** Parallel to `findings`: which finding it is (for the icon). */
   findingKinds: string[];
+  /** Why a figure of THIS month is missing, and how complete its data is. */
+  reasons: DataReasons;
+  /**
+   * Only on the current month when it cannot show a profit yet: the most recent
+   * earlier month that can, whole, so the app labels it as that month. Never
+   * a projection for another month; null when there is none (or not asked).
+   */
+  latest: RentabilidadPayload | null;
 }
+
+/** How far back to look for the most recent month with data. */
+export const LATEST_LOOKBACK_MONTHS = 6;
 
 export function parseMonth(raw: string | null): string | null | "invalid" {
   if (raw === null || raw === "") return null;
@@ -114,6 +127,8 @@ export function shapeRentabilidad(
     foodCostPct: m.cada100?.find((p) => p.key === "comida")?.pct ?? null,
     findings: data.findings.map((f) => findingText(f, m, money, lang)),
     findingKinds: data.findings.map((f) => f.kind),
+    reasons: dataReasons(m),
+    latest: null,
   };
 }
 
@@ -133,4 +148,39 @@ export async function buildRentabilidad(args: {
     month: args.month,
   });
   return shapeRentabilidad(data, args.locationId, args.lang);
+}
+
+/** A month the screen can lead with: it has sales and a profit figure. */
+const hasProfit = (p: RentabilidadPayload) => p.hasData && p.profit !== null;
+
+/**
+ * The current month, and — when it has no profit figure yet — the most recent
+ * earlier month that does (`latest`), found in one shared load.
+ */
+export async function buildRentabilidadWithLatest(args: {
+  supabase: SupabaseClient;
+  companyId: string;
+  locationId: string;
+  restaurantIds: string[];
+  month: string;
+  lang: PreferredLanguage;
+}): Promise<RentabilidadPayload> {
+  const { lang, month, locationId, ...rest } = args;
+  const earlier: string[] = [];
+  for (let i = 0, m = month; i < LATEST_LOOKBACK_MONTHS; i++) {
+    m = previousMonthStart(m);
+    earlier.push(m);
+  }
+  const pages = await loadRentabilidadPages({
+    ...rest,
+    locationId,
+    months: [month, ...earlier],
+  });
+  const current = shapeRentabilidad(pages[month], locationId, lang);
+  if (hasProfit(current)) return current;
+  for (const m of earlier) {
+    const candidate = shapeRentabilidad(pages[m], locationId, lang);
+    if (hasProfit(candidate)) return { ...current, latest: candidate };
+  }
+  return current;
 }

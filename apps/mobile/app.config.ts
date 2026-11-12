@@ -35,6 +35,9 @@ const config: ExpoConfig = {
     bundleIdentifier: "com.miltonlabs.milton",
     supportsTablet: false,
     infoPlist: {
+      // Only standard HTTPS (no custom cryptography), so Apple's export-
+      // compliance question is answered once here, not on every upload.
+      ITSAppUsesNonExemptEncryption: false,
       NSCameraUsageDescription: both(CAMERA_ES, CAMERA_EN),
       NSPhotoLibraryUsageDescription: both(PHOTOS_ES, PHOTOS_EN),
       NSMicrophoneUsageDescription: both(MIC_ES, MIC_EN),

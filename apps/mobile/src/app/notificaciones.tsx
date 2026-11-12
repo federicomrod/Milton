@@ -15,12 +15,13 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { Button, Icon, Muted } from "../components/ui";
 import { fmt } from "../i18n/strings";
 import { useG } from "../gestion/hooks";
 import { hourLabel, stepHour } from "../gestion/notifications/push-core";
 import { usePush } from "../gestion/notifications/usePush";
+import { PUSH_ENABLED } from "../config/flags";
 import { colors, fonts, space, tint } from "../theme";
 
 function HourStepper({
@@ -60,7 +61,7 @@ function HourStepper({
   );
 }
 
-export default function Notificaciones() {
+function NotificacionesScreen() {
   const g = useG();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -260,3 +261,10 @@ const st = StyleSheet.create({
     color: colors.ink,
   },
 });
+
+// Push is off in this build: nobody should land here (the Perfil row is hidden
+// too), so a deep link just goes back to Perfil.
+export default function Notificaciones() {
+  if (!PUSH_ENABLED) return <Redirect href="/perfil" />;
+  return <NotificacionesScreen />;
+}

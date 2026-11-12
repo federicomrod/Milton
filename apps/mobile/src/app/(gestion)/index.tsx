@@ -4,23 +4,34 @@
 // one compact card. Every number comes from the server (the web's own libs).
 
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Icon, Muted, Screen, type IconName } from "../../components/ui";
 import { useLanguage } from "../../i18n";
 import { fmt } from "../../i18n/strings";
-import {
-  formatDateLong,
-  formatDay,
-  formatFraction,
-  formatMoney,
-} from "../../gestion/format";
+import { formatDateLong, formatDay, formatMoney } from "../../gestion/format";
 import { useG, useLoad } from "../../gestion/hooks";
+import {
+  foodCard,
+  profitCard,
+  salesCard,
+  staffCard,
+  yesterdayChip,
+  type CardView,
+} from "../../gestion/home-core";
 import { useManager } from "../../gestion/ManagerProvider";
 import {
   Async,
   DeltaChip,
   HomeHeader,
+  LocationPill,
   Panel,
   Sparkbars,
   gst,
@@ -42,6 +53,77 @@ function isoDay(d: Date): string {
 
 const MAX_HIGHLIGHTS = 3;
 
+/** One KPI card: the figure, or one short line of why not + the next step. Opens its tab. */
+function KpiCard({
+  card,
+  onOpen,
+  stacked,
+}: {
+  card: CardView;
+  onOpen: (href: CardView["link"]) => void;
+  /** Large text: one card per line, so no word is broken in half. */
+  stacked: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => onOpen(card.link)}
+      style={[st.kpi, st.kpiLine, !stacked && st.card2]}
+    >
+      <Text style={st.kpiLabel} maxFontSizeMultiplier={1.5}>
+        {card.label}
+      </Text>
+      {card.value !== null ? (
+        <>
+          <Text
+            style={st.cardValue}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {card.value}
+          </Text>
+          {card.chip ? (
+            <View
+              style={[
+                st.chip,
+                {
+                  backgroundColor:
+                    card.chip.tone === "down"
+                      ? colors.amarillo
+                      : card.chip.tone === "flat"
+                        ? colors.border
+                        : colors.mint,
+                },
+              ]}
+            >
+              <Text style={st.chipText} maxFontSizeMultiplier={1.5}>
+                {card.chip.text}
+              </Text>
+            </View>
+          ) : null}
+          {card.note ? (
+            <Text style={st.note} maxFontSizeMultiplier={1.5}>
+              {card.note}
+            </Text>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Text style={st.reason} maxFontSizeMultiplier={1.5}>
+            {card.reason}
+          </Text>
+          {card.next ? (
+            <Text style={st.next} maxFontSizeMultiplier={1.5}>
+              {card.next}
+            </Text>
+          ) : null}
+        </>
+      )}
+    </Pressable>
+  );
+}
+
 export default function Inicio() {
   const g = useG();
   const lang = useLanguage();
@@ -52,6 +134,8 @@ export default function Inicio() {
     if (locations.length === 0) setLocations(data.locations);
     return data;
   });
+  const { fontScale } = useWindowDimensions();
+  const stacked = fontScale > 1.3;
   const now = new Date();
   const yesterdayIso = isoDay(new Date(now.getTime() - 86_400_000));
   const first = user?.name?.trim().split(/\s+/)[0];
@@ -67,86 +151,124 @@ export default function Inicio() {
               : fmt(g.home.asOf, { date: formatDay(home.yesterday.date, lang) })
             : null;
           const shown = home.highlights.slice(0, MAX_HIGHLIGHTS);
+          const chip = home.yesterday
+            ? yesterdayChip({
+                delta: home.yesterday.delta,
+                date: home.yesterday.date,
+                lang,
+                g,
+              })
+            : null;
+          const c = home.cards;
+          const cardViews: CardView[] | null = c
+            ? [
+                salesCard({ cards: c, currency: home.currency, lang, g }),
+                profitCard({ cards: c, currency: home.currency, lang, g }),
+                foodCard({ cards: c, lang, g }),
+                staffCard({ cards: c, lang, g }),
+              ]
+            : null;
+          // Card order is Ventas, Ganancia / Costo de comida, Personal.
           return (
             <>
               <ScrollView contentContainerStyle={st.content}>
                 <View style={st.greetBlock}>
-                  <Text style={st.hello} accessibilityRole="header">
+                  <Text
+                    style={st.hello}
+                    accessibilityRole="header"
+                    maxFontSizeMultiplier={1.6}
+                  >
                     {first
                       ? fmt(g.header.hello, { name: first })
                       : g.header.helloPlain}
                   </Text>
-                  <Muted>
+                  <Muted maxFontSizeMultiplier={1.4}>
                     {asOf
                       ? `${formatDateLong(isoDay(now), lang)} · ${asOf}`
                       : formatDateLong(isoDay(now), lang)}
                   </Muted>
                 </View>
 
-                <View style={st.kpis}>
-                  <View style={[st.kpi, st.kpiBlue]}>
-                    <View style={gst.row}>
-                      <Text style={st.kpiLabelOnBlue}>
-                        {g.home.yesterdaySales}
+                <View style={[st.kpi, st.kpiBlue]}>
+                  <View style={gst.row}>
+                    <Text style={st.kpiLabelOnBlue}>
+                      {g.home.yesterdaySales}
+                    </Text>
+                    {home.yesterday && home.yesterday.trend.length > 1 ? (
+                      <Sparkbars values={home.yesterday.trend} />
+                    ) : null}
+                  </View>
+                  {home.yesterday && home.yesterday.net !== null ? (
+                    <>
+                      <Text
+                        style={st.kpiBig}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.6}
+                        maxFontSizeMultiplier={1.5}
+                      >
+                        {formatMoney(home.yesterday.net, home.currency, lang)}
                       </Text>
-                      {home.yesterday && home.yesterday.trend.length > 1 ? (
-                        <Sparkbars values={home.yesterday.trend} />
-                      ) : null}
-                    </View>
-                    {home.yesterday && home.yesterday.net !== null ? (
-                      <>
-                        <Text style={st.kpiBig}>
-                          {formatMoney(home.yesterday.net, home.currency, lang)}
-                        </Text>
+                      {chip ? (
                         <DeltaChip
                           value={home.yesterday.delta}
-                          suffix={home.yesterday.compareLabel}
+                          text={chip.text}
                         />
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text style={st.kpiLabelOnBlue}>{g.home.noSales}</Text>
+                  )}
+                </View>
+
+                {cardViews ? (
+                  <>
+                    {home.needsRestaurant ? (
+                      <>
+                        <View style={[st.grid, stacked && st.gridStacked]}>
+                          <KpiCard
+                            card={cardViews[0]}
+                            onOpen={router.push}
+                            stacked={stacked}
+                          />
+                        </View>
+                        <Panel style={st.pickPanel}>
+                          <Text style={st.cardTitle}>
+                            {g.home.pickRestaurant}
+                          </Text>
+                          <LocationPill fullWidth />
+                        </Panel>
                       </>
                     ) : (
-                      <Text style={st.kpiLabelOnBlue}>{g.home.noSales}</Text>
-                    )}
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => router.push("/rentabilidad")}
-                    style={[st.kpi, st.kpiLine]}
-                  >
-                    <Text style={st.kpiLabel}>{g.home.monthProfit}</Text>
-                    {home.month === null ? (
-                      <Muted>{g.home.needRestaurant}</Muted>
-                    ) : !home.month.hasData || home.month.profit === null ? (
-                      <Muted>{g.home.noMonthData}</Muted>
-                    ) : (
                       <>
-                        <Text
-                          style={[
-                            st.kpiBig,
-                            { color: colors.ink, fontSize: 24 },
-                          ]}
-                        >
-                          {formatMoney(home.month.profit, home.currency, lang)}
-                        </Text>
-                        <View style={st.chips}>
-                          <View style={st.mint}>
-                            <Text style={st.mintText}>
-                              {fmt(g.home.marginChip, {
-                                pct: formatFraction(home.month.profitPct, lang),
-                              })}
-                            </Text>
-                          </View>
-                          {home.month.basis === "estimada" ? (
-                            <View style={st.amarillo}>
-                              <Text style={st.mintText}>
-                                {g.home.estimated}
-                              </Text>
-                            </View>
-                          ) : null}
+                        <View style={[st.grid, stacked && st.gridStacked]}>
+                          <KpiCard
+                            card={cardViews[0]}
+                            onOpen={router.push}
+                            stacked={stacked}
+                          />
+                          <KpiCard
+                            card={cardViews[1]}
+                            onOpen={router.push}
+                            stacked={stacked}
+                          />
+                        </View>
+                        <View style={[st.grid, stacked && st.gridStacked]}>
+                          <KpiCard
+                            card={cardViews[2]}
+                            onOpen={router.push}
+                            stacked={stacked}
+                          />
+                          <KpiCard
+                            card={cardViews[3]}
+                            onOpen={router.push}
+                            stacked={stacked}
+                          />
                         </View>
                       </>
                     )}
-                  </Pressable>
-                </View>
+                  </>
+                ) : null}
 
                 <View style={[gst.row, st.sectionRow]}>
                   <Text style={st.section}>{g.home.highlights}</Text>
@@ -242,7 +364,13 @@ export default function Inicio() {
                 style={st.askBar}
               >
                 <Icon name="sparkles-outline" size={18} />
-                <Text style={st.askText}>{g.ask.bar}</Text>
+                <Text
+                  style={st.askText}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={1.3}
+                >
+                  {g.ask.bar}
+                </Text>
                 <View style={st.askMic}>
                   <Icon name="mic" size={18} color={colors.white} />
                 </View>
@@ -294,9 +422,45 @@ const st = StyleSheet.create({
     color: colors.ink,
     letterSpacing: -0.5,
   },
-  kpis: { flexDirection: "row", gap: 10 },
+  gridStacked: { flexDirection: "column" },
+  grid: { flexDirection: "row", gap: 10, alignItems: "stretch" },
+  pickPanel: { padding: 14, gap: 10 },
+  card2: { flex: 1 },
+  cardValue: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontFamily: fonts.extrabold,
+    color: colors.ink,
+    letterSpacing: -0.4,
+  },
+  chip: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  chipText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.ink },
+  note: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  reason: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.semibold,
+    color: colors.ink,
+  },
+  next: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: fonts.regular,
+    color: colors.blue,
+  },
   kpi: { borderRadius: 20, padding: 14, gap: 6, minHeight: 112 },
-  kpiBlue: { flex: 1.4, backgroundColor: colors.blue },
+  kpiBlue: { backgroundColor: colors.blue },
   kpiLine: { flex: 1, borderWidth: 1, borderColor: colors.border },
   kpiLabelOnBlue: {
     fontSize: 12,

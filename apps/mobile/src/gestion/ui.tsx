@@ -39,6 +39,7 @@ export function PickerPill({
   selected,
   onSelect,
   align = "left",
+  fullWidth = false,
 }: {
   icon?: IconName;
   label: string;
@@ -46,6 +47,8 @@ export function PickerPill({
   selected: string | null;
   onSelect: (id: string | null) => void;
   align?: "left" | "right";
+  /** The pill takes the whole line and its label wraps instead of being cut. */
+  fullWidth?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -54,16 +57,29 @@ export function PickerPill({
         onPress={() => setOpen((v) => !v)}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        style={st.pill}
+        style={[st.pill, fullWidth && st.pillFull]}
       >
         {icon ? <Icon name={icon} size={15} /> : null}
-        <Text style={st.pillText} numberOfLines={1}>
+        <Text
+          maxFontSizeMultiplier={1.6}
+          style={[st.pillText, fullWidth && { flex: 1 }]}
+          numberOfLines={fullWidth ? undefined : 1}
+        >
           {label}
         </Text>
         <Icon name={open ? "chevron-up" : "chevron-down"} size={14} />
       </Pressable>
       {open ? (
-        <Card style={[st.menu, align === "right" ? { right: 0 } : { left: 0 }]}>
+        <Card
+          style={[
+            st.menu,
+            fullWidth
+              ? { left: 0, right: 0, minWidth: 0 }
+              : align === "right"
+                ? { right: 0 }
+                : { left: 0 },
+          ]}
+        >
           {options.map((o) => (
             <Pressable
               key={o.id ?? "all"}
@@ -95,7 +111,13 @@ export function PickerPill({
 }
 
 /** The restaurant picker pill, driven by the manager session. */
-export function LocationPill({ align }: { align?: "left" | "right" }) {
+export function LocationPill({
+  align,
+  fullWidth,
+}: {
+  align?: "left" | "right";
+  fullWidth?: boolean;
+}) {
   const g = useG();
   const { locations, locationId, setLocationId } = useManager();
   if (locations.length === 0) return null;
@@ -111,53 +133,66 @@ export function LocationPill({ align }: { align?: "left" | "right" }) {
       selected={locationId}
       onSelect={setLocationId}
       align={align}
+      fullWidth={fullWidth}
     />
   );
 }
 
-/** Screen header: a big title on the left, a picker pill (or anything) on the right. */
+/**
+ * The header every Gestión screen shares: the title on its own full-width line
+ * (an optional control, like the profile avatar, at its right edge) and the
+ * picker pill on the line below, full width. Neither is ever cut: the title and
+ * the pill label wrap at large text sizes and on a small phone.
+ */
 export function GestionHeader({
   title,
-  right,
+  picker,
+  trailing,
 }: {
   title: string;
-  right?: React.ReactNode;
+  /** The line under the title. Default: the restaurant picker. null = none. */
+  picker?: React.ReactNode;
+  trailing?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[st.header, { paddingTop: insets.top + 12 }]}>
-      <View style={st.headerRow}>
-        <Text style={st.title} accessibilityRole="header" numberOfLines={1}>
+      <View style={st.titleRow}>
+        <Text
+          style={st.title}
+          accessibilityRole="header"
+          maxFontSizeMultiplier={1.6}
+        >
           {title}
         </Text>
-        {right === undefined ? <LocationPill align="right" /> : right}
+        {trailing}
       </View>
+      {picker === undefined ? <LocationPill fullWidth /> : picker}
     </View>
   );
 }
 
-/** Inicio header: restaurant pill on the left, the profile avatar on the right. */
+/** Inicio header: the shared header with the profile avatar beside the title. */
 export function HomeHeader() {
   const g = useG();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { user } = useManager();
   return (
-    <View style={[st.header, { paddingTop: insets.top + 8 }]}>
-      <View style={st.headerRow}>
-        <LocationPill />
+    <GestionHeader
+      title={g.tabs.home}
+      trailing={
         <Pressable
           onPress={() => router.push("/perfil")}
           accessibilityRole="button"
           accessibilityLabel={g.header.profile}
           style={[st.avatar, inExpoGo && { marginTop: 34 }]}
         >
-          <Text style={st.avatarText}>
+          <Text style={st.avatarText} allowFontScaling={false}>
             {initials(user?.name ?? user?.email)}
           </Text>
         </Pressable>
-      </View>
-    </View>
+      }
+    />
   );
 }
 
@@ -165,9 +200,12 @@ export function HomeHeader() {
 export function DeltaChip({
   value,
   suffix,
+  text,
 }: {
   value: number | null | undefined;
   suffix?: string | null;
+  /** The whole chip text, already worded (it wraps, it is never cut with «…»). */
+  text?: string | null;
 }) {
   const lang = useLanguage();
   const g = useG();
@@ -194,10 +232,11 @@ export function DeltaChip({
           size={13}
         />
       ) : null}
-      <Text style={st.deltaText} numberOfLines={1}>
-        {suffix
-          ? fmt(g.home.vsLabel, { delta: d.text, label: suffix })
-          : d.text}
+      <Text style={st.deltaText}>
+        {text ??
+          (suffix
+            ? fmt(g.home.vsLabel, { delta: d.text, label: suffix })
+            : d.text)}
       </Text>
     </View>
   );
@@ -425,6 +464,79 @@ export function DayBars({
   );
 }
 
+/**
+ * Horizontal bars, one per row, all on the same scale (the longest fills the
+ * track). Used for «Ayer» against the same weekday last week: the label and the
+ * amount sit above their bar, so nothing is cut at any text size.
+ */
+export function CompareBars({
+  rows,
+}: {
+  rows: {
+    key: string;
+    label: string;
+    sub?: string;
+    value: number;
+    amount: string;
+    color: string;
+  }[];
+}) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <View
+      style={cst.wrap}
+      accessibilityRole="image"
+      accessibilityLabel={rows
+        .map((r) => `${r.label}${r.sub ? ` ${r.sub}` : ""} ${r.amount}`)
+        .join(", ")}
+    >
+      {rows.map((r) => (
+        <View key={r.key} style={cst.row}>
+          <View style={cst.head}>
+            <View style={{ flex: 1 }}>
+              <Text style={cst.label}>{r.label}</Text>
+              {r.sub ? <Text style={cst.sub}>{r.sub}</Text> : null}
+            </View>
+            <Text style={cst.amount}>{r.amount}</Text>
+          </View>
+          <View style={cst.track}>
+            <View
+              style={[
+                cst.fill,
+                {
+                  width: `${Math.max(2, barRatio(r.value, max) * 100)}%`,
+                  backgroundColor: r.color,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const cst = StyleSheet.create({
+  wrap: { gap: 16 },
+  row: { gap: 8 },
+  head: { flexDirection: "row", alignItems: "flex-start", gap: space.s },
+  label: { fontSize: 15, fontFamily: fonts.semibold, color: colors.ink },
+  sub: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    opacity: 0.62,
+  },
+  amount: { fontSize: 18, fontFamily: fonts.extrabold, color: colors.ink },
+  track: {
+    height: 22,
+    borderRadius: 8,
+    backgroundColor: tint.ink06,
+    overflow: "hidden",
+  },
+  fill: { height: 22, borderRadius: 8 },
+});
+
 export const gst = StyleSheet.create({
   content: {
     paddingHorizontal: space.l,
@@ -462,33 +574,37 @@ const st = StyleSheet.create({
     paddingBottom: 10,
     zIndex: 20,
   },
-  headerRow: {
+  titleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+    marginBottom: 10,
   },
   title: {
-    flexShrink: 1,
+    flex: 1,
     fontSize: 28,
     lineHeight: 34,
     fontFamily: fonts.extrabold,
     color: colors.ink,
     letterSpacing: -0.5,
   },
-  pickerWrap: { position: "relative", zIndex: 30 },
+  pickerWrap: { position: "relative", zIndex: 30, alignSelf: "stretch" },
   pill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    minHeight: 36,
-    paddingHorizontal: 12,
+    minHeight: 44,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: radius.pill,
     backgroundColor: tint.ink06,
     borderWidth: 1,
     borderColor: colors.border,
-    maxWidth: 240,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
   },
+  pillFull: { alignSelf: "stretch" },
   pillText: {
     flexShrink: 1,
     fontSize: 14,
@@ -506,7 +622,7 @@ const st = StyleSheet.create({
   avatarText: { fontSize: 14, fontFamily: fonts.bold, color: colors.blue },
   menu: {
     position: "absolute",
-    top: 42,
+    top: 50,
     minWidth: 220,
     padding: 4,
     zIndex: 50,

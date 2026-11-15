@@ -61,6 +61,8 @@ export const ALLOW: Record<string, string> = {
     "a cook sets their own PIN; the device token is the authority",
   "mobile/v1/kitchen/logout/route.ts":
     "a cook revokes their own device; the device token is the authority",
+  "mobile/v1/account/delete/route.ts":
+    "a user deletes their own account after authenticating (manager via JWT or cook via device token); the endpoint checks sole-owner business rule to prevent orphaned companies",
 };
 
 function routes(dir: string): string[] {

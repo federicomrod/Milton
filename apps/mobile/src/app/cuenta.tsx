@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { ApiError, friendlyMessage } from "../api/client";
 import { Button, Card, Field, Muted, Screen, text } from "../components/ui";
-import { useStrings } from "../i18n";
+import { useLanguage, useStrings } from "../i18n";
 import { fmt } from "../i18n/strings";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
@@ -32,6 +40,7 @@ function Value({ children }: { children: React.ReactNode }) {
 
 export default function Cuenta() {
   const s = useStrings();
+  const lang = useLanguage();
   const { profile, api, signOut, kitchenCode } = useSession();
   const g = useG();
   const manager = useManager();
@@ -45,6 +54,12 @@ export default function Cuenta() {
   const [asking, setAsking] = useState(false);
   const [pin, setPin] = useState("");
   const [bioError, setBioError] = useState<string | null>(null);
+  const [deleteStep, setDeleteStep] = useState<"hidden" | "confirm" | "typing">(
+    "hidden"
+  );
+  const [deleteText, setDeleteText] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     let off = false;
@@ -113,6 +128,42 @@ export default function Cuenta() {
       // Offline or already revoked: signing out here is enough.
     }
     await signOut();
+  }
+
+  async function confirmDelete() {
+    const expected = lang === "de" ? "LÖSCHEN" : lang === "en" ? "DELETE" : "ELIMINAR";
+    if (deleteText.trim().toUpperCase() !== expected) {
+      setDeleteError(
+        lang === "de"
+          ? "Gib LÖSCHEN ein, um zu bestätigen"
+          : lang === "en"
+            ? "Type DELETE to confirm"
+            : "Escribe ELIMINAR para confirmar"
+      );
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await api.deleteAccount();
+      Alert.alert(s.account.deleteSuccess, "", [
+        {
+          text: "OK",
+          onPress: async () => {
+            await signOut();
+            router.replace("/");
+          },
+        },
+      ]);
+    } catch (err) {
+      if (err instanceof ApiError && err.reason === "sole_owner") {
+        setDeleteError(s.account.deleteSoleOwner);
+      } else {
+        setDeleteError(s.account.deleteFailed);
+      }
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   return (
@@ -237,6 +288,69 @@ export default function Cuenta() {
           onPress={leave}
           busy={busy}
         />
+
+        {deleteStep === "hidden" ? (
+          <Card style={st.deleteCard}>
+            <Text style={st.deleteTitle}>{s.account.deleteAccount}</Text>
+            <Muted>{s.account.deleteWarning}</Muted>
+            <Button
+              label={s.account.deleteAccount}
+              variant="secondary"
+              onPress={() => setDeleteStep("confirm")}
+            />
+          </Card>
+        ) : null}
+
+        {deleteStep === "confirm" ? (
+          <Card style={st.deleteCard}>
+            <Text style={st.deleteTitle}>{s.account.deleteConfirm}</Text>
+            <Muted>{s.account.deleteWarning}</Muted>
+            <Button
+              label={s.account.deleteButton}
+              variant="secondary"
+              onPress={() => setDeleteStep("typing")}
+            />
+            <Button
+              label={s.account.deleteCancel}
+              variant="secondary"
+              onPress={() => setDeleteStep("hidden")}
+            />
+          </Card>
+        ) : null}
+
+        {deleteStep === "typing" ? (
+          <Card style={st.deleteCard}>
+            <Text style={st.deleteTitle}>{s.account.deleteConfirm}</Text>
+            <Muted>{s.account.deleteConfirmHint}</Muted>
+            <TextInput
+              style={st.deleteInput}
+              value={deleteText}
+              onChangeText={setDeleteText}
+              placeholder={s.account.deleteTypePlaceholder}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            {deleteError ? <Muted>{deleteError}</Muted> : null}
+            <Button
+              label={
+                deleteBusy ? s.account.deleteWorking : s.account.deleteButton
+              }
+              variant="secondary"
+              onPress={confirmDelete}
+              busy={deleteBusy}
+            />
+            <Button
+              label={s.account.deleteCancel}
+              variant="secondary"
+              onPress={() => {
+                setDeleteStep("hidden");
+                setDeleteText("");
+                setDeleteError(null);
+              }}
+            />
+          </Card>
+        ) : null}
+
         <Muted>
           {fmt(s.account.version, {
             version: Constants.expoConfig?.version ?? "",
@@ -253,4 +367,20 @@ const st = StyleSheet.create({
   block: { gap: 2 },
   code: { fontSize: 20, fontFamily: fonts.extrabold, color: colors.blue },
   switchRow: { flexDirection: "row", alignItems: "center", gap: space.m },
+  deleteCard: { gap: space.m },
+  deleteTitle: {
+    fontSize: 17,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  deleteInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 17,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    backgroundColor: colors.white,
+  },
 });

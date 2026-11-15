@@ -4,12 +4,14 @@
 
 import React from "react";
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import Constants, { ExecutionEnvironment } from "expo-constants";
@@ -42,6 +44,12 @@ export default function Perfil() {
   const [invite, setInvite] = React.useState<{ url: string } | null>(null);
   const [inviteError, setInviteError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [deleteStep, setDeleteStep] = React.useState<
+    "hidden" | "confirm" | "typing"
+  >("hidden");
+  const [deleteText, setDeleteText] = React.useState("");
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
   const hasKitchen = kitchen.status === "signedIn";
   const inviteLocation =
     m.locationId ?? (m.locations.length === 1 ? m.locations[0].id : null);
@@ -118,6 +126,36 @@ export default function Perfil() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    const expected = "ELIMINAR";
+    if (deleteText.trim().toUpperCase() !== expected) {
+      setDeleteError(g.profile.deleteConfirmHint);
+      return;
+    }
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await m.api.deleteAccount();
+      Alert.alert(g.profile.deleteSuccess, "", [
+        {
+          text: "OK",
+          onPress: async () => {
+            await m.signOut();
+            router.replace("/");
+          },
+        },
+      ]);
+    } catch (err) {
+      if (err instanceof ApiError && err.reason === "sole_owner") {
+        setDeleteError(g.profile.deleteSoleOwner);
+      } else {
+        setDeleteError(g.profile.deleteFailed);
+      }
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -274,6 +312,76 @@ export default function Perfil() {
           router.replace("/");
         }}
       />
+
+      {deleteStep === "hidden" ? (
+        <View style={st.deleteSection}>
+          <Text style={st.label}>{g.profile.deleteAccount}</Text>
+          <Card style={st.deleteCard}>
+            <Muted>{g.profile.deleteWarning}</Muted>
+            <Button
+              label={g.profile.deleteAccount}
+              variant="secondary"
+              onPress={() => setDeleteStep("confirm")}
+            />
+          </Card>
+        </View>
+      ) : null}
+
+      {deleteStep === "confirm" ? (
+        <View style={st.deleteSection}>
+          <Text style={st.label}>{g.profile.deleteAccount}</Text>
+          <Card style={st.deleteCard}>
+            <Text style={st.deleteTitle}>{g.profile.deleteConfirm}</Text>
+            <Muted>{g.profile.deleteWarning}</Muted>
+            <Button
+              label={g.profile.deleteButton}
+              variant="secondary"
+              onPress={() => setDeleteStep("typing")}
+            />
+            <Button
+              label={g.profile.deleteCancel}
+              variant="secondary"
+              onPress={() => setDeleteStep("hidden")}
+            />
+          </Card>
+        </View>
+      ) : null}
+
+      {deleteStep === "typing" ? (
+        <View style={st.deleteSection}>
+          <Text style={st.label}>{g.profile.deleteAccount}</Text>
+          <Card style={st.deleteCard}>
+            <Text style={st.deleteTitle}>{g.profile.deleteConfirm}</Text>
+            <Muted>{g.profile.deleteConfirmHint}</Muted>
+            <TextInput
+              style={st.deleteInput}
+              value={deleteText}
+              onChangeText={setDeleteText}
+              placeholder={g.profile.deleteTypePlaceholder}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            {deleteError ? <Muted>{deleteError}</Muted> : null}
+            <Button
+              label={
+                deleteBusy ? g.profile.deleteWorking : g.profile.deleteButton
+              }
+              variant="secondary"
+              onPress={confirmDelete}
+              busy={deleteBusy}
+            />
+            <Button
+              label={g.profile.deleteCancel}
+              variant="secondary"
+              onPress={() => {
+                setDeleteStep("hidden");
+                setDeleteText("");
+                setDeleteError(null);
+              }}
+            />
+          </Card>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -420,4 +528,21 @@ const st = StyleSheet.create({
   },
   inviteCard: { gap: 8 },
   code: { fontSize: 14, fontFamily: fonts.regular, color: colors.ink },
+  deleteSection: { gap: 12 },
+  deleteCard: { gap: space.m },
+  deleteTitle: {
+    fontSize: 17,
+    fontFamily: fonts.bold,
+    color: colors.ink,
+  },
+  deleteInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 17,
+    fontFamily: fonts.regular,
+    color: colors.ink,
+    backgroundColor: colors.white,
+  },
 });

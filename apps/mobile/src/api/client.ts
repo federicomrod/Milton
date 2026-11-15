@@ -288,6 +288,11 @@ export function createApiClient(deps: ClientDeps) {
       }),
     logout: () =>
       request<{ success: boolean }>("POST", "/api/mobile/v1/kitchen/logout"),
+    deleteAccount: () =>
+      request<{ success: boolean; deleted: boolean }>(
+        "POST",
+        "/api/mobile/v1/account/delete"
+      ),
   };
 }
 

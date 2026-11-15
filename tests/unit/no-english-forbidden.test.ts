@@ -38,8 +38,9 @@ describe("one permissions table", () => {
       /(?:role|Role)\s*(?:===|!==)\s*["'](?:owner|admin|manager|viewer|member|analyst)["']/,
       // lib/auth is the table; invites validate the role in the BODY of an
       // invite (input validation); profile-service reads the legacy profile
-      // flag (Milton admin), not a company role.
-      /^(lib\/auth\/|app\/api\/management\/invites\/route\.ts|lib\/profile-service\.ts)/
+      // flag (Milton admin), not a company role; account deletion checks sole-
+      // owner business rule.
+      /^(lib\/auth\/|app\/api\/management\/invites\/route\.ts|lib\/profile-service\.ts|app\/api\/mobile\/v1\/account\/delete\/route\.ts)/
     );
     expect(hits).toEqual([]);
   });

@@ -16,5 +16,11 @@
       "env": { "EXPO_PUBLIC_API_BASE_URL": "https://app.miltonlabs.ai" }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6834052564"
+      }
+    }
+  }
 }

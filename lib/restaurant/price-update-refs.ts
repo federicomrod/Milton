@@ -94,11 +94,16 @@ export async function loadPriceUpdateRefs(
   }
 }
 
-/** false for an ingredient cost entry that came from a price-update line. */
+/**
+ * false for an ingredient cost entry that is a price update, not a purchase:
+ * - Telegram price-update lines (source_type=invoice_line, in refs.lineIds)
+ * - Manual price edits from Menú › Ingredientes (source_type=manual)
+ */
 export function isPurchaseCostEntry(
   entry: { source_type: string | null; source_id: string | null },
   refs: PriceUpdateRefs
 ): boolean {
+  if (entry.source_type === "manual") return false;
   return !(
     entry.source_type === "invoice_line" &&
     entry.source_id !== null &&

@@ -12,6 +12,8 @@ export const metadata: Metadata = {
   robots: "noindex",
 };
 
+// This page is public (no auth required) - check middleware.ts if needed
+
 export default function AccountDeletionPage() {
   return (
     <main className="min-h-screen bg-white px-6 py-16 flex items-center justify-center">
@@ -112,7 +114,7 @@ export default function AccountDeletionPage() {
           <h2 className="text-2xl font-semibold text-gray-900 mb-4">
             ¿Necesitas ayuda?
           </h2>
-          <p className="text-gray-700">
+          <p className="text-gray-700 mb-3">
             Si tienes preguntas sobre la eliminación de tu cuenta, escríbenos a{" "}
             <a
               href="mailto:hello@miltonlabs.ai"
@@ -120,6 +122,11 @@ export default function AccountDeletionPage() {
             >
               hello@miltonlabs.ai
             </a>
+          </p>
+          <p className="text-gray-700">
+            <span className="font-semibold">Forma alternativa de eliminar tu cuenta:</span>{" "}
+            Si prefieres, también puedes solicitar la eliminación de tu cuenta enviando
+            un correo electrónico a hello@miltonlabs.ai desde tu dirección registrada.
           </p>
         </div>
 

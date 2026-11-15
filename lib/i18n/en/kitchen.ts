@@ -128,6 +128,8 @@ export const kitchen: Dictionary["kitchen"] = {
     accountDeleteFailed: "Could not delete the account. Try again.",
     accountDeleteSoleOwner:
       "You are the only owner of this company. Email us at hello@miltonlabs.ai to close it or transfer it.",
+    accountDeleteManagerKitchen:
+      "Delete your account from Management to delete it completely.",
   },
   push: {
     dailyTitle: "Your summary of yesterday",

@@ -3,7 +3,7 @@
 // Tests for the account deletion endpoint (Apple App Store requirement 5.1.1(v)).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { POST } from "./route";
+import { POST, USER_FK_REFERENCES } from "./route";
 import { NextRequest } from "next/server";
 
 // Mock dependencies
@@ -327,5 +327,60 @@ describe("DELETE /api/mobile/v1/account/delete", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({ success: true, deleted: true });
+  });
+
+  it("should clear all FK references from USER_FK_REFERENCES before deleting", async () => {
+    const userId = "user-123";
+
+    const { authUserFromBearer } = await import("@/lib/restaurant/api-auth");
+    const { createAdminClient } = await import("@/lib/supabase/admin");
+
+    vi.mocked(authUserFromBearer).mockResolvedValue({
+      ok: true,
+      supabase: {} as any,
+      userId,
+      email: "test@example.com",
+    });
+
+    const updateCalls: Array<{ table: string; column: string }> = [];
+    const mockAdminClient = {
+      from: vi.fn((table: string) => {
+        if (table === "company_memberships") {
+          return {
+            select: vi.fn(() => ({
+              eq: vi.fn(() => Promise.resolve({ data: [], error: null })),
+            })),
+          };
+        }
+        return {
+          update: vi.fn((updates: Record<string, any>) => {
+            const column = Object.keys(updates)[0];
+            updateCalls.push({ table, column });
+            return {
+              eq: vi.fn(() => Promise.resolve({ error: null })),
+            };
+          }),
+          select: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({ data: [], error: null })),
+          })),
+        };
+      }),
+      auth: {
+        admin: {
+          deleteUser: vi.fn(() => Promise.resolve({ error: null })),
+        },
+      },
+    };
+
+    vi.mocked(createAdminClient).mockReturnValue(mockAdminClient as any);
+
+    const req = mockRequest({ authorization: "Bearer valid-token" });
+    await POST(req);
+
+    // Verify that all FK references were cleared
+    expect(updateCalls.length).toBe(USER_FK_REFERENCES.length);
+    USER_FK_REFERENCES.forEach((ref) => {
+      expect(updateCalls).toContainEqual({ table: ref.table, column: ref.column });
+    });
   });
 });

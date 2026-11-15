@@ -127,6 +127,8 @@ export const kitchen = {
     accountDeleteFailed: "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
     accountDeleteSoleOwner:
       "Eres el único dueño de esta empresa. Escríbenos a hello@miltonlabs.ai para cerrarla o transferirla.",
+    accountDeleteManagerKitchen:
+      "Elimina tu cuenta desde Gestión para eliminarla completamente.",
   },
   push: {
     dailyTitle: "Tu resumen de ayer",

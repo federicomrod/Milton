@@ -124,6 +124,9 @@ export const kitchen = {
     ingredientExists: 'Ya existe "{name}". ¿Usarlo?',
     ingredientArchived:
       '"{name}" está archivado. Restáuralo en Ingredientes o usa otro nombre.',
+    accountDeleteFailed: "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+    accountDeleteSoleOwner:
+      "Eres el único dueño de esta empresa. Escríbenos a hello@miltonlabs.ai para cerrarla o transferirla.",
   },
   push: {
     dailyTitle: "Tu resumen de ayer",

@@ -297,6 +297,15 @@ export function createManagerApi(deps: ManagerApiDeps) {
           { body: { action: "sign_out", ...(deviceId ? { deviceId } : {}) } }
         )
       ),
+    /** Delete the signed-in manager's account (App Store requirement). */
+    deleteAccount: () =>
+      authed(() =>
+        request<{ success: boolean; deleted: boolean }>(
+          "POST",
+          `${V1}/account/delete`,
+          { body: {} }
+        )
+      ),
   };
 }
 

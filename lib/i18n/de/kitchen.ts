@@ -131,6 +131,10 @@ export const kitchen: Dictionary["kitchen"] = {
     ingredientExists: '"{name}" existiert bereits. Verwenden?',
     ingredientArchived:
       '"{name}" ist archiviert. Stellen Sie es unter Zutaten wieder her oder verwenden Sie einen anderen Namen.',
+    accountDeleteFailed:
+      "Das Konto konnte nicht gelöscht werden. Versuchen Sie es erneut.",
+    accountDeleteSoleOwner:
+      "Sie sind der einzige Inhaber dieses Unternehmens. Schreiben Sie uns an hello@miltonlabs.ai, um es zu schließen oder zu übertragen.",
   },
   push: {
     dailyTitle: "Ihre Zusammenfassung von gestern",

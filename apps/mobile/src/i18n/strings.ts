@@ -28,6 +28,19 @@ export const es = {
     biometricPin: "Escribe tu PIN para guardarlo en este teléfono",
     biometricSave: "Activar",
     biometricWrongPin: "Ese no es tu PIN. Revísalo.",
+    deleteAccount: "Eliminar cuenta",
+    deleteWarning:
+      "Esto elimina tu cuenta de Milton para siempre. Tus datos personales se borran, pero los datos de la empresa (ventas, costos, recetas, facturas) se mantienen.",
+    deleteSoleOwner:
+      "Eres el único dueño de esta empresa. Escríbenos a hello@miltonlabs.ai para cerrarla o transferirla.",
+    deleteConfirm: "¿Eliminar tu cuenta?",
+    deleteConfirmHint: "Escribe ELIMINAR para confirmar",
+    deleteTypePlaceholder: "Escribe ELIMINAR",
+    deleteButton: "Eliminar mi cuenta",
+    deleteCancel: "Cancelar",
+    deleteWorking: "Eliminando…",
+    deleteFailed: "No se pudo eliminar la cuenta. Inténtalo de nuevo.",
+    deleteSuccess: "Cuenta eliminada",
   },
   offline: {
     banner: "Sin conexión",
@@ -244,6 +257,19 @@ export const en: Strings = {
     biometricPin: "Type your PIN to save it on this phone",
     biometricSave: "Turn on",
     biometricWrongPin: "That is not your PIN. Check it.",
+    deleteAccount: "Delete account",
+    deleteWarning:
+      "This deletes your Milton account forever. Your personal data is removed, but the company data (sales, costs, recipes, invoices) is kept.",
+    deleteSoleOwner:
+      "You are the only owner of this company. Email us at hello@miltonlabs.ai to close it or transfer it.",
+    deleteConfirm: "Delete your account?",
+    deleteConfirmHint: "Type DELETE to confirm",
+    deleteTypePlaceholder: "Type DELETE",
+    deleteButton: "Delete my account",
+    deleteCancel: "Cancel",
+    deleteWorking: "Deleting…",
+    deleteFailed: "Could not delete the account. Try again.",
+    deleteSuccess: "Account deleted",
   },
   offline: {
     banner: "No connection",
@@ -455,6 +481,19 @@ export const de: Strings = {
     biometricPin: "Gib deine PIN ein, um sie auf diesem Telefon zu speichern",
     biometricSave: "Einschalten",
     biometricWrongPin: "Das ist nicht deine PIN. Prüfe sie.",
+    deleteAccount: "Konto löschen",
+    deleteWarning:
+      "Dies löscht dein Milton-Konto für immer. Deine persönlichen Daten werden entfernt, aber die Unternehmensdaten (Umsätze, Kosten, Rezepte, Rechnungen) bleiben erhalten.",
+    deleteSoleOwner:
+      "Du bist der einzige Inhaber dieses Unternehmens. Schreib uns an hello@miltonlabs.ai, um es zu schließen oder zu übertragen.",
+    deleteConfirm: "Konto löschen?",
+    deleteConfirmHint: "Gib LÖSCHEN ein, um zu bestätigen",
+    deleteTypePlaceholder: "Gib LÖSCHEN ein",
+    deleteButton: "Mein Konto löschen",
+    deleteCancel: "Abbrechen",
+    deleteWorking: "Wird gelöscht…",
+    deleteFailed: "Das Konto konnte nicht gelöscht werden. Versuche es erneut.",
+    deleteSuccess: "Konto gelöscht",
   },
   offline: {
     banner: "Keine Verbindung",

@@ -7,8 +7,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Eliminar cuenta - Milton",
-  description:
-    "Cómo eliminar tu cuenta de Milton desde la aplicación móvil",
+  description: "Cómo eliminar tu cuenta de Milton desde la aplicación móvil",
   robots: "noindex",
 };
 
@@ -24,9 +23,9 @@ export default function AccountDeletionPage() {
 
         <div className="prose prose-gray max-w-none">
           <p className="text-lg text-gray-700 mb-8">
-            Puedes eliminar tu cuenta de Milton directamente desde la
-            aplicación móvil. Este proceso es permanente y elimina tus datos
-            personales de nuestros sistemas.
+            Puedes eliminar tu cuenta de Milton directamente desde la aplicación
+            móvil. Este proceso es permanente y elimina tus datos personales de
+            nuestros sistemas.
           </p>
 
           <h2 className="text-2xl font-semibold text-gray-900 mb-4">
@@ -93,7 +92,7 @@ export default function AccountDeletionPage() {
           <h2 className="text-2xl font-semibold text-gray-900 mb-4">
             Importante
           </h2>
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-8">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
             <p className="text-gray-800 mb-3">
               <span className="font-semibold">Si eres el único dueño</span> de
               una empresa, no podrás eliminar tu cuenta directamente para evitar
@@ -124,9 +123,12 @@ export default function AccountDeletionPage() {
             </a>
           </p>
           <p className="text-gray-700">
-            <span className="font-semibold">Forma alternativa de eliminar tu cuenta:</span>{" "}
-            Si prefieres, también puedes solicitar la eliminación de tu cuenta enviando
-            un correo electrónico a hello@miltonlabs.ai desde tu dirección registrada.
+            <span className="font-semibold">
+              Forma alternativa de eliminar tu cuenta:
+            </span>{" "}
+            Si prefieres, también puedes solicitar la eliminación de tu cuenta
+            enviando un correo electrónico a hello@miltonlabs.ai desde tu
+            dirección registrada.
           </p>
         </div>
 

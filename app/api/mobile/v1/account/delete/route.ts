@@ -59,18 +59,28 @@ export async function POST(request: NextRequest) {
 
   // Try bearer auth first (manager), then device token (kitchen)
   const bearerAuth = await authUserFromBearer(request);
-  
+
   if (bearerAuth.ok) {
     // MANAGER PATH: delete Supabase auth account
     const adminClient = createAdminClient();
-    return await deleteManagerAccount(bearerAuth.userId, bearerAuth.email, adminClient, d);
+    return await deleteManagerAccount(
+      bearerAuth.userId,
+      bearerAuth.email,
+      adminClient,
+      d
+    );
   }
 
   // Try kitchen device token
   const deviceAuth = await authKitchenDevice(request);
   if (deviceAuth.ok) {
     // KITCHEN PATH: revoke devices for this staff member
-    return await deleteKitchenAccount(deviceAuth.staff.id, deviceAuth.admin, d);
+    return await deleteKitchenAccount(
+      deviceAuth.staff.id,
+      deviceAuth.staff.companyId,
+      deviceAuth.admin,
+      d
+    );
   }
 
   // Neither auth worked - return the kitchen auth error (it has the right reason)
@@ -91,7 +101,10 @@ async function deleteManagerAccount(
       .eq("user_id", userId);
 
     if (membershipsError) {
-      console.error("[account-delete] memberships read failed:", membershipsError.message);
+      console.error(
+        "[account-delete] memberships read failed:",
+        membershipsError.message
+      );
       return mobileJson({ error: d.kitchen.api.accountDeleteFailed }, 500);
     }
 
@@ -106,7 +119,10 @@ async function deleteManagerAccount(
         .eq("role", "owner");
 
       if (ownersError) {
-        console.error("[account-delete] owners check failed:", ownersError.message);
+        console.error(
+          "[account-delete] owners check failed:",
+          ownersError.message
+        );
         return mobileJson({ error: d.kitchen.api.accountDeleteFailed }, 500);
       }
 
@@ -142,7 +158,8 @@ async function deleteManagerAccount(
     }
 
     // 3. Delete the user from auth.users (profile and memberships cascade)
-    const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
+    const { error: deleteError } =
+      await adminClient.auth.admin.deleteUser(userId);
 
     if (deleteError) {
       // If the user is already gone, that's fine (idempotent)
@@ -156,7 +173,10 @@ async function deleteManagerAccount(
         { userId, clearedCount }
       );
       return mobileJson(
-        { error: d.kitchen.api.accountDeleteFailed, details: "deleteUser_failed" },
+        {
+          error: d.kitchen.api.accountDeleteFailed,
+          details: "deleteUser_failed",
+        },
         500
       );
     }
@@ -176,6 +196,7 @@ async function deleteManagerAccount(
 
 async function deleteKitchenAccount(
   staffId: string,
+  companyId: string,
   adminClient: ReturnType<typeof createAdminClient>,
   d: ReturnType<typeof getDictionary>
 ) {
@@ -188,7 +209,10 @@ async function deleteKitchenAccount(
       .single();
 
     if (staffError && staffError.code !== "PGRST116") {
-      console.error("[account-delete] kitchen staff read failed:", staffError.message);
+      console.error(
+        "[account-delete] kitchen staff read failed:",
+        staffError.message
+      );
       return mobileJson({ error: d.kitchen.api.accountDeleteFailed }, 500);
     }
 
@@ -204,19 +228,25 @@ async function deleteKitchenAccount(
       );
     }
 
-    // Regular cook: revoke all their devices
+    // Regular cook: revoke all their devices (scoped to both staff_id and company_id)
     const { error: revokeError } = await adminClient
       .from("kitchen_devices")
       .update({ revoked_at: new Date().toISOString() })
       .eq("staff_id", staffId)
+      .eq("company_id", companyId)
       .is("revoked_at", null);
 
     if (revokeError) {
-      console.error("[account-delete] device revocation failed:", revokeError.message);
+      console.error(
+        "[account-delete] device revocation failed:",
+        revokeError.message
+      );
       return mobileJson({ error: d.kitchen.api.accountDeleteFailed }, 500);
     }
 
-    console.info(`[account-delete] kitchen devices revoked for staff: ${staffId}`);
+    console.info(
+      `[account-delete] kitchen devices revoked for staff: ${staffId}`
+    );
     return mobileJson({ success: true, deleted: true });
   } catch (err) {
     console.error(

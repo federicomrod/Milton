@@ -12,7 +12,7 @@ import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { ApiError, friendlyMessage } from "../api/client";
 import { Button, Card, Field, Muted, Screen, text } from "../components/ui";
-import { useStrings } from "../i18n";
+import { useLanguage, useStrings } from "../i18n";
 import { fmt } from "../i18n/strings";
 import { useG } from "../gestion/hooks";
 import { useManager } from "../gestion/ManagerProvider";
@@ -40,6 +40,7 @@ function Value({ children }: { children: React.ReactNode }) {
 
 export default function Cuenta() {
   const s = useStrings();
+  const lang = useLanguage();
   const { profile, api, signOut, kitchenCode } = useSession();
   const g = useG();
   const manager = useManager();
@@ -130,12 +131,12 @@ export default function Cuenta() {
   }
 
   async function confirmDelete() {
-    const expected = s.language === "de" ? "LÖSCHEN" : s.language === "en" ? "DELETE" : "ELIMINAR";
+    const expected = lang === "de" ? "LÖSCHEN" : lang === "en" ? "DELETE" : "ELIMINAR";
     if (deleteText.trim().toUpperCase() !== expected) {
       setDeleteError(
-        s.language === "de"
+        lang === "de"
           ? "Gib LÖSCHEN ein, um zu bestätigen"
-          : s.language === "en"
+          : lang === "en"
             ? "Type DELETE to confirm"
             : "Escribe ELIMINAR para confirmar"
       );

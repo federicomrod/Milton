@@ -12,6 +12,7 @@ const publicRoutes = [
   "/auth/invite",
   "/auth/forgot-password",
   "/auth/reset-password",
+  "/account-deletion", // Apple App Store requirement: public account deletion instructions
   "/",
 ];
 

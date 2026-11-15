@@ -182,7 +182,7 @@ async function deleteManagerAccount(
     }
 
     console.info(
-      `[account-delete] manager account deleted: ${email || userId}, cleared ${clearedCount} references`
+      `[account-delete] manager account deleted: ${userId}, cleared ${clearedCount} references`
     );
     return mobileJson({ success: true, deleted: true });
   } catch (err) {

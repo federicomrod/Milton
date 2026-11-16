@@ -238,12 +238,14 @@ describe("helpers (1)", () => {
     };
     const e = (source_type: string | null, source_id: string | null) =>
       isPurchaseCostEntry({ source_type, source_id }, refs);
-    expect(e("manual", null)).toBe(true);
+    // Manual price edits from Menú › Ingredientes are not purchases (#375).
+    expect(e("manual", null)).toBe(false);
     expect(e("import", null)).toBe(true);
     expect(e("invoice_line", "line-real")).toBe(true);
+    // Telegram price-update lines are not purchases (#313).
     expect(e("invoice_line", "line-pu")).toBe(false);
-    // Same id under another source type is not a price-update line.
-    expect(e("manual", "line-pu")).toBe(true);
+    // Same id under another source type: manual with any source_id is not a purchase.
+    expect(e("manual", "line-pu")).toBe(false);
   });
 
   it("loadPriceUpdateRefs finds current + legacy prefixes of this company only", async () => {

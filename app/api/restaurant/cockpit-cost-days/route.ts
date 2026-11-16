@@ -48,7 +48,8 @@ export async function GET(req: NextRequest) {
             await fetchCompanyPosSalesRows(
               auth.supabase,
               auth.companyId,
-              locationId
+              locationId,
+              { withComboLines: true }
             )
           ).rows as never,
       }),

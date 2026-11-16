@@ -67,6 +67,7 @@ import {
   overlayAllowed,
   canEditRecipes,
 } from "@/components/restaurant/menu/estimate-overlay";
+import { displayName } from "@/lib/restaurant/sentence-case";
 import { useToast } from "@/components/ui/use-toast";
 import { EstimateWithMilton } from "@/components/restaurant/menu/EstimateWithMilton";
 import Link from "next/link";
@@ -1196,7 +1197,7 @@ const DishRows = memo(function DishRows({
               className="font-bold text-[#151c2c] hover:text-[#1b40c8] hover:underline"
               title={t.drillTitle}
             >
-              {dish.name}
+              {displayName(dish.name)}
             </button>
             <span className="text-[12px] text-[#8a92a3]">
               {fmt(

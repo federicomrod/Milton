@@ -49,7 +49,9 @@ export async function loadSalesDetail(
     await Promise.all([
       resolvePosTimezone(supabase, companyId),
       resolveCompanyCurrency(supabase, companyId),
-      fetchCompanyPosSalesRows(supabase as never, companyId, locationId),
+      fetchCompanyPosSalesRows(supabase as never, companyId, locationId, {
+        withComboLines: true,
+      }),
       loadBusinessDayConfig(supabase, companyId),
       loadTargetsConfig(supabase, companyId),
       supabase

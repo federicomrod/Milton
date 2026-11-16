@@ -608,13 +608,20 @@ export async function ensureProductPlatos(
 export interface EstimateDishResult {
   menu_item_id: string;
   name: string;
+  /** The POS product of the plato (opens it in Platos), when known. */
+  odoo_product_id?: number | null;
   est_cost: number | null;
   est_margin_pct: number | null;
   skipped_reason: string | null;
 }
 
 export interface EstimateRunResult {
+  /** How many platos THIS call estimated (a count, never a «finished» flag). */
   done: number;
+  /**
+   * Estimable platos (and unlinked food products) still waiting AFTER this
+   * call: the whole ranked pool minus this chunk, not capped by `limit`.
+   */
   remaining: number;
   results: EstimateDishResult[];
 }
@@ -686,6 +693,7 @@ async function estimateOne(
   const result: EstimateDishResult = {
     menu_item_id: fact.menu_item_id,
     name: fact.name,
+    odoo_product_id: fact.odoo_product_id,
     est_cost: null,
     est_margin_pct: null,
     skipped_reason: null,
@@ -1058,6 +1066,7 @@ export async function estimateDishes(
       return {
         menu_item_id: entry.menu_item_id,
         name: entry.name,
+        odoo_product_id: entry.odoo_product_id,
         est_cost: null,
         est_margin_pct: null,
         skipped_reason: eligible.ok ? "error_ia" : eligible.reason,

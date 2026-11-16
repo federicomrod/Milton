@@ -59,6 +59,8 @@ import { Chip } from "@/components/restaurant/recipes-costing/ui";
 import type { DishEstimateRow } from "@/lib/restaurant/menu-reading/estimate";
 import {
   ESTIMATE_USE_SUCCESS,
+  ESTIMATE_DRAFT_REASON,
+  ESTIMATE_HIDDEN_REASON,
   canUseEstimateAsDraft,
   estimateCopy,
   estimateSkipMessage,
@@ -315,20 +317,23 @@ export function MenuDishesScreen({
       {
         text: string;
         parts: Array<{ value: string; isNumber: boolean }>;
+        reason?: string;
         menu_item_id: string;
         usable: boolean;
         line_count: number;
       }
     >();
-    if (estimates.length === 0) return map;
     for (const dish of [...dishes, ...excluded]) {
       if (dish.status === "excluded") continue;
-      const est = estimateForProducts(estimates, [
-        dish.base_odoo_product_id,
-        ...dish.variants.map((v) => v.odoo_product_id),
-      ]);
-      if (!est) continue;
-      if (
+      const est =
+        estimates.length > 0
+          ? estimateForProducts(estimates, [
+              dish.base_odoo_product_id,
+              ...dish.variants.map((v) => v.odoo_product_id),
+            ])
+          : null;
+      const hidden =
+        est == null ||
         !overlayAllowed(est, {
           real_cost: dish.cost_total,
           has_approved_version: (dish.approved_count ?? 0) > 0,
@@ -336,9 +341,21 @@ export function MenuDishesScreen({
         }) ||
         dish.source === "excel" ||
         dish.cost_status === "aprobado" ||
-        dish.cost_status === "estimado"
-      )
+        dish.cost_status === "estimado";
+      if (hidden) {
+        // A plato whose status is «Estimado» always carries the strip; when
+        // the estimate itself is not shown, it says why.
+        if (dish.cost_status === "estimado")
+          map.set(dish.id, {
+            text: "",
+            parts: [],
+            reason: est ? ESTIMATE_HIDDEN_REASON : ESTIMATE_DRAFT_REASON,
+            menu_item_id: est?.menu_item_id ?? "",
+            usable: false,
+            line_count: 0,
+          });
         continue;
+      }
       const avg = dish.units > 0 ? dish.net_sales / dish.units : null;
       const shown = estimateText(est, data.currency, avg, lang);
       map.set(dish.id, {
@@ -1121,6 +1138,8 @@ const DishRows = memo(function DishRows({
   estimate?: {
     text: string;
     parts: Array<{ value: string; isNumber: boolean }>;
+    /** The estimate is not shown on purpose: why (readable gray). */
+    reason?: string;
     menu_item_id: string;
     usable?: boolean;
     line_count?: number;
@@ -1224,34 +1243,48 @@ const DishRows = memo(function DishRows({
                 <Sparkles className="h-3 w-3 text-[var(--brand-blue)]" />
                 {estimateCopy(lang).badge}
               </span>
-              <span>
-                {estimate.parts.map((part, i) =>
-                  part.isNumber ? (
-                    <span
-                      key={i}
-                      className="font-semibold text-[var(--brand-blue)]"
-                    >
-                      {part.value}
-                    </span>
-                  ) : (
-                    <span key={i} className="text-[var(--brand-ink)]">
-                      {part.value}
-                    </span>
-                  )
-                )}
-              </span>
-              <span className="text-[var(--brand-ink)]">·</span>
-              <Link
-                href={
-                  dish.base_odoo_product_id
-                    ? dishHref(dish.base_odoo_product_id)
-                    : platosHref()
-                }
-                className="font-semibold text-[var(--brand-blue)] hover:underline"
-              >
-                {t.seeEstimate}
-              </Link>
-              {canEstimate && estimate.usable !== false ? (
+              {estimate.reason ? (
+                <span
+                  data-testid="dish-estimate-reason"
+                  className="text-[#4b5466]"
+                >
+                  {estimate.reason}
+                </span>
+              ) : null}
+              {estimate.reason ? null : (
+                <span>
+                  {estimate.parts.map((part, i) =>
+                    part.isNumber ? (
+                      <span
+                        key={i}
+                        className="font-semibold text-[var(--brand-blue)]"
+                      >
+                        {part.value}
+                      </span>
+                    ) : (
+                      <span key={i} className="text-[var(--brand-ink)]">
+                        {part.value}
+                      </span>
+                    )
+                  )}
+                </span>
+              )}
+              {estimate.reason ? null : (
+                <>
+                  <span className="text-[var(--brand-ink)]">·</span>
+                  <Link
+                    href={
+                      dish.base_odoo_product_id
+                        ? dishHref(dish.base_odoo_product_id)
+                        : platosHref()
+                    }
+                    className="font-semibold text-[var(--brand-blue)] hover:underline"
+                  >
+                    {t.seeEstimate}
+                  </Link>
+                </>
+              )}
+              {canEstimate && estimate.usable !== false && !estimate.reason ? (
                 <>
                   <span className="text-[var(--brand-ink)]">·</span>
                   <RowEstimateUse

@@ -26,7 +26,7 @@ const SIZE_PATTERNS: Array<[RegExp, (n: string) => string]> = [
   [/\bpara\s+(\d+)\s*(?:personas?|pers\.?|pax)?\b/i, (n) => `${n}p`],
   [/\b(\d+)\s*(?:personas?|pers\.?|pax|p)\b/i, (n) => `${n}p`],
   [
-    /\b(\d+(?:[.,]\d+)?)\s*(?:oz|onzas?|onz)\b/i,
+    /\b(\d+(?:[.,]\d+)?)\s*(?:oz|onzas?|onz)\.?\b/i,
     (n) => `${n.replace(",", ".")}oz`,
   ],
 ];
@@ -65,13 +65,17 @@ export function sizeOf(name: string): string | null {
   return null;
 }
 
-/** The name without its size: "Parrillada Mixta 3P" -> "Parrillada Mixta". */
+/** The name without its size: "Parrillada Mixta 3P" -> "Parrillada Mixta".
+ * Also strips parentheses (event markers, options, cooking points) to match
+ * the base dish name, aligned with parseVariantName logic. */
 export function stripSize(name: string): string {
   let out = peopleInDigits(name);
   for (const [re] of SIZE_PATTERNS) out = out.replace(re, " ");
   return out
-    .replace(/[()[\]]/g, " ")
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[[\]]/g, " ")
     .replace(/\s+/g, " ")
+    .replace(/[.\s]+$/, "")
     .trim();
 }
 

@@ -14,6 +14,7 @@ export const MIN_MENU_TEXT = 80;
 
 export type MenuSource =
   | { kind: "url"; url: string }
+  | { kind: "urls"; urls: string[] }
   | { kind: "text"; text: string };
 // Later: | { kind: "pdf"; file: … } | { kind: "photo"; file: … }
 
@@ -56,6 +57,20 @@ export async function readMenuSource(
 ): Promise<MenuText> {
   const lang = deps.lang ?? "es";
   if (source.kind === "text") return finish("text", null, source.text, lang);
+  if (source.kind === "urls") {
+    const results = await Promise.all(
+      source.urls.map(async (url) => {
+        const page = await (deps.fetchPage ?? fetchMenuPage)(url, lang);
+        const text =
+          page.contentType === "text/plain"
+            ? page.body
+            : htmlToText(page.body, page.url);
+        return text;
+      })
+    );
+    const combined = results.join("\n\n");
+    return finish("url", source.urls.join(", "), combined, lang);
+  }
   const page = await (deps.fetchPage ?? fetchMenuPage)(source.url, lang);
   const text =
     page.contentType === "text/plain"

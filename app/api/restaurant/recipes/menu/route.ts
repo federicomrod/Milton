@@ -41,8 +41,20 @@ export async function POST(req: NextRequest) {
     );
   }
   const url = typeof body.url === "string" ? body.url.trim() : "";
+  const urls = Array.isArray(body.urls)
+    ? body.urls
+        .filter((u): u is string => typeof u === "string")
+        .map((u) => u.trim())
+    : typeof body.urls === "string"
+      ? body.urls
+          .split("\n")
+          .map((u) => u.trim())
+          .filter(Boolean)
+      : [];
   const text = typeof body.text === "string" ? body.text.trim() : "";
-  if ((url && text) || (!url && !text)) {
+
+  const sourceCount = [url, urls.length > 0, text].filter(Boolean).length;
+  if (sourceCount !== 1) {
     return NextResponse.json(
       {
         error: (await apiMsg()).menuSendOneOfTwo,
@@ -50,12 +62,21 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
   if (url.length > MAX_URL_LENGTH) {
     return NextResponse.json(
       { error: (await apiMsg()).menuUrlTooLong },
       { status: 400 }
     );
   }
+
+  if (urls.some((u) => u.length > MAX_URL_LENGTH)) {
+    return NextResponse.json(
+      { error: (await apiMsg()).menuUrlTooLong },
+      { status: 400 }
+    );
+  }
+
   if (text.length > MAX_MENU_TEXT) {
     return NextResponse.json(
       { error: (await apiMsg()).menuTextTooLong },
@@ -77,10 +98,16 @@ export async function POST(req: NextRequest) {
 
   const currency = await resolveCompanyCurrency(auth.supabase, auth.companyId);
   try {
+    const source =
+      urls.length > 0
+        ? { kind: "urls" as const, urls }
+        : url
+          ? { kind: "url" as const, url }
+          : { kind: "text" as const, text };
     const result = await readMenuIntoDrafts(auth.supabase, {
       companyId: auth.companyId,
       currency: currency || "USD",
-      source: url ? { kind: "url", url } : { kind: "text", text },
+      source,
       createdBy: auth.userId,
       locationId,
     });

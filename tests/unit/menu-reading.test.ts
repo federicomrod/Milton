@@ -286,6 +286,8 @@ describe("matching POS dishes to the menu", () => {
     expect(sizeOf("Parrillada La Ceiba 3P")).toBe("3p");
     expect(sizeOf("Parrillada (2 personas)")).toBe("2p");
     expect(sizeOf("Café 12 oz")).toBe("12oz");
+    expect(sizeOf("Café 12oz.")).toBe("12oz");
+    expect(sizeOf("Churrasco Típico (6 oz.)")).toBe("6oz");
     expect(sizeOf("Pollo Encebollado")).toBeNull();
     expect(sizeOf("Antojitos (dos personas)")).toBe("2p");
     expect(sizeOf("Pastel tres leches")).toBeNull();
@@ -293,6 +295,17 @@ describe("matching POS dishes to the menu", () => {
     expect(stripSize("Parrillada La Ceiba (3 personas)")).toBe(
       "Parrillada La Ceiba"
     );
+  });
+
+  it("strips parentheses with event markers, options and cooking points", () => {
+    expect(stripSize("Churrasco Típico (6 oz.) (Tortilla, Bien Cocido)")).toBe(
+      "Churrasco Típico"
+    );
+    expect(stripSize("Churrasco 6oz. (Eventos) (Medio Cocido, Papa)")).toBe(
+      "Churrasco"
+    );
+    expect(stripSize("Lomito (4 oz) (PROMO) (Arroz)")).toBe("Lomito");
+    expect(stripSize("Parrillada (3 personas) (Eventos)")).toBe("Parrillada");
   });
 
   it("matches by name and picks the size variant", () => {

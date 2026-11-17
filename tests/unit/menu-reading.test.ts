@@ -232,6 +232,40 @@ describe("reading the menu text", () => {
     expect(menu.source_ref).toBeNull();
   });
 
+  it("reads multiple URLs and merges dishes, continuing on partial failure", async () => {
+    const fetchPage = async (url: string) => {
+      if (url === "https://example.com/fail") {
+        throw new Error("Network error");
+      }
+      return {
+        url,
+        contentType: "text/html" as const,
+        body:
+          url === "https://example.com/menu1"
+            ? "<h1>Menu 1</h1><p>Dish A</p>"
+            : "<h1>Menu 2</h1><p>Dish B</p>",
+      };
+    };
+
+    const menu = await readMenuSource(
+      {
+        kind: "urls",
+        urls: [
+          "https://example.com/menu1",
+          "https://example.com/fail",
+          "https://example.com/menu2",
+        ],
+      },
+      { fetchPage }
+    );
+
+    expect(menu.text).toContain("Dish A");
+    expect(menu.text).toContain("Dish B");
+    expect(menu.source_ref).toContain("example.com/menu1");
+    expect(menu.source_ref).toContain("example.com/menu2");
+    expect(menu.source_ref).not.toContain("fail");
+  });
+
   it("splits long menus on line breaks", () => {
     const text = Array.from({ length: 50 }, (_, i) => `Plato ${i} $${i}`).join(
       "\n"
@@ -306,6 +340,46 @@ describe("matching POS dishes to the menu", () => {
     );
     expect(stripSize("Lomito (4 oz) (PROMO) (Arroz)")).toBe("Lomito");
     expect(stripSize("Parrillada (3 personas) (Eventos)")).toBe("Parrillada");
+  });
+
+  it("sizeOf extracts size before stripSize removes parentheses", () => {
+    expect(sizeOf("Pechuga a la Parrilla 8oz. (Eventos)")).toBe("8oz");
+    expect(stripSize("Pechuga a la Parrilla 8oz. (Eventos)")).toBe(
+      "Pechuga a la Parrilla"
+    );
+    expect(sizeOf("Parrillada Mar y Tierra (3 personas)")).toBe("3p");
+    expect(stripSize("Parrillada Mar y Tierra (3 personas)")).toBe(
+      "Parrillada Mar y Tierra"
+    );
+  });
+
+  it("size-based variant matching distinguishes sizes even with parentheses", () => {
+    const menu: MenuDish[] = [
+      {
+        name: "Parrillada Mar y Tierra",
+        section: "Platos fuertes",
+        price: null,
+        description: null,
+        variants: [
+          { label: "2 personas", price: 28 },
+          { label: "3 personas", price: 38 },
+        ],
+        components: [],
+      },
+    ];
+    const match3p = matchPosDishToMenu(
+      { name: "Parrillada Mar y Tierra (3 personas)", price: 38 },
+      menu
+    );
+    expect(match3p?.dish.name).toBe("Parrillada Mar y Tierra");
+    expect(match3p?.variant?.label).toBe("3 personas");
+
+    const match2p = matchPosDishToMenu(
+      { name: "Parrillada Mar y Tierra (2 personas)", price: 28 },
+      menu
+    );
+    expect(match2p?.variant?.label).toBe("2 personas");
+    expect(match3p?.variant?.label).not.toBe(match2p?.variant?.label);
   });
 
   it("matches by name and picks the size variant", () => {

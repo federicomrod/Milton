@@ -395,6 +395,29 @@ describe("«no aparecen en el menú»: Platos with sales this month", () => {
   });
 });
 
+describe("food coverage calculation", () => {
+  it("excludes tips and excluido products from coverage denominator", async () => {
+    world.products = [
+      product(1, "Plato Demo", { net_sales: 100, in_food_sales: true }),
+      product(2, "Sopa Demo", { net_sales: 50, in_food_sales: true }),
+      product(3, "Propina", { net_sales: 30, in_food_sales: false }),
+      product(4, "Cerveza Imperial", { net_sales: 40, in_food_sales: false }),
+    ];
+    const result = await read();
+    expect(result.food_coverage_pct).toBe(100);
+  });
+
+  it("calculates coverage from matched food products only", async () => {
+    world.products = [
+      product(1, "Plato Demo", { net_sales: 100, in_food_sales: true }),
+      product(2, "Sopa Demo", { net_sales: 50, in_food_sales: true }),
+      product(3, "Plato No En Menu", { net_sales: 50, in_food_sales: true }),
+    ];
+    const result = await read();
+    expect(result.food_coverage_pct).toBe(75.0);
+  });
+});
+
 describe("the month of the last sale", () => {
   it("reads the same range Resumen opens on and hands the Platos groups on", async () => {
     db.pos_sales_items = [

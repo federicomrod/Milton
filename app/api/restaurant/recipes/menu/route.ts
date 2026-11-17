@@ -26,6 +26,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_URL_LENGTH = 2_000;
+const MAX_URLS = 5;
 
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
@@ -70,11 +71,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (url && !/^https?:\/\//i.test(url)) {
+    return NextResponse.json(
+      { error: `La URL debe empezar con http:// o https://` },
+      { status: 400 }
+    );
+  }
+
+  if (urls.length > MAX_URLS) {
+    return NextResponse.json(
+      { error: `No puedes leer más de ${MAX_URLS} URLs a la vez.` },
+      { status: 400 }
+    );
+  }
+
   if (urls.some((u) => u.length > MAX_URL_LENGTH)) {
     return NextResponse.json(
       { error: (await apiMsg()).menuUrlTooLong },
       { status: 400 }
     );
+  }
+
+  for (const u of urls) {
+    if (u && !/^https?:\/\//i.test(u)) {
+      return NextResponse.json(
+        { error: `Todas las URLs deben empezar con http:// o https://` },
+        { status: 400 }
+      );
+    }
   }
 
   if (text.length > MAX_MENU_TEXT) {

@@ -242,8 +242,8 @@ describe("reading the menu text", () => {
         contentType: "text/html" as const,
         body:
           url === "https://example.com/menu1"
-            ? "<h1>Menu 1</h1><p>Dish A</p>"
-            : "<h1>Menu 2</h1><p>Dish B</p>",
+            ? "<h1>Menu 1</h1><div><h3>Dish A</h3><p>A delicious dish with lots of ingredients and a long description to meet the minimum length requirement for menu text.</p></div>"
+            : "<h1>Menu 2</h1><div><h3>Dish B</h3><p>Another wonderful dish with many ingredients and a detailed description to ensure we have enough text.</p></div>",
       };
     };
 

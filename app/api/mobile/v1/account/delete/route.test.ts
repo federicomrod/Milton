@@ -175,21 +175,19 @@ describe("DELETE /api/mobile/v1/account/delete", () => {
           const currentCall = ++membershipsCalls;
 
           if (currentCall === 1) {
-            // First call: get user's memberships
+            // First call: get user's memberships (.select().eq() - one eq)
             return {
               select: vi.fn(() => ({
-                eq: vi.fn(() => ({
-                  eq: vi.fn(() =>
-                    Promise.resolve({
-                      data: [{ company_id: companyId, role: "owner" }],
-                      error: null,
-                    })
-                  ),
-                })),
+                eq: vi.fn(() =>
+                  Promise.resolve({
+                    data: [{ company_id: companyId, role: "owner" }],
+                    error: null,
+                  })
+                ),
               })),
             };
           } else {
-            // Second call: check other owners - only one owner (sole owner!)
+            // Second call: check other owners (.select().eq().eq() - two eqs)
             return {
               select: vi.fn(() => ({
                 eq: vi.fn(() => ({
@@ -205,7 +203,12 @@ describe("DELETE /api/mobile/v1/account/delete", () => {
           }
         }
 
-        return { select: vi.fn() };
+        // FK reference tables: mock successful update (shouldn't be reached in sole owner case)
+        return {
+          update: vi.fn(() => ({
+            eq: vi.fn(() => Promise.resolve({ data: null, error: null })),
+          })),
+        };
       }),
       auth: {
         admin: {

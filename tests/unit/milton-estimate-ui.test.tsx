@@ -396,7 +396,7 @@ describe("MenuReaderPanel · Estimar con Milton", () => {
     );
     expect(
       await screen.findByText(
-        "Estimando 6 de 20 platos (los que más venden primero)…"
+        "Estimando 5 de 20 platos (los que más venden primero)…"
       )
     ).toBeTruthy();
     release!();

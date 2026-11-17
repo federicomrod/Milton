@@ -26,6 +26,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 const MAX_URL_LENGTH = 2_000;
+const MAX_URLS = 5;
 
 export async function POST(req: NextRequest) {
   const auth = await authAndCompany();
@@ -41,8 +42,20 @@ export async function POST(req: NextRequest) {
     );
   }
   const url = typeof body.url === "string" ? body.url.trim() : "";
+  const urls = Array.isArray(body.urls)
+    ? body.urls
+        .filter((u): u is string => typeof u === "string")
+        .map((u) => u.trim())
+    : typeof body.urls === "string"
+      ? body.urls
+          .split("\n")
+          .map((u) => u.trim())
+          .filter(Boolean)
+      : [];
   const text = typeof body.text === "string" ? body.text.trim() : "";
-  if ((url && text) || (!url && !text)) {
+
+  const sourceCount = [url, urls.length > 0, text].filter(Boolean).length;
+  if (sourceCount !== 1) {
     return NextResponse.json(
       {
         error: (await apiMsg()).menuSendOneOfTwo,
@@ -50,12 +63,44 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
   if (url.length > MAX_URL_LENGTH) {
     return NextResponse.json(
       { error: (await apiMsg()).menuUrlTooLong },
       { status: 400 }
     );
   }
+
+  if (url && !/^https?:\/\//i.test(url)) {
+    return NextResponse.json(
+      { error: `La URL debe empezar con http:// o https://` },
+      { status: 400 }
+    );
+  }
+
+  if (urls.length > MAX_URLS) {
+    return NextResponse.json(
+      { error: `No puedes leer más de ${MAX_URLS} URLs a la vez.` },
+      { status: 400 }
+    );
+  }
+
+  if (urls.some((u) => u.length > MAX_URL_LENGTH)) {
+    return NextResponse.json(
+      { error: (await apiMsg()).menuUrlTooLong },
+      { status: 400 }
+    );
+  }
+
+  for (const u of urls) {
+    if (u && !/^https?:\/\//i.test(u)) {
+      return NextResponse.json(
+        { error: `Todas las URLs deben empezar con http:// o https://` },
+        { status: 400 }
+      );
+    }
+  }
+
   if (text.length > MAX_MENU_TEXT) {
     return NextResponse.json(
       { error: (await apiMsg()).menuTextTooLong },
@@ -77,10 +122,16 @@ export async function POST(req: NextRequest) {
 
   const currency = await resolveCompanyCurrency(auth.supabase, auth.companyId);
   try {
+    const source =
+      urls.length > 0
+        ? { kind: "urls" as const, urls }
+        : url
+          ? { kind: "url" as const, url }
+          : { kind: "text" as const, text };
     const result = await readMenuIntoDrafts(auth.supabase, {
       companyId: auth.companyId,
       currency: currency || "USD",
-      source: url ? { kind: "url", url } : { kind: "text", text },
+      source,
       createdBy: auth.userId,
       locationId,
     });

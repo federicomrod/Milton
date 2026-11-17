@@ -29,6 +29,7 @@ interface MenuReadResponse {
   not_found: string[];
   menu_outcomes?: MenuOutcome[];
   truncated?: boolean;
+  food_coverage_pct?: number | null;
 }
 
 const BLUE_BUTTON =
@@ -90,6 +91,8 @@ export function MenuReaderPanel({
   const [showDetail, setShowDetail] = useState(false);
 
   const value = mode === "url" ? url.trim() : text.trim();
+  const hasMultipleUrls =
+    mode === "url" && url.split("\n").filter((l) => l.trim()).length > 1;
 
   async function read() {
     setBusy(true);
@@ -98,13 +101,28 @@ export function MenuReaderPanel({
     setShowMissing(false);
     setShowDetail(false);
     try {
+      const body: Record<string, unknown> = {
+        location_id: locationId ?? undefined,
+      };
+
+      if (mode === "url") {
+        const urlLines = value
+          .split("\n")
+          .map((l) => l.trim())
+          .filter(Boolean);
+        if (urlLines.length > 1) {
+          body.urls = urlLines;
+        } else {
+          body.url = value;
+        }
+      } else {
+        body.text = value;
+      }
+
       const res = await fetch("/api/restaurant/recipes/menu", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...(mode === "url" ? { url: value } : { text: value }),
-          location_id: locationId ?? undefined,
-        }),
+        body: JSON.stringify(body),
       });
       const json = (await res.json().catch(() => ({}))) as MenuReadResponse;
       if (!res.ok) {
@@ -146,11 +164,12 @@ export function MenuReaderPanel({
           </div>
           <div className="flex flex-wrap items-start gap-2">
             {mode === "url" ? (
-              <input
+              <textarea
                 value={url}
                 disabled={busy || !canEdit}
                 onChange={(event) => setUrl(event.target.value)}
                 placeholder={w.urlPlaceholder}
+                rows={3}
                 className="min-w-0 flex-1 rounded-md border border-[#d5dae3] px-2 py-1.5 text-sm disabled:bg-[#f6f7f9]"
               />
             ) : (
@@ -194,6 +213,12 @@ export function MenuReaderPanel({
 
       {result ? (
         <div className="space-y-1 rounded-md border border-[#cfe0ff] bg-[#f3f7ff] px-3 py-2 text-xs text-[#1b2333]">
+          {result.food_coverage_pct != null ? (
+            <p className="font-semibold">
+              Cobertura de ventas de comida:{" "}
+              {result.food_coverage_pct.toFixed(1)}%
+            </p>
+          ) : null}
           {menuReadSummaryLines(result, lang).map((line) => (
             <p key={line.key}>
               {line.text}

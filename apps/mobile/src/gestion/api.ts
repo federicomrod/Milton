@@ -197,6 +197,12 @@ export function createManagerApi(deps: ManagerApiDeps) {
           body: { token, ...patch },
         })
       ),
+    recordActivity: (surface: "gestion" | "cocina", platform: "ios" | "android") =>
+      authed(() =>
+        request<{ recorded: boolean }>("PUT", `${V1}/activity`, {
+          body: { surface, platform },
+        })
+      ).catch(() => ({ recorded: false })),
     login: (email: string, password: string) =>
       request<ManagerTokens>("POST", `${V1}/auth/login`, {
         body: { email, password },

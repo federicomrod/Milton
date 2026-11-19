@@ -9,6 +9,7 @@ import { mobileJson } from "@/lib/restaurant/kitchen/mobile-response";
 import { getDictionary } from "@/lib/i18n";
 import { parsePrefsPatch, parseToken } from "@/lib/restaurant/push/prefs-input";
 import { DEFAULT_PREFS, validExpoToken } from "@/lib/restaurant/push/policy";
+import { isPushEnabled } from "@/lib/restaurant/push/sender";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -44,14 +45,27 @@ export async function GET(request: NextRequest) {
   const d = getDictionary(auth.lang).kitchen.api;
   const token = new URL(request.url).searchParams.get("token");
   if (!validExpoToken(token)) return mobileJson(shape(null));
-  const { data, error } = await auth.supabase
-    .from("push_devices")
-    .select(COLUMNS)
-    .eq("expo_token", token)
-    .eq("user_id", auth.userId)
-    .maybeSingle();
-  if (error) return mobileJson({ error: d.managerLoadFailed }, 500);
-  return mobileJson(shape((data as Row | null) ?? null));
+  // Push OFF or table missing: return defaults without error.
+  if (!isPushEnabled()) {
+    return mobileJson(shape(null));
+  }
+  try {
+    const { data, error } = await auth.supabase
+      .from("push_devices")
+      .select(COLUMNS)
+      .eq("expo_token", token)
+      .eq("user_id", auth.userId)
+      .maybeSingle();
+    if (error) throw error;
+    return mobileJson(shape((data as Row | null) ?? null));
+  } catch (err) {
+    const pgError = err as { code?: string };
+    if (pgError.code === "42P01") {
+      return mobileJson(shape(null));
+    }
+    console.error("[mobile-push] prefs get failed:", err);
+    return mobileJson({ error: d.managerLoadFailed }, 500);
+  }
 }
 
 export async function PUT(request: NextRequest) {
@@ -69,14 +83,27 @@ export async function PUT(request: NextRequest) {
   if (!token || !patch || Object.keys(patch).length === 0) {
     return mobileJson({ error: d.managerPushInvalid }, 400);
   }
-  const { data, error } = await auth.supabase
-    .from("push_devices")
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq("expo_token", token)
-    .eq("user_id", auth.userId)
-    .select(COLUMNS)
-    .maybeSingle();
-  if (error) return mobileJson({ error: d.managerLoadFailed }, 500);
-  if (!data) return mobileJson({ error: d.managerPushInvalid }, 404);
-  return mobileJson(shape(data as Row));
+  // Push OFF or table missing: acknowledge without error.
+  if (!isPushEnabled()) {
+    return mobileJson(shape(null));
+  }
+  try {
+    const { data, error } = await auth.supabase
+      .from("push_devices")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("expo_token", token)
+      .eq("user_id", auth.userId)
+      .select(COLUMNS)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return mobileJson({ error: d.managerPushInvalid }, 404);
+    return mobileJson(shape(data as Row));
+  } catch (err) {
+    const pgError = err as { code?: string };
+    if (pgError.code === "42P01") {
+      return mobileJson(shape(null));
+    }
+    console.error("[mobile-push] prefs update failed:", err);
+    return mobileJson({ error: d.managerLoadFailed }, 500);
+  }
 }

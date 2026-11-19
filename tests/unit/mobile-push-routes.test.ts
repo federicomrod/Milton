@@ -27,6 +27,10 @@ vi.mock("@/lib/supabase/admin", () => ({
   }),
 }));
 
+vi.mock("@/lib/restaurant/push/sender", () => ({
+  isPushEnabled: vi.fn(() => true),
+}));
+
 import {
   PUT as register,
   DELETE as unregister,
@@ -198,5 +202,41 @@ describe("push routes", () => {
     expect(
       (await putPrefs(req("PUT", { token: TOKEN, quietEnd: 99 }))).status
     ).toBe(400);
+  });
+
+  it("gracefully returns registered: false when PUSH_ENABLED is off", async () => {
+    const { isPushEnabled } = await import("@/lib/restaurant/push/sender");
+    vi.mocked(isPushEnabled).mockReturnValueOnce(false);
+
+    const res = await register(
+      req("PUT", {
+        token: TOKEN,
+        platform: "ios",
+        timezone: "America/Mexico_City",
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ registered: false });
+    expect(h.upserts).toHaveLength(0);
+  });
+
+  it("gracefully handles missing table (42P01 error)", async () => {
+    h.auth.supabase.from = () => ({
+      upsert: async () => ({
+        error: { code: "42P01", message: "relation does not exist" },
+      }),
+    });
+
+    const res = await register(
+      req("PUT", {
+        token: TOKEN,
+        platform: "ios",
+        timezone: "America/Mexico_City",
+      })
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ registered: false });
   });
 });

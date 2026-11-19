@@ -369,20 +369,20 @@ describe("the report is per menu dish", () => {
 describe("«no aparecen en el menú»: Platos with sales this month", () => {
   it("counts Platos groups, not the option combinations inside them", async () => {
     world.products = [
-      product(10, "Plato Demo (Opción A)"),
-      product(11, "Plato Demo (Opción B)"),
-      product(12, "Plato Demo (Opción C)"),
+      product(10, "Parrillada Mixta (Opción A)"),
+      product(11, "Parrillada Mixta (Opción B)"),
+      product(12, "Parrillada Mixta (Opción C)"),
       product(20, "Cena Especial"),
       product(30, "Plato Con Receta"),
     ];
     world.groups = [
-      group("gD", "Plato Demo", [10, 11, 12]),
+      group("gD", "Parrillada Mixta", [10, 11, 12]),
       group("gC", "Cena Especial", [20]),
       group("gR", "Plato Con Receta", [30], "aprobado"),
     ];
     const result = await read();
     expect(result.not_on_menu).toBe(2);
-    expect(result.not_found).toEqual(["Plato Demo", "Cena Especial"]);
+    expect(result.not_found).toEqual(["Parrillada Mixta", "Cena Especial"]);
   });
 
   it("a Platos group the menu lists is not «fuera del menú»", async () => {
@@ -392,6 +392,29 @@ describe("«no aparecen en el menú»: Platos with sales this month", () => {
     const result = await read();
     expect(result.not_on_menu).toBe(0);
     expect(result.not_found).toEqual([]);
+  });
+});
+
+describe("food coverage calculation", () => {
+  it("excludes tips and excluido products from coverage denominator", async () => {
+    world.products = [
+      product(1, "Plato Demo", { net_sales: 100, in_food_sales: true }),
+      product(2, "Sopa Demo", { net_sales: 50, in_food_sales: true }),
+      product(3, "Propina", { net_sales: 30, in_food_sales: false }),
+      product(4, "Cerveza Imperial", { net_sales: 40, in_food_sales: false }),
+    ];
+    const result = await read();
+    expect(result.food_coverage_pct).toBe(100);
+  });
+
+  it("calculates coverage from matched food products only", async () => {
+    world.products = [
+      product(1, "Plato Demo", { net_sales: 100, in_food_sales: true }),
+      product(2, "Sopa Demo", { net_sales: 50, in_food_sales: true }),
+      product(3, "Plato No En Menu", { net_sales: 50, in_food_sales: true }),
+    ];
+    const result = await read();
+    expect(result.food_coverage_pct).toBe(75.0);
   });
 });
 

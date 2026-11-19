@@ -49,7 +49,7 @@ import {
   type MenuDraftProduct,
   type MenuOutcome,
 } from "./drafts";
-import { stripSize } from "./match";
+import { stripSize, matchPosDishToMenu } from "./match";
 import {
   MenuFetchError,
   readMenuSource,
@@ -90,6 +90,8 @@ export interface MenuReadResult {
   new_components: number;
   /** The month the POS products and `not_on_menu` were read for. */
   period: { from: string; to: string } | null;
+  /** Food net sales coverage: % of food net sales (excluding tips/excluido) matched to menu. */
+  food_coverage_pct: number | null;
 }
 
 /** The current month of sales, as Menú › Resumen reads it, by Platos group. */
@@ -376,6 +378,7 @@ export async function readMenuIntoDrafts(
     not_found: [],
     new_components: 0,
     period: period.range,
+    food_coverage_pct: null,
   };
   // Counts come from the per-menu-dish outcomes, so they always add up.
   const finish = (): MenuReadResult => {
@@ -407,6 +410,31 @@ export async function readMenuIntoDrafts(
       read.dishes
     );
     result.not_on_menu = result.not_found.length;
+
+    // Calculate food coverage: % of food net sales (excluding tips/excluido) matched to menu
+    const foodProducts = period.products.filter((p) => p.in_food_sales);
+
+    const totalFoodSales = foodProducts.reduce(
+      (sum, p) => sum + p.net_sales,
+      0
+    );
+    const matchedFoodSales = foodProducts
+      .filter((p) =>
+        matchPosDishToMenu(
+          {
+            name: p.odoo_name,
+            price: posPriceFromSales(p.net_sales, p.units_sold),
+          },
+          read.dishes
+        )
+      )
+      .reduce((sum, p) => sum + p.net_sales, 0);
+
+    result.food_coverage_pct =
+      totalFoodSales > 0
+        ? Math.round((matchedFoodSales / totalFoodSales) * 1000) / 10
+        : null;
+
     return result;
   };
   if (drafts.length === 0) return finish();

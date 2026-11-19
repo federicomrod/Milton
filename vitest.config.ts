@@ -6,7 +6,12 @@ export default defineConfig({
     environment: "node",
     globals: true,
     // Playwright specs: run with `playwright test`, not vitest.
-    exclude: [...configDefaults.exclude, "tests/smoke/**", "apps/mobile/**"],
+    exclude: [
+      ...configDefaults.exclude,
+      "tests/smoke/**",
+      "tests/e2e/**",
+      "apps/mobile/**",
+    ],
   },
   resolve: {
     alias: {

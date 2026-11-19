@@ -14,6 +14,7 @@ export const MIN_MENU_TEXT = 80;
 
 export type MenuSource =
   | { kind: "url"; url: string }
+  | { kind: "urls"; urls: string[] }
   | { kind: "text"; text: string };
 // Later: | { kind: "pdf"; file: … } | { kind: "photo"; file: … }
 
@@ -56,6 +57,35 @@ export async function readMenuSource(
 ): Promise<MenuText> {
   const lang = deps.lang ?? "es";
   if (source.kind === "text") return finish("text", null, source.text, lang);
+  if (source.kind === "urls") {
+    const results = await Promise.allSettled(
+      source.urls.map(async (url) => {
+        const page = await (deps.fetchPage ?? fetchMenuPage)(url, lang);
+        const text =
+          page.contentType === "text/plain"
+            ? page.body
+            : htmlToText(page.body, page.url);
+        return { url, text };
+      })
+    );
+
+    const succeeded = results.filter(
+      (r): r is PromiseFulfilledResult<{ url: string; text: string }> =>
+        r.status === "fulfilled"
+    );
+
+    if (succeeded.length === 0) {
+      const firstError = results.find((r) => r.status === "rejected");
+      if (firstError && firstError.status === "rejected") {
+        throw firstError.reason;
+      }
+      throw new MenuFetchError(menuMsg(lang, "menuNotFoundOnPage"));
+    }
+
+    const combined = succeeded.map((r) => r.value.text).join("\n\n");
+    const successUrls = succeeded.map((r) => r.value.url);
+    return finish("url", successUrls.join(", "), combined, lang);
+  }
   const page = await (deps.fetchPage ?? fetchMenuPage)(source.url, lang);
   const text =
     page.contentType === "text/plain"

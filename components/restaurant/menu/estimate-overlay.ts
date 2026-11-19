@@ -19,6 +19,12 @@ const ES = estimateCopy("es");
 
 export const ESTIMATE_BADGE = ES.badge;
 export const PRICE_ESTIMATE_BADGE = ES.priceBadge;
+/** Shown on a plato marked «Estimado» when the Milton estimate is not displayed. */
+export const ESTIMATE_HIDDEN_REASON =
+  "Ya tiene costo real; no se muestra el estimado.";
+/** «Estimado» with no Milton estimate row: the cost comes from an unapproved draft. */
+export const ESTIMATE_DRAFT_REASON =
+  "Calculado desde un borrador sin aprobar; aún no hay estimado de Milton.";
 export const ESTIMATE_BUTTON = ES.button;
 export const ESTIMATE_HELP = ES.help;
 export const ESTIMATE_USE_BUTTON = ES.useButton;

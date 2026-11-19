@@ -12,3 +12,13 @@ export interface RegisterResponse {
 export function shouldSaveToken(response: RegisterResponse): boolean {
   return response.registered === true;
 }
+
+/**
+ * What status should we show after registration? 'saved' when registration
+ * succeeded, 'unavailable' when the feature is disabled or not ready.
+ */
+export function statusAfterRegister(
+  registered: boolean
+): "saved" | "unavailable" {
+  return registered ? "saved" : "unavailable";
+}

@@ -1,7 +1,7 @@
 // Tests for push registration logic.
 
 import { describe, it, expect } from "vitest";
-import { shouldSaveToken } from "./push-register-core";
+import { shouldSaveToken, statusAfterRegister } from "./push-register-core";
 
 describe("shouldSaveToken", () => {
   it("should return true when registered === true", () => {
@@ -23,5 +23,29 @@ describe("shouldSaveToken", () => {
     expect(shouldSaveToken({ registered: 1 })).toBe(false);
     // @ts-expect-error - testing runtime behavior
     expect(shouldSaveToken({})).toBe(false);
+  });
+});
+
+describe("registration status logic", () => {
+  it("when server returns registered:false, should not save token", () => {
+    const response = { registered: false };
+    expect(shouldSaveToken(response)).toBe(false);
+    // App should show 'unavailable' status, not 'saved'
+  });
+
+  it("when server returns registered:true, should save token", () => {
+    const response = { registered: true };
+    expect(shouldSaveToken(response)).toBe(true);
+    // App should show 'saved' status
+  });
+});
+
+describe("statusAfterRegister", () => {
+  it("should return 'saved' when registered is true", () => {
+    expect(statusAfterRegister(true)).toBe("saved");
+  });
+
+  it("should return 'unavailable' when registered is false", () => {
+    expect(statusAfterRegister(false)).toBe("unavailable");
   });
 });

@@ -66,6 +66,9 @@ COMMENT ON TABLE public.app_activity IS
 
 CREATE SCHEMA IF NOT EXISTS reporting;
 
+-- Service role needs USAGE on the schema to access its views.
+GRANT USAGE ON SCHEMA reporting TO service_role;
+
 CREATE OR REPLACE VIEW reporting.user_last_seen_report AS
 SELECT
   u.id AS user_id,

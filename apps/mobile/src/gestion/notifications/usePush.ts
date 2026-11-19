@@ -19,7 +19,7 @@ import {
   type PermissionView,
   type PushUnavailable,
 } from "./push-core";
-import { shouldSaveToken } from "./push-register-core";
+import { shouldSaveToken, statusAfterRegister } from "./push-register-core";
 
 const TOKEN_KEY = "milton_push_token";
 
@@ -46,9 +46,9 @@ export function usePush() {
   );
   const [choices, setChoices] = React.useState<Choices>(DEFAULT_CHOICES);
   const [token, setToken] = React.useState<string | null>(null);
-  const [status, setStatus] = React.useState<"idle" | "saved" | "failed">(
-    "idle"
-  );
+  const [status, setStatus] = React.useState<
+    "idle" | "saved" | "failed" | "unavailable"
+  >("idle");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
@@ -73,7 +73,7 @@ export function usePush() {
   }, [api]);
 
   const register = React.useCallback(
-    async (next: Choices) => {
+    async (next: Choices): Promise<boolean> => {
       const id = projectId();
       const pushToken = (
         await Notifications.getExpoPushTokenAsync(
@@ -92,7 +92,9 @@ export function usePush() {
       if (shouldSaveToken(response)) {
         await SecureStore.setItemAsync(TOKEN_KEY, pushToken);
         setToken(pushToken);
+        return true;
       }
+      return false;
     },
     [api]
   );
@@ -105,8 +107,12 @@ export function usePush() {
     try {
       const asked = await Notifications.requestPermissionsAsync();
       setPermission(permissionView(asked));
-      if (asked.granted) await register(choices);
-      setStatus(asked.granted ? "saved" : "idle");
+      if (asked.granted) {
+        const registered = await register(choices);
+        setStatus(statusAfterRegister(registered));
+      } else {
+        setStatus("idle");
+      }
     } catch {
       setStatus("failed");
     } finally {

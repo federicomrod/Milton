@@ -385,6 +385,7 @@ const es = {
     later: "Después",
     saved: "Guardado",
     failed: "No pude guardar. Inténtalo de nuevo.",
+    unavailable: "Las notificaciones aún no están disponibles.",
     close: "Cerrar",
   },
   errors: {
@@ -776,6 +777,7 @@ const en: typeof es = {
     later: "Later",
     saved: "Saved",
     failed: "I could not save. Try again.",
+    unavailable: "Notifications are not available yet.",
     close: "Close",
   },
   errors: {
@@ -1168,6 +1170,7 @@ const de: typeof es = {
     later: "Später",
     saved: "Gespeichert",
     failed: "Ich konnte nicht speichern. Versuche es erneut.",
+    unavailable: "Benachrichtigungen sind noch nicht verfügbar.",
     close: "Schließen",
   },
   errors: {

@@ -16,7 +16,7 @@
 CREATE TABLE IF NOT EXISTS public.app_activity (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id        uuid NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
-  user_id           uuid NOT NULL,
+  user_id           uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   surface           text NOT NULL CHECK (surface IN ('gestion', 'cocina', 'web')),
   platform          text NOT NULL CHECK (platform IN ('ios', 'android', 'web')),
   last_seen_at      timestamptz NOT NULL DEFAULT now(),
@@ -61,9 +61,12 @@ COMMENT ON TABLE public.app_activity IS
 
 -- ---------------------------------------------------------------------------
 -- Read-only view for weekly per-user last-seen report (web vs app usage)
+-- Put it in the reporting schema so PostgREST doesn't serve it.
 -- ---------------------------------------------------------------------------
 
-CREATE OR REPLACE VIEW public.user_last_seen_report AS
+CREATE SCHEMA IF NOT EXISTS reporting;
+
+CREATE OR REPLACE VIEW reporting.user_last_seen_report AS
 SELECT
   u.id AS user_id,
   u.email,
@@ -85,12 +88,13 @@ LEFT JOIN public.app_activity aa_gestion
 LEFT JOIN public.app_activity aa_cocina
   ON u.id = aa_cocina.user_id
   AND cm.company_id = aa_cocina.company_id
-  AND aa_cocina.surface = 'cocina'
-ORDER BY c.name, u.email;
+  AND aa_cocina.surface = 'cocina';
 
 -- Only service role can read the report (for Sofia's Friday review).
-REVOKE ALL ON public.user_last_seen_report FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON public.user_last_seen_report TO service_role;
+-- PostgREST doesn't expose the reporting schema, so anon and authenticated
+-- cannot reach it through the API.
+REVOKE ALL ON reporting.user_last_seen_report FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON reporting.user_last_seen_report TO service_role;
 
-COMMENT ON VIEW public.user_last_seen_report IS
+COMMENT ON VIEW reporting.user_last_seen_report IS
   'Weekly per-user last-seen report: web sign-in date plus last app open per surface (gestion/cocina). Service role only.';

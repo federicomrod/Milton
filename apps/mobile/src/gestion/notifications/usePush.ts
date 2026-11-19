@@ -19,7 +19,7 @@ import {
   type PermissionView,
   type PushUnavailable,
 } from "./push-core";
-import { shouldSaveToken } from "./push-register-core";
+import { shouldSaveToken, statusAfterRegister } from "./push-register-core";
 
 const TOKEN_KEY = "milton_push_token";
 
@@ -109,7 +109,7 @@ export function usePush() {
       setPermission(permissionView(asked));
       if (asked.granted) {
         const registered = await register(choices);
-        setStatus(registered ? "saved" : "unavailable");
+        setStatus(statusAfterRegister(registered));
       } else {
         setStatus("idle");
       }

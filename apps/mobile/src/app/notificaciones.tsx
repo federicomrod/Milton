@@ -184,6 +184,9 @@ function NotificacionesScreen() {
 
         {p.status === "saved" ? <Muted>{g.notif.saved}</Muted> : null}
         {p.status === "failed" ? <Muted>{g.notif.failed}</Muted> : null}
+        {p.status === "unavailable" ? (
+          <Muted>{g.notif.unavailable}</Muted>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );

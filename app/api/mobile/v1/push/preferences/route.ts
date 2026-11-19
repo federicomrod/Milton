@@ -10,6 +10,7 @@ import { getDictionary } from "@/lib/i18n";
 import { parsePrefsPatch, parseToken } from "@/lib/restaurant/push/prefs-input";
 import { DEFAULT_PREFS, validExpoToken } from "@/lib/restaurant/push/policy";
 import { isPushEnabled } from "@/lib/restaurant/push/sender";
+import { isTableMissing } from "@/lib/restaurant/push/table-missing";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -59,8 +60,7 @@ export async function GET(request: NextRequest) {
     if (error) throw error;
     return mobileJson(shape((data as Row | null) ?? null));
   } catch (err) {
-    const pgError = err as { code?: string };
-    if (pgError.code === "42P01") {
+    if (isTableMissing(err)) {
       return mobileJson(shape(null));
     }
     console.error("[mobile-push] prefs get failed:", err);
@@ -99,8 +99,7 @@ export async function PUT(request: NextRequest) {
     if (!data) return mobileJson({ error: d.managerPushInvalid }, 404);
     return mobileJson(shape(data as Row));
   } catch (err) {
-    const pgError = err as { code?: string };
-    if (pgError.code === "42P01") {
+    if (isTableMissing(err)) {
       return mobileJson(shape(null));
     }
     console.error("[mobile-push] prefs update failed:", err);

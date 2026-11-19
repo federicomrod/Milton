@@ -169,6 +169,52 @@ describe("PUT /api/mobile/v1/push/register", () => {
     expect(body).toEqual({ registered: false });
   });
 
+  it("should return registered: false when table doesn't exist (PGRST205)", async () => {
+    mockIsPushEnabled = true;
+
+    const { authManager } =
+      await import("@/lib/restaurant/mobile-manager/auth");
+
+    const mockSupabase = {
+      from: vi.fn(() => ({
+        upsert: vi.fn(() =>
+          Promise.resolve({
+            error: { code: "PGRST205", message: "relation \"public.push_devices\" does not exist" },
+          })
+        ),
+      })),
+    };
+
+    vi.mocked(authManager).mockResolvedValue({
+      ok: true,
+      supabase: mockSupabase as any,
+      companyId: "co1",
+      userId: "u1",
+      lang: "es",
+    } as any);
+
+    mockAdminClient = {
+      from: vi.fn(() => ({
+        delete: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            neq: vi.fn(() => Promise.resolve({ error: null })),
+          })),
+        })),
+      })),
+    };
+
+    const req = mockRequest({
+      token: "ExponentPushToken[abc]",
+      platform: "ios",
+      timezone: "America/Mexico_City",
+    });
+    const response = await PUT(req);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ registered: false });
+  });
+
   it("should return 500 for other database errors", async () => {
     mockIsPushEnabled = true;
 
@@ -305,6 +351,42 @@ describe("DELETE /api/mobile/v1/push/register", () => {
             eq: vi.fn(() =>
               Promise.resolve({
                 error: { code: "42P01", message: "relation does not exist" },
+              })
+            ),
+          })),
+        })),
+      })),
+    };
+
+    vi.mocked(authManager).mockResolvedValue({
+      ok: true,
+      supabase: mockSupabase as any,
+      companyId: "co1",
+      userId: "u1",
+      lang: "es",
+    } as any);
+
+    const req = mockRequest({ token: "ExponentPushToken[abc]" });
+    const response = await DELETE(req);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ registered: false });
+  });
+
+  it("should return registered: false when table doesn't exist (PGRST205)", async () => {
+    mockIsPushEnabled = true;
+
+    const { authManager } =
+      await import("@/lib/restaurant/mobile-manager/auth");
+
+    const mockSupabase = {
+      from: vi.fn(() => ({
+        delete: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            eq: vi.fn(() =>
+              Promise.resolve({
+                error: { code: "PGRST205", message: "relation \"public.push_devices\" does not exist" },
               })
             ),
           })),

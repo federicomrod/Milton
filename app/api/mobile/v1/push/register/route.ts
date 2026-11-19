@@ -13,6 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { parsePrefsPatch, parseToken } from "@/lib/restaurant/push/prefs-input";
 import { validTimezone } from "@/lib/restaurant/push/policy";
 import { isPushEnabled } from "@/lib/restaurant/push/sender";
+import { isTableMissing } from "@/lib/restaurant/push/table-missing";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -67,10 +68,9 @@ export async function PUT(request: NextRequest) {
     if (error) throw error;
     return mobileJson({ registered: true });
   } catch (err) {
-    // Postgres error 42P01 = table doesn't exist. Don't show an error to the user
-    // when the migration hasn't been applied yet; silently acknowledge instead.
-    const pgError = err as { code?: string };
-    if (pgError.code === "42P01") {
+    // PostgREST PGRST205 or Postgres 42P01 = table doesn't exist. Don't show
+    // an error to the user when the migration hasn't been applied yet.
+    if (isTableMissing(err)) {
       console.warn(
         "[mobile-push] register: table not found (migration not applied)"
       );
@@ -100,8 +100,7 @@ export async function DELETE(request: NextRequest) {
     if (error) throw error;
     return mobileJson({ registered: false });
   } catch (err) {
-    const pgError = err as { code?: string };
-    if (pgError.code === "42P01") {
+    if (isTableMissing(err)) {
       console.warn(
         "[mobile-push] unregister: table not found (migration not applied)"
       );

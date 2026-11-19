@@ -25,3 +25,17 @@ describe("shouldSaveToken", () => {
     expect(shouldSaveToken({})).toBe(false);
   });
 });
+
+describe("registration status logic", () => {
+  it("when server returns registered:false, should not save token", () => {
+    const response = { registered: false };
+    expect(shouldSaveToken(response)).toBe(false);
+    // App should show 'unavailable' status, not 'saved'
+  });
+
+  it("when server returns registered:true, should save token", () => {
+    const response = { registered: true };
+    expect(shouldSaveToken(response)).toBe(true);
+    // App should show 'saved' status
+  });
+});

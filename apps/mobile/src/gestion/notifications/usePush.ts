@@ -19,6 +19,7 @@ import {
   type PermissionView,
   type PushUnavailable,
 } from "./push-core";
+import { shouldSaveToken } from "./push-register-core";
 
 const TOKEN_KEY = "milton_push_token";
 
@@ -79,14 +80,19 @@ export function usePush() {
           id ? { projectId: id } : undefined
         )
       ).data;
-      await api.registerPush({
+      const response = await api.registerPush({
         token: pushToken,
         platform: Platform.OS === "android" ? "android" : "ios",
         timezone: deviceTimezone(),
         ...next,
       });
-      await SecureStore.setItemAsync(TOKEN_KEY, pushToken);
-      setToken(pushToken);
+      // Only save the token and mark it registered when the server confirms.
+      // If registered === false (e.g. push disabled or migration not applied),
+      // stay in the neutral state - no error, but not marked "on" either.
+      if (shouldSaveToken(response)) {
+        await SecureStore.setItemAsync(TOKEN_KEY, pushToken);
+        setToken(pushToken);
+      }
     },
     [api]
   );

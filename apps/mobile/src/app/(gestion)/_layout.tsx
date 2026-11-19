@@ -2,10 +2,12 @@ import React from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useG } from "../../gestion/hooks";
+import { useActivityTracking } from "../../gestion/useActivityTracking";
 import { colors, fonts, tint } from "../../theme";
 
 export default function GestionTabs() {
   const g = useG();
+  useActivityTracking("gestion");
   return (
     <Tabs
       screenOptions={{

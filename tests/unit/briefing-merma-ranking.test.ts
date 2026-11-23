@@ -1,14 +1,14 @@
 // tests/unit/briefing-merma-ranking.test.ts
 //
 // Issue #532: query and ranking logic for top 3 merma (waste) items. Tests
-// the production rankTopMermaItems helper with realistic data patterns.
+// production helpers rankTopMermaItems and mermaReportWindow with realistic data.
 
 import { describe, it, expect } from "vitest";
 import {
   rankTopMermaItems,
+  mermaReportWindow,
   type RawMermaLine,
 } from "@/lib/restaurant/briefing-context";
-import { addDaysToKey, localDateKey } from "@/lib/restaurant/briefing-periods";
 
 describe("rankTopMermaItems — production helper (#532)", () => {
   it("ranks items by summed value descending and returns top 3", () => {
@@ -303,18 +303,16 @@ describe("rankTopMermaItems — production helper (#532)", () => {
   });
 });
 
-describe("Date window logic for merma (#532)", () => {
+describe("mermaReportWindow — date window helper (#532)", () => {
   it("computes [today-7, today) window in company timezone", () => {
     // Company timezone: America/El_Salvador (UTC-6)
     const now = new Date("2026-11-23T10:00:00-06:00"); // 10 AM El Salvador time
     const timezone = "America/El_Salvador";
 
-    const today = localDateKey(now, timezone);
-    const sevenDaysAgo = addDaysToKey(today, -7);
+    const window = mermaReportWindow(now, timezone);
 
-    expect(today).toBe("2026-11-23");
-    expect(sevenDaysAgo).toBe("2026-11-16");
-
+    expect(window.from).toBe("2026-11-16");
+    expect(window.to).toBe("2026-11-23");
     // Window is [2026-11-16, 2026-11-23) — today excluded
     // Valid dates: 2026-11-16 through 2026-11-22
   });
@@ -324,132 +322,50 @@ describe("Date window logic for merma (#532)", () => {
     const nowUtc = new Date("2026-11-23T02:00:00Z");
     const timezone = "America/El_Salvador";
 
-    const localToday = localDateKey(nowUtc, timezone);
-    expect(localToday).toBe("2026-11-22"); // Still previous day in local TZ
+    const window = mermaReportWindow(nowUtc, timezone);
 
-    const sevenDaysAgo = addDaysToKey(localToday, -7);
-    expect(sevenDaysAgo).toBe("2026-11-15");
+    expect(window.to).toBe("2026-11-22"); // Still 2026-11-22 in El Salvador
+    expect(window.from).toBe("2026-11-15"); // 7 days before
 
     // Window is [2026-11-15, 2026-11-22) in El Salvador time
-    // A line dated 2026-11-22 UTC (after 6 AM) would be 2026-11-22 El Salvador,
-    // which is excluded (today in that TZ), but 2026-11-22 00:00 UTC is still
-    // 2026-11-21 in El Salvador, so it's included.
+    // A line with report_date 2026-11-22 would be excluded (today in that TZ)
   });
 
-  it("confirms today is excluded from the window", () => {
-    const today = "2026-11-23";
-    const sevenDaysAgo = "2026-11-16";
+  it("confirms today is excluded from the window (< not <=)", () => {
+    const now = new Date("2026-11-23T15:00:00Z");
+    const timezone = "UTC";
 
-    // Simulated lines with various dates
-    const dates = [
-      "2026-11-15", // too old
-      "2026-11-16", // included (start of window)
-      "2026-11-20", // included
-      "2026-11-22", // included (yesterday)
-      "2026-11-23", // excluded (today)
-    ];
+    const window = mermaReportWindow(now, timezone);
 
-    const inWindow = dates.filter(
-      (d) => d >= sevenDaysAgo && d < today
-    );
+    expect(window.from).toBe("2026-11-16");
+    expect(window.to).toBe("2026-11-23");
 
-    expect(inWindow).toEqual([
-      "2026-11-16",
-      "2026-11-20",
-      "2026-11-22",
-    ]);
-  });
-});
-
-describe("Scoping logic for merma (#532)", () => {
-  it("respects company_id filtering (cross-company isolation)", () => {
-    // Type-level test: loadTopMermaItems signature requires companyId
-    // and the implementation filters .eq("company_id", companyId).
-    // This prevents one company from seeing another's waste.
-
-    // Simulated: lines from two companies
-    const allLines = [
-      { company_id: "co-1", item_name: "Tomate", value: 100 },
-      { company_id: "co-2", item_name: "Aguacate", value: 200 },
-    ];
-
-    // Filter for company 1 (what the query does)
-    const co1Lines = allLines.filter((l) => l.company_id === "co-1");
-    expect(co1Lines).toHaveLength(1);
-    expect(co1Lines[0].item_name).toBe("Tomate");
-
-    // If we passed co1Lines to rankTopMermaItems (after transforming),
-    // it would only see company 1's data.
+    // loadTopMermaItems uses .lt(window.to), so report_date must be < "2026-11-23"
+    // This means 2026-11-23 is excluded, 2026-11-22 is included
   });
 
-  it("respects location_id filtering in multi-restaurant setup", () => {
-    // Type-level test: loadTopMermaItems accepts ProfitabilitySelection
-    // with optional locationId and filters .eq("location_id", selected.locationId).
+  it("works across month boundaries", () => {
+    const now = new Date("2026-12-03T12:00:00Z");
+    const timezone = "UTC";
 
-    // Simulated: lines from two locations of the same company
-    const allLines = [
-      {
-        company_id: "co-1",
-        location_id: "loc-1",
-        item_name: "Tomate",
-        value: 100,
-      },
-      {
-        company_id: "co-1",
-        location_id: "loc-2",
-        item_name: "Aguacate",
-        value: 200,
-      },
-    ];
+    const window = mermaReportWindow(now, timezone);
 
-    // Filter for location 1 (what the query does when selected.locationId is set)
-    const loc1Lines = allLines.filter((l) => l.location_id === "loc-1");
-    expect(loc1Lines).toHaveLength(1);
-    expect(loc1Lines[0].item_name).toBe("Tomate");
+    expect(window.from).toBe("2026-11-26"); // 7 days ago crosses into November
+    expect(window.to).toBe("2026-12-03");
   });
 
-  it("includes all locations when no location filter is provided", () => {
-    // When selected is null or selected.locationId is null,
-    // the query does not filter by location_id.
+  it("works with different timezones", () => {
+    // Same UTC moment in different timezones
+    const nowUtc = new Date("2026-11-23T06:00:00Z");
 
-    const allLines = [
-      { location_id: "loc-1", item_name: "Tomate", value: 100 },
-      { location_id: "loc-2", item_name: "Aguacate", value: 200 },
-    ];
+    // Asia/Tokyo is UTC+9, so 6 AM UTC = 3 PM Tokyo = still Nov 23
+    const tokyoWindow = mermaReportWindow(nowUtc, "Asia/Tokyo");
+    expect(tokyoWindow.to).toBe("2026-11-23");
+    expect(tokyoWindow.from).toBe("2026-11-16");
 
-    // No filter applied => all lines included
-    expect(allLines).toHaveLength(2);
-  });
-});
-
-describe("Confirmed-only filtering (#532)", () => {
-  it("includes only confirmed status lines", () => {
-    // Type-level test: loadTopMermaItems query filters .eq("status", "confirmed").
-
-    const lines = [
-      { status: "confirmed", item_name: "Tomate", value: 100 },
-      { status: "draft", item_name: "Aguacate", value: 200 },
-      { status: "confirmed", item_name: "Pollo", value: 300 },
-    ];
-
-    // Filter for confirmed (what the query does)
-    const confirmed = lines.filter((l) => l.status === "confirmed");
-    expect(confirmed).toHaveLength(2);
-    expect(confirmed.map((l) => l.item_name)).toEqual(["Tomate", "Pollo"]);
-  });
-
-  it("excludes lines with null value", () => {
-    // Type-level test: loadTopMermaItems query filters .not("value", "is", null).
-
-    const lines = [
-      { status: "confirmed", item_name: "Tomate", value: 100 },
-      { status: "confirmed", item_name: "Sin precio", value: null },
-      { status: "confirmed", item_name: "Aguacate", value: 200 },
-    ];
-
-    // Filter for non-null value (what the query does)
-    const valued = lines.filter((l) => l.value !== null);
-    expect(valued).toHaveLength(2);
-    expect(valued.map((l) => l.item_name)).toEqual(["Tomate", "Aguacate"]);
+    // America/Los_Angeles is UTC-8, so 6 AM UTC = 10 PM Nov 22
+    const laWindow = mermaReportWindow(nowUtc, "America/Los_Angeles");
+    expect(laWindow.to).toBe("2026-11-22");
+    expect(laWindow.from).toBe("2026-11-15");
   });
 });

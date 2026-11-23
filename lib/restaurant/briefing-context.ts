@@ -330,6 +330,20 @@ export async function isTelegramConnected(
 }
 
 /**
+ * Pure helper: compute [sevenDaysAgo, today) report_date window for merma query.
+ * Exported for testing. Returns { from: "YYYY-MM-DD", to: "YYYY-MM-DD" } where
+ * from is 7 days before today (included) and to is today (excluded).
+ */
+export function mermaReportWindow(
+  now: Date,
+  timezone: string
+): { from: string; to: string } {
+  const today = localDateKey(now, timezone);
+  const sevenDaysAgo = addDaysToKey(today, -7);
+  return { from: sevenDaysAgo, to: today };
+}
+
+/**
  * Pure helper: group, filter, and rank waste lines to produce top 3 by value.
  * Exported for testing. Filters non-positive/non-finite values, groups by
  * ingredient_id ?? component_id ?? item_name, sums values, sorts descending,
@@ -393,8 +407,7 @@ async function loadTopMermaItems(
   now: Date
 ): Promise<BriefingTopMermaItem[]> {
   try {
-    const today = localDateKey(now, timezone);
-    const sevenDaysAgo = addDaysToKey(today, -7);
+    const { from, to } = mermaReportWindow(now, timezone);
 
     let query = supabase
       .from("kitchen_waste_lines")
@@ -404,8 +417,8 @@ async function loadTopMermaItems(
       .eq("company_id", companyId)
       .eq("status", "confirmed")
       .not("value", "is", null)
-      .gte("report_date", sevenDaysAgo)
-      .lt("report_date", today);
+      .gte("report_date", from)
+      .lt("report_date", to);
 
     // Multi-Restaurant UX v1: scope to selected location when provided
     if (selected?.locationId) {

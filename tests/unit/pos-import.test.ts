@@ -3,6 +3,7 @@ import {
   normalizeRevelPOSRow,
   buildNameIndex,
   normalizeHeader,
+  validateRevelPOSColumns,
   type NormalizeContext,
 } from "@/lib/restaurant/pos-import";
 import { buildScopedNameIndex } from "@/lib/restaurant/scoped-matching";
@@ -140,5 +141,30 @@ describe("normalizeRevelPOSRow — multi-brand matching (Multi-Restaurant v1)", 
     if (!res.ok) return;
     expect(res.insert.location_id).toBe("loc-1");
     expect(res.insert.menu_item_id).toBe("burger-1");
+  });
+});
+
+describe("Revel backward compatibility (issue #531)", () => {
+  it("still validates Revel Customer Items columns correctly", () => {
+    const revelHeaders = [
+      "Order_Number",
+      "Order_Date",
+      "Product_Name",
+      "Product_Quantity",
+      "Gross_Item_Total",
+      "Establishment_Name",
+    ];
+    const result = validateRevelPOSColumns(revelHeaders);
+    expect(result.ok).toBe(true);
+    expect(result.missingRequired).toHaveLength(0);
+    expect(result.resolved.order_number).toBe("Order_Number");
+    expect(result.resolved.product_name).toBe("Product_Name");
+  });
+
+  it("rejects non-Revel columns as expected", () => {
+    const genericHeaders = ["Fecha", "Producto", "Cantidad", "Importe"];
+    const result = validateRevelPOSColumns(genericHeaders);
+    expect(result.ok).toBe(false);
+    expect(result.missingRequired.length).toBeGreaterThan(0);
   });
 });

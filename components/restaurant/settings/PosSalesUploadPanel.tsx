@@ -68,15 +68,45 @@ function moneyFmt(currency: string, locale: string) {
   });
 }
 
+interface MappingPreview {
+  needs_mapping: boolean;
+  header_fingerprint: string;
+  headers: string[];
+  sample_rows: Record<string, unknown>[];
+  decimal_separator: "comma" | "dot";
+  message?: string;
+}
+
+interface ColumnMapping {
+  date?: string;
+  product?: string;
+  quantity?: string;
+  net_amount?: string;
+  location?: string;
+  category?: string;
+  sub_category?: string;
+  order_id?: string;
+  payment_type?: string;
+  gross_amount?: string;
+  discount?: string;
+  tax?: string;
+}
+
 export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
   const canUpload = useCan("imports.run");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [summary, setSummary] = useState<UploadSummary | null>(null);
   const [error, setError] = useState<UploadError | null>(null);
-  // Default on: re-uploading the same file is the common case, and silently
-  // doubling revenue is far worse than an explicit replace.
   const [replaceExisting, setReplaceExisting] = useState(true);
+
+  // Mapping flow state
+  const [mappingPreview, setMappingPreview] = useState<MappingPreview | null>(
+    null
+  );
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [mappingName, setMappingName] = useState("");
+  const [loadingMapping, setLoadingMapping] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -84,6 +114,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
     setSubmitting(true);
     setSummary(null);
     setError(null);
+    setMappingPreview(null);
     try {
       const form = new FormData();
       form.append("file", file);
@@ -94,7 +125,13 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         credentials: "include",
       });
       const json = await res.json();
-      if (!res.ok) {
+
+      // Check if we need column mapping
+      if (json.needs_mapping) {
+        setMappingPreview(json as MappingPreview);
+        // Get AI suggestions
+        await getSuggestedMapping(json.headers, json.sample_rows);
+      } else if (!res.ok) {
         const raw = json as UploadError;
         setError({
           ...raw,
@@ -108,7 +145,82 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
             )
           ),
         });
-      } else setSummary(json as UploadSummary);
+      } else {
+        setSummary(json as UploadSummary);
+      }
+    } catch (err) {
+      setError({
+        error: t(lang, "Network error", "Error de red", "Netzwerkfehler"),
+        details: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function getSuggestedMapping(
+    headers: string[],
+    sampleRows: Record<string, unknown>[]
+  ) {
+    setLoadingMapping(true);
+    try {
+      const res = await fetch("/api/restaurant/pos/upload/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headers, sample_rows: sampleRows }),
+        credentials: "include",
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setColumnMapping(json.suggested_mapping || {});
+      }
+    } catch (err) {
+      console.error("Error getting mapping suggestions:", err);
+    } finally {
+      setLoadingMapping(false);
+    }
+  }
+
+  async function handleConfirmMapping() {
+    if (!file || !mappingPreview) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      // Convert file to base64
+      const fileData = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch("/api/restaurant/pos/upload/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          file_data: fileData,
+          file_name: file.name,
+          column_mapping: columnMapping,
+          decimal_separator: mappingPreview.decimal_separator,
+          mapping_name: mappingName || undefined,
+          replace_existing: replaceExisting,
+        }),
+        credentials: "include",
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        setError({
+          error: json.error || "Error al confirmar el mapeo",
+          details: json.details,
+        });
+      } else {
+        setSummary(json as UploadSummary);
+        setMappingPreview(null);
+      }
     } catch (err) {
       setError({
         error: t(lang, "Network error", "Error de red", "Netzwerkfehler"),
@@ -262,6 +374,215 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
         </div>
       )}
 
+      {mappingPreview && (
+        <div className="space-y-4 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 px-4 py-4">
+          <div>
+            <h3 className="text-sm font-medium text-foreground mb-2">
+              {t(
+                lang,
+                "Column mapping required",
+                "Se requiere mapeo de columnas",
+                "Spaltenzuordnung erforderlich"
+              )}
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                lang,
+                "This file format is different from Revel. Please map the columns below, then confirm.",
+                "Este archivo tiene un formato distinto a Revel. Por favor, mapea las columnas abajo y luego confirma.",
+                "Dieses Dateiformat unterscheidet sich von Revel. Bitte ordnen Sie die Spalten unten zu und bestätigen Sie."
+              )}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm">
+              {t(
+                lang,
+                "Mapping name (optional):",
+                "Nombre del mapeo (opcional):",
+                "Name der Zuordnung (optional):"
+              )}
+            </label>
+            <input
+              type="text"
+              value={mappingName}
+              onChange={(e) => setMappingName(e.target.value)}
+              placeholder={t(
+                lang,
+                "e.g. Fuel POS",
+                "ej. POS Fuel",
+                "z.B. Fuel POS"
+              )}
+              className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
+            />
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium">
+              {t(
+                lang,
+                "Map file columns to fields:",
+                "Mapea las columnas del archivo a los campos:",
+                "Dateispalten Feldern zuordnen:"
+              )}
+            </p>
+            {loadingMapping && (
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  lang,
+                  "Loading AI suggestions...",
+                  "Cargando sugerencias de IA...",
+                  "KI-Vorschläge werden geladen..."
+                )}
+              </p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <MappingField
+                label={`${t(lang, "Date", "Fecha", "Datum")} *`}
+                field="date"
+                headers={mappingPreview.headers}
+                value={columnMapping.date || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, date: val })
+                }
+              />
+              <MappingField
+                label={`${t(lang, "Product", "Producto", "Produkt")} *`}
+                field="product"
+                headers={mappingPreview.headers}
+                value={columnMapping.product || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, product: val })
+                }
+              />
+              <MappingField
+                label={`${t(lang, "Quantity", "Cantidad", "Menge")} *`}
+                field="quantity"
+                headers={mappingPreview.headers}
+                value={columnMapping.quantity || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, quantity: val })
+                }
+              />
+              <MappingField
+                label={`${t(lang, "Net Amount", "Importe Neto", "Nettobetrag")} *`}
+                field="net_amount"
+                headers={mappingPreview.headers}
+                value={columnMapping.net_amount || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, net_amount: val })
+                }
+              />
+              <MappingField
+                label={t(lang, "Location", "Local", "Standort")}
+                field="location"
+                headers={mappingPreview.headers}
+                value={columnMapping.location || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, location: val })
+                }
+              />
+              <MappingField
+                label={t(lang, "Category", "Categoría", "Kategorie")}
+                field="category"
+                headers={mappingPreview.headers}
+                value={columnMapping.category || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, category: val })
+                }
+              />
+              <MappingField
+                label={t(lang, "Order ID", "ID de Orden", "Bestellnummer")}
+                field="order_id"
+                headers={mappingPreview.headers}
+                value={columnMapping.order_id || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, order_id: val })
+                }
+              />
+              <MappingField
+                label={t(lang, "Payment Type", "Tipo de Pago", "Zahlungsart")}
+                field="payment_type"
+                headers={mappingPreview.headers}
+                value={columnMapping.payment_type || ""}
+                onChange={(val) =>
+                  setColumnMapping({ ...columnMapping, payment_type: val })
+                }
+              />
+            </div>
+          </div>
+
+          {mappingPreview.sample_rows.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                {t(lang, "Sample data:", "Datos de muestra:", "Beispieldaten:")}
+              </p>
+              <div className="overflow-x-auto">
+                <table className="text-xs border-collapse w-full">
+                  <thead>
+                    <tr className="border-b">
+                      {mappingPreview.headers.slice(0, 8).map((h) => (
+                        <th key={h} className="text-left px-2 py-1 font-medium">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mappingPreview.sample_rows.slice(0, 3).map((row, i) => (
+                      <tr key={i} className="border-b">
+                        {mappingPreview.headers.slice(0, 8).map((h) => (
+                          <td key={h} className="px-2 py-1">
+                            {String(row[h] ?? "")}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              onClick={handleConfirmMapping}
+              disabled={
+                submitting ||
+                !columnMapping.date ||
+                !columnMapping.product ||
+                !columnMapping.quantity ||
+                !columnMapping.net_amount
+              }
+              className="gap-2"
+            >
+              {submitting
+                ? t(lang, "Importing...", "Importando...", "Wird importiert...")
+                : t(
+                    lang,
+                    "Confirm and import",
+                    "Confirmar e importar",
+                    "Bestätigen und importieren"
+                  )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setMappingPreview(null);
+                setColumnMapping({});
+                setMappingName("");
+              }}
+              disabled={submitting}
+            >
+              {t(lang, "Cancel", "Cancelar", "Abbrechen")}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {summary && (
         <div className="space-y-3 rounded-md border border-[#A7F3D0] px-3 py-3">
           <p className="flex items-center gap-2 text-sm font-medium text-[#0F172A]">
@@ -379,6 +700,41 @@ function ItemList({ label, items }: { label: string; items: string[] }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+function MappingField({
+  label,
+  field,
+  headers,
+  value,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  headers: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium" htmlFor={`mapping-${field}`}>
+        {label}
+      </label>
+      <select
+        id={`mapping-${field}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
+      >
+        <option value="">-- Sin mapear --</option>
+        {headers.map((h) => (
+          <option key={h} value={h}>
+            {h}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

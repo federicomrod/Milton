@@ -1,10 +1,13 @@
 // app/api/restaurant/pos/upload/route.ts
-// First real restaurant ingestion path: Revel-style item-level POS export
-// → normalized rows in Supabase `pos_sales_items`.
+// Sales file upload: Revel-style item-level POS export OR generic column-mapped format.
 //
-// Scope (restaurant pivot, Milestone 4):
-// - ONLY the Revel "Customer Items" export shape (see lib/restaurant/pos-import.ts).
-// - No OpenAI, no PDF extraction, no Revel API integration.
+// Two modes (issue #531):
+// 1. Revel "Customer Items" export: validates and imports directly (backward compatible).
+// 2. Generic POS export: returns mapping preview for user confirmation, then imports.
+//
+// Flow:
+// - POST /api/restaurant/pos/upload: Detect format and either import (Revel) or return preview
+// - POST /api/restaurant/pos/upload/confirm: Import with user-confirmed mapping
 //
 // Auth: requires an authenticated Supabase user. company_id is resolved from
 // the user's company row (created_by) — same pattern as the existing data
@@ -268,16 +271,53 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Column validation -----------------------------------------------
+    // Try Revel format first (backward compatible)
     const colCheck = validateRevelPOSColumns(headers);
+
+    // If not Revel format, switch to generic mapper mode (issue #531)
     if (!colCheck.ok) {
-      return NextResponse.json(
-        {
-          error: d.connect.api.missingColumns,
-          missing: colCheck.missingRequired,
-          headers,
-        },
-        { status: 400 }
+      // Import generic detection utilities
+      const { computeHeaderFingerprint, detectDecimalSeparator } =
+        await import("@/lib/restaurant/pos-import-generic");
+
+      const headerFingerprint = computeHeaderFingerprint(headers);
+      const decimalSeparator = detectDecimalSeparator(rows);
+
+      // Check if we have a saved mapping for this header fingerprint
+      const { data: settings } = await supabase
+        .from("restaurant_company_settings")
+        .select("pos_sales_mappings")
+        .eq("company_id", companyId)
+        .maybeSingle();
+
+      const savedMappings =
+        (settings?.pos_sales_mappings as any[] | null) ?? [];
+      const matchedMapping = savedMappings.find(
+        (m: any) => m.header_fingerprint === headerFingerprint
       );
+
+      if (matchedMapping) {
+        // We have a saved mapping - use it automatically
+        // Continue with generic import using matchedMapping.column_mapping
+        // Store mapping details for later use
+        (req as any)._savedMapping = matchedMapping;
+        (req as any)._decimalSeparator = decimalSeparator;
+        (req as any)._useGenericImport = true;
+      } else {
+        // No saved mapping - return preview for user to confirm
+        return NextResponse.json(
+          {
+            needs_mapping: true,
+            header_fingerprint: headerFingerprint,
+            headers,
+            sample_rows: rows.slice(0, 5),
+            decimal_separator: decimalSeparator,
+            message:
+              "Este archivo necesita mapeo de columnas. Por favor, confirma o ajusta el mapeo sugerido.",
+          },
+          { status: 200 }
+        );
+      }
     }
 
     const company = { id: companyId };
@@ -342,33 +382,75 @@ export async function POST(req: NextRequest) {
     const unmatchedMenuItems = new Set<string>();
     const unmatchedLocations = new Set<string>();
 
-    for (let i = 0; i < rows.length; i++) {
-      const res = normalizeRevelPOSRow(rows[i], i, {
-        company_id: company.id,
-        source_type: sourceType,
-        currency: companyCurrency,
-        locationIndex,
-        locationBrandIndex,
-        menuItemIndex,
-        columns: colCheck.resolved,
-      });
+    // Check if we're using generic import (non-Revel format)
+    const useGenericImport = (req as any)._useGenericImport;
+    const savedMapping = (req as any)._savedMapping;
+    const decimalSeparator = (req as any)._decimalSeparator;
 
-      if (!res.ok) {
-        validation_errors.push(res.error);
-        continue;
-      }
+    if (useGenericImport && savedMapping) {
+      // Generic import path with saved mapping
+      const { normalizeGenericPOSRow } =
+        await import("@/lib/restaurant/pos-import-generic");
 
-      if (res.insert.menu_item_id === null) {
-        unmatchedMenuItems.add(res.insert.raw_item_name);
-      }
-      if (res.insert.location_id === null) {
-        const estCol = colCheck.resolved.establishment;
-        if (estCol && rows[i][estCol]) {
-          unmatchedLocations.add(String(rows[i][estCol]));
+      for (let i = 0; i < rows.length; i++) {
+        const res = normalizeGenericPOSRow(rows[i], i, {
+          company_id: company.id,
+          source_type: sourceType,
+          currency: companyCurrency,
+          column_mapping: savedMapping.column_mapping,
+          decimal_separator: decimalSeparator,
+          locationIndex,
+          locationBrandIndex,
+          menuItemIndex,
+        });
+
+        if (!res.ok) {
+          validation_errors.push(res.error);
+          continue;
         }
-      }
 
-      inserts.push(res.insert);
+        if (res.insert.menu_item_id === null) {
+          unmatchedMenuItems.add(res.insert.raw_item_name);
+        }
+        if (res.insert.location_id === null) {
+          const locCol = savedMapping.column_mapping.location;
+          if (locCol && rows[i][locCol]) {
+            unmatchedLocations.add(String(rows[i][locCol]));
+          }
+        }
+
+        inserts.push(res.insert);
+      }
+    } else {
+      // Revel import path (original behavior)
+      for (let i = 0; i < rows.length; i++) {
+        const res = normalizeRevelPOSRow(rows[i], i, {
+          company_id: company.id,
+          source_type: sourceType,
+          currency: companyCurrency,
+          locationIndex,
+          locationBrandIndex,
+          menuItemIndex,
+          columns: colCheck.resolved,
+        });
+
+        if (!res.ok) {
+          validation_errors.push(res.error);
+          continue;
+        }
+
+        if (res.insert.menu_item_id === null) {
+          unmatchedMenuItems.add(res.insert.raw_item_name);
+        }
+        if (res.insert.location_id === null) {
+          const estCol = colCheck.resolved.establishment;
+          if (estCol && rows[i][estCol]) {
+            unmatchedLocations.add(String(rows[i][estCol]));
+          }
+        }
+
+        inserts.push(res.insert);
+      }
     }
 
     if (inserts.length === 0) {

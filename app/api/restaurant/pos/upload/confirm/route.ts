@@ -38,6 +38,7 @@ interface ConfirmRequest {
   file_data: string; // base64-encoded file
   file_name: string;
   column_mapping: Record<string, string>;
+  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   decimal_separator: "comma" | "dot";
   mapping_name?: string;
   replace_existing?: boolean;
@@ -127,17 +128,66 @@ export async function POST(req: NextRequest) {
       file_data,
       file_name,
       column_mapping,
+      date_format,
       decimal_separator,
       mapping_name,
-      replace_existing = true,
+      replace_existing,
     } = body;
 
+    // Validate required fields
     if (!file_data || !column_mapping) {
       return NextResponse.json(
         { error: "Faltan datos del archivo o mapeo de columnas." },
         { status: 400 }
       );
     }
+
+    // Validate date_format
+    if (!date_format || !["DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"].includes(date_format)) {
+      return NextResponse.json(
+        { error: "Formato de fecha inválido. Debe ser DD/MM/YYYY, MM/DD/YYYY o YYYY-MM-DD." },
+        { status: 400 }
+      );
+    }
+
+    // Validate decimal_separator
+    if (!decimal_separator || !["comma", "dot"].includes(decimal_separator)) {
+      return NextResponse.json(
+        { error: "Separador decimal inválido. Debe ser 'comma' o 'dot'." },
+        { status: 400 }
+      );
+    }
+
+    // Validate column_mapping: keys must be known fields, required fields must be present
+    const { SALES_LOGICAL_FIELDS } = await import("@/lib/restaurant/pos-import-generic");
+    const validFields = Object.keys(SALES_LOGICAL_FIELDS);
+    const mappingKeys = Object.keys(column_mapping);
+
+    for (const key of mappingKeys) {
+      if (!validFields.includes(key)) {
+        return NextResponse.json(
+          { error: `Campo desconocido en el mapeo: ${key}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Check required fields
+    const requiredFields = Object.entries(SALES_LOGICAL_FIELDS)
+      .filter(([_, spec]) => spec.required)
+      .map(([name]) => name);
+
+    for (const field of requiredFields) {
+      if (!column_mapping[field]) {
+        return NextResponse.json(
+          { error: `Falta el campo requerido: ${field}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // If replace_existing not explicitly provided, default to false (not true)
+    const shouldReplace = replace_existing === true;
 
     // Decode file
     const buffer = Buffer.from(file_data, "base64");
@@ -156,33 +206,21 @@ export async function POST(req: NextRequest) {
     let rows: Record<string, unknown>[] = [];
 
     if (isCSV) {
-      const text = buffer.toString("utf-8");
-      const firstLine = text.split("\n")[0] ?? "";
-      const delimiter = firstLine.includes(";")
-        ? ";"
-        : firstLine.includes("\t")
-          ? "\t"
-          : ",";
-      const lines = text.split("\n").filter((l) => l.trim().length > 0);
-      if (lines.length < 2) {
+      // Use real CSV parser for proper quote handling
+      const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
+      try {
+        const parsed = parseCSV(buffer);
+        headers = parsed.headers;
+        rows = parsed.rows;
+      } catch (err) {
         return NextResponse.json(
-          { error: "El archivo CSV está vacío o no tiene datos." },
+          {
+            error: "El archivo CSV está vacío o no tiene datos.",
+            details: err instanceof Error ? err.message : String(err),
+          },
           { status: 400 }
         );
       }
-      headers = lines[0]
-        .split(delimiter)
-        .map((h) => h.trim().replace(/^"|"$/g, ""));
-      rows = lines.slice(1).map((line) => {
-        const values = line
-          .split(delimiter)
-          .map((v) => v.trim().replace(/^"|"$/g, ""));
-        const r: Record<string, unknown> = {};
-        headers.forEach((h, i) => {
-          r[h] = values[i] ?? "";
-        });
-        return r;
-      });
     } else {
       const workbook = XLSX.read(buffer, {
         type: "buffer",
@@ -209,6 +247,17 @@ export async function POST(req: NextRequest) {
         { error: "El archivo no contiene filas de datos." },
         { status: 400 }
       );
+    }
+
+    // Validate that all mapped column names exist in headers
+    const headerSet = new Set(headers);
+    for (const [field, columnName] of Object.entries(column_mapping)) {
+      if (columnName && !headerSet.has(columnName)) {
+        return NextResponse.json(
+          { error: `La columna mapeada "${columnName}" para el campo "${field}" no existe en el archivo.` },
+          { status: 400 }
+        );
+      }
     }
 
     // Get company currency
@@ -262,6 +311,7 @@ export async function POST(req: NextRequest) {
         source_type: sourceType,
         currency: companyCurrency,
         column_mapping,
+        date_format,
         decimal_separator,
         locationIndex,
         locationBrandIndex,
@@ -297,24 +347,48 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Replace existing if requested
+    // Replace existing if requested (delete only the date range in this file)
     let deletedRows = 0;
-    if (replace_existing) {
-      const { error: delError, count: delCount } = await supabase
-        .from("pos_sales_items")
-        .delete({ count: "exact" })
-        .eq("company_id", companyId);
-      if (delError) {
-        console.error("[POS Upload Confirm] Delete failed:", delError.message);
-        return NextResponse.json(
-          {
-            error: "Error al reemplazar ventas anteriores",
-            details: delError.message,
-          },
-          { status: 500 }
+    if (shouldReplace) {
+      const { extractDateRange } = await import("@/lib/restaurant/pos-import-generic");
+      const dateRange = extractDateRange(inserts);
+
+      if (dateRange) {
+        const [minDate, maxDate] = dateRange;
+
+        // Build delete query with date range filter
+        let deleteQuery = supabase
+          .from("pos_sales_items")
+          .delete({ count: "exact" })
+          .eq("company_id", companyId)
+          .gte("sale_date", minDate)
+          .lte("sale_date", maxDate);
+
+        // If a location column is mapped and all rows have the same location,
+        // also filter by location_id
+        const uniqueLocations = new Set(inserts.map(i => i.location_id).filter(Boolean));
+        if (uniqueLocations.size === 1) {
+          const singleLocationId = [...uniqueLocations][0];
+          deleteQuery = deleteQuery.eq("location_id", singleLocationId);
+        }
+
+        const { error: delError, count: delCount } = await deleteQuery;
+
+        if (delError) {
+          console.error("[POS Upload Confirm] Delete failed:", delError.message);
+          return NextResponse.json(
+            {
+              error: "Error al reemplazar ventas anteriores",
+              details: delError.message,
+            },
+            { status: 500 }
+          );
+        }
+        deletedRows = delCount ?? 0;
+        console.log(
+          `[POS Upload Confirm] replace_existing=true, deleted ${deletedRows} rows for company ${companyId}, dates ${minDate} to ${maxDate}`
         );
       }
-      deletedRows = delCount ?? 0;
     }
 
     // Batch insert
@@ -349,39 +423,51 @@ export async function POST(req: NextRequest) {
       mapping_name:
         mapping_name || `Mapeo ${new Date().toISOString().slice(0, 10)}`,
       column_mapping,
+      date_format,
       decimal_separator,
       created_at: new Date().toISOString(),
       last_used: new Date().toISOString(),
     };
 
     // Update or create company settings with new mapping
-    const { data: existingSettings } = await supabase
+    // Handle case where migration 083 hasn't been applied yet
+    const { data: existingSettings, error: settingsError } = await supabase
       .from("restaurant_company_settings")
       .select("pos_sales_mappings")
       .eq("company_id", companyId)
       .maybeSingle();
 
-    const existingMappings =
-      (existingSettings?.pos_sales_mappings as SavedColumnMapping[] | null) ??
-      [];
+    // If migration not applied (42703 or PGRST204), skip saving mapping but continue import
+    if (settingsError?.code !== "42703" && settingsError?.code !== "PGRST204") {
+      const existingMappings =
+        (existingSettings?.pos_sales_mappings as SavedColumnMapping[] | null) ??
+        [];
 
-    // Remove old mapping with same fingerprint
-    const filteredMappings = existingMappings.filter(
-      (m: SavedColumnMapping) => m.header_fingerprint !== headerFingerprint
-    );
+      // Remove old mapping with same fingerprint
+      const filteredMappings = existingMappings.filter(
+        (m: SavedColumnMapping) => m.header_fingerprint !== headerFingerprint
+      );
 
-    // Add new mapping
-    const updatedMappings = [...filteredMappings, newMapping];
+      // Add new mapping
+      const updatedMappings = [...filteredMappings, newMapping];
 
-    await supabase.from("restaurant_company_settings").upsert(
-      {
-        company_id: companyId,
-        pos_sales_mappings: updatedMappings,
-        updated_by: user.id,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "company_id" }
-    );
+      const { error: upsertError } = await supabase
+        .from("restaurant_company_settings")
+        .upsert(
+          {
+            company_id: companyId,
+            pos_sales_mappings: updatedMappings,
+            updated_by: user.id,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "company_id" }
+        );
+
+      if (upsertError && upsertError.code !== "42703" && upsertError.code !== "PGRST204") {
+        console.warn("[POS Upload Confirm] Could not save mapping:", upsertError.message);
+        // Don't fail the import if we can't save the mapping
+      }
+    }
 
     // Summary
     const uniqueOrders = new Set(inserts.map((r) => r.order_id)).size;
@@ -400,7 +486,7 @@ export async function POST(req: NextRequest) {
       validation_errors,
       resolved_columns: column_mapping,
       total_rows_in_file: rows.length,
-      replace_existing,
+      replace_existing: shouldReplace,
       currency: companyCurrency,
       used_saved_mapping: false,
     };

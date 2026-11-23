@@ -8,12 +8,18 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { unauthorizedResponse } from "@/lib/auth/permissions";
+import {
+  unauthorizedResponse,
+  resolveActor,
+  requireCapability,
+} from "@/lib/auth/permissions";
 import { suggestColumnMappings } from "@/lib/ai/column-mapper";
 import { SALES_LOGICAL_FIELDS } from "@/lib/restaurant/pos-import-generic";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const MAX_SAMPLE_ROWS = 3;
 
 interface MapRequest {
   headers: string[];
@@ -28,6 +34,59 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
     if (!user) return unauthorizedResponse();
 
+    // Resolve company (same logic as /upload)
+    let companyId: string | null = null;
+
+    {
+      const { data } = await supabase
+        .from("companies")
+        .select("id")
+        .eq("created_by", user.id)
+        .maybeSingle();
+      if (data?.id) companyId = data.id;
+    }
+
+    if (!companyId) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (data?.company_id) companyId = data.company_id;
+    }
+
+    if (!companyId) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (data?.company_id) companyId = data.company_id;
+    }
+
+    if (!companyId) {
+      const { data } = await supabase
+        .from("company_memberships")
+        .select("company_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (data?.company_id) companyId = data.company_id;
+    }
+
+    if (!companyId) {
+      return NextResponse.json(
+        { error: "No se pudo resolver la empresa del usuario." },
+        { status: 404 }
+      );
+    }
+
+    // Check capability
+    const actor = await resolveActor(supabase, user.id, { companyId });
+    const denied = requireCapability(actor, "imports.run", {
+      message: "Tu rol no puede cargar ventas.",
+    });
+    if (denied) return denied;
+
     const body: MapRequest = await req.json();
     const { headers, sample_rows } = body;
 
@@ -37,6 +96,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Cap sample rows for security (don't send too much to OpenAI)
+    const cappedSampleRows = Array.isArray(sample_rows)
+      ? sample_rows.slice(0, MAX_SAMPLE_ROWS)
+      : [];
 
     // Build target fields for AI mapper
     const targetFields = Object.entries(SALES_LOGICAL_FIELDS).map(
@@ -50,7 +114,7 @@ export async function POST(req: NextRequest) {
     // Get AI suggestions
     const aiResult = await suggestColumnMappings({
       headers,
-      sampleRows: sample_rows ?? [],
+      sampleRows: cappedSampleRows,
       targetFields,
       tableName: "Sales",
     });

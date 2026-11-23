@@ -27,7 +27,7 @@ export interface SavedColumnMapping {
   header_fingerprint: string;
   mapping_name: string;
   column_mapping: Record<string, string>; // logical field → actual header
-  date_format?: string;
+  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   decimal_separator: "comma" | "dot";
   created_at: string;
   last_used: string;
@@ -68,6 +68,8 @@ export type SalesLogicalField = keyof typeof SALES_LOGICAL_FIELDS;
 export interface ColumnMappingPreview {
   header_fingerprint: string;
   suggested_mapping: Record<string, string>;
+  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
+  date_format_ambiguous: boolean;
   decimal_separator: "comma" | "dot";
   sample_rows: Record<string, unknown>[];
   unmapped_required: string[];
@@ -79,6 +81,7 @@ export interface GenericNormalizeContext {
   source_type: SourceType;
   currency: string;
   column_mapping: Record<string, string>;
+  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
   decimal_separator: "comma" | "dot";
   locationIndex: Map<string, string>;
   locationBrandIndex: Map<string, string | null>;
@@ -215,51 +218,134 @@ export function parseNumberGeneric(
 }
 
 /**
- * Parse a date value supporting multiple formats:
- * - ISO: YYYY-MM-DD
- * - US: MM/DD/YYYY
- * - EU: DD/MM/YYYY or DD.MM.YYYY
- * - Excel serial number
+ * Detect date format from sample data. Returns the detected format and whether it's ambiguous.
+ * - If ISO format (YYYY-MM-DD) is found, returns that (never ambiguous)
+ * - If slash/dot with one part > 12, can determine DD/MM vs MM/DD
+ * - If all samples have both parts ≤ 12, it's ambiguous
  */
-export function parseDateGeneric(value: unknown): string | null {
-  if (value === null || value === undefined || value === "") return null;
+/**
+ * Extract the date range from parsed sales rows.
+ * Returns [minDate, maxDate] in YYYY-MM-DD format, or null if no dates found.
+ */
+export function extractDateRange(
+  rows: { sale_date: string }[]
+): [string, string] | null {
+  const dates = rows.map(r => r.sale_date).filter(Boolean);
+  if (dates.length === 0) return null;
+  
+  dates.sort();
+  return [dates[0], dates[dates.length - 1]];
+}
 
-  // Excel serial number
+export function detectDateFormat(
+  rows: Record<string, unknown>[],
+  dateColumn: string | undefined
+): {
+  format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
+  ambiguous: boolean;
+} {
+  if (!dateColumn) {
+    return { format: "YYYY-MM-DD", ambiguous: false };
+  }
+
+  let hasISO = false;
+  let hasUnambiguousEU = false;
+  let hasUnambiguousUS = false;
+  let hasAmbiguous = false;
+
+  for (const row of rows.slice(0, 100)) {
+    const val = row[dateColumn];
+    if (!val) continue;
+    const s = String(val).trim();
+
+    // ISO format
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      hasISO = true;
+      continue;
+    }
+
+    // Slash or dot pattern
+    const match = s.match(/^(\d{1,2})[\/\.](\d{1,2})[\/\.](\d{4})/);
+    if (match) {
+      const [, part1, part2] = match;
+      const p1 = parseInt(part1);
+      const p2 = parseInt(part2);
+
+      if (p1 > 12) {
+        // First part > 12 means it's DD/MM/YYYY
+        hasUnambiguousEU = true;
+      } else if (p2 > 12) {
+        // Second part > 12 means it's MM/DD/YYYY
+        hasUnambiguousUS = true;
+      } else if (p1 <= 12 && p2 <= 12) {
+        hasAmbiguous = true;
+      }
+    }
+  }
+
+  // Priority: ISO > Unambiguous patterns > Ambiguous (default to DD/MM for EU/LATAM)
+  if (hasISO) {
+    return { format: "YYYY-MM-DD", ambiguous: false };
+  }
+  if (hasUnambiguousEU) {
+    return { format: "DD/MM/YYYY", ambiguous: false };
+  }
+  if (hasUnambiguousUS) {
+    return { format: "MM/DD/YYYY", ambiguous: false };
+  }
+  if (hasAmbiguous) {
+    // Default to DD/MM (European/Latin American) but mark as ambiguous
+    return { format: "DD/MM/YYYY", ambiguous: true };
+  }
+
+  // No dates found, default to ISO
+  return { format: "YYYY-MM-DD", ambiguous: false };
+}
+
+/**
+ * Parse a date value with an explicit format. Never guesses.
+ * Formats: "DD/MM/YYYY", "MM/DD/YYYY", "YYYY-MM-DD"
+ */
+export function parseDateGeneric(
+  value: unknown,
+  format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD"
+): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  
+  // Excel serial number (format-independent)
   if (typeof value === "number" && value > 1 && value < 100000) {
     const ms = (value - 25569) * 86400 * 1000;
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
   }
-
+  
   const s = String(value).trim();
   if (!s) return null;
-
-  // ISO format: YYYY-MM-DD
-  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-
-  // US format: MM/DD/YYYY
-  const usMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (usMatch) {
-    const [, mm, dd, yyyy] = usMatch;
-    // Disambiguate: if day > 12, it's definitely DD/MM/YYYY
-    if (parseInt(mm) > 12) {
-      return `${yyyy}-${dd.padStart(2, "0")}-${mm.padStart(2, "0")}`;
-    }
-    // Otherwise assume US format MM/DD/YYYY
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  
+  if (format === "YYYY-MM-DD") {
+    // ISO format: YYYY-MM-DD
+    const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    return null;
   }
-
-  // EU format: DD.MM.YYYY or DD/MM/YYYY
-  const euMatch = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
-  if (euMatch) {
-    const [, dd, mm, yyyy] = euMatch;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  
+  // Parse slash or dot patterns
+  const match = s.match(/^(\d{1,2})[\/\.](\d{1,2})[\/\.](\d{4})/);
+  if (!match) return null;
+  
+  const [, part1, part2, yyyy] = match;
+  
+  if (format === "MM/DD/YYYY") {
+    const mm = part1.padStart(2, "0");
+    const dd = part2.padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  } else if (format === "DD/MM/YYYY") {
+    const dd = part1.padStart(2, "0");
+    const mm = part2.padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
   }
-
-  // Last resort: try Date.parse
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +419,7 @@ export function normalizeGenericPOSRow(
   if (!dateCol) {
     return { ok: false, error: { rowIndex, reason: "No date column mapped" } };
   }
-  const saleDate = parseDateGeneric(row[dateCol]);
+  const saleDate = parseDateGeneric(row[dateCol], ctx.date_format);
   if (!saleDate) {
     return {
       ok: false,

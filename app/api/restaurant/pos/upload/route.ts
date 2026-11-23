@@ -215,33 +215,21 @@ export async function POST(req: NextRequest) {
     let rows: Record<string, unknown>[] = [];
 
     if (isCSV) {
-      const text = buffer.toString("utf-8");
-      const firstLine = text.split("\n")[0] ?? "";
-      const delimiter = firstLine.includes(";")
-        ? ";"
-        : firstLine.includes("\t")
-          ? "\t"
-          : ",";
-      const lines = text.split("\n").filter((l) => l.trim().length > 0);
-      if (lines.length < 2) {
+      // Use real CSV parser for proper quote handling
+      const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
+      try {
+        const parsed = parseCSV(buffer);
+        headers = parsed.headers;
+        rows = parsed.rows;
+      } catch (err) {
         return NextResponse.json(
-          { error: d.connect.api.fileEmpty },
+          {
+            error: d.connect.api.fileEmpty,
+            details: err instanceof Error ? err.message : String(err),
+          },
           { status: 400 }
         );
       }
-      headers = lines[0]
-        .split(delimiter)
-        .map((h) => h.trim().replace(/^"|"$/g, ""));
-      rows = lines.slice(1).map((line) => {
-        const values = line
-          .split(delimiter)
-          .map((v) => v.trim().replace(/^"|"$/g, ""));
-        const r: Record<string, unknown> = {};
-        headers.forEach((h, i) => {
-          r[h] = values[i] ?? "";
-        });
-        return r;
-      });
     } else {
       const workbook = XLSX.read(buffer, {
         type: "buffer",
@@ -277,21 +265,24 @@ export async function POST(req: NextRequest) {
     // If not Revel format, switch to generic mapper mode (issue #531)
     if (!colCheck.ok) {
       // Import generic detection utilities
-      const { computeHeaderFingerprint, detectDecimalSeparator } =
+      const { computeHeaderFingerprint, detectDecimalSeparator, detectDateFormat } =
         await import("@/lib/restaurant/pos-import-generic");
 
       const headerFingerprint = computeHeaderFingerprint(headers);
       const decimalSeparator = detectDecimalSeparator(rows);
 
       // Check if we have a saved mapping for this header fingerprint
-      const { data: settings } = await supabase
+      const { data: settings, error: settingsError } = await supabase
         .from("restaurant_company_settings")
         .select("pos_sales_mappings")
         .eq("company_id", companyId)
         .maybeSingle();
 
+      // Handle case where migration 083 hasn't been applied yet (PGRST204 or 42703)
       const savedMappings =
-        (settings?.pos_sales_mappings as any[] | null) ?? [];
+        settingsError?.code === "42703" || settingsError?.code === "PGRST204"
+          ? []
+          : (settings?.pos_sales_mappings as any[] | null) ?? [];
       const matchedMapping = savedMappings.find(
         (m: any) => m.header_fingerprint === headerFingerprint
       );
@@ -305,13 +296,18 @@ export async function POST(req: NextRequest) {
         (req as any)._useGenericImport = true;
       } else {
         // No saved mapping - return preview for user to confirm
+        // Detect date format (we don't have a date column yet, so pass undefined)
+        const dateDetection = detectDateFormat(rows, undefined);
+
         return NextResponse.json(
           {
             needs_mapping: true,
             header_fingerprint: headerFingerprint,
             headers,
-            sample_rows: rows.slice(0, 5),
+            sample_rows: rows.slice(0, 3), // Max 3 rows for security
             decimal_separator: decimalSeparator,
+            date_format: dateDetection.format,
+            date_format_ambiguous: dateDetection.ambiguous,
             message:
               "Este archivo necesita mapeo de columnas. Por favor, confirma o ajusta el mapeo sugerido.",
           },
@@ -464,15 +460,13 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Replace-existing branch -----------------------------------------
-    // When the user opts in, wipe this company's existing pos_sales_items
-    // BEFORE inserting the new file. This is the MVP duplicate-protection
-    // story; we'd prefer a true upsert key (company + order + item line)
-    // later, but that requires a stable composite identifier the export
-    // doesn't always carry.
+    // When the user opts in, delete only the pos_sales_items rows in the
+    // date range of this file (and location if mapped), not the whole history.
+    // This prevents accidental data loss from uploading a partial file.
     //
     // Safety:
-    //   * the delete is filtered by company_id = company.id, which we just
-    //     resolved from the authenticated user (RLS-checked at every step).
+    //   * the delete is filtered by company_id, sale_date range, and
+    //     optionally location_id
     //   * we use the same anon/cookie-bound client as the rest of the
     //     route — no service role, no RLS bypass.
     //   * we count the deleted rows for the summary so the UI can show the
@@ -482,27 +476,49 @@ export async function POST(req: NextRequest) {
     // leave the table half-cleared after a successful insert.
     let deletedRows = 0;
     if (replaceExisting) {
-      const { error: delError, count: delCount } = await supabase
-        .from("pos_sales_items")
-        .delete({ count: "exact" })
-        .eq("company_id", company.id);
-      if (delError) {
-        console.error(
-          "[POS Upload] replace-existing delete failed:",
-          delError.message
-        );
-        return NextResponse.json(
-          {
-            error: d.connect.api.replaceFailed,
-            details: delError.message,
-          },
-          { status: 500 }
+      // Extract date range from the inserts
+      const { extractDateRange } = await import("@/lib/restaurant/pos-import-generic");
+      const dateRange = extractDateRange(inserts);
+
+      if (dateRange) {
+        const [minDate, maxDate] = dateRange;
+        
+        // Build delete query with date range filter
+        let deleteQuery = supabase
+          .from("pos_sales_items")
+          .delete({ count: "exact" })
+          .eq("company_id", company.id)
+          .gte("sale_date", minDate)
+          .lte("sale_date", maxDate);
+
+        // If a location column is mapped and all rows have the same location,
+        // also filter by location_id to avoid deleting other locations' data
+        const uniqueLocations = new Set(inserts.map(i => i.location_id).filter(Boolean));
+        if (uniqueLocations.size === 1) {
+          const singleLocationId = [...uniqueLocations][0];
+          deleteQuery = deleteQuery.eq("location_id", singleLocationId);
+        }
+
+        const { error: delError, count: delCount } = await deleteQuery;
+        
+        if (delError) {
+          console.error(
+            "[POS Upload] replace-existing delete failed:",
+            delError.message
+          );
+          return NextResponse.json(
+            {
+              error: d.connect.api.replaceFailed,
+              details: delError.message,
+            },
+            { status: 500 }
+          );
+        }
+        deletedRows = delCount ?? 0;
+        console.log(
+          `[POS Upload] replace_existing=true, deleted ${deletedRows} rows for company ${company.id}, dates ${minDate} to ${maxDate}`
         );
       }
-      deletedRows = delCount ?? 0;
-      console.log(
-        `[POS Upload] replace_existing=true, deleted ${deletedRows} prior rows for company ${company.id}`
-      );
     }
 
     // --- Batch insert -----------------------------------------------------

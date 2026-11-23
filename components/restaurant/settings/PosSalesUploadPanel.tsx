@@ -73,6 +73,8 @@ interface MappingPreview {
   header_fingerprint: string;
   headers: string[];
   sample_rows: Record<string, unknown>[];
+  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
+  date_format_ambiguous: boolean;
   decimal_separator: "comma" | "dot";
   message?: string;
 }
@@ -92,6 +94,8 @@ interface ColumnMapping {
   tax?: string;
 }
 
+type DateFormat = "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
+
 export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
   const canUpload = useCan("imports.run");
   const [file, setFile] = useState<File | null>(null);
@@ -105,6 +109,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
     null
   );
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [dateFormat, setDateFormat] = useState<DateFormat>("DD/MM/YYYY");
   const [mappingName, setMappingName] = useState("");
   const [loadingMapping, setLoadingMapping] = useState(false);
 
@@ -128,7 +133,9 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
 
       // Check if we need column mapping
       if (json.needs_mapping) {
-        setMappingPreview(json as MappingPreview);
+        const preview = json as MappingPreview;
+        setMappingPreview(preview);
+        setDateFormat(preview.date_format || "DD/MM/YYYY");
         // Get AI suggestions
         await getSuggestedMapping(json.headers, json.sample_rows);
       } else if (!res.ok) {
@@ -204,6 +211,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
           file_data: fileData,
           file_name: file.name,
           column_mapping: columnMapping,
+          date_format: dateFormat,
           decimal_separator: mappingPreview.decimal_separator,
           mapping_name: mappingName || undefined,
           replace_existing: replaceExisting,
@@ -448,7 +456,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
                 }
               />
               <MappingField
-                label={`${t(lang, "Product", "Producto", "Produkt")} *`}
+                label={`${t(lang, "Product", "Plato", "Produkt")} *`}
                 field="product"
                 headers={mappingPreview.headers}
                 value={columnMapping.product || ""}

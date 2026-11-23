@@ -34,8 +34,6 @@ export const ALLOW: Record<string, string> = {
     "read-only chat over the restaurant context",
   "restaurant/data-source-requests/route.ts":
     "records a «please support this source» request for Milton; no company data",
-  "restaurant/pos/upload/map/route.ts":
-    "read-only AI column mapping suggestion; auth-only, no company data changes",
   "restaurant/kitchen/reports/resolve/route.ts":
     "any company member resolves cook reports, by design (documented in the route)",
   // Kitchen app (mobile P0b): cooks are not company members and have no role.

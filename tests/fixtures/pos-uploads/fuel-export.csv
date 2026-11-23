@@ -1,0 +1,9 @@
+Exportación de Ventas - Fuel Restaurante
+Fecha,Producto,Cant.,Importe,Local,Categoría,Ticket
+15/01/2026,Cerveza Artesanal,"2","120,00",Fuel Centro,Bebidas,T-001
+15/01/2026,Burger Clásica,"1","185,50",Fuel Centro,Comida,T-001
+15/01/2026,Papas Fritas,"1","65,00",Fuel Centro,Acompañamientos,T-001
+16/01/2026,Ensalada Verde,"1","95,00",Fuel Norte,Ensaladas,T-002
+16/01/2026,Limonada,"2","80,00",Fuel Norte,Bebidas,T-002
+16/01/2026,Taco Vegano,"3","210,00",Fuel Norte,Comida,T-003
+17/01/2026,Café Espresso,"1","45,00",Fuel Centro,Bebidas,T-004

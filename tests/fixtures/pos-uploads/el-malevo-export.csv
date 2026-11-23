@@ -1,0 +1,8 @@
+Fecha Venta,Plato,Cantidad,Total Neto,Total Bruto,Descuento,Sucursal,Forma de Pago
+2026-01-15,Bife de Chorizo,1,450.00,450.00,0.00,El Malevo Palermo,Efectivo
+2026-01-15,Ensalada Mixta,1,120.00,120.00,0.00,El Malevo Palermo,Efectivo
+2026-01-15,Vino Malbec,1,280.00,280.00,0.00,El Malevo Palermo,Efectivo
+2026-01-16,Parrillada para 2,1,890.00,950.00,60.00,El Malevo Recoleta,Tarjeta Crédito
+2026-01-16,Agua Mineral,2,80.00,80.00,0.00,El Malevo Recoleta,Tarjeta Crédito
+2026-01-17,Empanadas (docena),1,180.00,180.00,0.00,El Malevo Palermo,Tarjeta Débito
+2026-01-17,Fernet con Cola,2,160.00,160.00,0.00,El Malevo Palermo,Tarjeta Débito

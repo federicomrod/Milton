@@ -1,0 +1,7 @@
+Order_Number,Order_Date,Product_Name,Product_Quantity,Gross_Item_Total,Total_Sales,Establishment_Name,Order_Type,Payment_Type
+1001,01/15/2026,Coca-Cola,2,60.00,60.00,Local Centro,Dine In,Cash
+1001,01/15/2026,Hamburguesa Clásica,1,180.00,180.00,Local Centro,Dine In,Cash
+1002,01/15/2026,Café Americano,1,45.00,45.00,Local Centro,To Go,Credit Card
+1003,01/16/2026,Pizza Margarita,2,320.00,320.00,Local Norte,Delivery,Online
+1003,01/16/2026,Refresco,2,50.00,50.00,Local Norte,Delivery,Online
+1004,01/16/2026,Ensalada César,1,120.00,120.00,Local Centro,Dine In,Debit Card

@@ -120,6 +120,15 @@ export interface BriefingTopMermaItem {
   resolved_name: string | null;
 }
 
+/** Raw waste line data for ranking (before grouping/filtering). */
+export interface RawMermaLine {
+  ingredient_id: string | null;
+  component_id: string | null;
+  item_name: string;
+  value: number;
+  resolved_name: string | null;
+}
+
 export interface BriefingRecommendationGroup {
   agent_key: string;
   severity: "info" | "warning" | "critical";
@@ -321,6 +330,57 @@ export async function isTelegramConnected(
 }
 
 /**
+ * Pure helper: group, filter, and rank waste lines to produce top 3 by value.
+ * Exported for testing. Filters non-positive/non-finite values, groups by
+ * ingredient_id ?? component_id ?? item_name, sums values, sorts descending,
+ * takes top 3, and rounds to integers.
+ */
+export function rankTopMermaItems(
+  lines: readonly RawMermaLine[]
+): BriefingTopMermaItem[] {
+  // Group by ingredient_id ?? component_id ?? item_name and sum values
+  const grouped = new Map<
+    string,
+    {
+      value: number;
+      item_name: string;
+      resolved_name: string | null;
+    }
+  >();
+  
+  for (const line of lines) {
+    const val = Number(line.value);
+    // Filter: only positive, finite values
+    if (!Number.isFinite(val) || val <= 0) continue;
+
+    // Group by the most specific identifier available
+    const groupKey =
+      line.ingredient_id ?? line.component_id ?? line.item_name;
+
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.value += val;
+    } else {
+      grouped.set(groupKey, {
+        value: val,
+        item_name: line.item_name,
+        resolved_name: line.resolved_name,
+      });
+    }
+  }
+
+  // Sort by value descending and take top 3
+  return Array.from(grouped.values())
+    .map((entry) => ({
+      item_name: entry.item_name,
+      value: roundInt(entry.value) ?? 0,
+      resolved_name: entry.resolved_name,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 3);
+}
+
+/**
  * Load top 3 merma (waste) items from the last 7 days, ranked by money lost.
  * Only confirmed lines with a value are included; when the table doesn't exist
  * or there's no confirmed waste, returns an empty array (the UI shows nothing).
@@ -365,50 +425,19 @@ async function loadTopMermaItems(
 
     if (!data || data.length === 0) return [];
 
-    // Group by ingredient_id ?? component_id ?? item_name and sum values
-    const grouped = new Map<
-      string,
-      {
-        value: number;
-        item_name: string;
-        resolved_name: string | null;
-      }
-    >();
-    for (const row of data) {
-      const val = Number(row.value);
-      if (!Number.isFinite(val) || val <= 0) continue;
-
-      // Group by the most specific identifier available
-      const groupKey =
-        row.ingredient_id ?? row.component_id ?? row.item_name;
-      const resolved =
+    // Transform to RawMermaLine format and pass to pure helper
+    const lines: RawMermaLine[] = data.map((row) => ({
+      ingredient_id: row.ingredient_id,
+      component_id: row.component_id,
+      item_name: row.item_name,
+      value: Number(row.value),
+      resolved_name:
         (row.ingredients as { name?: string } | null)?.name ??
         (row.prepared_components as { name?: string } | null)?.name ??
-        null;
+        null,
+    }));
 
-      const existing = grouped.get(groupKey);
-      if (existing) {
-        existing.value += val;
-      } else {
-        grouped.set(groupKey, {
-          value: val,
-          item_name: row.item_name,
-          resolved_name: resolved,
-        });
-      }
-    }
-
-    // Sort by value descending and take top 3
-    const sorted = Array.from(grouped.values())
-      .map((entry) => ({
-        item_name: entry.item_name,
-        value: roundInt(entry.value) ?? 0,
-        resolved_name: entry.resolved_name,
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 3);
-
-    return sorted;
+    return rankTopMermaItems(lines);
   } catch (err) {
     console.error("[briefing-context] top merma:", err);
     return [];

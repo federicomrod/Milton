@@ -374,13 +374,8 @@ describe("renderBriefingEmail — top merma (waste) section (#532)", () => {
     expect(html).toContain("Aguacate"); // Falls back to item_name when no resolved_name
     expect(html).toContain("Tomate roma");
     
-    // Currency formatting (USD format with es-MX locale)
-    // Debug: log the section to see what's actually there
-    const mermaSection = html.match(/Mayor merma esta semana[\s\S]*?(?=<table|$)/)?.[0] ?? "";
-    if (!html.includes("USD 500")) {
-      console.log("HTML merma section:", mermaSection.slice(0, 500));
-    }
-    expect(html).toContain("USD\u00a0500"); // non-breaking space
+    // Currency formatting (USD format with es-MX locale, non-breaking space)
+    expect(html).toContain("USD\u00a0500");
     expect(html).toContain("USD\u00a0300");
     expect(html).toContain("USD\u00a0150");
     

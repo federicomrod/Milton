@@ -24,6 +24,7 @@ const MAX_SAMPLE_ROWS = 3;
 interface MapRequest {
   headers: string[];
   sample_rows: Record<string, unknown>[];
+  date_detection_rows?: Record<string, unknown>[];
 }
 
 export async function POST(req: NextRequest) {
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
     if (denied) return denied;
 
     const body: MapRequest = await req.json();
-    const { headers, sample_rows } = body;
+    const { headers, sample_rows, date_detection_rows } = body;
 
     if (!Array.isArray(headers) || headers.length === 0) {
       return NextResponse.json(
@@ -101,6 +102,11 @@ export async function POST(req: NextRequest) {
     const cappedSampleRows = Array.isArray(sample_rows)
       ? sample_rows.slice(0, MAX_SAMPLE_ROWS)
       : [];
+    
+    // Use larger sample for date detection (up to 200 rows)
+    const dateDetectionSample = Array.isArray(date_detection_rows)
+      ? date_detection_rows.slice(0, 200)
+      : cappedSampleRows;
 
     // Build target fields for AI mapper
     const targetFields = Object.entries(SALES_LOGICAL_FIELDS).map(
@@ -145,9 +151,10 @@ export async function POST(req: NextRequest) {
         : 0.3;
 
     // Detect date format now that we know the date column
+    // Use larger sample (up to 200 rows) for better accuracy
     const { detectDateFormat } = await import("@/lib/restaurant/pos-import-generic");
     const dateColumn = columnMapping.date;
-    const dateDetection = detectDateFormat(cappedSampleRows, dateColumn);
+    const dateDetection = detectDateFormat(dateDetectionSample, dateColumn);
 
     return NextResponse.json({
       suggested_mapping: columnMapping,

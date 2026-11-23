@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
     // If not Revel format, switch to generic mapper mode (issue #531)
     if (!colCheck.ok) {
       // Import generic detection utilities
-      const { computeHeaderFingerprint, detectDecimalSeparator, detectDateFormat } =
+      const { computeHeaderFingerprint, detectDecimalSeparator } =
         await import("@/lib/restaurant/pos-import-generic");
 
       const headerFingerprint = computeHeaderFingerprint(headers);
@@ -302,7 +302,8 @@ export async function POST(req: NextRequest) {
             needs_mapping: true,
             header_fingerprint: headerFingerprint,
             headers,
-            sample_rows: rows.slice(0, 3), // Max 3 rows for security
+            sample_rows: rows.slice(0, 3), // Max 3 rows for OpenAI
+            date_detection_rows: rows.slice(0, 200), // Larger sample for date format detection
             decimal_separator: decimalSeparator,
             message:
               "Este archivo necesita mapeo de columnas. Por favor, confirma o ajusta el mapeo sugerido.",

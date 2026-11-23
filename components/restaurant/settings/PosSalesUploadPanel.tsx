@@ -134,7 +134,11 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
       if (json.needs_mapping) {
         setMappingPreview(json as MappingPreview);
         // Get AI suggestions (which will also set date format)
-        await getSuggestedMapping(json.headers, json.sample_rows);
+        await getSuggestedMapping(
+          json.headers,
+          json.sample_rows,
+          json.date_detection_rows
+        );
       } else if (!res.ok) {
         const raw = json as UploadError;
         setError({
@@ -164,14 +168,19 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
 
   async function getSuggestedMapping(
     headers: string[],
-    sampleRows: Record<string, unknown>[]
+    sampleRows: Record<string, unknown>[],
+    dateDetectionRows?: Record<string, unknown>[]
   ) {
     setLoadingMapping(true);
     try {
       const res = await fetch("/api/restaurant/pos/upload/map", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ headers, sample_rows: sampleRows }),
+        body: JSON.stringify({
+          headers,
+          sample_rows: sampleRows,
+          date_detection_rows: dateDetectionRows,
+        }),
         credentials: "include",
       });
       if (res.ok) {

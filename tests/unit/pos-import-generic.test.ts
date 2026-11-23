@@ -74,6 +74,48 @@ describe("detectDateFormat", () => {
     expect(result.format).toBe("DD/MM/YYYY");
     expect(result.ambiguous).toBe(true);
   });
+
+  it("flags mixed EU+US file as ambiguous", () => {
+    const rows = [
+      { date: "15/01/2026" }, // Unambiguous EU (day > 12)
+      { date: "01/20/2026" }, // Unambiguous US (month > 12)
+      { date: "05/06/2026" }, // Ambiguous
+    ];
+    const result = detectDateFormat(rows, "date");
+    expect(result.ambiguous).toBe(true);
+  });
+});
+
+describe("parseDateGeneric", () => {
+  it("rejects impossible dates - month 15 in MM/DD/YYYY", () => {
+    const result = parseDateGeneric("15/20/2026", "MM/DD/YYYY");
+    expect(result).toBeNull();
+  });
+
+  it("rejects impossible dates - day 32 in DD/MM/YYYY", () => {
+    const result = parseDateGeneric("32/01/2026", "DD/MM/YYYY");
+    expect(result).toBeNull();
+  });
+
+  it("rejects impossible dates - month 13 in DD/MM/YYYY", () => {
+    const result = parseDateGeneric("15/13/2026", "DD/MM/YYYY");
+    expect(result).toBeNull();
+  });
+
+  it("accepts valid dates in MM/DD/YYYY", () => {
+    const result = parseDateGeneric("01/15/2026", "MM/DD/YYYY");
+    expect(result).toBe("2026-01-15");
+  });
+
+  it("accepts valid dates in DD/MM/YYYY", () => {
+    const result = parseDateGeneric("15/01/2026", "DD/MM/YYYY");
+    expect(result).toBe("2026-01-15");
+  });
+
+  it("accepts valid dates in YYYY-MM-DD", () => {
+    const result = parseDateGeneric("2026-01-15", "YYYY-MM-DD");
+    expect(result).toBe("2026-01-15");
+  });
 });
 
 describe("detectDecimalSeparator", () => {

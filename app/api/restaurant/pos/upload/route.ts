@@ -296,9 +296,7 @@ export async function POST(req: NextRequest) {
         (req as any)._useGenericImport = true;
       } else {
         // No saved mapping - return preview for user to confirm
-        // Detect date format (we don't have a date column yet, so pass undefined)
-        const dateDetection = detectDateFormat(rows, undefined);
-
+        // Note: Date format will be detected in /map once date column is known
         return NextResponse.json(
           {
             needs_mapping: true,
@@ -306,8 +304,6 @@ export async function POST(req: NextRequest) {
             headers,
             sample_rows: rows.slice(0, 3), // Max 3 rows for security
             decimal_separator: decimalSeparator,
-            date_format: dateDetection.format,
-            date_format_ambiguous: dateDetection.ambiguous,
             message:
               "Este archivo necesita mapeo de columnas. Por favor, confirma o ajusta el mapeo sugerido.",
           },
@@ -394,7 +390,8 @@ export async function POST(req: NextRequest) {
           source_type: sourceType,
           currency: companyCurrency,
           column_mapping: savedMapping.column_mapping,
-          decimal_separator: decimalSeparator,
+          date_format: savedMapping.date_format,
+          decimal_separator: savedMapping.decimal_separator,
           locationIndex,
           locationBrandIndex,
           menuItemIndex,

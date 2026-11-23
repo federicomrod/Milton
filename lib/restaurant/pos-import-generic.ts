@@ -245,7 +245,7 @@ export function detectDateFormat(
   ambiguous: boolean;
 } {
   if (!dateColumn) {
-    return { format: "YYYY-MM-DD", ambiguous: false };
+    return { format: "DD/MM/YYYY", ambiguous: true };
   }
 
   let hasISO = false;
@@ -283,6 +283,12 @@ export function detectDateFormat(
     }
   }
 
+  // Check for mixed files: both unambiguous EU and unambiguous US
+  if (hasUnambiguousEU && hasUnambiguousUS) {
+    // Mixed file - flag as ambiguous, default to DD/MM
+    return { format: "DD/MM/YYYY", ambiguous: true };
+  }
+
   // Priority: ISO > Unambiguous patterns > Ambiguous (default to DD/MM for EU/LATAM)
   if (hasISO) {
     return { format: "YYYY-MM-DD", ambiguous: false };
@@ -298,8 +304,8 @@ export function detectDateFormat(
     return { format: "DD/MM/YYYY", ambiguous: true };
   }
 
-  // No dates found, default to ISO
-  return { format: "YYYY-MM-DD", ambiguous: false };
+  // No dates found, default to DD/MM ambiguous
+  return { format: "DD/MM/YYYY", ambiguous: true };
 }
 
 /**
@@ -334,12 +340,20 @@ export function parseDateGeneric(
   if (!match) return null;
   
   const [, part1, part2, yyyy] = match;
+  const p1 = parseInt(part1);
+  const p2 = parseInt(part2);
   
   if (format === "MM/DD/YYYY") {
+    // p1 is month, p2 is day
+    if (p1 < 1 || p1 > 12) return null; // Invalid month
+    if (p2 < 1 || p2 > 31) return null; // Invalid day
     const mm = part1.padStart(2, "0");
     const dd = part2.padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;
   } else if (format === "DD/MM/YYYY") {
+    // p1 is day, p2 is month
+    if (p1 < 1 || p1 > 31) return null; // Invalid day
+    if (p2 < 1 || p2 > 12) return null; // Invalid month
     const dd = part1.padStart(2, "0");
     const mm = part2.padStart(2, "0");
     return `${yyyy}-${mm}-${dd}`;

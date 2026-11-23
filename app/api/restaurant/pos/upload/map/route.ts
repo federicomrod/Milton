@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
     const requiredFields = Object.entries(SALES_LOGICAL_FIELDS)
       .filter(([, spec]) => spec.required)
       .map(([name]) => name);
-
+    
     const unmappedRequired = requiredFields.filter(
       (field) => !columnMapping[field]
     );
@@ -144,10 +144,17 @@ export async function POST(req: NextRequest) {
         ? Math.min(0.9, highConfidenceCount / requiredFields.length)
         : 0.3;
 
+    // Detect date format now that we know the date column
+    const { detectDateFormat } = await import("@/lib/restaurant/pos-import-generic");
+    const dateColumn = columnMapping.date;
+    const dateDetection = detectDateFormat(cappedSampleRows, dateColumn);
+
     return NextResponse.json({
       suggested_mapping: columnMapping,
       unmapped_required: unmappedRequired,
       confidence,
+      date_format: dateDetection.format,
+      date_format_ambiguous: dateDetection.ambiguous,
       notes: aiResult.notes,
     });
   } catch (err) {

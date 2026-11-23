@@ -73,8 +73,6 @@ interface MappingPreview {
   header_fingerprint: string;
   headers: string[];
   sample_rows: Record<string, unknown>[];
-  date_format: "DD/MM/YYYY" | "MM/DD/YYYY" | "YYYY-MM-DD";
-  date_format_ambiguous: boolean;
   decimal_separator: "comma" | "dot";
   message?: string;
 }
@@ -110,6 +108,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
   );
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
   const [dateFormat, setDateFormat] = useState<DateFormat>("DD/MM/YYYY");
+  const [dateFormatAmbiguous, setDateFormatAmbiguous] = useState(false);
   const [mappingName, setMappingName] = useState("");
   const [loadingMapping, setLoadingMapping] = useState(false);
 
@@ -133,10 +132,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
 
       // Check if we need column mapping
       if (json.needs_mapping) {
-        const preview = json as MappingPreview;
-        setMappingPreview(preview);
-        setDateFormat(preview.date_format || "DD/MM/YYYY");
-        // Get AI suggestions
+        setMappingPreview(json as MappingPreview);
+        // Get AI suggestions (which will also set date format)
         await getSuggestedMapping(json.headers, json.sample_rows);
       } else if (!res.ok) {
         const raw = json as UploadError;
@@ -180,6 +177,8 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
       if (res.ok) {
         const json = await res.json();
         setColumnMapping(json.suggested_mapping || {});
+        setDateFormat(json.date_format || "DD/MM/YYYY");
+        setDateFormatAmbiguous(json.date_format_ambiguous || false);
       }
     } catch (err) {
       console.error("Error getting mapping suggestions:", err);
@@ -446,7 +445,7 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
               </p>
             )}
 
-            {mappingPreview.date_format_ambiguous && (
+            {dateFormatAmbiguous && (
               <div className="space-y-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 px-3 py-2">
                 <p className="text-sm font-medium text-foreground">
                   {t(

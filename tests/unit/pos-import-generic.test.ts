@@ -290,7 +290,7 @@ describe("normalizeGenericPOSRow", () => {
 });
 
 describe("End-to-end fixture tests (blocker #5)", () => {
-  it("loads and parses fuel-export.csv with comma decimals", async () => {
+  it("loads and parses fuel-export.csv with comma decimals and quoted fields", async () => {
     const fs = await import("fs");
     const path = await import("path");
     const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
@@ -303,6 +303,7 @@ describe("End-to-end fixture tests (blocker #5)", () => {
     expect(parsed.headers).toContain("Fecha");
     expect(parsed.headers).toContain("Producto");
     expect(parsed.headers).toContain("Cant.");
+    expect(parsed.headers).toContain("Importe");
     
     // Should have data rows
     expect(parsed.rows.length).toBeGreaterThan(0);
@@ -310,6 +311,16 @@ describe("End-to-end fixture tests (blocker #5)", () => {
     // Detect comma decimals
     const decimalSep = detectDecimalSeparator(parsed.rows);
     expect(decimalSep).toBe("comma");
+
+    // Assert first row: "120,00" should stay as one cell and parse to 120
+    const firstRow = parsed.rows[0];
+    expect(firstRow).toBeDefined();
+    
+    const importeValue = firstRow["Importe"];
+    expect(importeValue).toBe("120,00"); // One cell, not split
+    
+    // Parse with comma decimal
+    expect(parseNumberGeneric(importeValue, "comma")).toBe(120);
   });
 
   it("loads and parses el-malevo-export.csv with ISO dates", async () => {

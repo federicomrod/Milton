@@ -171,14 +171,14 @@ describe("Revel backward compatibility (issue #531)", () => {
   it("loads and parses revel-export.csv fixture correctly", async () => {
     const fs = await import("fs");
     const path = await import("path");
-    const Papa = await import("papaparse");
+    const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
 
     const fixturePath = path.join(process.cwd(), "tests/fixtures/pos-uploads/revel-export.csv");
-    const text = fs.readFileSync(fixturePath, "utf-8");
-    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
-
-    const rows = parsed.data as Record<string, unknown>[];
-    const headers = parsed.meta.fields || [];
+    const buffer = fs.readFileSync(fixturePath);
+    
+    // Use parseCSV (same as /upload route)
+    const parsed = parseCSV(buffer);
+    const { headers, rows } = parsed;
 
     // Should validate as Revel format
     const colCheck = validateRevelPOSColumns(headers);
@@ -200,12 +200,16 @@ describe("Revel backward compatibility (issue #531)", () => {
     
     expect(successful.length).toBeGreaterThan(0);
     
-    // Check date parsing (MM/DD/YYYY US format)
+    // Assert exact first-row values
     const first = successful[0];
-    if (first && first.ok) {
-      expect(first.insert.sale_date).toMatch(/^2026-01-\d{2}$/);
-      expect(first.insert.quantity).toBeGreaterThan(0);
-      expect(first.insert.gross_revenue).toBeGreaterThan(0);
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.insert.sale_date).toBe("2026-01-15"); // 01/15/2026
+      expect(first.insert.order_id).toBe("1001");
+      expect(first.insert.raw_item_name).toBe("Coca-Cola");
+      expect(first.insert.quantity).toBe(2);
+      expect(first.insert.gross_revenue).toBe(60);
+      expect(first.insert.net_revenue).toBe(60);
     }
   });
 });

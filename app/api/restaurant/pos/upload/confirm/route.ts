@@ -347,48 +347,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Replace existing if requested (delete only the date range in this file)
+    // Replace existing if requested (use shared location-aware dedup)
     let deletedRows = 0;
     if (shouldReplace) {
-      const { extractDateRange } = await import("@/lib/restaurant/pos-import-generic");
-      const dateRange = extractDateRange(inserts);
+      const { deleteSalesForReplace } = await import("@/lib/restaurant/pos-dedup");
+      
+      // Collect resolved location IDs from inserts
+      const mappedLocationIds = new Set(
+        inserts.map(i => i.location_id).filter(Boolean) as string[]
+      );
 
-      if (dateRange) {
-        const [minDate, maxDate] = dateRange;
+      const dedupResult = await deleteSalesForReplace(
+        supabase,
+        companyId,
+        inserts,
+        mappedLocationIds
+      );
 
-        // Build delete query with date range filter
-        let deleteQuery = supabase
-          .from("pos_sales_items")
-          .delete({ count: "exact" })
-          .eq("company_id", companyId)
-          .gte("sale_date", minDate)
-          .lte("sale_date", maxDate);
-
-        // If a location column is mapped and all rows have the same location,
-        // also filter by location_id
-        const uniqueLocations = new Set(inserts.map(i => i.location_id).filter(Boolean));
-        if (uniqueLocations.size === 1) {
-          const singleLocationId = [...uniqueLocations][0];
-          deleteQuery = deleteQuery.eq("location_id", singleLocationId);
-        }
-
-        const { error: delError, count: delCount } = await deleteQuery;
-
-        if (delError) {
-          console.error("[POS Upload Confirm] Delete failed:", delError.message);
-          return NextResponse.json(
-            {
-              error: "Error al reemplazar ventas anteriores",
-              details: delError.message,
-            },
-            { status: 500 }
-          );
-        }
-        deletedRows = delCount ?? 0;
-        console.log(
-          `[POS Upload Confirm] replace_existing=true, deleted ${deletedRows} rows for company ${companyId}, dates ${minDate} to ${maxDate}`
+      if (dedupResult.error) {
+        console.error("[POS Upload Confirm] dedup failed:", dedupResult.error.message);
+        return NextResponse.json(
+          {
+            error: dedupResult.error.message,
+            code: dedupResult.error.code,
+          },
+          { status: 400 }
         );
       }
+
+      deletedRows = dedupResult.deletedCount;
+      console.log(
+        `[POS Upload Confirm] replace_existing=true, deleted ${deletedRows} rows for company ${companyId}`
+      );
     }
 
     // Batch insert

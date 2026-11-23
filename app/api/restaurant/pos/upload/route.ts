@@ -457,65 +457,39 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Replace-existing branch -----------------------------------------
-    // When the user opts in, delete only the pos_sales_items rows in the
-    // date range of this file (and location if mapped), not the whole history.
-    // This prevents accidental data loss from uploading a partial file.
-    //
-    // Safety:
-    //   * the delete is filtered by company_id, sale_date range, and
-    //     optionally location_id
-    //   * we use the same anon/cookie-bound client as the rest of the
-    //     route — no service role, no RLS bypass.
-    //   * we count the deleted rows for the summary so the UI can show the
-    //     user exactly what happened.
-    //
-    // We delete BEFORE inserting so that an empty / failing replace doesn't
-    // leave the table half-cleared after a successful insert.
+    // Use shared location-aware dedup logic to safely delete only the
+    // relevant rows (never other locations' sales).
     let deletedRows = 0;
     if (replaceExisting) {
-      // Extract date range from the inserts
-      const { extractDateRange } = await import("@/lib/restaurant/pos-import-generic");
-      const dateRange = extractDateRange(inserts);
+      const { deleteSalesForReplace } = await import("@/lib/restaurant/pos-dedup");
+      
+      // Collect resolved location IDs from inserts
+      const mappedLocationIds = new Set(
+        inserts.map(i => i.location_id).filter(Boolean) as string[]
+      );
 
-      if (dateRange) {
-        const [minDate, maxDate] = dateRange;
-        
-        // Build delete query with date range filter
-        let deleteQuery = supabase
-          .from("pos_sales_items")
-          .delete({ count: "exact" })
-          .eq("company_id", company.id)
-          .gte("sale_date", minDate)
-          .lte("sale_date", maxDate);
+      const dedupResult = await deleteSalesForReplace(
+        supabase,
+        company.id,
+        inserts,
+        mappedLocationIds
+      );
 
-        // If a location column is mapped and all rows have the same location,
-        // also filter by location_id to avoid deleting other locations' data
-        const uniqueLocations = new Set(inserts.map(i => i.location_id).filter(Boolean));
-        if (uniqueLocations.size === 1) {
-          const singleLocationId = [...uniqueLocations][0];
-          deleteQuery = deleteQuery.eq("location_id", singleLocationId);
-        }
-
-        const { error: delError, count: delCount } = await deleteQuery;
-        
-        if (delError) {
-          console.error(
-            "[POS Upload] replace-existing delete failed:",
-            delError.message
-          );
-          return NextResponse.json(
-            {
-              error: d.connect.api.replaceFailed,
-              details: delError.message,
-            },
-            { status: 500 }
-          );
-        }
-        deletedRows = delCount ?? 0;
-        console.log(
-          `[POS Upload] replace_existing=true, deleted ${deletedRows} rows for company ${company.id}, dates ${minDate} to ${maxDate}`
+      if (dedupResult.error) {
+        console.error("[POS Upload] dedup failed:", dedupResult.error.message);
+        return NextResponse.json(
+          {
+            error: dedupResult.error.message,
+            code: dedupResult.error.code,
+          },
+          { status: 400 }
         );
       }
+
+      deletedRows = dedupResult.deletedCount;
+      console.log(
+        `[POS Upload] replace_existing=true, deleted ${deletedRows} rows for company ${company.id}`
+      );
     }
 
     // --- Batch insert -----------------------------------------------------

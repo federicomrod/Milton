@@ -112,6 +112,13 @@ export interface BriefingSupplierSpend {
   share_pct: number;
 }
 
+export interface BriefingTopMermaItem {
+  item_name: string;
+  value: number;
+  /** Ingredient or component name when resolved; null = only have item_name. */
+  resolved_name: string | null;
+}
+
 export interface BriefingRecommendationGroup {
   agent_key: string;
   severity: "info" | "warning" | "critical";
@@ -176,6 +183,8 @@ export interface BriefingContext {
   /** The company has Telegram connected (a row in restaurant_telegram_connections). */
   telegram_connected?: boolean;
   top_suppliers: BriefingSupplierSpend[];
+  /** Top 3 merma (waste) items from the last 7 days, sorted by value lost. */
+  top_merma_items?: BriefingTopMermaItem[];
   open_recommendations: {
     total: number;
     critical: number;
@@ -307,6 +316,90 @@ export async function isTelegramConnected(
     return (count ?? 0) > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Load top 3 merma (waste) items from the last 7 days, ranked by money lost.
+ * Only confirmed lines with a value are included; when the table doesn't exist
+ * or there's no confirmed waste, returns an empty array (the UI shows nothing).
+ */
+async function loadTopMermaItems(
+  supabase: SupabaseClient,
+  companyId: string,
+  selected: ProfitabilitySelection | null,
+  timezone: string,
+  now: Date
+): Promise<BriefingTopMermaItem[]> {
+  try {
+    const today = localDateKey(now, timezone);
+    const sevenDaysAgo = addDaysToKey(today, -7);
+
+    let query = supabase
+      .from("kitchen_waste_lines")
+      .select(
+        "item_name, value, ingredient_id, component_id, ingredients(name), prepared_components(name)"
+      )
+      .eq("company_id", companyId)
+      .eq("status", "confirmed")
+      .not("value", "is", null)
+      .gte("report_date", sevenDaysAgo)
+      .lt("report_date", today);
+
+    // Multi-Restaurant UX v1: scope to selected location when provided
+    if (selected?.locationId) {
+      query = query.eq("location_id", selected.locationId);
+    }
+
+    const { data, error } = await query.limit(1000);
+
+    if (error) {
+      // Table may not exist yet (migration 077)
+      if (error.code === "42P01" || error.code === "PGRST204") {
+        return [];
+      }
+      console.error("[briefing-context] top merma:", error);
+      return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    // Group by item_name and sum values
+    const grouped = new Map<
+      string,
+      { value: number; resolved: string | null }
+    >();
+    for (const row of data) {
+      const val = Number(row.value);
+      if (!Number.isFinite(val) || val <= 0) continue;
+
+      const existing = grouped.get(row.item_name);
+      const resolved =
+        (row.ingredients as { name?: string } | null)?.name ??
+        (row.prepared_components as { name?: string } | null)?.name ??
+        null;
+
+      if (existing) {
+        existing.value += val;
+      } else {
+        grouped.set(row.item_name, { value: val, resolved });
+      }
+    }
+
+    // Sort by value descending and take top 3
+    const sorted = Array.from(grouped.entries())
+      .map(([item_name, { value, resolved }]) => ({
+        item_name,
+        value: roundInt(value) ?? 0,
+        resolved_name: resolved,
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3);
+
+    return sorted;
+  } catch (err) {
+    console.error("[briefing-context] top merma:", err);
+    return [];
   }
 }
 
@@ -597,6 +690,15 @@ export async function buildBriefingContext(
       share_pct: round(s.pct_of_total, 1) ?? 0,
     }));
 
+  // ---- Top 3 merma items from the last 7 days ----
+  const topMermaItems = await loadTopMermaItems(
+    supabase,
+    companyId,
+    selected ?? null,
+    briefingTimezone,
+    options?.now ?? new Date()
+  );
+
   // ---- Open agent recommendations, grouped by (agent_key, severity) ----
   let totalOpen = 0;
   let criticalCount = 0;
@@ -708,6 +810,7 @@ export async function buildBriefingContext(
     telegram_connected: telegramConnected,
     sync_status: options?.syncStatus,
     top_suppliers: topSuppliers,
+    top_merma_items: topMermaItems,
     open_recommendations: {
       total: totalOpen,
       critical: criticalCount,

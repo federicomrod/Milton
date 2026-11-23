@@ -94,6 +94,13 @@ export const BRIEFING_SYSTEM_PROMPT = [
   "   them to 0. Items in `price_review_items` are NOT increases: no",
   '   percentage and no "up" wording; ask whether the price is right',
   '   ("¿Es correcto?").',
+  "12. Top merma (waste): `context.top_merma_items` holds the 3 items with",
+  "   the most money lost to confirmed waste in the last 7 days. When present,",
+  "   mention them as a warning with appropriate hedging (possibly, may be,",
+  "   could indicate) since the data is what the kitchen reports. When the",
+  "   array is empty, never mention waste or invent numbers — the company",
+  "   has not confirmed any merma this week. Use `item_name` or",
+  "   `resolved_name` (ingredient or component name when known).",
   "",
   "JSON schema:",
   "{",
@@ -266,6 +273,23 @@ export function buildDeterministicBriefing(
         `${item.ingredient_name}: the price changed from ${p.previous} to ${p.latest} per ${item.unit}. Is that right?`,
         `${item.ingredient_name}: el precio cambió de ${p.previous} a ${p.latest} por ${item.unit}. ¿Es correcto?`,
         `${item.ingredient_name}: Der Preis hat sich von ${p.previous} auf ${p.latest} pro ${item.unit} geändert. Ist das korrekt?`
+      )
+    );
+  }
+  // Top merma (waste) from the last week — when there's data, add one item.
+  if (
+    ctx.top_merma_items &&
+    ctx.top_merma_items.length > 0 &&
+    risks.length < 3
+  ) {
+    const top = ctx.top_merma_items[0];
+    const displayName = top.resolved_name ?? top.item_name;
+    risks.push(
+      t(
+        lang,
+        `${displayName}: possibly ${fmtCurrency(top.value, c)} in waste this week.`,
+        `${displayName}: posiblemente ${fmtCurrency(top.value, c)} en merma esta semana.`,
+        `${displayName}: möglicherweise ${fmtCurrency(top.value, c)} Verschwendung diese Woche.`
       )
     );
   }

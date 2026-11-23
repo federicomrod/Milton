@@ -139,6 +139,23 @@ export function formatBriefingForTelegram(
     );
   }
 
+  // 🗑️ Top 3 merma (waste) this week
+  if (ctx.top_merma_items && ctx.top_merma_items.length > 0) {
+    lines.push("");
+    lines.push(
+      t(
+        lang,
+        "🗑️ Top waste this week",
+        "🗑️ Mayor merma esta semana",
+        "🗑️ Größte Verschwendung diese Woche"
+      )
+    );
+    for (const item of ctx.top_merma_items) {
+      const displayName = item.resolved_name ?? item.item_name;
+      lines.push(`• ${displayName}: ${fmtCurrency(item.value, c, lang)}`);
+    }
+  }
+
   // ⚠️ Watch (top risks, already bilingual + proper-noun-safe from `briefing`)
   if (briefing.top_risks.length > 0) {
     lines.push("");

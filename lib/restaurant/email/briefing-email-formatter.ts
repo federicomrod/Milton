@@ -338,6 +338,25 @@ export function renderBriefingEmail(
         )
       : "";
 
+  // ---- Top 3 merma (waste) this week ----
+  const mermaSection =
+    ctx.top_merma_items && ctx.top_merma_items.length > 0
+      ? section(
+          t(
+            lang,
+            "Top waste this week",
+            "Mayor merma esta semana",
+            "Größte Verschwendung diese Woche"
+          ),
+          `<ul style="margin:0;padding-left:18px;color:${COLORS.text};font-size:14px;line-height:1.6;">${ctx.top_merma_items
+            .map((item) => {
+              const displayName = item.resolved_name ?? item.item_name;
+              return `<li>${esc(displayName)}: ${esc(fmtCurrency(item.value, c))}</li>`;
+            })
+            .join("")}</ul>`
+        )
+      : "";
+
   // ---- For your team: the cost-coverage bar (not a headline number) ----
   const teamSection =
     k.cost_coverage_pct > 0
@@ -402,6 +421,7 @@ export function renderBriefingEmail(
     salesSection,
     visualSection,
     reviewSection,
+    mermaSection,
     teamSection,
     watchSection,
     actionsSection,
@@ -442,6 +462,21 @@ export function renderBriefingEmail(
       textLines.push(
         `- ${priceReviewLine(item.ingredient_name, p.previous, p.latest, item.unit, lang)}`
       );
+    }
+  }
+  if (ctx.top_merma_items && ctx.top_merma_items.length > 0) {
+    textLines.push(
+      "",
+      t(
+        lang,
+        "TOP WASTE THIS WEEK",
+        "MAYOR MERMA ESTA SEMANA",
+        "GRÖSSTE VERSCHWENDUNG DIESE WOCHE"
+      )
+    );
+    for (const item of ctx.top_merma_items) {
+      const displayName = item.resolved_name ?? item.item_name;
+      textLines.push(`- ${displayName}: ${fmtCurrency(item.value, c)}`);
     }
   }
   if (k.cost_coverage_pct > 0) {

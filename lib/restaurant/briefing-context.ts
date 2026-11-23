@@ -36,6 +36,7 @@ import {
   t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
+import { isMissingTable } from "@/lib/restaurant/unplanned-waste-server";
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -112,6 +113,22 @@ export interface BriefingSupplierSpend {
   share_pct: number;
 }
 
+export interface BriefingTopMermaItem {
+  item_name: string;
+  value: number;
+  /** Ingredient or component name when resolved; null = only have item_name. */
+  resolved_name: string | null;
+}
+
+/** Raw waste line data for ranking (before grouping/filtering). */
+export interface RawMermaLine {
+  ingredient_id: string | null;
+  component_id: string | null;
+  item_name: string;
+  value: number;
+  resolved_name: string | null;
+}
+
 export interface BriefingRecommendationGroup {
   agent_key: string;
   severity: "info" | "warning" | "critical";
@@ -176,6 +193,8 @@ export interface BriefingContext {
   /** The company has Telegram connected (a row in restaurant_telegram_connections). */
   telegram_connected?: boolean;
   top_suppliers: BriefingSupplierSpend[];
+  /** Top 3 merma (waste) items from the last 7 days, sorted by value lost. */
+  top_merma_items?: BriefingTopMermaItem[];
   open_recommendations: {
     total: number;
     critical: number;
@@ -307,6 +326,134 @@ export async function isTelegramConnected(
     return (count ?? 0) > 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Pure helper: compute [sevenDaysAgo, today) report_date window for merma query.
+ * Exported for testing. Returns { from: "YYYY-MM-DD", to: "YYYY-MM-DD" } where
+ * from is 7 days before today (included) and to is today (excluded).
+ */
+export function mermaReportWindow(
+  now: Date,
+  timezone: string
+): { from: string; to: string } {
+  const today = localDateKey(now, timezone);
+  const sevenDaysAgo = addDaysToKey(today, -7);
+  return { from: sevenDaysAgo, to: today };
+}
+
+/**
+ * Pure helper: group, filter, and rank waste lines to produce top 3 by value.
+ * Exported for testing. Filters non-positive/non-finite values, groups by
+ * ingredient_id ?? component_id ?? item_name, sums values, sorts descending,
+ * takes top 3, and rounds to integers.
+ */
+export function rankTopMermaItems(
+  lines: readonly RawMermaLine[]
+): BriefingTopMermaItem[] {
+  // Group by ingredient_id ?? component_id ?? item_name and sum values
+  const grouped = new Map<
+    string,
+    {
+      value: number;
+      item_name: string;
+      resolved_name: string | null;
+    }
+  >();
+  
+  for (const line of lines) {
+    const val = Number(line.value);
+    // Filter: only positive, finite values
+    if (!Number.isFinite(val) || val <= 0) continue;
+
+    // Group by the most specific identifier available
+    const groupKey =
+      line.ingredient_id ?? line.component_id ?? line.item_name;
+
+    const existing = grouped.get(groupKey);
+    if (existing) {
+      existing.value += val;
+    } else {
+      grouped.set(groupKey, {
+        value: val,
+        item_name: line.item_name,
+        resolved_name: line.resolved_name,
+      });
+    }
+  }
+
+  // Sort by value descending and take top 3
+  return Array.from(grouped.values())
+    .map((entry) => ({
+      item_name: entry.item_name,
+      value: roundInt(entry.value) ?? 0,
+      resolved_name: entry.resolved_name,
+    }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 3);
+}
+
+/**
+ * Load top 3 merma (waste) items from the last 7 days, ranked by money lost.
+ * Only confirmed lines with a value are included; when the table doesn't exist
+ * or there's no confirmed waste, returns an empty array (the UI shows nothing).
+ */
+async function loadTopMermaItems(
+  supabase: SupabaseClient,
+  companyId: string,
+  selected: ProfitabilitySelection | null,
+  timezone: string,
+  now: Date
+): Promise<BriefingTopMermaItem[]> {
+  try {
+    const { from, to } = mermaReportWindow(now, timezone);
+
+    let query = supabase
+      .from("kitchen_waste_lines")
+      .select(
+        "item_name, value, ingredient_id, component_id, ingredients(name), prepared_components(name)"
+      )
+      .eq("company_id", companyId)
+      .eq("status", "confirmed")
+      .not("value", "is", null)
+      .gte("report_date", from)
+      .lt("report_date", to);
+
+    // Multi-Restaurant UX v1: scope to selected location when provided
+    if (selected?.locationId) {
+      query = query.eq("location_id", selected.locationId);
+    }
+
+    const { data, error } = await query.limit(1000);
+
+    if (error) {
+      // Table may not exist yet (migration 077)
+      if (isMissingTable(error)) {
+        return [];
+      }
+      console.error("[briefing-context] top merma:", error);
+      return [];
+    }
+
+    if (!data || data.length === 0) return [];
+
+    // Transform to RawMermaLine format and pass to pure helper
+    const lines: RawMermaLine[] = data.map((row) => ({
+      ingredient_id: row.ingredient_id,
+      component_id: row.component_id,
+      item_name: row.item_name,
+      value: Number(row.value),
+      resolved_name:
+        (row.ingredients as { name?: string } | null)?.name ??
+        (row.prepared_components as { name?: string } | null)?.name ??
+        null,
+    }));
+
+    return rankTopMermaItems(lines);
+  } catch (err) {
+    console.error("[briefing-context] top merma:", err);
+    return [];
   }
 }
 
@@ -597,6 +744,15 @@ export async function buildBriefingContext(
       share_pct: round(s.pct_of_total, 1) ?? 0,
     }));
 
+  // ---- Top 3 merma items from the last 7 days ----
+  const topMermaItems = await loadTopMermaItems(
+    supabase,
+    companyId,
+    selected ?? null,
+    briefingTimezone,
+    options?.now ?? new Date()
+  );
+
   // ---- Open agent recommendations, grouped by (agent_key, severity) ----
   let totalOpen = 0;
   let criticalCount = 0;
@@ -708,6 +864,7 @@ export async function buildBriefingContext(
     telegram_connected: telegramConnected,
     sync_status: options?.syncStatus,
     top_suppliers: topSuppliers,
+    top_merma_items: topMermaItems,
     open_recommendations: {
       total: totalOpen,
       critical: criticalCount,

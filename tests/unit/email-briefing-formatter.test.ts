@@ -351,3 +351,104 @@ describe("renderBriefingEmail — no fabricated historical comparison", () => {
     expect(html).not.toContain("Cost coverage");
   });
 });
+
+describe("renderBriefingEmail — top merma (waste) section (#532)", () => {
+  it("shows the section with correct heading and currency formatting when merma exists", () => {
+    const ctx = fixture("es", {
+      currency: "USD",
+      top_merma_items: [
+        { item_name: "Pollo", value: 500, resolved_name: "Pollo crudo" },
+        { item_name: "Aguacate", value: 300, resolved_name: null },
+        { item_name: "Tomate", value: 150, resolved_name: "Tomate roma" },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
+    
+    // Section heading
+    expect(html).toContain("Mayor merma esta semana");
+    expect(text).toContain("MAYOR MERMA ESTA SEMANA");
+    
+    // Items with resolved names
+    expect(html).toContain("Pollo crudo");
+    expect(html).toContain("Aguacate"); // Falls back to item_name when no resolved_name
+    expect(html).toContain("Tomate roma");
+    
+    // Currency formatting (USD format with es-MX locale, non-breaking space)
+    expect(html).toContain("USD\u00a0500");
+    expect(html).toContain("USD\u00a0300");
+    expect(html).toContain("USD\u00a0150");
+    
+    expect(text).toContain("Pollo crudo");
+    expect(text).toContain("Aguacate");
+    expect(text).toContain("Tomate roma");
+  });
+
+  it("omits the section entirely when top_merma_items is empty", () => {
+    const ctx = fixture("es", { top_merma_items: [] });
+    const briefing = buildDeterministicBriefing(ctx);
+    const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
+    
+    expect(html).not.toContain("Mayor merma esta semana");
+    expect(html).not.toContain("Top waste this week");
+    expect(text).not.toContain("MAYOR MERMA ESTA SEMANA");
+    expect(text).not.toContain("TOP WASTE THIS WEEK");
+  });
+
+  it("omits the section entirely when top_merma_items is undefined", () => {
+    const ctx = fixture("es", { top_merma_items: undefined });
+    const briefing = buildDeterministicBriefing(ctx);
+    const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
+    
+    expect(html).not.toContain("Mayor merma esta semana");
+    expect(text).not.toContain("MAYOR MERMA ESTA SEMANA");
+  });
+
+  it("includes merma in risks without hedging (factual statement)", () => {
+    const ctx = fixture("es", {
+      currency: "MXN",
+      top_merma_items: [
+        { item_name: "Aguacate", value: 300, resolved_name: null },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    
+    // Should include merma in risks
+    const hasWasteRisk = briefing.top_risks.some(risk => 
+      risk.includes("Aguacate") && risk.includes("merma") && risk.includes("$300")
+    );
+    expect(hasWasteRisk).toBe(true);
+    
+    // Should NOT hedge with "posiblemente" or similar
+    const hasHedging = briefing.top_risks.some(risk => 
+      risk.includes("posiblemente") || risk.includes("possibly") || risk.includes("möglicherweise")
+    );
+    expect(hasHedging).toBe(false);
+  });
+
+  it("translates section heading to English", () => {
+    const ctx = fixture("en", {
+      top_merma_items: [
+        { item_name: "Chicken", value: 100, resolved_name: null },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
+    
+    expect(html).toContain("Top waste this week");
+    expect(text).toContain("TOP WASTE THIS WEEK");
+  });
+
+  it("translates section heading to German", () => {
+    const ctx = fixture("de", {
+      top_merma_items: [
+        { item_name: "Hähnchen", value: 100, resolved_name: null },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const { html, text } = renderBriefingEmail(ctx, briefing, APP_URL);
+    
+    expect(html).toContain("Größte Verschwendung diese Woche");
+    expect(text).toContain("GRÖSSTE VERSCHWENDUNG DIESE WOCHE");
+  });
+});

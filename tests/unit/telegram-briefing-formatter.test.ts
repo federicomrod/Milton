@@ -217,3 +217,74 @@ describe("formatBriefingForTelegram — no revenue yet", () => {
     expect(text).toContain("No POS revenue recorded yet.");
   });
 });
+
+describe("formatBriefingForTelegram — top merma (waste) section (#532)", () => {
+  it("shows the section with emoji and currency formatting when merma exists", () => {
+    const ctx = fixture("es", {
+      currency: "USD",
+      top_merma_items: [
+        { item_name: "Pollo", value: 500, resolved_name: "Pollo crudo" },
+        { item_name: "Aguacate", value: 300, resolved_name: null },
+        { item_name: "Tomate", value: 150, resolved_name: "Tomate roma" },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const text = formatBriefingForTelegram(ctx, briefing);
+    
+    // Section heading with emoji
+    expect(text).toContain("🗑️ Mayor merma esta semana");
+    
+    // Items with resolved names
+    expect(text).toContain("Pollo crudo");
+    expect(text).toContain("Aguacate"); // Falls back to item_name when no resolved_name
+    expect(text).toContain("Tomate roma");
+    
+    // Currency formatting (USD format with Intl, non-breaking space)
+    expect(text).toContain("USD\u00a0500");
+    expect(text).toContain("USD\u00a0300");
+    expect(text).toContain("USD\u00a0150");
+  });
+
+  it("omits the section entirely when top_merma_items is empty", () => {
+    const ctx = fixture("es", { top_merma_items: [] });
+    const briefing = buildDeterministicBriefing(ctx);
+    const text = formatBriefingForTelegram(ctx, briefing);
+    
+    expect(text).not.toContain("🗑️");
+    expect(text).not.toContain("Mayor merma esta semana");
+    expect(text).not.toContain("Top waste this week");
+  });
+
+  it("omits the section entirely when top_merma_items is undefined", () => {
+    const ctx = fixture("es", { top_merma_items: undefined });
+    const briefing = buildDeterministicBriefing(ctx);
+    const text = formatBriefingForTelegram(ctx, briefing);
+    
+    expect(text).not.toContain("🗑️");
+    expect(text).not.toContain("Mayor merma");
+  });
+
+  it("translates section heading to English", () => {
+    const ctx = fixture("en", {
+      top_merma_items: [
+        { item_name: "Chicken", value: 100, resolved_name: null },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const text = formatBriefingForTelegram(ctx, briefing);
+    
+    expect(text).toContain("🗑️ Top waste this week");
+  });
+
+  it("translates section heading to German", () => {
+    const ctx = fixture("de", {
+      top_merma_items: [
+        { item_name: "Hähnchen", value: 100, resolved_name: null },
+      ],
+    });
+    const briefing = buildDeterministicBriefing(ctx);
+    const text = formatBriefingForTelegram(ctx, briefing);
+    
+    expect(text).toContain("🗑️ Größte Verschwendung diese Woche");
+  });
+});

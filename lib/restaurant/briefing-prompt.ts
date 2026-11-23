@@ -95,12 +95,14 @@ export const BRIEFING_SYSTEM_PROMPT = [
   '   percentage and no "up" wording; ask whether the price is right',
   '   ("¿Es correcto?").',
   "12. Top merma (waste): `context.top_merma_items` holds the 3 items with",
-  "   the most money lost to confirmed waste in the last 7 days. When present,",
-  "   mention them as a warning with appropriate hedging (possibly, may be,",
-  "   could indicate) since the data is what the kitchen reports. When the",
-  "   array is empty, never mention waste or invent numbers — the company",
-  "   has not confirmed any merma this week. Use `item_name` or",
-  "   `resolved_name` (ingredient or component name when known).",
+  "   the most money lost to confirmed waste in the last 7 days. These are",
+  "   recorded confirmed waste amounts valued at confirm time — state them",
+  "   factually without hedging (no possibly/may be/could indicate). Hedge",
+  "   only if a future flag marks an amount as estimated (missing price,",
+  "   failed unit conversion, unapproved recipe cost). When the array is",
+  "   empty, never mention waste or invent numbers — the company has not",
+  "   confirmed any merma this week. Use `resolved_name` (ingredient or",
+  "   component name) or fall back to `item_name` when not resolved.",
   "",
   "JSON schema:",
   "{",
@@ -287,9 +289,9 @@ export function buildDeterministicBriefing(
     risks.push(
       t(
         lang,
-        `${displayName}: possibly ${fmtCurrency(top.value, c)} in waste this week.`,
-        `${displayName}: posiblemente ${fmtCurrency(top.value, c)} en merma esta semana.`,
-        `${displayName}: möglicherweise ${fmtCurrency(top.value, c)} Verschwendung diese Woche.`
+        `${displayName}: ${fmtCurrency(top.value, c)} in waste this week.`,
+        `${displayName}: ${fmtCurrency(top.value, c)} en merma esta semana.`,
+        `${displayName}: ${fmtCurrency(top.value, c)} Verschwendung diese Woche.`
       )
     );
   }

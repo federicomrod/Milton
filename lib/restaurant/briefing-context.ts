@@ -36,6 +36,7 @@ import {
   t,
   type PreferredLanguage,
 } from "@/lib/restaurant/language";
+import { isMissingTable } from "@/lib/restaurant/unplanned-waste-server";
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -355,7 +356,7 @@ async function loadTopMermaItems(
 
     if (error) {
       // Table may not exist yet (migration 077)
-      if (error.code === "42P01" || error.code === "PGRST204") {
+      if (isMissingTable(error)) {
         return [];
       }
       console.error("[briefing-context] top merma:", error);
@@ -364,34 +365,45 @@ async function loadTopMermaItems(
 
     if (!data || data.length === 0) return [];
 
-    // Group by item_name and sum values
+    // Group by ingredient_id ?? component_id ?? item_name and sum values
     const grouped = new Map<
       string,
-      { value: number; resolved: string | null }
+      {
+        value: number;
+        item_name: string;
+        resolved_name: string | null;
+      }
     >();
     for (const row of data) {
       const val = Number(row.value);
       if (!Number.isFinite(val) || val <= 0) continue;
 
-      const existing = grouped.get(row.item_name);
+      // Group by the most specific identifier available
+      const groupKey =
+        row.ingredient_id ?? row.component_id ?? row.item_name;
       const resolved =
         (row.ingredients as { name?: string } | null)?.name ??
         (row.prepared_components as { name?: string } | null)?.name ??
         null;
 
+      const existing = grouped.get(groupKey);
       if (existing) {
         existing.value += val;
       } else {
-        grouped.set(row.item_name, { value: val, resolved });
+        grouped.set(groupKey, {
+          value: val,
+          item_name: row.item_name,
+          resolved_name: resolved,
+        });
       }
     }
 
     // Sort by value descending and take top 3
-    const sorted = Array.from(grouped.entries())
-      .map(([item_name, { value, resolved }]) => ({
-        item_name,
-        value: roundInt(value) ?? 0,
-        resolved_name: resolved,
+    const sorted = Array.from(grouped.values())
+      .map((entry) => ({
+        item_name: entry.item_name,
+        value: roundInt(entry.value) ?? 0,
+        resolved_name: entry.resolved_name,
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 3);

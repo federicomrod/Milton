@@ -445,6 +445,29 @@ export function PosSalesUploadPanel({ lang }: { lang: PreferredLanguage }) {
                 )}
               </p>
             )}
+
+            {mappingPreview.date_format_ambiguous && (
+              <div className="space-y-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/20 px-3 py-2">
+                <p className="text-sm font-medium text-foreground">
+                  {t(
+                    lang,
+                    "Date format ambiguous - please choose:",
+                    "Formato de fecha ambiguo - por favor elige:",
+                    "Datumsformat mehrdeutig - bitte wählen:"
+                  )}
+                </p>
+                <select
+                  value={dateFormat}
+                  onChange={(e) => setDateFormat(e.target.value as DateFormat)}
+                  className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
+                >
+                  <option value="DD/MM/YYYY">DD/MM/YYYY (ej. 15/01/2026)</option>
+                  <option value="MM/DD/YYYY">MM/DD/YYYY (ej. 01/15/2026)</option>
+                  <option value="YYYY-MM-DD">YYYY-MM-DD (ej. 2026-01-15)</option>
+                </select>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <MappingField
                 label={`${t(lang, "Date", "Fecha", "Datum")} *`}

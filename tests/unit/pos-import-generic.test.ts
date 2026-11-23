@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeHeaderFingerprint,
   detectDecimalSeparator,
+  detectDateFormat,
   parseNumberGeneric,
   parseDateGeneric,
   normalizeGenericPOSRow,
@@ -29,6 +30,49 @@ describe("computeHeaderFingerprint", () => {
     const fp1 = computeHeaderFingerprint(headers1);
     const fp2 = computeHeaderFingerprint(headers2);
     expect(fp1).not.toBe(fp2);
+  });
+});
+
+describe("detectDateFormat", () => {
+  it("detects ISO format", () => {
+    const rows = [
+      { date: "2026-01-15" },
+      { date: "2026-01-16" },
+    ];
+    const result = detectDateFormat(rows, "date");
+    expect(result.format).toBe("YYYY-MM-DD");
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it("detects DD/MM/YYYY when day > 12", () => {
+    const rows = [
+      { date: "15/01/2026" },
+      { date: "16/01/2026" },
+    ];
+    const result = detectDateFormat(rows, "date");
+    expect(result.format).toBe("DD/MM/YYYY");
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it("detects MM/DD/YYYY when month > 12", () => {
+    const rows = [
+      { date: "01/15/2026" },
+      { date: "01/16/2026" },
+    ];
+    const result = detectDateFormat(rows, "date");
+    expect(result.format).toBe("MM/DD/YYYY");
+    expect(result.ambiguous).toBe(false);
+  });
+
+  it("flags ambiguous when both parts ≤ 12", () => {
+    const rows = [
+      { date: "05/01/2026" },
+      { date: "06/02/2026" },
+    ];
+    const result = detectDateFormat(rows, "date");
+    // Defaults to DD/MM but marked ambiguous
+    expect(result.format).toBe("DD/MM/YYYY");
+    expect(result.ambiguous).toBe(true);
   });
 });
 
@@ -85,31 +129,23 @@ describe("parseNumberGeneric", () => {
   });
 });
 
-describe("parseDateGeneric", () => {
-  it("parses ISO format dates", () => {
-    expect(parseDateGeneric("2026-01-15")).toBe("2026-01-15");
-    expect(parseDateGeneric("2026-01-15T10:30:00")).toBe("2026-01-15");
+
+describe("parseDateGeneric with explicit format", () => {
+  it("parses 05/01/2026 as 2026-01-05 with DD/MM/YYYY format", () => {
+    expect(parseDateGeneric("05/01/2026", "DD/MM/YYYY")).toBe("2026-01-05");
   });
 
-  it("parses US format dates MM/DD/YYYY", () => {
-    expect(parseDateGeneric("01/15/2026")).toBe("2026-01-15");
-    expect(parseDateGeneric("12/31/2025")).toBe("2025-12-31");
+  it("parses 05/01/2026 as 2026-05-01 with MM/DD/YYYY format", () => {
+    expect(parseDateGeneric("05/01/2026", "MM/DD/YYYY")).toBe("2026-05-01");
   });
 
-  it("parses EU format dates DD/MM/YYYY when day > 12", () => {
-    expect(parseDateGeneric("15/01/2026")).toBe("2026-01-15");
-    expect(parseDateGeneric("31/12/2025")).toBe("2025-12-31");
+  it("parses YYYY-MM-DD format", () => {
+    expect(parseDateGeneric("2026-01-15", "YYYY-MM-DD")).toBe("2026-01-15");
   });
 
-  it("parses EU format dates with dot separator", () => {
-    expect(parseDateGeneric("15.01.2026")).toBe("2026-01-15");
-    expect(parseDateGeneric("31.12.2025")).toBe("2025-12-31");
-  });
-
-  it("returns null for invalid dates", () => {
-    expect(parseDateGeneric("abc")).toBeNull();
-    expect(parseDateGeneric("")).toBeNull();
-    expect(parseDateGeneric(null)).toBeNull();
+  it("never guesses - wrong format returns null", () => {
+    expect(parseDateGeneric("05/01/2026", "YYYY-MM-DD")).toBeNull();
+    expect(parseDateGeneric("2026-01-15", "DD/MM/YYYY")).toBeNull();
   });
 });
 
@@ -127,6 +163,7 @@ describe("normalizeGenericPOSRow", () => {
         quantity: "Cantidad",
         net_amount: "Importe",
       },
+      date_format: "DD/MM/YYYY",
       decimal_separator: "comma",
       locationIndex: buildNameIndex([
         { id: "loc-1", name: "Fuel Centro" },
@@ -249,5 +286,48 @@ describe("normalizeGenericPOSRow", () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.reason).toContain("quantity");
+  });
+});
+
+describe("End-to-end fixture tests (blocker #5)", () => {
+  it("loads and parses fuel-export.csv with comma decimals", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
+
+    const fixturePath = path.join(process.cwd(), "tests/fixtures/pos-uploads/fuel-export.csv");
+    const buffer = fs.readFileSync(fixturePath);
+    const parsed = parseCSV(buffer);
+
+    // Should detect headers and skip title row
+    expect(parsed.headers).toContain("Fecha");
+    expect(parsed.headers).toContain("Producto");
+    expect(parsed.headers).toContain("Cant.");
+    
+    // Should have data rows
+    expect(parsed.rows.length).toBeGreaterThan(0);
+    
+    // Detect comma decimals
+    const decimalSep = detectDecimalSeparator(parsed.rows);
+    expect(decimalSep).toBe("comma");
+  });
+
+  it("loads and parses el-malevo-export.csv with ISO dates", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const { parseCSV } = await import("@/lib/restaurant/pos-csv-parser");
+
+    const fixturePath = path.join(process.cwd(), "tests/fixtures/pos-uploads/el-malevo-export.csv");
+    const buffer = fs.readFileSync(fixturePath);
+    const parsed = parseCSV(buffer);
+
+    // Should detect headers
+    expect(parsed.headers).toContain("Fecha Venta");
+    expect(parsed.headers).toContain("Plato");
+    
+    // Detect ISO date format
+    const dateDetection = detectDateFormat(parsed.rows, "Fecha Venta");
+    expect(dateDetection.format).toBe("YYYY-MM-DD");
+    expect(dateDetection.ambiguous).toBe(false);
   });
 });
